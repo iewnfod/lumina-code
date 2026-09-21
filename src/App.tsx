@@ -265,7 +265,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
         ? t["Connecting to OpenCode…"]
         : connectionStatus.state === "error"
             ? connectionStatus.message
-            : t["Create a session to start"];
+            : null;
 
     return (
         <div
@@ -360,12 +360,12 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                         exit="exit"
                                         className="w-full h-full"
                                     >
-                                        <div className="flex flex-col h-full w-full">
+                                        <div className="flex flex-col h-full w-full items-center justify-center gap-6 p-6">
                                             <ChatPlaceholder
                                                 foregroundColor={effectiveFg}
-                                                subtitle={placeholderSubtitle}
+                                                subtitle={placeholderSubtitle ?? undefined}
                                             />
-                                            <div className="shrink-0 max-w-3xl mx-auto w-full px-6 pb-4">
+                                            <div className="max-w-3xl mx-auto w-full px-6">
                                                 <ChatInput
                                                     colors={composerColors}
                                                     disabled={!connected}
