@@ -1,4 +1,4 @@
-import {type CSSProperties, useCallback, useEffect, useState} from "react";
+import {type CSSProperties, useCallback, useEffect, useRef, useState} from "react";
 import {motion, AnimatePresence} from "framer-motion";
 import {ChevronRight, Plus, X} from "lucide-react";
 import Icon from "../assets/icon.svg";
@@ -7,7 +7,7 @@ import {CHROME_TITLE_BAR_HEIGHT} from "../constants.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
 import {useGlass} from "../hooks/useGlass.ts";
 import {glassSurface} from "../lib/glass.ts";
-import {durationBase, durationFast, easeGlass, easeSpring, fadeSlideUp, fadeIn, springSnappy, springSoft, whileHoverTap} from "../lib/motion.ts";
+import {durationBase, durationFast, easeGlass, easeSpring, fadeIn, springSnappy, springSoft, whileHoverTap} from "../lib/motion.ts";
 import {useI18n} from "../hooks/i18n.tsx";
 
 /**
@@ -94,6 +94,139 @@ function groupByDirectory(sessions: SessionInfo[]): [string, SessionInfo[]][] {
         else groups.set(key, [session]);
     }
     return Array.from(groups.entries());
+}
+
+/** Edge-fade width for overflowing tab titles (px). */
+const TITLE_FADE = 18;
+
+/** Hover must rest this long before the title plays (ms) — a quick
+ *  swipe across the row shouldn't trigger the scroll. */
+const TITLE_HOVER_DELAY = 500;
+
+/** Playback speed of the hover scroll (px per second). */
+const TITLE_SPEED = 50;
+
+/**
+ * A single-line label that, when its text overflows, fades out at the
+ * right edge (same dissolve as the transcript edges — no "…" ellipsis)
+ * and, after a short hover debounce, plays one full seamless loop —
+ * the text scrolls out left while the same title re-enters behind it,
+ * ending exactly where it began — instead of popping a native tooltip.
+ * Labels that fit never animate and never wear a mask.
+ */
+function MarqueeTitle({text, className, style}: {
+    text: string;
+    className?: string;
+    style?: CSSProperties;
+}) {
+    const slotRef = useRef<HTMLSpanElement>(null);
+    const trackRef = useRef<HTMLSpanElement>(null);
+    const animRef = useRef<Animation | null>(null);
+    const hoverTimerRef = useRef<number | null>(null);
+    const [overflowing, setOverflowing] = useState(false);
+    const [scrolling, setScrolling] = useState(false);
+
+    // Re-measure when the text or the sidebar width changes. Overflow is
+    // judged against ONE copy's width (the track holds two for the loop).
+    useEffect(() => {
+        const el = slotRef.current;
+        if (!el) return;
+        const measure = () => {
+            const copy = trackRef.current?.firstElementChild;
+            setOverflowing(!!copy && (copy as HTMLElement).offsetWidth > el.clientWidth);
+        };
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [text]);
+
+    const start = () => {
+        const track = trackRef.current;
+        if (!track || !overflowing) return;
+        // The track holds two copies; one copy's width (gap included) is
+        // exactly one loop period — translating by it brings the layout
+        // back to its start state, so one pass reads as a seamless loop.
+        const period = track.scrollWidth / 2;
+        if (period <= 0) return;
+        // Settle the mask change on its own frame BEFORE the transform
+        // animation starts — switching both in one frame forces a single
+        // repaint that reads as a flicker at the left edge.
+        requestAnimationFrame(() => {
+            setScrolling(true);
+            requestAnimationFrame(() => {
+                animRef.current?.cancel();
+                animRef.current = track.animate(
+                    [{transform: "translateX(0)"}, {transform: `translateX(${-period}px)`}],
+                    {duration: (period / TITLE_SPEED) * 1000, fill: "none", easing: "linear"},
+                );
+                animRef.current.finished
+                    .then(() => setScrolling(false))
+                    .catch(() => {});
+            });
+        });
+    };
+
+    const stop = () => {
+        if (hoverTimerRef.current !== null) {
+            window.clearTimeout(hoverTimerRef.current);
+            hoverTimerRef.current = null;
+        }
+        animRef.current?.cancel();
+        animRef.current = null;
+        setScrolling(false);
+    };
+
+    useEffect(stop, []);
+
+    // Bind hover to the whole row, not the text: the label is a narrow
+    // strip inside a much wider button, and the play trigger should be
+    // "pointer rests on the row". The row is the nearest .lum-session-row
+    // ancestor (falls back to the label itself).
+    useEffect(() => {
+        const el = slotRef.current;
+        if (!el) return;
+        const row = el.closest(".lum-session-row") ?? el;
+        const onEnter = () => {
+            hoverTimerRef.current = window.setTimeout(start, TITLE_HOVER_DELAY);
+        };
+        row.addEventListener("mouseenter", onEnter);
+        row.addEventListener("mouseleave", stop);
+        return () => {
+            row.removeEventListener("mouseenter", onEnter);
+            row.removeEventListener("mouseleave", stop);
+            stop();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [overflowing, text]);
+
+    return (
+        <span
+            ref={slotRef}
+            className={`overflow-hidden whitespace-nowrap ${className ?? ""}`}
+            style={{
+                ...style,
+                // Own composited layer: without it, WebKit recomputes the
+                // mask over the animating track every frame, which shows
+                // as flicker in the fade zones while the text moves.
+                transform: "translateZ(0)",
+                backfaceVisibility: "hidden",
+                ...(overflowing ? {
+                    WebkitMaskImage: scrolling
+                        ? `linear-gradient(to right, transparent 0, black ${TITLE_FADE}px, black calc(100% - ${TITLE_FADE}px), transparent 100%)`
+                        : `linear-gradient(to right, black calc(100% - ${TITLE_FADE}px), transparent 100%)`,
+                    maskImage: scrolling
+                        ? `linear-gradient(to right, transparent 0, black ${TITLE_FADE}px, black calc(100% - ${TITLE_FADE}px), transparent 100%)`
+                        : `linear-gradient(to right, black calc(100% - ${TITLE_FADE}px), transparent 100%)`,
+                } : {}),
+            }}
+        >
+            <span ref={trackRef} className="inline-block will-change-transform">
+                <span className="inline-block" style={{paddingRight: 24}}>{text}</span>
+                <span className="inline-block" style={{paddingRight: 24}}>{text}</span>
+            </span>
+        </span>
+    );
 }
 
 export default function SessionBar(props: SessionBarProps) {
@@ -269,12 +402,31 @@ export default function SessionBar(props: SessionBarProps) {
                                                 return (
                                                     <motion.div
                                                         key={session.id}
-                                                        variants={fadeSlideUp}
-                                                        initial="hidden"
-                                                        animate="show"
-                                                        exit="exit"
-                                                        className="relative my-0.5 cursor-pointer"
-                                                        title={session.name}
+                                                        initial={{
+                                                            opacity: 0,
+                                                            height: 0,
+                                                            marginTop: 0,
+                                                            marginBottom: 0,
+                                                        }}
+                                                        animate={{
+                                                            opacity: 1,
+                                                            height: "auto",
+                                                            marginTop: 2,
+                                                            marginBottom: 2,
+                                                            transition: {height: {duration: durationBase, ease: easeSpring}, opacity: {duration: durationBase, ease: easeGlass, delay: 0.05}},
+                                                        }}
+                                                        // Enter and exit both animate height so bulk
+                                                        // reveals ("Show more") and collapses ("Show
+                                                        // less") read as the list growing/shrinking
+                                                        // in place — no y-drift, no height snap.
+                                                        exit={{
+                                                            opacity: 0,
+                                                            height: 0,
+                                                            marginTop: 0,
+                                                            marginBottom: 0,
+                                                            transition: {height: {duration: durationBase, ease: easeGlass}, opacity: {duration: durationFast, ease: easeGlass}},
+                                                        }}
+                                                        className="relative my-0.5 overflow-hidden cursor-pointer"
                                                     >
                                                         {/* Inner motion layer carries the spring scale
                                                             animation and the layout slide used when the
@@ -299,14 +451,13 @@ export default function SessionBar(props: SessionBarProps) {
                                                                 />
                                                             )}
                                                             <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                                <span
-                                                                    className="text-sm truncate leading-tight"
+                                                                <MarqueeTitle
+                                                                    text={session.name}
+                                                                    className="text-sm leading-tight"
                                                                     style={{
                                                                         color: isActive ? foregroundColor : colors.inactiveText,
                                                                     }}
-                                                                >
-                                                                    {session.name}
-                                                                </span>
+                                                                />
                                                             </div>
                                                             {pendingCounts?.get(session.id) != null && (
                                                                 <span
@@ -350,23 +501,51 @@ export default function SessionBar(props: SessionBarProps) {
                                                 );
                                             })}
                                         </AnimatePresence>
+                                        {/* Expanded: split into two halves — left keeps
+                                            revealing batches of 5, right collapses back
+                                            to the initial cap. Fully expanded → collapse
+                                            only. */}
                                         {groupSessions.length > MAX_VISIBLE_SESSIONS && (
-                                            <button
-                                                type="button"
-                                                className="w-full flex items-center px-7 py-1.5 text-[11px] cursor-pointer rounded-[var(--radius-sm)] hover:bg-[var(--lum-folder-more-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
-                                                style={{"--lum-folder-more-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
-                                                onClick={() => {
-                                                    setExtraDirs((prev) => {
-                                                        const next = new Map(prev);
-                                                        next.set(directory, visibleCount >= groupSessions.length ? 0 : visibleCount);
-                                                        return next;
-                                                    });
-                                                }}
-                                            >
-                                                {visibleCount >= groupSessions.length
-                                                    ? t["Show less"]
-                                                    : `${t["Show more"]} (${groupSessions.length - visibleCount})`}
-                                            </button>
+                                            visibleCount > MAX_VISIBLE_SESSIONS ? (
+                                                <div className="flex flex-row w-full gap-1">
+                                                    {visibleCount < groupSessions.length && (
+                                                        <motion.button
+                                                            type="button"
+                                                            {...whileHoverTap}
+                                                            className="flex-1 min-w-0 flex items-center justify-center px-2 py-1.5 text-[11px] cursor-pointer rounded-[var(--radius-sm)] hover:bg-[var(--lum-folder-more-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
+                                                            style={{"--lum-folder-more-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
+                                                            onClick={() => {
+                                                                setExtraDirs((prev) => new Map(prev).set(directory, visibleCount));
+                                                            }}
+                                                        >
+                                                            {`${t["Show more"]} (${groupSessions.length - visibleCount})`}
+                                                        </motion.button>
+                                                    )}
+                                                    <motion.button
+                                                        type="button"
+                                                        {...whileHoverTap}
+                                                        className="flex-1 min-w-0 flex items-center justify-center px-2 py-1.5 text-[11px] cursor-pointer rounded-[var(--radius-sm)] hover:bg-[var(--lum-folder-more-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
+                                                        style={{"--lum-folder-more-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
+                                                        onClick={() => {
+                                                            setExtraDirs((prev) => new Map(prev).set(directory, 0));
+                                                        }}
+                                                    >
+                                                        {t["Show less"]}
+                                                    </motion.button>
+                                                </div>
+                                            ) : (
+                                                <motion.button
+                                                    type="button"
+                                                    {...whileHoverTap}
+                                                    className="w-full flex items-center px-7 py-1.5 text-[11px] cursor-pointer rounded-[var(--radius-sm)] hover:bg-[var(--lum-folder-more-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
+                                                    style={{"--lum-folder-more-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
+                                                    onClick={() => {
+                                                        setExtraDirs((prev) => new Map(prev).set(directory, visibleCount));
+                                                    }}
+                                                >
+                                                    {`${t["Show more"]} (${groupSessions.length - visibleCount})`}
+                                                </motion.button>
+                                            )
                                         )}
                                         </div>
                                     </motion.div>
