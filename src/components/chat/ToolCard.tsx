@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type {AssistantToolPart} from "../../opencode/types.ts";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import FoldRow from "./FoldRow.tsx";
 
 const MONO = "var(--font-mono, ui-monospace, monospace)";
@@ -172,6 +173,8 @@ const ToolCard = memo(function ToolCard({
     const status = part.state.status;
     const [expanded, setExpanded] = useState(false);
     const [userToggled, setUserToggled] = useState(false);
+    const {ref: outputScroll, onScroll: outputScrollHandler} =
+        useFollowBottom<HTMLDivElement>(status === "running");
 
     useEffect(() => {
         if (userToggled) return;
@@ -206,6 +209,8 @@ const ToolCard = memo(function ToolCard({
         >
             {(output.length > 0 || status === "error") && (
                 <div
+                    ref={outputScroll}
+                    onScroll={outputScrollHandler}
                     className="ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2 text-sm whitespace-pre-wrap break-words max-h-64 overflow-y-auto"
                     style={{
                         fontFamily: MONO,

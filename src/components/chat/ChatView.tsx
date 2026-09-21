@@ -133,6 +133,9 @@ const ChatView = memo(function ChatView({
     const scrollRef = useRef<HTMLDivElement>(null);
     const sentinelRef = useRef<HTMLDivElement>(null);
     const atBottomRef = useRef(true);
+    // Timestamp until which scroll events are treated as our own follow
+    // animation rather than user intent (see the follow effect below).
+    const programmaticUntilRef = useRef(0);
     // Scroll anchor: scrollHeight captured right before a window expansion
     // commits, restored (+delta) after, so prepended content doesn't jump.
     const anchorHeightRef = useRef<number | null>(null);
@@ -204,6 +207,11 @@ const ChatView = memo(function ChatView({
             if (delta > el.clientHeight) {
                 el.scrollTop = el.scrollHeight;
             } else {
+                // The smooth animation emits intermediate scroll events that
+                // are nowhere near the bottom yet — tell handleScroll to
+                // ignore everything until it settles (or until this window
+                // is refreshed by the next follow-scroll).
+                programmaticUntilRef.current = performance.now() + 600;
                 el.scrollTo({top: el.scrollHeight, behavior: "smooth"});
             }
         }
@@ -212,14 +220,42 @@ const ChatView = memo(function ChatView({
     const handleScroll = () => {
         const el = scrollRef.current;
         if (!el) return;
+        // Mid-flight frames of our own follow-scroll aren't "the user left
+        // the bottom" — without this guard, fast streaming content unpins
+        // the view and the follow stops partway.
+        if (performance.now() < programmaticUntilRef.current) return;
         atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     };
+
+    // An explicit wheel gesture always wins: cancel the ignore window so
+    // the very next scroll event re-evaluates stickiness.
+    const handleWheel = () => {
+        programmaticUntilRef.current = 0;
+    };
+
+    // While the tab/webview is hidden the browser pauses rendering:
+    // smooth scrolls never run and streaming updates may stop arriving,
+    // so no follow effect fires to catch up. On return, snap a pinned
+    // view straight to the bottom, and shield the flag from the stale
+    // scroll event the restore can synthesize.
+    useEffect(() => {
+        const onVisible = () => {
+            if (document.visibilityState !== "visible") return;
+            const el = scrollRef.current;
+            if (!el) return;
+            programmaticUntilRef.current = performance.now() + 300;
+            if (atBottomRef.current) el.scrollTop = el.scrollHeight;
+        };
+        document.addEventListener("visibilitychange", onVisible);
+        return () => document.removeEventListener("visibilitychange", onVisible);
+    }, []);
 
     return (
         <div className="flex flex-col h-full w-full min-w-0">
             <div
                 ref={scrollRef}
                 onScroll={handleScroll}
+                onWheel={handleWheel}
                 className="flex-1 overflow-y-auto overflow-x-hidden"
             >
                 <div className="max-w-3xl mx-auto w-full flex flex-col gap-3 px-6 py-6">

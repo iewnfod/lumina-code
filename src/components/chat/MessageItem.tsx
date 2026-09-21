@@ -1,4 +1,5 @@
 import {memo, useEffect, useState} from "react";
+import {motion} from "framer-motion";
 import {AlertCircle, Brain, FileText, Loader2, Wrench} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {
@@ -11,6 +12,8 @@ import type {
     ChatUserMessage,
 } from "../../opencode/types.ts";
 import {isAssistantMessage, isUserMessage} from "../../opencode/types.ts";
+import {fadeSlideUp} from "../../lib/motion.ts";
+import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import Markdown from "./Markdown.tsx";
 import ToolCard, {toolDisplayName} from "./ToolCard.tsx";
 import FoldRow from "./FoldRow.tsx";
@@ -49,7 +52,12 @@ function UserBubble({message, colors}: {message: ChatUserMessage; colors: Surfac
     return (
         // Extra vertical margin sets the turn apart from the tight
         // assistant flow around it (the column gap is only 12px).
-        <div className="flex justify-end my-4">
+        <motion.div
+            className="flex justify-end my-4"
+            variants={fadeSlideUp}
+            initial="hidden"
+            animate="show"
+        >
             <div
                 className="max-w-[85%] rounded-[var(--radius-lg)] px-4 py-2.5 whitespace-pre-wrap break-words text-sm"
                 style={{background: colors.accentOverlay}}
@@ -80,7 +88,7 @@ function UserBubble({message, colors}: {message: ChatUserMessage; colors: Surfac
                 )}
                 {message.text}
             </div>
-        </div>
+        </motion.div>
     );
 }
 
@@ -153,32 +161,48 @@ function AssistantBlock({
     const showTrailingIndicator = streaming && !reasoningLive;
 
     return (
-        <div className="flex flex-col gap-3 min-w-0">
+        <motion.div
+            className="flex flex-col gap-3 min-w-0"
+            variants={fadeSlideUp}
+            initial="hidden"
+            animate="show"
+        >
             {segmentContent(message.content).map((segment, i) => {
                 if (segment.kind === "text") {
                     return (
-                        <div key={i} className="min-w-0">
+                        <motion.div
+                            key={i}
+                            className="min-w-0"
+                            variants={fadeSlideUp}
+                            initial="hidden"
+                            animate="show"
+                        >
                             <Markdown>{segment.part.text}</Markdown>
-                        </div>
+                        </motion.div>
                     );
                 }
                 // A lone part keeps its dedicated affordance — no point
                 // wrapping a single tool call or thought in a group.
                 if (segment.parts.length === 1) {
                     const part = segment.parts[0];
-                    return part.type === "reasoning" ? (
-                        <ThinkingBlock key={i} part={part} live={reasoningLive && part === lastPart} />
-                    ) : (
-                        <ToolCard key={part.id ?? i} part={part} colors={colors} />
+                    return (
+                        <motion.div key={i} variants={fadeSlideUp} initial="hidden" animate="show">
+                            {part.type === "reasoning" ? (
+                                <ThinkingBlock part={part} live={reasoningLive && part === lastPart} />
+                            ) : (
+                                <ToolCard part={part} colors={colors} />
+                            )}
+                        </motion.div>
                     );
                 }
                 return (
-                    <ActivityGroup
-                        key={i}
-                        parts={segment.parts}
-                        colors={colors}
-                        livePart={livePart}
-                    />
+                    <motion.div key={i} variants={fadeSlideUp} initial="hidden" animate="show">
+                        <ActivityGroup
+                            parts={segment.parts}
+                            colors={colors}
+                            livePart={livePart}
+                        />
+                    </motion.div>
                 );
             })}
             {showTrailingIndicator && !toolRunning && (
@@ -186,7 +210,7 @@ function AssistantBlock({
                     <span className="inline-block w-[2px] h-[1em] bg-current animate-pulse rounded-[1px]" />
                 </div>
             )}
-        </div>
+        </motion.div>
     );
 }
 
@@ -275,6 +299,7 @@ export function ActivityGroup({
 function ThinkingBlock({part, live}: {part: AssistantReasoningPart; live: boolean}) {
     const [expanded, setExpanded] = useState(false);
     const [userToggled, setUserToggled] = useState(false);
+    const {ref: thinkScroll, onScroll: thinkScrollHandler} = useFollowBottom<HTMLDivElement>(live);
 
     useEffect(() => {
         if (userToggled) return;
@@ -297,7 +322,11 @@ function ThinkingBlock({part, live}: {part: AssistantReasoningPart; live: boolea
                 setExpanded((v) => !v);
             }}
         >
-            <div className="ml-5 mt-0.5 mb-1 text-sm whitespace-pre-wrap break-words max-h-72 overflow-y-auto opacity-60 leading-relaxed">
+            <div
+                ref={thinkScroll}
+                onScroll={thinkScrollHandler}
+                className="ml-5 mt-0.5 mb-1 text-sm whitespace-pre-wrap break-words max-h-72 overflow-y-auto opacity-60 leading-relaxed"
+            >
                 {part.text}
             </div>
         </FoldRow>

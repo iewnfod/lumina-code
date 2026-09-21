@@ -219,3 +219,25 @@ body {
     max-width: 100%;
     border-radius: var(--radius-sm);
 }
+
+/*
+ * Streaming appearance — block-level markdown children (paragraphs, code
+ * blocks, lists) fade in as they are created mid-stream. Opacity only:
+ * it's a non-layout property, so concurrent/restarted animations blend
+ * instead of interrupting each other. CSS animations only run on node
+ * insertion, so re-renders of already-present blocks never replay (this
+ * additionally relies on the module-scope component map in Markdown.tsx
+ * keeping DOM nodes alive across streamed tokens).
+ */
+.lum-md > * {
+    animation: lum-appear var(--duration-slow) var(--ease-glass) both;
+}
+
+@keyframes lum-appear {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
