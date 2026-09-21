@@ -1,4 +1,6 @@
 import {memo, useCallback, useEffect, useLayoutEffect, useRef, useState} from "react";
+import {AnimatePresence, motion} from "framer-motion";
+import {fadeIn} from "../../lib/motion.ts";
 import {useSurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
@@ -191,11 +193,19 @@ const ChatView = memo(function ChatView({
         anchorHeightRef.current = null;
     }, [renderLimit, messages]);
 
-    // Follow the newest content while parked at the bottom.
+    // Follow the newest content while parked at the bottom. Small deltas
+    // (streaming tokens, a new message) glide smoothly; large ones (a
+    // session switch, first render) jump instantly so the view doesn't
+    // spend a second sweeping past pages of content.
     useEffect(() => {
         const el = scrollRef.current;
         if (el && atBottomRef.current) {
-            el.scrollTop = el.scrollHeight;
+            const delta = el.scrollHeight - el.scrollTop - el.clientHeight;
+            if (delta > el.clientHeight) {
+                el.scrollTop = el.scrollHeight;
+            } else {
+                el.scrollTo({top: el.scrollHeight, behavior: "smooth"});
+            }
         }
     }, [messages]);
 
@@ -213,13 +223,22 @@ const ChatView = memo(function ChatView({
                 className="flex-1 overflow-y-auto overflow-x-hidden"
             >
                 <div className="max-w-3xl mx-auto w-full flex flex-col gap-3 px-6 py-6">
-                    {showTopSentinel && (
-                        <div ref={sentinelRef} className="flex justify-center py-2 select-none">
-                            <span className="text-xs opacity-40">
-                                {loadingOlder ? "Loading earlier messages…" : "Scroll to load earlier messages"}
-                            </span>
-                        </div>
-                    )}
+                    <AnimatePresence>
+                        {showTopSentinel && (
+                            <motion.div
+                                variants={fadeIn}
+                                initial="hidden"
+                                animate="show"
+                                exit="exit"
+                                ref={sentinelRef}
+                                className="flex justify-center py-2 select-none"
+                            >
+                                <span className="text-xs opacity-40">
+                                    {loadingOlder ? "Loading earlier messages…" : "Scroll to load earlier messages"}
+                                </span>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                     {rendered.length === 0 && (
                         <div className="flex items-center justify-center h-full min-h-40 text-sm opacity-40 select-none">
                             {disabled ? "Waiting for OpenCode…" : "Send a message to start"}

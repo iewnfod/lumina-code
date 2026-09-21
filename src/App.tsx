@@ -16,7 +16,7 @@ import {useSurfaceColors} from "./hooks/surfaceColors.ts";
 import {useSystemTheme} from "./hooks/useSystemTheme.ts";
 import {useI18n} from "./hooks/i18n.tsx";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
-import {springSwap} from "./lib/motion.ts";
+import {fadeIn, springSwap} from "./lib/motion.ts";
 import {isLinux} from "./lib/platform.ts";
 import {loadState, saveState} from "./lib/persist.ts";
 import {appThemeFor} from "./lib/theme.ts";
@@ -399,16 +399,22 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                 rounded corners, and paints above the content which would
                 otherwise cover a container-edge line. Hidden when maximized
                 like the rounded-lg above. */}
-            {isLinux() && !isMaximized && (
-                <div
-                    aria-hidden
-                    className="absolute inset-0 rounded-lg pointer-events-none"
-                    style={{
-                        boxShadow: `inset 0 0 0 1px ${windowOutline(effectiveBg)}`,
-                        zIndex: 9999,
-                    }}
-                />
-            )}
+            <AnimatePresence>
+                {isLinux() && !isMaximized && (
+                    <motion.div
+                        aria-hidden
+                        variants={fadeIn}
+                        initial="hidden"
+                        animate="show"
+                        exit="exit"
+                        className="absolute inset-0 rounded-lg pointer-events-none"
+                        style={{
+                            boxShadow: `inset 0 0 0 1px ${windowOutline(effectiveBg)}`,
+                            zIndex: 9999,
+                        }}
+                    />
+                )}
+            </AnimatePresence>
         </div>
     );
 }

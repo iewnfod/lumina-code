@@ -250,7 +250,7 @@ export default function ChatInput({
                 disabled={disabled}
                 placeholder={disabled ? t["Connecting to OpenCode…"] : "Message OpenCode…"}
                 spellCheck={false}
-                className="resize-none bg-transparent outline-none px-4 pt-3 pb-1.5 text-sm placeholder:opacity-40 disabled:opacity-50 max-h-[calc(1.25rem*5)]"
+                className="resize-none bg-transparent outline-none px-4 pt-3 pb-1.5 text-sm placeholder:opacity-40 disabled:opacity-50 max-h-[calc(1.25rem*5)] transition-[height] duration-[var(--duration-base)] ease-[var(--ease-spring)]"
                 onChange={(e) => {
                     const value = e.currentTarget.value;
                     setText(value);

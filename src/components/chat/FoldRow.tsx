@@ -1,5 +1,7 @@
 import {type ReactNode} from "react";
-import {ChevronDown, ChevronRight} from "lucide-react";
+import {AnimatePresence, motion} from "framer-motion";
+import {ChevronRight} from "lucide-react";
+import {durationBase, durationFast, easeGlass, easeSpring} from "../../lib/motion.ts";
 
 /**
  * The one disclosure-row anatomy shared by every non-prose transcript
@@ -45,13 +47,35 @@ export default function FoldRow({
                         {detail}
                     </span>
                 )}
-                <span
-                    className={`shrink-0 transition-opacity duration-[var(--duration-fast)] ${expanded ? "opacity-60" : "opacity-0 group-hover/row:opacity-60"}`}
+                <motion.span
+                    className={`shrink-0 flex items-center transition-opacity duration-[var(--duration-fast)] ${expanded ? "opacity-60" : "opacity-0 group-hover/row:opacity-60"}`}
+                    animate={{rotate: expanded ? 90 : 0}}
+                    transition={{duration: durationFast, ease: easeSpring}}
                 >
-                    {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                </span>
+                    <ChevronRight size={14} />
+                </motion.span>
             </button>
-            {expanded && children}
+            <AnimatePresence initial={false}>
+                {expanded && (
+                    <motion.div
+                        key="body"
+                        initial={{height: 0, opacity: 0}}
+                        animate={{
+                            height: "auto",
+                            opacity: 1,
+                            transition: {height: {duration: durationBase, ease: easeSpring}, opacity: {duration: durationBase, ease: easeGlass, delay: 0.05}},
+                        }}
+                        exit={{
+                            height: 0,
+                            opacity: 0,
+                            transition: {height: {duration: durationBase, ease: easeGlass}, opacity: {duration: durationFast, ease: easeGlass}},
+                        }}
+                        className="overflow-hidden"
+                    >
+                        {children}
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }

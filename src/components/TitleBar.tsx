@@ -11,6 +11,8 @@ import {useIsWayland} from "../hooks/useIsWayland.ts";
 import {useI18n, setLanguage, currentLanguage, type Language} from "../hooks/i18n.tsx";
 import {glassSurface} from "../lib/glass.ts";
 import { info, error } from "@tauri-apps/plugin-log";
+import {AnimatePresence, motion} from "framer-motion";
+import {fadeIn} from "../lib/motion.ts";
 import type {SurfaceColors} from "../hooks/surfaceColors.ts";
 import IconButton from "./ui/IconButton.tsx";
 import PopoverMenu, {MenuItem, MenuLabel} from "./ui/PopoverMenu.tsx";
@@ -255,11 +257,20 @@ export default function TitleBar({
                 }}
             >
                 <div className="flex-1 min-w-0 flex items-center" data-tauri-drag-region>
-                    {title && (
-                        <span className="px-2 text-sm font-medium truncate" style={{color: fg}}>
-                            {title}
-                        </span>
-                    )}
+                    <AnimatePresence>
+                        {title && (
+                            <motion.span
+                                variants={fadeIn}
+                                initial="hidden"
+                                animate="show"
+                                exit="exit"
+                                className="px-2 text-sm font-medium truncate"
+                                style={{color: fg}}
+                            >
+                                {title}
+                            </motion.span>
+                        )}
+                    </AnimatePresence>
                 </div>
                 <PinButton
                     size={28}
@@ -300,11 +311,20 @@ export default function TitleBar({
             }}
         >
             <div className="flex-1 min-w-0 flex items-center" data-tauri-drag-region>
-                {title && (
-                    <span className="pl-3 pr-2 text-sm font-medium truncate" style={{color: fg}}>
-                        {title}
-                    </span>
-                )}
+                <AnimatePresence>
+                    {title && (
+                        <motion.span
+                            variants={fadeIn}
+                            initial="hidden"
+                            animate="show"
+                            exit="exit"
+                            className="pl-3 pr-2 text-sm font-medium truncate"
+                            style={{color: fg}}
+                        >
+                            {title}
+                        </motion.span>
+                    )}
+                </AnimatePresence>
             </div>
             <div className="flex flex-row items-center h-full">
                 <PinButton
