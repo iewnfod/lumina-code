@@ -188,22 +188,46 @@ body {
     margin: 0.6em 0;
     opacity: 0.85;
 }
+/* Tables — card-like: rounded outer shell with a hairline border, generous
+ * cell padding, horizontal-only row dividers (no vertical grid), a tinted
+ * header row, and quiet zebra striping. display: block + overflow-x: auto
+ * also clips the corners so the radius survives horizontal scrolling. */
 .lum-md table {
-    border-collapse: collapse;
-    margin: 0.6em 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 1em 0;
     font-size: 0.9em;
     display: block;
+    width: fit-content;
+    max-width: 100%;
     overflow-x: auto;
+    border: 1px solid rgba(128, 128, 128, 0.15);
+    border-radius: var(--radius-lg);
+    background: transparent;
 }
 .lum-md th,
 .lum-md td {
-    border: 1px solid rgba(128, 128, 128, 0.3);
-    padding: 0.3em 0.65em;
+    padding: 0.55em 1em;
     text-align: left;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.12);
 }
 .lum-md th {
-    background: rgba(128, 128, 128, 0.12);
+    background: rgba(128, 128, 128, 0.04);
     font-weight: 600;
+    letter-spacing: 0.02em;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+}
+.lum-md th:first-child {
+    border-top-left-radius: var(--radius-lg);
+}
+.lum-md th:last-child {
+    border-top-right-radius: var(--radius-lg);
+}
+.lum-md tbody tr:last-child td {
+    border-bottom: none;
+}
+.lum-md tbody tr:nth-child(even) td {
+    background: rgba(128, 128, 128, 0.025);
 }
 .lum-md a {
     color: var(--color-brand-cinnabar-soft);
