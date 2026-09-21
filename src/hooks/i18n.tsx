@@ -28,6 +28,24 @@ const enUs = {
     "Choose This Folder": "Choose This Folder",
     "Add attachment": "Add attachment",
     "Remove attachment": "Remove attachment",
+    // --- Permission requests & questions ---
+    "Permission request": "Permission request",
+    "Access a folder outside the project": "Access a folder outside the project",
+    "Run a shell command": "Run a shell command",
+    "Edit a file": "Edit a file",
+    "Write a file": "Write a file",
+    "Read files": "Read files",
+    "Fetch a web page": "Fetch a web page",
+    "Search the web": "Search the web",
+    "Ask you questions": "Ask you questions",
+    "Allow once": "Allow once",
+    "Always allow": "Always allow",
+    "Reject": "Reject",
+    "Questions": "Questions",
+    "Send answers": "Send answers",
+    "Dismiss": "Dismiss",
+    "Answer required": "Answer required",
+    "Type your answer…": "Type your answer…",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;

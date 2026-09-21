@@ -1,4 +1,5 @@
 import {useCallback, useEffect, useMemo, useState} from "react";
+import {AnimatePresence, motion} from "framer-motion";
 import {getCurrentWindow} from "@tauri-apps/api/window";
 import {error} from "@tauri-apps/plugin-log";
 import TitleBar from "./components/TitleBar.tsx";
@@ -15,10 +16,12 @@ import {useSurfaceColors} from "./hooks/surfaceColors.ts";
 import {useSystemTheme} from "./hooks/useSystemTheme.ts";
 import {useI18n} from "./hooks/i18n.tsx";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
+import {springSwap} from "./lib/motion.ts";
 import {isLinux} from "./lib/platform.ts";
 import {appThemeFor} from "./lib/theme.ts";
 import {useOpencode} from "./opencode/useOpencode.ts";
 import {useSessions} from "./opencode/useSessions.ts";
+import {useSessionRequests} from "./opencode/useSessionRequests.ts";
 import {useModelCatalog} from "./opencode/useModelCatalog.ts";
 import type {ComposerAttachment, SessionModelRef} from "./opencode/types.ts";
 
@@ -57,6 +60,14 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     // --- OpenCode connection, session list, active conversation ---
     const {status: connectionStatus, api, subscribe} = useOpencode();
     const {sessions, busyIds, create, remove, patch} = useSessions(api, subscribe);
+    const {
+        permissions: pendingAllPermissions,
+        forms: pendingAllForms,
+        pendingCounts,
+        replyPermission,
+        replyForm,
+        cancelForm,
+    } = useSessionRequests(api, subscribe);
     const {models, agents, defaultModel} = useModelCatalog(api);
     const [activeId, setActiveId] = useState<string | null>(null);
     const busy = activeId !== null && busyIds.has(activeId);
@@ -234,6 +245,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                 brandTitle="Lumina Code"
                 connection={connection}
                 busyIds={busyIds}
+                pendingCounts={pendingCounts}
             />
             <div className="flex-1 flex flex-col min-w-0">
                 <TitleBar
@@ -265,50 +277,79 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                             className="w-full h-full"
                             style={contentBg ? {background: contentBg} : undefined}
                         >
-                            {activeSession ? (
-                                <ChatView
-                                    api={api}
-                                    subscribe={subscribe}
-                                    sessionId={activeSession.id}
-                                    backgroundColor={effectiveBg}
-                                    busy={busy}
-                                    disabled={!connected}
-                                    agents={agents}
-                                    models={models}
-                                    agent={effectiveAgent}
-                                    model={effectiveModel}
-                                    onAgentChange={changeAgent}
-                                    onModelChange={changeModel}
-                                    directory={activeSession.directory ?? activeSession.location?.directory ?? null}
-                                    onDirectoryChange={changeDirectory}
-                                />
-                            ) : (
-                                <div className="flex flex-col h-full w-full">
-                                    <ChatPlaceholder
-                                        foregroundColor={effectiveFg}
-                                        subtitle={placeholderSubtitle}
-                                    />
-                                    <div className="shrink-0 max-w-3xl mx-auto w-full px-6 pb-4">
-                                        <ChatInput
-                                            colors={composerColors}
+                            {/* Session ↔ welcome-screen swap, spring-animated
+                                via AnimatePresence (mode="wait": the old
+                                surface exits before the new one enters, so
+                                the two opaque surfaces never overlap). */}
+                            <AnimatePresence mode="wait" initial={false}>
+                                {activeSession ? (
+                                    <motion.div
+                                        key={`session-${activeSession.id}`}
+                                        variants={springSwap}
+                                        initial="hidden"
+                                        animate="show"
+                                        exit="exit"
+                                        className="w-full h-full"
+                                    >
+                                        <ChatView
+                                            api={api}
+                                            subscribe={subscribe}
+                                            sessionId={activeSession.id}
+                                            backgroundColor={effectiveBg}
+                                            busy={busy}
                                             disabled={!connected}
-                                            busy={false}
-                                            onSend={(text, files) => void sendFirst(text, files)}
-                                            onInterrupt={() => {}}
                                             agents={agents}
                                             models={models}
                                             agent={effectiveAgent}
                                             model={effectiveModel}
                                             onAgentChange={changeAgent}
                                             onModelChange={changeModel}
-                                            conversationStarted={false}
-                                            api={api}
-                                            directory={pendingDirectory}
+                                            directory={activeSession.directory ?? activeSession.location?.directory ?? null}
                                             onDirectoryChange={changeDirectory}
+                                            pendingPermissions={pendingAllPermissions.filter((p) => p.sessionID === activeSession.id)}
+                                            pendingForms={pendingAllForms.filter((f) => f.sessionID === activeSession.id)}
+                                            onPermissionDecision={(request, decision) => void replyPermission(request, decision)}
+                                            onFormReply={(form, answer) => void replyForm(form, answer)}
+                                            onFormCancel={(form) => void cancelForm(form)}
                                         />
-                                    </div>
-                                </div>
-                            )}
+                                    </motion.div>
+                                ) : (
+                                    <motion.div
+                                        key="welcome"
+                                        variants={springSwap}
+                                        initial="hidden"
+                                        animate="show"
+                                        exit="exit"
+                                        className="w-full h-full"
+                                    >
+                                        <div className="flex flex-col h-full w-full">
+                                            <ChatPlaceholder
+                                                foregroundColor={effectiveFg}
+                                                subtitle={placeholderSubtitle}
+                                            />
+                                            <div className="shrink-0 max-w-3xl mx-auto w-full px-6 pb-4">
+                                                <ChatInput
+                                                    colors={composerColors}
+                                                    disabled={!connected}
+                                                    busy={false}
+                                                    onSend={(text, files) => void sendFirst(text, files)}
+                                                    onInterrupt={() => {}}
+                                                    agents={agents}
+                                                    models={models}
+                                                    agent={effectiveAgent}
+                                                    model={effectiveModel}
+                                                    onAgentChange={changeAgent}
+                                                    onModelChange={changeModel}
+                                                    conversationStarted={false}
+                                                    api={api}
+                                                    directory={pendingDirectory}
+                                                    onDirectoryChange={changeDirectory}
+                                                />
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </div>
                     </MaskedSurface>
                 </div>

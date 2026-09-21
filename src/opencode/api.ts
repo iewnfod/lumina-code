@@ -1,10 +1,14 @@
 import type {
     ChatMessage,
+    FormAnswer,
+    FormRequest,
     OpencodeAgent,
     OpencodeModel,
     OpencodeProject,
     OpencodeProvider,
     OpencodeSession,
+    PermissionDecision,
+    PermissionRequest,
     SessionModelRef,
 } from "./types.ts";
 export type {Session} from "@opencode-ai/sdk/v2/client";
@@ -180,6 +184,53 @@ export class OpencodeApi {
         return this.request<void>(
             `/api/session/${encodeURIComponent(sessionId)}/agent`,
             {method: "POST", body: JSON.stringify({agent})},
+        );
+    }
+
+    // --- Permission requests + forms (verified against server v2.0.11) ---
+    //
+    // The npm SDK drifts here in two ways worth pinning: the reply body
+    // field is `decision` (the SDK says `reply` — the server 400s with
+    // `Missing key ["decision"]`), and questions ride the form system
+    // (the SDK's /api/question routes 404 on this server generation).
+
+    /** Pending permission requests across ALL sessions — seeds requests
+     *  that were pending before the event stream connected. The response
+     *  body is `{location, data}` where `data` is the list (NOT envelope-
+     *  wrapped; picking `.data` explicitly keeps that unambiguous). */
+    listPermissionRequests(): Promise<PermissionRequest[]> {
+        return this.requestRaw<{data?: PermissionRequest[]}>("/api/permission/request")
+            .then((r) => r?.data ?? []);
+    }
+
+    /** Answer a permission request: allow once / always allow / reject. */
+    replyPermission(sessionId: string, requestId: string, decision: PermissionDecision): Promise<void> {
+        return this.request<void>(
+            `/api/session/${encodeURIComponent(sessionId)}/permission/${encodeURIComponent(requestId)}/reply`,
+            {method: "POST", body: JSON.stringify({decision})},
+        );
+    }
+
+    /** Pending forms (questions) across ALL sessions — same seed role and
+     *  same `{location, data}` shape as {@link listPermissionRequests}. */
+    listForms(): Promise<FormRequest[]> {
+        return this.requestRaw<{data?: FormRequest[]}>("/api/form")
+            .then((r) => r?.data ?? []);
+    }
+
+    /** Answer a form: one value per field key. */
+    replyForm(sessionId: string, formId: string, answer: FormAnswer): Promise<void> {
+        return this.request<void>(
+            `/api/session/${encodeURIComponent(sessionId)}/form/${encodeURIComponent(formId)}/reply`,
+            {method: "POST", body: JSON.stringify({answer})},
+        );
+    }
+
+    /** Cancel (dismiss) a pending form — the waiting tool sees "cancelled". */
+    cancelForm(sessionId: string, formId: string): Promise<void> {
+        return this.request<void>(
+            `/api/session/${encodeURIComponent(sessionId)}/form/${encodeURIComponent(formId)}`,
+            {method: "DELETE"},
         );
     }
 }

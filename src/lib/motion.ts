@@ -50,6 +50,21 @@ export const fadeSlideUp: Variants = {
     },
 };
 
+/** Spring-driven fade/slide — full-surface swaps (session ↔ welcome). */
+export const springSwap: Variants = {
+    hidden: {opacity: 0, y: 12},
+    show: {
+        opacity: 1,
+        y: 0,
+        transition: springSoft,
+    },
+    exit: {
+        opacity: 0,
+        y: -8,
+        transition: {duration: durationFast, ease: easeGlass},
+    },
+};
+
 /** Centered scale-in — modals, popovers. */
 export const scaleIn: Variants = {
     hidden: {opacity: 0, scale: 0.96},

@@ -2,17 +2,22 @@ import {memo, useCallback, useEffect, useLayoutEffect, useRef, useState} from "r
 import {useSurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
+import {isAssistantMessage} from "../../opencode/types.ts";
 import type {
     ChatAssistantMessage,
     ChatMessage,
+    FormAnswer,
+    FormRequest,
     OpencodeAgent,
     OpencodeModel,
+    PermissionDecision,
+    PermissionRequest,
     SessionModelRef,
 } from "../../opencode/types.ts";
-import {isAssistantMessage} from "../../opencode/types.ts";
 import {useSessionMessages} from "../../opencode/useSessionMessages.ts";
 import MessageItem, {ActivityGroup, effectiveTailPart, type ActivityPart} from "./MessageItem.tsx";
 import ChatInput from "./ChatInput.tsx";
+import {PermissionCard, QuestionCard} from "./RequestCards.tsx";
 
 /**
  * The conversation view for the active session: a transcript column (user
@@ -88,6 +93,11 @@ const ChatView = memo(function ChatView({
     onModelChange,
     directory,
     onDirectoryChange,
+    pendingPermissions,
+    pendingForms,
+    onPermissionDecision,
+    onFormReply,
+    onFormCancel,
 }: {
     api: OpencodeApi | null;
     subscribe: (handler: OpencodeEventHandler) => () => void;
@@ -106,6 +116,13 @@ const ChatView = memo(function ChatView({
     /** The session's working directory (null = server default). */
     directory: string | null;
     onDirectoryChange: (directory: string | null) => void;
+    /** Pending server requests for THIS session (permission asks +
+     *  question forms) — pinned above the composer until answered. */
+    pendingPermissions: PermissionRequest[];
+    pendingForms: FormRequest[];
+    onPermissionDecision: (request: PermissionRequest, decision: PermissionDecision) => void;
+    onFormReply: (form: FormRequest, answer: FormAnswer) => void;
+    onFormCancel: (form: FormRequest) => void;
 }) {
     const colors = useSurfaceColors(backgroundColor);
     const {messages, hasMore, loadingOlder, loadOlder, send, interrupt} =
@@ -239,24 +256,49 @@ const ChatView = memo(function ChatView({
                     })}
                 </div>
             </div>
-            <div className="shrink-0 max-w-3xl mx-auto w-full px-6 pb-4">
-                <ChatInput
-                    colors={colors}
-                    disabled={disabled}
-                    busy={busy}
-                    onSend={(text, files) => void send(text, files)}
-                    onInterrupt={() => void interrupt()}
-                    agents={agents}
-                    models={models}
-                    agent={agent}
-                    model={model}
-                    onAgentChange={onAgentChange}
-                    onModelChange={onModelChange}
-                    conversationStarted={hasConversation}
-                    api={api}
-                    directory={directory}
-                    onDirectoryChange={onDirectoryChange}
-                />
+            <div className="shrink-0 max-w-3xl mx-auto w-full px-6 pb-4 flex flex-col gap-2">
+                {/* Pinned server requests — while any is pending, the
+                    session's execution waits server-side, so they stay
+                    visible above the composer, never scrolled away. */}
+                {pendingPermissions.map((request) => (
+                    <PermissionCard
+                        key={request.id}
+                        request={request}
+                        colors={colors}
+                        onDecision={onPermissionDecision}
+                    />
+                ))}
+                {pendingForms.map((form) => (
+                    <QuestionCard
+                        key={form.id}
+                        form={form}
+                        colors={colors}
+                        onReply={onFormReply}
+                        onCancel={onFormCancel}
+                    />
+                ))}
+                {/* While a question is pending, the composer hides — the
+                    answer flow is the question card itself, not a
+                    free-typed prompt. */}
+                {pendingForms.length === 0 && (
+                    <ChatInput
+                        colors={colors}
+                        disabled={disabled}
+                        busy={busy}
+                        onSend={(text, files) => void send(text, files)}
+                        onInterrupt={() => void interrupt()}
+                        agents={agents}
+                        models={models}
+                        agent={agent}
+                        model={model}
+                        onAgentChange={onAgentChange}
+                        onModelChange={onModelChange}
+                        conversationStarted={hasConversation}
+                        api={api}
+                        directory={directory}
+                        onDirectoryChange={onDirectoryChange}
+                    />
+                )}
             </div>
         </div>
     );

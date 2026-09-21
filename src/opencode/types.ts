@@ -76,6 +76,64 @@ export interface ComposerAttachment {
     uri: string;
 }
 
+/** A pending permission request (`permission.asked` payload shape —
+ *  verified against server v2.0.11: the event carries the v1 NAME with
+ *  the v2 `action`/`resources` payload; the SDK's `permission.v2.asked`
+ *  + `patterns` shapes never appear on the wire). */
+export interface PermissionRequest {
+    id: string; // "per_…"
+    sessionID: string;
+    /** What it wants to do: "external_directory" | "bash" | "edit" | … */
+    action: string;
+    /** What it wants to act on: paths, commands, URLs… */
+    resources: string[];
+    metadata?: Record<string, unknown>;
+    /** Set when a tool call triggered the request. */
+    source?: {type: "tool"; messageID: string; id: string};
+}
+
+/** The user's answer to a permission request. */
+export type PermissionDecision = "once" | "always" | "reject";
+
+/** One selectable choice of a form field. */
+export interface FormFieldOption {
+    value: string;
+    label: string;
+    description?: string;
+}
+
+/** One field of a form the server asks the user to fill. Union of the
+ *  field kinds the real server's Form schema defines; the question tool
+ *  only emits `string` (with options) and `multiselect` today — both
+ *  with `custom: true` ("or type your own answer"). */
+export type FormField = {
+    key: string;
+    title?: string;
+    description?: string;
+    required?: boolean;
+    /** Visibility condition against another field's current value. */
+    when?: {key: string; op: "eq" | "neq"; value: string | number | boolean}[];
+} & (
+    | {type: "string"; options?: FormFieldOption[]; placeholder?: string; default?: string; custom?: boolean}
+    | {type: "multiselect"; options: FormFieldOption[]; custom?: boolean; default?: string[]}
+    | {type: "boolean"; default?: boolean}
+    | {type: "number" | "integer"; default?: number; minimum?: number; maximum?: number}
+    | {type: "external"; url: string}
+);
+
+/** A pending form (`form.created` payload's `form` field). The question
+ *  tool's forms carry `metadata.kind === "question"`. */
+export interface FormRequest {
+    id: string; // "frm_…"
+    sessionID: string;
+    title: string;
+    metadata?: Record<string, unknown>;
+    fields: FormField[];
+}
+
+/** A form answer: one value per field key. */
+export type FormAnswer = Record<string, string | number | boolean | string[]>;
+
 /** A file attachment as it rides on a user message (server-normalized). */
 export interface UserMessageFile {
     name?: string;
@@ -245,4 +303,17 @@ export interface EventMap {
         cost?: number;
         tokens?: ChatAssistantMessage["tokens"];
     };
+    /** Server v2.0.11 asks for approval over the permission system (the
+     *  SDK's "permission.v2.asked" name is not what's on the wire). */
+    "permission.asked": PermissionRequest;
+    "permission.replied": {
+        sessionID: string;
+        requestID: string;
+        reply: PermissionDecision;
+    };
+    /** The question tool surfaces as a form (there is no /api/question on
+     *  this server generation — see api.ts). */
+    "form.created": {form: FormRequest};
+    "form.replied": {id: string; sessionID: string; answer?: FormAnswer};
+    "form.cancelled": {id: string; sessionID: string};
 }

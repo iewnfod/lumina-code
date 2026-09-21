@@ -1,7 +1,7 @@
 import {useEffect, useState} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import type {OpencodeApi} from "./api.ts";
-import type {OpencodeAgent, OpencodeModel} from "./types.ts";
+import type {OpencodeAgent, OpencodeModel, OpencodeProvider} from "./types.ts";
 
 /**
  * A provider whose models come from the free public catalog (OpenCode Zen)
@@ -10,6 +10,23 @@ import type {OpencodeAgent, OpencodeModel} from "./types.ts";
  */
 function isCatalogProvider(settings?: {apiKey?: string}): boolean {
     return settings?.apiKey === "public";
+}
+
+/**
+ * The provider list with a short retry. A second opencode instance (the
+ * CLI, another app) can transiently hold the shared storage lock, making
+ * this read come back EMPTY — and an empty list must not leak into the
+ * filter logic: `every()` is vacuously true on [], which would silently
+ * unhide the whole free catalog. Retrying bridges the transient; a final
+ * empty read surfaces as a failed load (empty picker) instead.
+ */
+async function loadProviders(api: OpencodeApi, attempts = 5, delayMs = 1000): Promise<OpencodeProvider[]> {
+    for (let i = 0; ; i++) {
+        const providers = (await api.listProviders()) ?? [];
+        if (providers.length > 0) return providers;
+        if (i >= attempts - 1) throw new Error("provider list came back empty");
+        await new Promise((r) => setTimeout(r, delayMs));
+    }
 }
 
 /**
@@ -37,11 +54,11 @@ export function useModelCatalog(api: OpencodeApi | null): {
         if (!api) return;
         let cancelled = false;
 
-        api.listProviders().then((providers) => {
+        loadProviders(api).then((providers) => {
             if (cancelled) return;
-            const catalogOnly = (providers ?? []).every((p) => isCatalogProvider(p.settings));
+            const catalogOnly = providers.every((p) => isCatalogProvider(p.settings));
             const catalogIds = new Set(
-                (providers ?? []).filter((p) => isCatalogProvider(p.settings)).map((p) => p.id),
+                providers.filter((p) => isCatalogProvider(p.settings)).map((p) => p.id),
             );
             return api.listModels().then((list) => {
                 if (cancelled) return;

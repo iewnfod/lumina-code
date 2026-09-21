@@ -181,13 +181,9 @@ function AssistantBlock({
                     />
                 );
             })}
-            {showTrailingIndicator && (
+            {showTrailingIndicator && !toolRunning && (
                 <div className="flex items-center gap-1.5 h-4">
-                    {toolRunning ? (
-                        <span className="text-xs opacity-50">working…</span>
-                    ) : (
-                        <span className="inline-block w-[2px] h-[1em] bg-current animate-pulse rounded-[1px]" />
-                    )}
+                    <span className="inline-block w-[2px] h-[1em] bg-current animate-pulse rounded-[1px]" />
                 </div>
             )}
         </div>

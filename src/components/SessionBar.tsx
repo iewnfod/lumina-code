@@ -41,6 +41,9 @@ interface SessionBarProps {
     connection?: ConnectionState;
     /** Sessions with an execution in flight — show a pulsing indicator. */
     busyIds?: ReadonlySet<string>;
+    /** Pending server requests per session (permissions + question
+     *  forms) — shows a badge so blocked non-active sessions surface. */
+    pendingCounts?: ReadonlyMap<string, number>;
 }
 
 export interface ConnectionState {
@@ -78,7 +81,7 @@ function groupByDirectory(sessions: SessionInfo[]): [string, SessionInfo[]][] {
 }
 
 export default function SessionBar(props: SessionBarProps) {
-    const {sessions, activeId, onSelect, onClose, onNew, backgroundColor, foregroundColor, collapsed, brandTitle, connection, busyIds} = props;
+    const {sessions, activeId, onSelect, onClose, onNew, backgroundColor, foregroundColor, collapsed, brandTitle, connection, busyIds, pendingCounts} = props;
     const t = useI18n();
 
     const colors = useSurfaceColors(backgroundColor);
@@ -147,8 +150,9 @@ export default function SessionBar(props: SessionBarProps) {
                 No folder given → App defaults to the previous session's
                 project (each folder header's + pins that folder). */}
             <div className="shrink-0 px-1.5 pt-0.5 pb-1">
-                <button
+                <motion.button
                     type="button"
+                    {...whileHoverTap}
                     className="w-full flex flex-row items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)] cursor-pointer hover:bg-[var(--lum-new-session-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
                     style={{
                         "--lum-new-session-hover": colors.hoverOverlay,
@@ -159,7 +163,7 @@ export default function SessionBar(props: SessionBarProps) {
                 >
                     <Plus size={14}/>
                     <span className="text-sm truncate leading-tight">{t["New Session"]}</span>
-                </button>
+                </motion.button>
             </div>
 
             <div
@@ -237,6 +241,15 @@ export default function SessionBar(props: SessionBarProps) {
                                                     {session.name}
                                                 </span>
                                             </div>
+                                            {pendingCounts?.get(session.id) != null && (
+                                                <span
+                                                    className="shrink-0 min-w-4 h-4 px-1 ml-1 rounded-full text-[10px] font-semibold leading-4 text-center select-none"
+                                                    style={{backgroundColor: "#f59e0b", color: "#fff"}}
+                                                    title={t["Permission request"]}
+                                                >
+                                                    {pendingCounts.get(session.id)}
+                                                </span>
+                                            )}
                                             <button
                                                 className={`lum-session-close cursor-pointer opacity-0 rounded-[var(--radius-xs)] p-1 shrink-0 transition-all duration-[var(--duration-fast)] ml-1 group-hover:opacity-100 hover:bg-[var(--lum-session-active)]`}
                                                 title="Delete session"
