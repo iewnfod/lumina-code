@@ -207,7 +207,12 @@ function MarqueeTitle({text, className, style}: {
         >
             <span ref={trackRef} className="inline-block will-change-transform">
                 <span className="inline-block" style={{paddingRight: 24}}>{text}</span>
-                <span className="inline-block" style={{paddingRight: 24}}>{text}</span>
+                {/* The loop's re-entering copy only exists while the text
+                    overflows — a short title otherwise shows twice inside
+                    the wider-than-text clip slot. */}
+                {overflowing && (
+                    <span className="inline-block" style={{paddingRight: 24}}>{text}</span>
+                )}
             </span>
         </span>
     );
