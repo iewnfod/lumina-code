@@ -28,10 +28,13 @@ export function useSessions(
     sessions: OpencodeSession[];
     /** Sessions with an execution in flight (live-updated). */
     busyIds: ReadonlySet<string>;
-    /** Create a session; returns it (null on failure). */
-    create: () => Promise<OpencodeSession | null>;
+    /** Create a session (optionally in a specific working directory); returns it (null on failure). */
+    create: (directory?: string) => Promise<OpencodeSession | null>;
     /** Delete a session on the server (removes it everywhere). */
     remove: (id: string) => Promise<void>;
+    /** Optimistically patch a session's local fields (model/agent after a
+     *  switch — the server confirms via its own session object). */
+    patch: (id: string, fields: Partial<OpencodeSession>) => void;
 } {
     const [sessions, setSessions] = useState<OpencodeSession[]>([]);
     const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
@@ -115,11 +118,11 @@ export function useSessions(
         });
     }, [subscribe]);
 
-    const create = useCallback(async () => {
+    const create = useCallback(async (directory?: string) => {
         const a = apiRef.current;
         if (!a) return null;
         try {
-            const created = await a.createSession({});
+            const created = await a.createSession(directory ? {directory} : {});
             setSessions((prev) => [created, ...prev.filter((s) => s.id !== created.id)]);
             return created;
         } catch (e) {
@@ -139,5 +142,9 @@ export function useSessions(
         }
     }, []);
 
-    return {sessions, busyIds, create, remove};
+    const patch = useCallback((id: string, fields: Partial<OpencodeSession>) => {
+        setSessions((prev) => prev.map((s) => (s.id === id ? {...s, ...fields} : s)));
+    }, []);
+
+    return {sessions, busyIds, create, remove, patch};
 }

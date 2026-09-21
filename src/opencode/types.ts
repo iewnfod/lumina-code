@@ -15,6 +15,76 @@ export interface SessionModelRef {
     variant?: string;
 }
 
+/** One thinking-depth variant of a model ("none" | "low" | "high" | "max" | …). */
+export interface ModelVariant {
+    id: string;
+}
+
+/** `GET /api/agent` entry — the selectable "modes" (build/plan/…). */
+export interface OpencodeAgent {
+    id: string;
+    name?: string;
+    description?: string;
+    /** "primary" modes are user-selectable; "subagent" ones are internal. */
+    mode: "primary" | "subagent" | string;
+    hidden?: boolean;
+}
+
+/** `GET /api/provider` entry — an active model provider. */
+export interface OpencodeProvider {
+    id: string;
+    name?: string;
+    /** "auto" (activated by credentials) | "enabled" (always on). */
+    activation?: string;
+    settings?: {apiKey?: string; [key: string]: unknown};
+}
+
+/** `GET /api/model` entry. */
+export interface OpencodeModel {
+    id: string;
+    modelID: string;
+    providerID: string;
+    name?: string;
+    family?: string;
+    variants?: ModelVariant[];
+    capabilities?: {
+        tools?: boolean;
+        input?: string[];
+        output?: string[];
+    };
+    status?: string;
+    enabled?: boolean;
+    limit?: {context?: number; output?: number};
+    released?: number;
+}
+
+/** `GET /api/project` entry — a known working directory. */
+export interface OpencodeProject {
+    id: string;
+    canonical: string;
+    vcs?: string;
+    time?: {created?: number; updated?: number};
+}
+
+/** An attachment staged in the composer (data-URI form). */
+export interface ComposerAttachment {
+    id: string;
+    name: string;
+    mime: string;
+    size: number;
+    /** data:… URI — posted as the prompt's `files[].uri`. */
+    uri: string;
+}
+
+/** A file attachment as it rides on a user message (server-normalized). */
+export interface UserMessageFile {
+    name?: string;
+    mime?: string;
+    /** Bare base64 (no data: prefix) when the server inlined the content. */
+    data?: string;
+    [key: string]: unknown;
+}
+
 export interface OpencodeSession {
     id: string;
     /** Auto-generated until the server retitles (session.renamed). */
@@ -78,6 +148,7 @@ export interface ChatUserMessage {
     id: string;
     type: "user";
     text: string;
+    files?: UserMessageFile[];
     time?: {created?: number};
 }
 
@@ -129,7 +200,7 @@ export interface EventMap {
     "session.inbox.enqueued": {
         sessionID: string;
         inboxID: string;
-        item: {type: string; payload?: {text?: string}};
+        item: {type: string; payload?: {text?: string; files?: UserMessageFile[]}};
     };
     "session.execution.started": {sessionID: string};
     "session.execution.succeeded": {sessionID: string};

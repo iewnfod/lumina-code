@@ -1,5 +1,5 @@
 import type {CSSProperties} from "react";
-import {LucideMaximize, LucideMinimize, LucideMinus, LucideX, PanelLeftClose, PanelLeftOpen, Pin, PinOff, Search, Settings} from "lucide-react";
+import {LucideMaximize, LucideMinimize, LucideMinus, LucideX, Pin, PinOff, Search, Settings} from "lucide-react";
 import {getCurrentWindow} from "@tauri-apps/api/window";
 import {Tooltip} from "@heroui/react";
 import type {ChromeTheme} from "../lib/theme.ts";
@@ -157,15 +157,14 @@ function PinButton({size, hoverOverlay, activeOverlay, fg, style}: PinButtonProp
 
 export default function TitleBar({
     theme,
-    tabBarVisible,
-    onToggleTabBar,
+    title,
     onOpenCommandPalette,
     onOpenSettings,
     isMaximized,
 } : {
     theme: ChromeTheme | null,
-    tabBarVisible: boolean,
-    onToggleTabBar: () => void,
+    /** Active session's title, shown in the bar's left side. */
+    title?: string | null,
     onOpenCommandPalette: () => void,
     onOpenSettings: () => void,
     isMaximized: boolean,
@@ -177,7 +176,6 @@ export default function TitleBar({
     const { hoverOverlay, activeOverlay } = useSurfaceColors(bg);
     const {supportsGlass} = useGlass();
     const glass = glassSurface(bg, supportsGlass, {blurPx: 14});
-    const macOSTitleButtonMarginLeft = tabBarVisible ? 8 : 88;
     const size = CHROME_TITLE_BAR_HEIGHT;
     // Brand cinnabar wash for the close button hover — the brand accent so
     // window controls feel part of the app identity.
@@ -194,16 +192,13 @@ export default function TitleBar({
                     color: fg,
                 }}
             >
-                <IconButton
-                    size={28}
-                    hoverOverlay={hoverOverlay}
-                    activeOverlay={activeOverlay}
-                    style={{color: fg, marginLeft: macOSTitleButtonMarginLeft}}
-                    onClick={() => { info(`Sidebar ${tabBarVisible ? "hidden" : "shown"}`); onToggleTabBar(); }}
-                >
-                    {tabBarVisible ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
-                </IconButton>
-                <div className="flex-1" data-tauri-drag-region />
+                <div className="flex-1 min-w-0 flex items-center" data-tauri-drag-region>
+                    {title && (
+                        <span className="px-2 text-sm font-medium truncate" style={{color: fg}}>
+                            {title}
+                        </span>
+                    )}
+                </div>
                 <PinButton
                     size={28}
                     hoverOverlay={hoverOverlay}
@@ -243,16 +238,13 @@ export default function TitleBar({
                 color: fg,
             }}
         >
-            <IconButton
-                size={size}
-                hoverOverlay={hoverOverlay}
-                activeOverlay={activeOverlay}
-                style={{color: fg, borderRadius: 0}}
-                onClick={() => { info(`Sidebar ${tabBarVisible ? "hidden" : "shown"}`); onToggleTabBar(); }}
-            >
-                {tabBarVisible ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
-            </IconButton>
-            <div className="flex-1" data-tauri-drag-region />
+            <div className="flex-1 min-w-0 flex items-center" data-tauri-drag-region>
+                {title && (
+                    <span className="pl-3 pr-2 text-sm font-medium truncate" style={{color: fg}}>
+                        {title}
+                    </span>
+                )}
+            </div>
             <div className="flex flex-row items-center h-full">
                 <PinButton
                     size={size}

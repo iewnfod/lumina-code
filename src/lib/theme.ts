@@ -15,12 +15,20 @@ export interface EffectiveTheme {
     bg: string;
     fg: string;
     dark: boolean;
+    /**
+     * Opaque background for the content canvas, or null to keep the chrome
+     * glass showing through (dark mode). Light mode rides slightly lighter
+     * than the chrome so the chat reads as a page over the darker sidebar /
+     * titlebar glass.
+     */
+    contentBg: string | null;
 }
 
 /** Neutral base colors the system theme resolves to — the same values
  *  lumina-terminal's lib/themeMode.ts forces for "dark"/"light" modes. */
 const DARK_BG = "#1a1a1a";
 const LIGHT_BG = "#fafafa";
+const LIGHT_CONTENT_BG = "#f8f8f8";
 
 /**
  * Resolve the whole-app theme. lumina-terminal derives this from the active
@@ -36,5 +44,6 @@ export function appThemeFor(systemTheme: "light" | "dark" | null): EffectiveThem
         bg,
         fg,
         dark,
+        contentBg: dark ? null : LIGHT_CONTENT_BG,
     };
 }

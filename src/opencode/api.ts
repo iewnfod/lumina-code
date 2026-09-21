@@ -1,6 +1,21 @@
-import type {ChatMessage, OpencodeSession} from "./types.ts";
+import type {
+    ChatMessage,
+    OpencodeAgent,
+    OpencodeModel,
+    OpencodeProject,
+    OpencodeProvider,
+    OpencodeSession,
+    SessionModelRef,
+} from "./types.ts";
 export type {Session} from "@opencode-ai/sdk/v2/client";
-export type {ChatMessage, OpencodeSession} from "./types.ts";
+export type {
+    ChatMessage,
+    OpencodeAgent,
+    OpencodeModel,
+    OpencodeProject,
+    OpencodeProvider,
+    OpencodeSession,
+} from "./types.ts";
 
 /** The messages endpoint caps `limit` at 200 (400 above that). */
 const MESSAGES_PAGE_SIZE = 200;
@@ -70,7 +85,7 @@ export class OpencodeApi {
         return this.request<OpencodeSession[]>("/api/session");
     }
 
-    createSession(body: {title?: string} = {}): Promise<OpencodeSession> {
+    createSession(body: {title?: string; directory?: string} = {}): Promise<OpencodeSession> {
         return this.request<OpencodeSession>("/api/session", {
             method: "POST",
             body: JSON.stringify(body),
@@ -94,11 +109,16 @@ export class OpencodeApi {
         );
     }
 
-    /** Sends a prompt; the reply streams in over the event bus. */
-    sendPrompt(sessionId: string, text: string): Promise<unknown> {
+    /** Sends a prompt; the reply streams in over the event bus. Attachments
+     *  ride as data-URI `files` (the server normalizes them inline). */
+    sendPrompt(
+        sessionId: string,
+        text: string,
+        files?: {uri: string; name: string}[],
+    ): Promise<unknown> {
         return this.request(`/api/session/${encodeURIComponent(sessionId)}/prompt`, {
             method: "POST",
-            body: JSON.stringify({text}),
+            body: JSON.stringify(files?.length ? {text, files} : {text}),
         });
     }
 
@@ -108,6 +128,52 @@ export class OpencodeApi {
             `/api/session/${encodeURIComponent(sessionId)}/interrupt`,
             {method: "POST"},
         ).then((r) => r?.interrupted ?? false);
+    }
+
+    /** Available models (includes each model's thinking-depth variants). */
+    listModels(): Promise<OpencodeModel[]> {
+        return this.request<OpencodeModel[]>("/api/model");
+    }
+
+    /** The server's current default model. */
+    getDefaultModel(): Promise<OpencodeModel | null> {
+        return this.request<OpencodeModel | null>("/api/model/default");
+    }
+
+    /** Agents ("modes"): build/plan/… plus internal subagents (filter those). */
+    listAgents(): Promise<OpencodeAgent[]> {
+        return this.request<OpencodeAgent[]>("/api/agent");
+    }
+
+    /** Active providers (the user's authenticated ones plus the free catalog). */
+    listProviders(): Promise<OpencodeProvider[]> {
+        return this.request<OpencodeProvider[]>("/api/provider");
+    }
+
+    /** Directories the server already knows as projects. */
+    listProjects(): Promise<OpencodeProject[]> {
+        return this.request<OpencodeProject[]>("/api/project");
+    }
+
+    /** The server's own working directory — browsing starts here. */
+    getLocation(): Promise<{directory?: string}> {
+        return this.request<{directory?: string}>("/api/location");
+    }
+
+    /** Point a session at another model (variant = thinking depth). */
+    switchModel(sessionId: string, model: SessionModelRef): Promise<void> {
+        return this.request<void>(
+            `/api/session/${encodeURIComponent(sessionId)}/model`,
+            {method: "POST", body: JSON.stringify({model})},
+        );
+    }
+
+    /** Point a session at another agent ("mode"). */
+    switchAgent(sessionId: string, agent: string): Promise<void> {
+        return this.request<void>(
+            `/api/session/${encodeURIComponent(sessionId)}/agent`,
+            {method: "POST", body: JSON.stringify({agent})},
+        );
     }
 }
 

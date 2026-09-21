@@ -25,7 +25,7 @@ export default function ChatPlaceholder({
             variants={staggerContainer(0.05, 0.04)}
             initial="hidden"
             animate="show"
-            className="h-full w-full flex flex-col items-center justify-center gap-6 select-none p-10 text-center"
+            className="flex-1 min-h-0 w-full flex flex-col items-center justify-center gap-6 select-none p-10 text-center"
         >
             <motion.img
                 variants={fadeSlideUp}

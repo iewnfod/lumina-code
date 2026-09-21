@@ -11,10 +11,23 @@ const enUs = {
     "Unpin from Top": "Unpin from Top",
     "Always on top is not supported on Wayland": "Always on top is not supported on Wayland",
     "New Session": "New Session",
+    "Other Sessions": "Other Sessions",
     "Welcome to Lumina Code": "Welcome to Lumina Code",
     "Create a session to start": "Create a session to start",
     "Connecting to OpenCode…": "Connecting to OpenCode…",
     "Connection error": "Connection error",
+    "Send": "Send",
+    "Stop": "Stop",
+    "Mode": "Mode",
+    "Model": "Model",
+    "Thinking depth": "Thinking depth",
+    "Project": "Project",
+    "Default project directory": "Default project directory",
+    "Recent Projects": "Recent Projects",
+    "Browse…": "Browse…",
+    "Choose This Folder": "Choose This Folder",
+    "Add attachment": "Add attachment",
+    "Remove attachment": "Remove attachment",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;

@@ -1,27 +1,28 @@
-import {type CSSProperties} from "react";
+import {type CSSProperties, useCallback, useEffect, useState} from "react";
 import {motion} from "framer-motion";
-import {MessageSquare, Plus, X} from "lucide-react";
+import {ChevronRight, Plus, X} from "lucide-react";
 import Icon from "../assets/icon.svg";
 import {isMacOS} from "../lib/platform.ts";
 import {CHROME_TITLE_BAR_HEIGHT} from "../constants.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
 import {useGlass} from "../hooks/useGlass.ts";
 import {glassSurface} from "../lib/glass.ts";
-import {springSoft, whileHoverTap} from "../lib/motion.ts";
+import {springSnappy, springSoft, whileHoverTap} from "../lib/motion.ts";
 import {useI18n} from "../hooks/i18n.tsx";
 
 /**
- * The app's sidebar — a vertical session list. Ported from lumina-terminal's
- * TabBar with the terminal-only machinery stripped (tab tear-off/reorder drag
- * controller, shell/app icons, update banner, privileged-command dot); the
- * layout, glass material, row anatomy and motion are identical.
+ * The app's sidebar — a vertical session list grouped by working directory.
+ * Ported from lumina-terminal's TabBar with the terminal-only machinery
+ * stripped (tab tear-off/reorder drag controller, shell/app icons, update
+ * banner, privileged-command dot); the layout, glass material, row anatomy
+ * and motion are identical.
  */
 
 export interface SessionInfo {
     id: string;
     name: string;
-    /** Optional small subtitle shown under the title (e.g. working directory). */
-    subtitle?: string;
+    /** Working directory the session lives in — tabs group under it. */
+    directory?: string;
 }
 
 interface SessionBarProps {
@@ -29,7 +30,8 @@ interface SessionBarProps {
     activeId: string | null;
     onSelect: (id: string) => void;
     onClose: (id: string) => void;
-    onNew: () => void;
+    /** Create a session — in the given folder's directory, if any. */
+    onNew: (directory?: string) => void;
     backgroundColor: string;
     foregroundColor: string;
     collapsed: boolean;
@@ -55,12 +57,49 @@ const CONNECTION_DOT: Record<ConnectionState["state"], string> = {
     error: "#ef4444",
 };
 
+/** Group-header label for a directory: its last path segment. */
+function folderLabel(directory: string): string {
+    const trimmed = directory.replace(/[\\/]+$/, "");
+    const base = trimmed.split(/[\\/]/).filter(Boolean).pop();
+    return base || trimmed || directory;
+}
+
+/** Sessions bucketed by working directory, folders in order of each
+ *  folder's most recently updated session (the server's list order). */
+function groupByDirectory(sessions: SessionInfo[]): [string, SessionInfo[]][] {
+    const groups = new Map<string, SessionInfo[]>();
+    for (const session of sessions) {
+        const key = session.directory ?? "";
+        const bucket = groups.get(key);
+        if (bucket) bucket.push(session);
+        else groups.set(key, [session]);
+    }
+    return Array.from(groups.entries());
+}
+
 export default function SessionBar(props: SessionBarProps) {
     const {sessions, activeId, onSelect, onClose, onNew, backgroundColor, foregroundColor, collapsed, brandTitle, connection, busyIds} = props;
     const t = useI18n();
 
     const colors = useSurfaceColors(backgroundColor);
     const {supportsGlass} = useGlass();
+
+    // Folders the user has collapsed (by directory path). The active
+    // session's folder always re-expands so the open tab can't vanish.
+    const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(new Set());
+    const toggleFolder = useCallback((directory: string) => {
+        setCollapsedDirs((prev) => {
+            const next = new Set(prev);
+            if (next.has(directory)) next.delete(directory);
+            else next.add(directory);
+            return next;
+        });
+    }, []);
+    useEffect(() => {
+        if (activeId === null) return;
+        const dir = sessions.find((s) => s.id === activeId)?.directory ?? "";
+        setCollapsedDirs((prev) => (prev.has(dir) ? new Set([...prev].filter((d) => d !== dir)) : prev));
+    }, [activeId, sessions]);
 
     // The sidebar wears the glass material over the content canvas. On
     // platforms where backdrop-filter is unreliable (Linux/Wayland), this
@@ -71,8 +110,8 @@ export default function SessionBar(props: SessionBarProps) {
         <div
             className="flex flex-col h-full select-none transition-[width,min-width,opacity] duration-[var(--duration-slow)] ease-[var(--ease-spring)] overflow-hidden"
             style={{
-                width: collapsed ? 0 : 180,
-                minWidth: collapsed ? 0 : 180,
+                width: collapsed ? 0 : 240,
+                minWidth: collapsed ? 0 : 240,
                 ...glass,
             }}
         >
@@ -108,77 +147,95 @@ export default function SessionBar(props: SessionBarProps) {
                 className={`flex-1 overflow-y-auto overflow-x-hidden px-1.5 ${isMacOS() ? "pt-1.5" : ""}`}
                 data-tauri-drag-region
             >
-                {sessions.map((session) => {
-                    const isActive = session.id === activeId;
+                {groupByDirectory(sessions).map(([directory, groupSessions]) => {
+                    const collapsed = collapsedDirs.has(directory);
                     return (
+                        <div key={directory}>
                         <div
-                            key={session.id}
-                            className="relative my-0.5 cursor-pointer"
-                            title={session.name}
+                            className="group/folder w-full flex items-center gap-1 px-3 pt-2.5 pb-1 text-[11px] font-medium uppercase tracking-wider cursor-pointer transition-opacity duration-[var(--duration-fast)] ease-[var(--ease-glass)] hover:opacity-70"
+                            style={{color: colors.inactiveText}}
+                            title={directory || undefined}
+                            onClick={() => toggleFolder(directory)}
                         >
-                            {/* Inner motion layer carries the spring scale
-                                animation and the layout slide used when the
-                                list reorders (a session closing). */}
-                            <motion.div
-                                {...whileHoverTap}
-                                layout="position"
-                                transition={springSoft}
-                                className={`lum-session-row group relative flex flex-row items-center justify-between px-3 py-2.5 rounded-[var(--radius-sm)] transition-colors duration-[var(--duration-base)] ease-[var(--duration-glass)] hover:bg-[var(--lum-session-hover)] ${isActive ? "bg-[var(--lum-session-active)]" : ""}`}
-                                style={{
-                                    "--lum-session-hover": isActive ? colors.accentOverlay : colors.hoverOverlay,
-                                    "--lum-session-active": colors.accentOverlay,
-                                } as CSSProperties}
-                                onClick={() => onSelect(session.id)}
+                            <span className="truncate flex-1 text-left">
+                                {directory ? folderLabel(directory) : t["Other Sessions"]}
+                            </span>
+                            <button
+                                type="button"
+                                className="shrink-0 flex items-center p-0.5 rounded-[var(--radius-xs)] opacity-0 group-hover/folder:opacity-100 hover:bg-[var(--lum-folder-new-hover)] transition-opacity duration-[var(--duration-fast)] cursor-pointer"
+                                style={{"--lum-folder-new-hover": colors.hoverOverlay} as CSSProperties}
+                                title={t["New Session"]}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onNew(directory || undefined);
+                                }}
                             >
-                                <div className="flex flex-col items-start flex-1 w-[70%] overflow-hidden">
-                                    <div className="flex items-start gap-2 w-full">
-                                        <div className="relative shrink-0 mt-0.5">
-                                            <MessageSquare size={14} />
-                                            {busyIds?.has(session.id) && (
+                                <Plus size={12} />
+                            </button>
+                            <motion.span
+                                className="shrink-0 flex items-center"
+                                animate={{rotate: collapsed ? 0 : 90}}
+                                transition={springSnappy}
+                            >
+                                <ChevronRight size={12} />
+                            </motion.span>
+                        </div>
+                            {!collapsed && groupSessions.map((session) => {
+                                const isActive = session.id === activeId;
+                                return (
+                                    <div
+                                        key={session.id}
+                                        className="relative my-0.5 cursor-pointer"
+                                        title={session.name}
+                                    >
+                                        {/* Inner motion layer carries the spring scale
+                                            animation and the layout slide used when the
+                                            list reorders (a session closing). */}
+                                        <motion.div
+                                            {...whileHoverTap}
+                                            layout="position"
+                                            transition={springSoft}
+                                            className={`lum-session-row group relative flex flex-row items-center justify-between px-3 py-2 rounded-[var(--radius-sm)] transition-colors duration-[var(--duration-base)] ease-[var(--duration-glass)] hover:bg-[var(--lum-session-hover)] ${isActive ? "bg-[var(--lum-session-active)]" : ""}`}
+                                            style={{
+                                                "--lum-session-hover": isActive ? colors.accentOverlay : colors.hoverOverlay,
+                                                "--lum-session-active": colors.accentOverlay,
+                                            } as CSSProperties}
+                                            onClick={() => onSelect(session.id)}
+                                        >
+                                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                {busyIds?.has(session.id) && (
+                                                    <span
+                                                        className="shrink-0 w-1.5 h-1.5 rounded-full animate-pulse"
+                                                        style={{backgroundColor: "var(--color-brand-lavender)"}}
+                                                    />
+                                                )}
                                                 <span
-                                                    className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full animate-pulse"
-                                                    style={{backgroundColor: "var(--color-brand-lavender)"}}
-                                                />
-                                            )}
-                                        </div>
-                                        <div className="flex flex-col min-w-0">
-                                            <span
-                                                className="text-sm truncate leading-tight"
+                                                    className="text-sm truncate leading-tight"
+                                                    style={{
+                                                        color: isActive ? foregroundColor : colors.inactiveText,
+                                                    }}
+                                                >
+                                                    {session.name}
+                                                </span>
+                                            </div>
+                                            <button
+                                                className={`lum-session-close cursor-pointer opacity-0 rounded-[var(--radius-xs)] p-1 shrink-0 transition-all duration-[var(--duration-fast)] ml-1 group-hover:opacity-100 hover:bg-[var(--lum-session-active)]`}
+                                                title="Delete session"
                                                 style={{
+                                                    "--lum-session-active": colors.activeOverlay,
                                                     color: isActive ? foregroundColor : colors.inactiveText,
+                                                } as CSSProperties}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onClose(session.id);
                                                 }}
                                             >
-                                                {session.name}
-                                            </span>
-                                        </div>
+                                                <X size={12} />
+                                            </button>
+                                        </motion.div>
                                     </div>
-                                    {session.subtitle && (
-                                        <div
-                                            className="text-xs leading-tight flex items-center gap-1.5 min-w-0 overflow-hidden max-w-full"
-                                            style={{
-                                                color: colors.inactiveText,
-                                                opacity: 0.6,
-                                            }}
-                                        >
-                                            <span className="truncate min-w-0 w-full">{session.subtitle}</span>
-                                        </div>
-                                    )}
-                                </div>
-                                <button
-                                    className={`lum-session-close cursor-pointer opacity-0 rounded-[var(--radius-xs)] p-1 shrink-0 transition-all duration-[var(--duration-fast)] ml-1 group-hover:opacity-100 hover:bg-[var(--lum-session-active)]`}
-                                    title="Delete session"
-                                    style={{
-                                        "--lum-session-active": colors.activeOverlay,
-                                        color: isActive ? foregroundColor : colors.inactiveText,
-                                    } as CSSProperties}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onClose(session.id);
-                                    }}
-                                >
-                                    <X size={12} />
-                                </button>
-                            </motion.div>
+                                );
+                            })}
                         </div>
                     );
                 })}
@@ -198,20 +255,6 @@ export default function SessionBar(props: SessionBarProps) {
                         <span className="text-xs truncate">{connection.label}</span>
                     </div>
                 )}
-                <motion.button
-                    {...whileHoverTap}
-                    className="lum-session-new flex flex-row items-center gap-2 w-full px-3 py-2.5 mt-1 transition-colors duration-[var(--duration-fast)] cursor-pointer rounded-[var(--radius-sm)] hover:bg-[var(--lum-new-hover)]"
-                    style={{
-                        "--lum-new-hover": colors.hoverOverlay,
-                        color: colors.inactiveText,
-                    } as CSSProperties}
-                    onClick={onNew}
-                >
-                    <Plus size={16} />
-                    <div className="flex flex-col w-full justify-start items-start">
-                        <span className="text-sm">{t["New Session"]}</span>
-                    </div>
-                </motion.button>
             </div>
         </div>
     );

@@ -9,6 +9,7 @@ import {
     type ChatAssistantMessage,
     type ChatMessage,
     type ChatUserMessage,
+    type ComposerAttachment,
     type EventMap,
 } from "./types.ts";
 
@@ -37,7 +38,7 @@ export function useSessionMessages(
     hasMore: boolean;
     loadingOlder: boolean;
     loadOlder: () => void;
-    send: (text: string) => Promise<void>;
+    send: (text: string, files?: ComposerAttachment[]) => Promise<void>;
     interrupt: () => Promise<void>;
 } {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -90,8 +91,14 @@ export function useSessionMessages(
             const ascending = (page?.data ?? []).slice().reverse();
             olderCursorRef.current = page?.cursor?.next ?? null;
             setHasMore(olderCursorRef.current !== null);
-            messagesRef.current = ascending;
-            setMessages(ascending);
+            // Merge race guard: a user message may have been admitted (event
+            // bus) while this request was in flight — the page snapshot predates
+            // it, so a blind overwrite would drop the bubble. Re-append any
+            // locally held message the page doesn't know about.
+            const pageIds = new Set(ascending.map((m) => m.id));
+            const newer = messagesRef.current.filter((m) => !pageIds.has(m.id));
+            messagesRef.current = newer.length > 0 ? [...ascending, ...newer] : ascending;
+            setMessages(messagesRef.current);
         }).catch((e) => {
             if (gen !== loadGen.current) return;
             logError(`Failed to load messages for ${sessionId}: ${e}`).catch(() => {});
@@ -136,7 +143,10 @@ export function useSessionMessages(
                     const {inboxID, item} = data as EventMap["session.inbox.enqueued"];
                     if (item?.type !== "user") return;
                     const text = item.payload?.text ?? "";
+                    const files = item.payload?.files;
                     mutate((prev) => {
+                        // Already held (seed race or another handler pass)?
+                        if (prev.some((m) => m.id === inboxID)) return prev;
                         // Adopt the optimistic bubble this client appended
                         // in send() (swap in the server id)…
                         const last = prev[prev.length - 1];
@@ -144,10 +154,10 @@ export function useSessionMessages(
                             last && last.type === "user" &&
                             last.id.startsWith("local-") && last.text === text
                         ) {
-                            return [...prev.slice(0, -1), {id: inboxID, type: "user", text}];
+                            return [...prev.slice(0, -1), {id: inboxID, type: "user", text, files}];
                         }
                         // …or append when the prompt came from another client.
-                        return [...prev, {id: inboxID, type: "user", text}];
+                        return [...prev, {id: inboxID, type: "user", text, files}];
                     }, true);
                     break;
                 }
@@ -354,7 +364,7 @@ export function useSessionMessages(
 
     // --- Actions ---
 
-    const send = useCallback(async (text: string) => {
+    const send = useCallback(async (text: string, files?: ComposerAttachment[]) => {
         const trimmed = text.trim();
         const a = apiRef.current;
         const sid = sessionRef.current;
@@ -365,11 +375,16 @@ export function useSessionMessages(
             id: `local-${Date.now()}`,
             type: "user",
             text: trimmed,
+            files: files?.map((f) => ({name: f.name, mime: f.mime, uri: f.uri})),
         };
         messagesRef.current = [...messagesRef.current, optimistic];
         commit(true);
         try {
-            await a.sendPrompt(sid, trimmed);
+            await a.sendPrompt(
+                sid,
+                trimmed,
+                files?.map((f) => ({uri: f.uri, name: f.name})),
+            );
         } catch (e) {
             logError(`Failed to send prompt: ${e}`).catch(() => {});
             // Drop the optimistic bubble so the failure is visible.

@@ -1,9 +1,6 @@
-import {memo, useEffect, useState} from "react";
+import {memo, useEffect, useState, type ReactNode} from "react";
 import {
     AlertCircle,
-    CheckCircle2,
-    ChevronDown,
-    ChevronRight,
     FilePen,
     FilePlus,
     FolderOpen,
@@ -19,45 +16,137 @@ import {
 } from "lucide-react";
 import type {AssistantToolPart} from "../../opencode/types.ts";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import FoldRow from "./FoldRow.tsx";
 
-/** Icon per known tool; falls back to a wrench. */
-const TOOL_ICONS: Record<string, LucideIcon> = {
-    bash: SquareTerminal,
-    shell: SquareTerminal,
-    power_shell: SquareTerminal,
-    edit: FilePen,
-    apply_patch: FilePen,
-    write: FilePlus,
-    read: FolderOpen,
-    grep: Search,
-    glob: FolderSearch,
-    list: FolderSearch,
-    todowrite: ListTodo,
-    todoread: ListTodo,
-    webfetch: Globe,
-    websearch: Globe,
+const MONO = "var(--font-mono, ui-monospace, monospace)";
+
+/** Human title + icon per known tool; falls back to a capitalized wrench. */
+const TOOL_META: Record<string, {title: string; icon: LucideIcon}> = {
+    bash: {title: "Shell", icon: SquareTerminal},
+    shell: {title: "Shell", icon: SquareTerminal},
+    power_shell: {title: "Shell", icon: SquareTerminal},
+    edit: {title: "Edit", icon: FilePen},
+    apply_patch: {title: "Edit", icon: FilePen},
+    write: {title: "Write", icon: FilePlus},
+    read: {title: "Read", icon: FolderOpen},
+    grep: {title: "Grep", icon: Search},
+    glob: {title: "Glob", icon: FolderSearch},
+    list: {title: "List", icon: FolderSearch},
+    todowrite: {title: "Todo", icon: ListTodo},
+    todoread: {title: "Todo", icon: ListTodo},
+    webfetch: {title: "Fetch", icon: Globe},
+    websearch: {title: "Search", icon: Globe},
 };
 
-/** One-line human summary of a tool call's input. */
-function toolSummary(part: AssistantToolPart): string {
+/** Display title for a tool name (used by ActivityGroup's summary too). */
+export function toolDisplayName(name: string): string {
+    return TOOL_META[name]?.title ?? (name.charAt(0).toUpperCase() + name.slice(1));
+}
+
+function metaFor(name: string): {title: string; icon: LucideIcon} {
+    return TOOL_META[name] ?? {title: toolDisplayName(name), icon: Wrench};
+}
+
+function inputObject(part: AssistantToolPart): Record<string, unknown> | null {
     const input = part.state.input;
-    if (input === undefined || input === null) return "";
-    if (typeof input !== "object") return String(input);
-    const o = input as Record<string, unknown>;
-    for (const key of ["command", "file_path", "path", "pattern", "url", "query", "command_str"]) {
+    if (input === undefined || input === null) return null;
+    if (typeof input !== "object") return null;
+    return input as Record<string, unknown>;
+}
+
+function inputStr(o: Record<string, unknown>, ...keys: string[]): string | undefined {
+    for (const key of keys) {
         const v = o[key];
-        if (typeof v === "string" && v) return v.length > 120 ? v.slice(0, 117) + "…" : v;
+        if (typeof v === "string" && v) return v;
     }
-    const json = JSON.stringify(input);
-    return json.length > 120 ? json.slice(0, 117) + "…" : json;
+    return undefined;
+}
+
+function lineCount(v: unknown): number | undefined {
+    return typeof v === "string" && v ? v.split("\n").length : undefined;
+}
+
+/** The "+N / −N" diff suffix for file-mutating tools. */
+function DiffCounts({added, removed}: {added?: number; removed?: number}) {
+    if (added == null && removed == null) return null;
+    return (
+        <span className="shrink-0 inline-flex items-center gap-1.5">
+            {added != null && (
+                <span style={{color: "#22c55e"}}>+{added}</span>
+            )}
+            {removed != null && (
+                <span style={{color: "#ef4444"}}>−{removed}</span>
+            )}
+        </span>
+    );
 }
 
 /**
- * Compact card for one tool invocation inside an assistant message: status
- * icon + tool name + input summary; the full output folds out on click.
- * Auto-expands while running so live progress is visible, folds on
- * completion to keep the transcript scannable (an explicit user toggle wins
- * until the next lifecycle transition).
+ * The row's detail line: the single most identifying input of the call —
+ * the command for shells, the file path (+ added/removed lines for edits)
+ * for file tools, the pattern for search, the URL for fetch…
+ */
+function toolDetail(part: AssistantToolPart): ReactNode {
+    const o = inputObject(part);
+    if (!o) {
+        const raw = part.state.input;
+        return raw == null ? null : (
+            <span className="truncate" style={{fontFamily: MONO}}>{String(raw)}</span>
+        );
+    }
+    const path = (s?: string) => (
+        <span className="truncate min-w-0" style={{fontFamily: MONO}}>{s}</span>
+    );
+    switch (part.name) {
+        case "bash":
+        case "shell":
+        case "power_shell": {
+            const command = inputStr(o, "command", "command_str");
+            return command ? path(command) : null;
+        }
+        case "edit":
+        case "apply_patch":
+            return (
+                <>
+                    {path(inputStr(o, "file_path", "path"))}
+                    <DiffCounts
+                        added={lineCount(o.new_string)}
+                        removed={lineCount(o.old_string)}
+                    />
+                </>
+            );
+        case "write":
+            return (
+                <>
+                    {path(inputStr(o, "file_path", "path"))}
+                    <DiffCounts added={lineCount(o.content)} />
+                </>
+            );
+        case "read":
+            return path(inputStr(o, "file_path", "path"));
+        case "grep":
+        case "glob":
+            return path(inputStr(o, "pattern", "query"));
+        case "webfetch":
+            return path(inputStr(o, "url"));
+        case "websearch":
+            return path(inputStr(o, "query"));
+        default: {
+            const json = JSON.stringify(part.state.input);
+            if (!json || json === "{}") return null;
+            return <span className="truncate" style={{fontFamily: MONO}}>
+                {json.length > 120 ? json.slice(0, 117) + "…" : json}
+            </span>;
+        }
+    }
+}
+
+/**
+ * One tool invocation as a FoldRow: tool icon (or status icon while
+ * pending/running/failed) + title + input summary; the full output folds
+ * out on click. Auto-expands while running so live progress is visible,
+ * folds on completion to keep the transcript scannable (an explicit user
+ * toggle wins until the next lifecycle transition).
  *
  * Memoized — see MessageItem.
  */
@@ -77,61 +166,45 @@ const ToolCard = memo(function ToolCard({
         setExpanded(status === "running");
     }, [status, userToggled]);
 
-    const Icon = TOOL_ICONS[part.name] ?? Wrench;
+    const {title, icon: Icon} = metaFor(part.name);
+    const icon = status === "running"
+        ? <Loader2 size={14} className="animate-spin" />
+        : status === "pending"
+            ? <Hourglass size={14} className="opacity-60" />
+            : status === "error"
+                ? <AlertCircle size={14} style={{color: "#ef4444"}} />
+                : <Icon size={14} />;
+
     const output = (part.state.content ?? [])
         .map((c) => c.text)
         .join("\n")
         .trimEnd();
 
     return (
-        <div
-            className="rounded-[var(--radius-md)] overflow-hidden my-1"
-            style={{background: colors.recessedBg, border: `1px solid ${colors.glassBorder}`}}
+        <FoldRow
+            icon={icon}
+            title={title}
+            detail={toolDetail(part)}
+            expanded={expanded}
+            onToggle={() => {
+                setUserToggled(true);
+                setExpanded((v) => !v);
+            }}
         >
-            <button
-                type="button"
-                className="flex flex-row items-center gap-2 w-full px-3 py-2 cursor-pointer text-left hover:bg-[rgba(128,128,128,0.12)] transition-colors duration-[var(--duration-fast)]"
-                onClick={() => {
-                    setUserToggled(true);
-                    setExpanded((v) => !v);
-                }}
-            >
-                {status === "running" ? (
-                    <Loader2 size={14} className="shrink-0 animate-spin" />
-                ) : status === "pending" ? (
-                    <Hourglass size={14} className="shrink-0 opacity-60" />
-                ) : status === "error" ? (
-                    <AlertCircle size={14} className="shrink-0" style={{color: "#ef4444"}} />
-                ) : (
-                    <CheckCircle2 size={14} className="shrink-0" style={{color: "#22c55e"}} />
-                )}
-                <Icon size={14} className="shrink-0 opacity-70" />
-                <span className="text-xs font-medium shrink-0">{part.name}</span>
-                <span
-                    className="text-xs truncate flex-1 min-w-0"
-                    style={{fontFamily: "var(--font-mono, ui-monospace, monospace)"}}
-                >
-                    {toolSummary(part)}
-                </span>
-                {expanded ? (
-                    <ChevronDown size={12} className="shrink-0 opacity-60" />
-                ) : (
-                    <ChevronRight size={12} className="shrink-0 opacity-60" />
-                )}
-            </button>
-            {expanded && (output.length > 0 || status === "error") && (
+            {(output.length > 0 || status === "error") && (
                 <div
-                    className="px-3 py-2 text-xs whitespace-pre-wrap break-words max-h-64 overflow-y-auto"
+                    className="ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2 text-sm whitespace-pre-wrap break-words max-h-64 overflow-y-auto"
                     style={{
-                        fontFamily: "var(--font-mono, ui-monospace, monospace)",
-                        borderTop: `1px solid ${colors.glassBorder}`,
+                        fontFamily: MONO,
+                        background: colors.recessedBg,
+                        border: `1px solid ${colors.glassBorder}`,
                         color: colors.inactiveText,
                     }}
                 >
                     {output || (status === "error" ? "Tool failed" : "")}
                 </div>
             )}
-        </div>
+        </FoldRow>
     );
 });
 

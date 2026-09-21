@@ -2,10 +2,16 @@ import {memo, useCallback, useEffect, useLayoutEffect, useRef, useState} from "r
 import {useSurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
-import type {ChatMessage} from "../../opencode/types.ts";
+import type {
+    ChatAssistantMessage,
+    ChatMessage,
+    OpencodeAgent,
+    OpencodeModel,
+    SessionModelRef,
+} from "../../opencode/types.ts";
 import {isAssistantMessage} from "../../opencode/types.ts";
 import {useSessionMessages} from "../../opencode/useSessionMessages.ts";
-import MessageItem from "./MessageItem.tsx";
+import MessageItem, {ActivityGroup, effectiveTailPart, type ActivityPart} from "./MessageItem.tsx";
 import ChatInput from "./ChatInput.tsx";
 
 /**
@@ -27,6 +33,46 @@ import ChatInput from "./ChatInput.tsx";
 /** How many transcript entries mount initially / per expansion. */
 const RENDER_LIMIT = 60;
 
+/** Transcript display block: one message, or a run of consecutive
+ *  activity-only assistant messages folded into a single disclosure. */
+type TranscriptBlock =
+    | {kind: "message"; message: ChatMessage}
+    | {kind: "activity"; messages: ChatAssistantMessage[]};
+
+/** An assistant message with no visible prose — pure tool/thought
+ *  machinery, eligible for cross-message folding. */
+function isActivityOnly(m: ChatMessage): m is ChatAssistantMessage {
+    return isAssistantMessage(m) && !m.content.some(
+        (p) => p.type === "text" && p.text.trim() !== "",
+    );
+}
+
+/**
+ * The server opens a NEW assistant message per model step, so a chain of
+ * single-tool steps (edit → shell → grep → …) arrives as many consecutive
+ * activity-only messages. Runs of 2+ fold into one ActivityGroup; a lone
+ * one keeps MessageItem's rendering (its dedicated ToolCard / own grouping).
+ */
+function blockify(list: ChatMessage[]): TranscriptBlock[] {
+    const blocks: TranscriptBlock[] = [];
+    let run: ChatAssistantMessage[] = [];
+    const flush = () => {
+        if (run.length === 0) return;
+        if (run.length === 1) blocks.push({kind: "message", message: run[0]});
+        else blocks.push({kind: "activity", messages: run});
+        run = [];
+    };
+    for (const m of list) {
+        if (isActivityOnly(m)) run.push(m);
+        else {
+            flush();
+            blocks.push({kind: "message", message: m});
+        }
+    }
+    flush();
+    return blocks;
+}
+
 const ChatView = memo(function ChatView({
     api,
     subscribe,
@@ -34,6 +80,12 @@ const ChatView = memo(function ChatView({
     backgroundColor,
     busy,
     disabled,
+    agents,
+    models,
+    agent,
+    model,
+    onAgentChange,
+    onModelChange,
 }: {
     api: OpencodeApi | null;
     subscribe: (handler: OpencodeEventHandler) => () => void;
@@ -42,6 +94,13 @@ const ChatView = memo(function ChatView({
     busy: boolean;
     /** No connection. */
     disabled: boolean;
+    /** Composer catalog + effective selections (owned by App). */
+    agents: OpencodeAgent[];
+    models: OpencodeModel[];
+    agent: string;
+    model: SessionModelRef | null;
+    onAgentChange: (agent: string) => void;
+    onModelChange: (model: SessionModelRef) => void;
 }) {
     const colors = useSurfaceColors(backgroundColor);
     const {messages, hasMore, loadingOlder, loadOlder, send, interrupt} =
@@ -128,7 +187,7 @@ const ChatView = memo(function ChatView({
                 onScroll={handleScroll}
                 className="flex-1 overflow-y-auto overflow-x-hidden"
             >
-                <div className="max-w-3xl mx-auto w-full flex flex-col gap-5 px-6 py-6">
+                <div className="max-w-3xl mx-auto w-full flex flex-col gap-3 px-6 py-6">
                     {showTopSentinel && (
                         <div ref={sentinelRef} className="flex justify-center py-2 select-none">
                             <span className="text-xs opacity-40">
@@ -141,14 +200,35 @@ const ChatView = memo(function ChatView({
                             {disabled ? "Waiting for OpenCode…" : "Send a message to start"}
                         </div>
                     )}
-                    {rendered.map((m) => (
-                        <MessageItem
-                            key={m.id}
-                            message={m}
-                            colors={colors}
-                            streaming={isStreaming(m)}
-                        />
-                    ))}
+                    {blockify(rendered).map((block) => {
+                        if (block.kind === "message") {
+                            return (
+                                <MessageItem
+                                    key={block.message.id}
+                                    message={block.message}
+                                    colors={colors}
+                                    streaming={isStreaming(block.message)}
+                                />
+                            );
+                        }
+                        const parts = block.messages.flatMap((m) =>
+                            m.content.filter((p): p is ActivityPart => p.type !== "text"),
+                        );
+                        // Live while the streaming message's effective tail
+                        // is a tool/thought inside this run.
+                        const streamingMsg = block.messages.find(isStreaming);
+                        const tail = streamingMsg ? effectiveTailPart(streamingMsg) : undefined;
+                        const livePart: ActivityPart | null =
+                            tail != null && tail.type !== "text" ? tail : null;
+                        return (
+                            <ActivityGroup
+                                key={block.messages[0].id}
+                                parts={parts}
+                                colors={colors}
+                                livePart={livePart}
+                            />
+                        );
+                    })}
                 </div>
             </div>
             <div className="shrink-0 max-w-3xl mx-auto w-full px-6 pb-4">
@@ -156,8 +236,18 @@ const ChatView = memo(function ChatView({
                     colors={colors}
                     disabled={disabled}
                     busy={busy}
-                    onSend={(text) => void send(text)}
+                    onSend={(text, files) => void send(text, files)}
                     onInterrupt={() => void interrupt()}
+                    agents={agents}
+                    models={models}
+                    agent={agent}
+                    model={model}
+                    onAgentChange={onAgentChange}
+                    onModelChange={onModelChange}
+                    sessionStarted
+                    api={api}
+                    directory={null}
+                    onDirectoryChange={() => {}}
                 />
             </div>
         </div>
