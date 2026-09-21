@@ -1,0 +1,56 @@
+import type {TranslationKey} from "./en-us.ts";
+
+/**
+ * Simplified Chinese. Partial on purpose: a key missing here renders in
+ * English via the source table, so translations can land incrementally
+ * without breaking the UI or the build.
+ */
+const zhCn: Partial<Record<TranslationKey, string>> = {
+    "Command Palette": "命令面板",
+    "Pin on Top": "窗口置顶",
+    "Unpin from Top": "取消置顶",
+    "Always on top is not supported on Wayland": "Wayland 下不支持窗口置顶",
+    "New Session": "新建会话",
+    "Other Sessions": "其他会话",
+    "Welcome to Lumina Code": "欢迎使用 Lumina Code",
+    "Create a session to start": "创建会话即可开始",
+    "Connecting to OpenCode…": "正在连接 OpenCode…",
+    "Connection error": "连接错误",
+    "Send": "发送",
+    "Stop": "停止",
+    "Mode": "模式",
+    "Model": "模型",
+    "Thinking depth": "思考深度",
+    "Project": "项目",
+    "Default project directory": "默认项目目录",
+    "Recent Projects": "最近的项目",
+    "Browse…": "浏览…",
+    "Choose This Folder": "选择此文件夹",
+    "Add attachment": "添加附件",
+    "Remove attachment": "移除附件",
+    // --- Permission requests & questions ---
+    "Permission request": "权限请求",
+    "Access a folder outside the project": "访问项目外的文件夹",
+    "Run a shell command": "运行 shell 命令",
+    "Edit a file": "编辑文件",
+    "Write a file": "写入文件",
+    "Read files": "读取文件",
+    "Fetch a web page": "抓取网页",
+    "Search the web": "搜索网页",
+    "Ask you questions": "向你提问",
+    "Allow once": "仅此一次",
+    "Always allow": "始终允许",
+    "Reject": "拒绝",
+    "Questions": "提问",
+    "Send answers": "发送回答",
+    "Dismiss": "忽略",
+    "Answer required": "必答",
+    "Type your answer…": "输入你的回答…",
+    "Previous": "上一个",
+    "Next": "下一个",
+    // --- Settings ---
+    "Language": "语言",
+    "Follow System": "跟随系统",
+};
+
+export default zhCn;

@@ -18,6 +18,7 @@ export default function PopoverMenu({
     children,
     colors,
     align = "start",
+    direction = "up",
     panelClassName = "",
     title,
     disabled = false,
@@ -28,6 +29,9 @@ export default function PopoverMenu({
     children: (close: () => void) => ReactNode;
     colors: SurfaceColors;
     align?: "start" | "end";
+    /** Which way the panel opens relative to the trigger. Bottom-composer
+     *  consumers open up; title-bar menus open down. */
+    direction?: "up" | "down";
     panelClassName?: string;
     title?: string;
     disabled?: boolean;
@@ -57,6 +61,9 @@ export default function PopoverMenu({
         if (!disabled) setOpen((v) => !v);
     };
 
+    // Slide in from the side the panel came from.
+    const rise = direction === "down" ? -6 : 6;
+
     // Panel surface: the themed elevated token (light/dark aware) with the
     // chrome's elevation shadow and hairline border.
     const panelStyle = {
@@ -72,11 +79,13 @@ export default function PopoverMenu({
             <AnimatePresence>
                 {open && (
                     <motion.div
-                        initial={{opacity: 0, y: 6, scale: 0.98}}
+                        initial={{opacity: 0, y: rise, scale: 0.98}}
                         animate={{opacity: 1, y: 0, scale: 1}}
-                        exit={{opacity: 0, y: 6, scale: 0.98, transition: {duration: durationFast}}}
+                        exit={{opacity: 0, y: rise, scale: 0.98, transition: {duration: durationFast}}}
                         transition={{duration: durationFast, ease: [0.22, 1, 0.36, 1]}}
-                        className={`absolute bottom-full mb-1.5 z-50 min-w-40 max-h-72 overflow-y-auto rounded-[var(--radius-md)] py-1 ${
+                        className={`absolute z-50 min-w-40 max-h-72 overflow-y-auto rounded-[var(--radius-md)] py-1 ${
+                            direction === "down" ? "top-full mt-1.5" : "bottom-full mb-1.5"
+                        } ${
                             align === "start" ? "left-0" : "right-0"
                         } ${panelClassName}`}
                         style={panelStyle}

@@ -289,10 +289,9 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                 <TitleBar
                     theme={effectiveTheme}
                     title={activeSession ? activeSession.title?.trim() || "Untitled" : null}
-                    // Command palette + settings arrive with the business
-                    // logic; the buttons stay in place so the chrome is final.
+                    // Command palette arrives with the business logic; the
+                    // button stays in place so the chrome is final.
                     onOpenCommandPalette={() => {}}
-                    onOpenSettings={() => {}}
                     isMaximized={isMaximized}
                 />
                 <div className="flex-1 relative overflow-hidden">
