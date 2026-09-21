@@ -136,6 +136,12 @@ export default function ChatInput({
         }
     };
 
+    // Grab focus on mount: a freshly created session (or a session switch)
+    // remounts the composer, and the user's next keystroke should land in it.
+    useEffect(() => {
+        if (!disabled) textareaRef.current?.focus();
+    }, [disabled]);
+
     // Auto-grow up to 5 lines, then scroll.
     useEffect(() => {
         const el = textareaRef.current;

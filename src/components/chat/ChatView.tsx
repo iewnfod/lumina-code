@@ -256,7 +256,21 @@ const ChatView = memo(function ChatView({
                 ref={scrollRef}
                 onScroll={handleScroll}
                 onWheel={handleWheel}
-                className="flex-1 overflow-y-auto overflow-x-hidden"
+                className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+                style={{
+                    // Edge fade: content dissolves into the chrome instead of
+                    // being hard-clipped at the top of the content area and
+                    // just above the composer. A CSS mask fades whichever
+                    // pixels are there — no color to match, so it reads
+                    // correctly over the glass surface in dark mode too.
+                    // Eased stops: the alpha drops off quickly near the very
+                    // edge instead of lingering half-visible across the
+                    // whole band, so text feels fully faded before it exits.
+                    WebkitMaskImage:
+                        "linear-gradient(to bottom, transparent 0, rgba(0,0,0,0.65) 19px, black 51px, black calc(100% - 51px), rgba(0,0,0,0.65) calc(100% - 19px), transparent 100%)",
+                    maskImage:
+                        "linear-gradient(to bottom, transparent 0, rgba(0,0,0,0.65) 19px, black 51px, black calc(100% - 51px), rgba(0,0,0,0.65) calc(100% - 19px), transparent 100%)",
+                }}
             >
                 <div className="max-w-3xl mx-auto w-full flex flex-col gap-3 px-6 py-6">
                     <AnimatePresence>

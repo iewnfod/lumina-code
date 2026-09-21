@@ -24,7 +24,6 @@ export default function FoldRow({
     detail,
     expanded,
     onToggle,
-    active = false,
     children,
 }: {
     icon: ReactNode;
@@ -32,16 +31,13 @@ export default function FoldRow({
     detail?: ReactNode;
     expanded: boolean;
     onToggle: () => void;
-    /** True while this row's work is executing — adds the shimmer sweep
-     *  (`.lum-shimmer`, main.css) as the live indicator. */
-    active?: boolean;
     children?: ReactNode;
 }) {
     return (
         <div className="min-w-0 text-sm">
             <button
                 type="button"
-                className={`group/row flex items-center gap-2 w-full text-left cursor-pointer py-0.5 rounded-[var(--radius-xs)] opacity-50 hover:opacity-100 transition-opacity duration-[var(--duration-fast)] ${active ? "lum-shimmer opacity-70" : ""}`}
+                className="group/row flex items-center gap-2 w-full text-left cursor-pointer py-0.5 rounded-[var(--radius-xs)] opacity-50 hover:opacity-100 transition-opacity duration-[var(--duration-fast)]"
                 onClick={onToggle}
             >
                 <span className="shrink-0 flex items-center">{icon}</span>

@@ -8,7 +8,6 @@ import {
     Globe,
     Hourglass,
     ListTodo,
-    Loader2,
     Search,
     SquareTerminal,
     Wrench,
@@ -183,8 +182,10 @@ const ToolCard = memo(function ToolCard({
     }, [status, userToggled]);
 
     const {title, icon: Icon} = metaFor(part.name);
+    // Running tools breathe (opacity pulse) on their own icon — same live
+    // cue as thinking's brain; pending waits quietly, errors go red.
     const icon = status === "running"
-        ? <Loader2 size={14} className="animate-spin" />
+        ? <Icon size={14} className="animate-pulse" />
         : status === "pending"
             ? <Hourglass size={14} className="opacity-60" />
             : status === "error"
@@ -202,7 +203,6 @@ const ToolCard = memo(function ToolCard({
             title={title}
             detail={toolDetail(part)}
             expanded={expanded}
-            active={status === "running"}
             onToggle={() => {
                 setUserToggled(true);
                 setExpanded((v) => !v);
