@@ -18,6 +18,7 @@ import {useI18n} from "./hooks/i18n.tsx";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {springSwap} from "./lib/motion.ts";
 import {isLinux} from "./lib/platform.ts";
+import {loadState, saveState} from "./lib/persist.ts";
 import {appThemeFor} from "./lib/theme.ts";
 import {useOpencode} from "./opencode/useOpencode.ts";
 import {useSessions} from "./opencode/useSessions.ts";
@@ -59,7 +60,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
 
     // --- OpenCode connection, session list, active conversation ---
     const {status: connectionStatus, api, subscribe} = useOpencode();
-    const {sessions, busyIds, create, remove, patch} = useSessions(api, subscribe);
+    const {sessions, loaded: sessionsLoaded, busyIds, create, remove, patch} = useSessions(api, subscribe);
     const {
         permissions: pendingAllPermissions,
         forms: pendingAllForms,
@@ -69,7 +70,10 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
         cancelForm,
     } = useSessionRequests(api, subscribe);
     const {models, agents, defaultModel} = useModelCatalog(api);
-    const [activeId, setActiveId] = useState<string | null>(null);
+    // Cross-restart restore, read synchronously so the first paint already
+    // targets the previous session / composer choices.
+    const restored = useMemo(loadState, []);
+    const [activeId, setActiveId] = useState<string | null>(restored.sessionId);
     const busy = activeId !== null && busyIds.has(activeId);
     const activeSession = sessions.find((s) => s.id === activeId) ?? null;
     const connected = connectionStatus.state === "connected";
@@ -78,10 +82,11 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     // Once a session exists, its model/agent drive the composer and changes
     // hit the switch endpoints (optimistically patched into the list).
     // Before that, pending* state rides along into the session we create on
-    // the first send — including the working directory.
-    const [pendingModel, setPendingModel] = useState<SessionModelRef | null>(null);
-    const [pendingAgent, setPendingAgent] = useState<string | null>(null);
-    const [pendingDirectory, setPendingDirectory] = useState<string | null>(null);
+    // the first send — including the working directory — and is seeded from
+    // the last run's choices.
+    const [pendingModel, setPendingModel] = useState<SessionModelRef | null>(restored.model);
+    const [pendingAgent, setPendingAgent] = useState<string | null>(restored.agent);
+    const [pendingDirectory, setPendingDirectory] = useState<string | null>(restored.directory);
 
     // Preselect the server's default model when it survived the catalog
     // filter; otherwise the first (newest-first) own model. None until the
@@ -97,8 +102,22 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
             ? {id: chosen.modelID, providerID: chosen.providerID, variant: chosen.variants?.[0]?.id}
             : null;
     }, [defaultModel, models]);
-    const effectiveModel = activeSession?.model ?? pendingModel ?? fallbackModel;
-    const effectiveAgent = activeSession?.agent ?? pendingAgent ?? agents[0]?.id ?? "build";
+    // A restored/staged pick only applies while the catalog still offers it —
+    // the provider or agent may be gone since the last run.
+    const stagedModel = useMemo(() => {
+        if (!pendingModel) return null;
+        if (models.length === 0) return pendingModel; // catalog still loading
+        return models.some(
+            (m) => m.providerID === pendingModel.providerID && m.modelID === pendingModel.id,
+        ) ? pendingModel : null;
+    }, [pendingModel, models]);
+    const stagedAgent = useMemo(() => {
+        if (!pendingAgent) return null;
+        if (agents.length === 0) return pendingAgent; // catalog still loading
+        return agents.some((a) => a.id === pendingAgent) ? pendingAgent : null;
+    }, [pendingAgent, agents]);
+    const effectiveModel = activeSession?.model ?? stagedModel ?? fallbackModel;
+    const effectiveAgent = activeSession?.agent ?? stagedAgent ?? agents[0]?.id ?? "build";
 
     const changeModel = useCallback((ref: SessionModelRef) => {
         if (activeId) {
@@ -206,6 +225,25 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
             error(`Failed to show window: ${e}`).catch(() => {});
         });
     }, []);
+
+    // Drop a restored session id the server no longer lists (deleted while we
+    // were away), once the first session list has actually landed.
+    useEffect(() => {
+        if (sessionsLoaded && activeId && !sessions.some((s) => s.id === activeId)) {
+            setActiveId(null);
+        }
+    }, [sessionsLoaded, sessions, activeId]);
+
+    // Persist what a restart should land on: the open session (or the welcome
+    // screen's staged project), plus the model / thinking depth / mode in use.
+    useEffect(() => {
+        saveState({
+            sessionId: activeId,
+            model: effectiveModel,
+            agent: effectiveAgent,
+            directory: pendingDirectory,
+        });
+    }, [activeId, effectiveModel, effectiveAgent, pendingDirectory]);
 
     // Sync the HeroUI light/dark class on <html> with the resolved theme so
     // framework controls (tooltips, …) match the chrome.

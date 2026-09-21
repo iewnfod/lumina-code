@@ -26,6 +26,8 @@ export function useSessions(
     subscribe: (handler: OpencodeEventHandler) => () => void,
 ): {
     sessions: OpencodeSession[];
+    /** True once the first `GET /api/session` has landed (success only). */
+    loaded: boolean;
     /** Sessions with an execution in flight (live-updated). */
     busyIds: ReadonlySet<string>;
     /** Create a session (optionally in a specific working directory); returns it (null on failure). */
@@ -37,6 +39,7 @@ export function useSessions(
     patch: (id: string, fields: Partial<OpencodeSession>) => void;
 } {
     const [sessions, setSessions] = useState<OpencodeSession[]>([]);
+    const [loaded, setLoaded] = useState(false);
     const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
     const apiRef = useRef(api);
     apiRef.current = api;
@@ -61,6 +64,7 @@ export function useSessions(
             if (cancelled) return;
             const roots = (list ?? []).filter(isRootSession);
             setSessions(roots);
+            setLoaded(true);
             info(`Loaded ${roots.length} OpenCode session(s) (${(list?.length ?? 0) - roots.length} subagent session(s) hidden)`).catch(() => {});
         }).catch((e) => {
             logError(`Failed to load sessions: ${e}`).catch(() => {});
@@ -146,5 +150,5 @@ export function useSessions(
         setSessions((prev) => prev.map((s) => (s.id === id ? {...s, ...fields} : s)));
     }, []);
 
-    return {sessions, busyIds, create, remove, patch};
+    return {sessions, loaded, busyIds, create, remove, patch};
 }
