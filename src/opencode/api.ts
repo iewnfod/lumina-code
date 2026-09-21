@@ -1,4 +1,6 @@
-import type {Session} from "@opencode-ai/sdk/v2/client";
+import type {ChatMessage, OpencodeSession} from "./types.ts";
+export type {Session} from "@opencode-ai/sdk/v2/client";
+export type {ChatMessage, OpencodeSession} from "./types.ts";
 
 /**
  * Thin typed REST client for the opencode server.
@@ -7,16 +9,18 @@ import type {Session} from "@opencode-ai/sdk/v2/client";
  * server (v2.0.x) and the SDK's generated client drift on paths and body
  * encoding — the few endpoints we use are more predictable pinned here, in
  * one file, against the paths verified against the real server:
- *   GET  /api/session      → list sessions
- *   POST /api/session      → create session
+ *   GET    /api/session                  → list sessions
+ *   POST   /api/session                  → create session
+ *   DELETE /api/session/{id}             → delete session
+ *   GET    /api/session/{id}/message     → messages (order=asc)
+ *   POST   /api/session/{id}/prompt      → send prompt `{text}`
+ *   POST   /api/session/{id}/interrupt   → stop a running session
  *
- * The SDK stays as the source of the TypeScript shapes (types-only import).
+ * The SDK stays as the source of some TypeScript shapes (types-only import).
  *
  * Response envelope: the server wraps payloads as `{"data": ...}`; unwrap
  * when present so callers get the raw payload.
  */
-
-export type {Session} from "@opencode-ai/sdk/v2/client";
 
 export class OpencodeApi {
     constructor(
@@ -46,15 +50,44 @@ export class OpencodeApi {
         return json as T;
     }
 
-    listSessions(): Promise<Session[]> {
-        return this.request<Session[]>("/api/session");
+    listSessions(): Promise<OpencodeSession[]> {
+        return this.request<OpencodeSession[]>("/api/session");
     }
 
-    createSession(body: {title?: string} = {}): Promise<Session> {
-        return this.request<Session>("/api/session", {
+    createSession(body: {title?: string} = {}): Promise<OpencodeSession> {
+        return this.request<OpencodeSession>("/api/session", {
             method: "POST",
             body: JSON.stringify(body),
         });
+    }
+
+    deleteSession(sessionId: string): Promise<void> {
+        return this.request<void>(`/api/session/${encodeURIComponent(sessionId)}`, {
+            method: "DELETE",
+        });
+    }
+
+    /** Messages oldest-first. Cursor pagination available if ever needed. */
+    listMessages(sessionId: string): Promise<ChatMessage[]> {
+        return this.request<ChatMessage[]>(
+            `/api/session/${encodeURIComponent(sessionId)}/message?order=asc&limit=200`,
+        );
+    }
+
+    /** Sends a prompt; the reply streams in over the event bus. */
+    sendPrompt(sessionId: string, text: string): Promise<unknown> {
+        return this.request(`/api/session/${encodeURIComponent(sessionId)}/prompt`, {
+            method: "POST",
+            body: JSON.stringify({text}),
+        });
+    }
+
+    /** Stop a running session. Returns whether an execution was interrupted. */
+    interruptSession(sessionId: string): Promise<boolean> {
+        return this.request<{interrupted: boolean}>(
+            `/api/session/${encodeURIComponent(sessionId)}/interrupt`,
+            {method: "POST"},
+        ).then((r) => r?.interrupted ?? false);
     }
 }
 

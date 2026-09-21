@@ -37,6 +37,8 @@ interface SessionBarProps {
     brandTitle?: string;
     /** OpenCode connection indicator shown above the New Session button. */
     connection?: ConnectionState;
+    /** Sessions with an execution in flight — show a pulsing indicator. */
+    busyIds?: ReadonlySet<string>;
 }
 
 export interface ConnectionState {
@@ -54,7 +56,7 @@ const CONNECTION_DOT: Record<ConnectionState["state"], string> = {
 };
 
 export default function SessionBar(props: SessionBarProps) {
-    const {sessions, activeId, onSelect, onClose, onNew, backgroundColor, foregroundColor, collapsed, brandTitle, connection} = props;
+    const {sessions, activeId, onSelect, onClose, onNew, backgroundColor, foregroundColor, collapsed, brandTitle, connection, busyIds} = props;
     const t = useI18n();
 
     const colors = useSurfaceColors(backgroundColor);
@@ -130,7 +132,15 @@ export default function SessionBar(props: SessionBarProps) {
                             >
                                 <div className="flex flex-col items-start flex-1 w-[70%] overflow-hidden">
                                     <div className="flex items-start gap-2 w-full">
-                                        <MessageSquare size={14} className="shrink-0 mt-0.5" />
+                                        <div className="relative shrink-0 mt-0.5">
+                                            <MessageSquare size={14} />
+                                            {busyIds?.has(session.id) && (
+                                                <span
+                                                    className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full animate-pulse"
+                                                    style={{backgroundColor: "var(--color-brand-lavender)"}}
+                                                />
+                                            )}
+                                        </div>
                                         <div className="flex flex-col min-w-0">
                                             <span
                                                 className="text-sm truncate leading-tight"
@@ -156,6 +166,7 @@ export default function SessionBar(props: SessionBarProps) {
                                 </div>
                                 <button
                                     className={`lum-session-close cursor-pointer opacity-0 rounded-[var(--radius-xs)] p-1 shrink-0 transition-all duration-[var(--duration-fast)] ml-1 group-hover:opacity-100 hover:bg-[var(--lum-session-active)]`}
+                                    title="Delete session"
                                     style={{
                                         "--lum-session-active": colors.activeOverlay,
                                         color: isActive ? foregroundColor : colors.inactiveText,

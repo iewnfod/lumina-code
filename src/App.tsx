@@ -1,9 +1,10 @@
 import {useCallback, useEffect, useMemo, useState} from "react";
 import {getCurrentWindow} from "@tauri-apps/api/window";
-import {info, error} from "@tauri-apps/plugin-log";
+import {error} from "@tauri-apps/plugin-log";
 import TitleBar from "./components/TitleBar.tsx";
 import SessionBar, {type ConnectionState, type SessionInfo} from "./components/SessionBar.tsx";
 import ChatPlaceholder from "./components/ChatPlaceholder.tsx";
+import ChatView from "./components/chat/ChatView.tsx";
 import MaskedSurface from "./components/ui/MaskedSurface.tsx";
 import {useMaximized} from "./hooks/maximized.ts";
 import {usePaddingOffset} from "./hooks/paddingOffset.ts";
@@ -15,7 +16,8 @@ import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {isLinux} from "./lib/platform.ts";
 import {appThemeFor} from "./lib/theme.ts";
 import {useOpencode} from "./opencode/useOpencode.ts";
-import type {Session} from "./opencode/api.ts";
+import {useSessions} from "./opencode/useSessions.ts";
+import {useSessionMessages} from "./opencode/useSessionMessages.ts";
 
 /**
  * Layout shell, ported from lumina-terminal's App.tsx: outer transparent
@@ -23,9 +25,9 @@ import type {Session} from "./opencode/api.ts";
  * TitleBar over a MaskedSurface content area that exposes the chrome glass
  * layer through its rounded corners.
  *
- * Sessions are OpenCode sessions (via the SDK client from useOpencode): the
- * sidebar shows the OPEN sessions (like tabs); closing a row only removes it
- * from view — the OpenCode session data itself is never deleted here.
+ * The sidebar mirrors the OpenCode server's session list (live-patched from
+ * the event bus); the content area shows the active session's conversation,
+ * streaming in real time.
  */
 
 function InnerApp({isMaximized}: {isMaximized: boolean}) {
@@ -46,57 +48,39 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
         [effectiveBg, supportsGlass],
     );
 
-    // --- OpenCode connection + open-session ("tab") state ---
+    // --- OpenCode connection, session list, active conversation ---
     const {status: connectionStatus, api, subscribe} = useOpencode();
-    const [sessions, setSessions] = useState<SessionInfo[]>([]);
+    const {sessions, busyIds, create, remove} = useSessions(api, subscribe);
     const [activeId, setActiveId] = useState<string | null>(null);
+    const {messages, send, interrupt} = useSessionMessages(api, subscribe, activeId);
+    const busy = activeId !== null && busyIds.has(activeId);
+    const activeSession = sessions.find((s) => s.id === activeId) ?? null;
+    const connected = connectionStatus.state === "connected";
+
     const [sidebarVisible, setSidebarVisible] = useState(true);
     const toggleSidebar = useCallback(() => {
         setSidebarVisible((v) => !v);
     }, []);
 
     const newSession = useCallback(async () => {
-        if (!api) return;
-        try {
-            const created = await api.createSession({});
-            setSessions((prev) => [
-                ...prev,
-                {id: created.id, name: created.title?.trim() || `Session ${prev.length + 1}`},
-            ]);
-            setActiveId(created.id);
-            info(`OpenCode session created: ${created.id}`).catch(() => {});
-        } catch (e) {
-            error(`Failed to create OpenCode session: ${e}`).catch(() => {});
-        }
-    }, [api]);
+        const created = await create();
+        if (created) setActiveId(created.id);
+    }, [create]);
 
-    const closeSession = useCallback((id: string) => {
-        // Removes the row from the sidebar only — the OpenCode session and
-        // its history stay intact (re-openable once the session browser
-        // lands).
-        setSessions((prev) => prev.filter((s) => s.id !== id));
+    const deleteSession = useCallback((id: string) => {
+        void remove(id);
         setActiveId((cur) => (cur === id ? null : cur));
-    }, []);
+    }, [remove]);
 
-    // Keep sidebar titles live: OpenCode retitles sessions as the
-    // conversation develops (the session.updated frame carries the fresh
-    // Session under its `data` field).
-    useEffect(() => {
-        return subscribe((event) => {
-            if (event.type !== "session.updated") return;
-            const updated = (event.data as {info?: Session} | null)?.info;
-            if (!updated) return;
-            setSessions((prev) =>
-                prev.some((s) => s.id === updated.id)
-                    ? prev.map((s) =>
-                        s.id === updated.id
-                            ? {...s, name: updated.title?.trim() || s.name, subtitle: s.subtitle}
-                            : s,
-                    )
-                    : prev,
-            );
-        });
-    }, [subscribe]);
+    const sessionInfos: SessionInfo[] = useMemo(
+        () =>
+            sessions.map((s) => ({
+                id: s.id,
+                name: s.title?.trim() || "Untitled",
+                subtitle: s.model?.id,
+            })),
+        [sessions],
+    );
 
     // The window is created hidden (tauri.conf.json `visible: false`) and
     // shown once the first paint is ready — same pattern as lumina-terminal.
@@ -118,8 +102,6 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
         root.setAttribute("data-theme", dark ? "dark" : "light");
     }, [dark]);
 
-    const activeSession = sessions.find((s) => s.id === activeId) ?? null;
-
     const connection: ConnectionState = connectionStatus.state === "connecting"
         ? {state: "connecting", label: t["Connecting to OpenCode…"]}
         : connectionStatus.state === "connected"
@@ -130,7 +112,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
         ? t["Connecting to OpenCode…"]
         : connectionStatus.state === "error"
             ? connectionStatus.message
-            : (activeSession?.name ?? t["Create a session to start"]);
+            : t["Create a session to start"];
 
     return (
         <div
@@ -138,16 +120,17 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
             style={{background: effectiveBg}}
         >
             <SessionBar
-                sessions={sessions}
+                sessions={sessionInfos}
                 activeId={activeId}
                 onSelect={setActiveId}
-                onClose={closeSession}
+                onClose={deleteSession}
                 onNew={newSession}
                 backgroundColor={effectiveBg}
                 foregroundColor={effectiveFg}
                 collapsed={!sidebarVisible}
                 brandTitle="Lumina Code"
                 connection={connection}
+                busyIds={busyIds}
             />
             <div className="flex-1 flex flex-col min-w-0">
                 <TitleBar
@@ -172,10 +155,21 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                         style={{...chromeGlass, zIndex: 0}}
                     />
                     <MaskedSurface className="absolute inset-0" style={{zIndex: 1}}>
-                        <ChatPlaceholder
-                            foregroundColor={effectiveFg}
-                            subtitle={placeholderSubtitle}
-                        />
+                        {activeSession ? (
+                            <ChatView
+                                backgroundColor={effectiveBg}
+                                messages={messages}
+                                busy={busy}
+                                disabled={!connected}
+                                onSend={(text) => void send(text)}
+                                onInterrupt={() => void interrupt()}
+                            />
+                        ) : (
+                            <ChatPlaceholder
+                                foregroundColor={effectiveFg}
+                                subtitle={placeholderSubtitle}
+                            />
+                        )}
                     </MaskedSurface>
                 </div>
             </div>
