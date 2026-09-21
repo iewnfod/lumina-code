@@ -86,6 +86,8 @@ const ChatView = memo(function ChatView({
     model,
     onAgentChange,
     onModelChange,
+    directory,
+    onDirectoryChange,
 }: {
     api: OpencodeApi | null;
     subscribe: (handler: OpencodeEventHandler) => () => void;
@@ -101,6 +103,9 @@ const ChatView = memo(function ChatView({
     model: SessionModelRef | null;
     onAgentChange: (agent: string) => void;
     onModelChange: (model: SessionModelRef) => void;
+    /** The session's working directory (null = server default). */
+    directory: string | null;
+    onDirectoryChange: (directory: string | null) => void;
 }) {
     const colors = useSurfaceColors(backgroundColor);
     const {messages, hasMore, loadingOlder, loadOlder, send, interrupt} =
@@ -119,6 +124,9 @@ const ChatView = memo(function ChatView({
     }, [sessionId]);
 
     const visible = messages.filter((m) => m.type === "user" || m.type === "assistant");
+    // The project picker stays available until the conversation starts —
+    // i.e. until the first message lands (not just on the welcome screen).
+    const hasConversation = visible.length > 0;
     const hiddenCount = Math.max(0, visible.length - renderLimit);
     const rendered = hiddenCount > 0 ? visible.slice(-renderLimit) : visible;
     const showTopSentinel = hiddenCount > 0 || hasMore;
@@ -244,10 +252,10 @@ const ChatView = memo(function ChatView({
                     model={model}
                     onAgentChange={onAgentChange}
                     onModelChange={onModelChange}
-                    sessionStarted
+                    conversationStarted={hasConversation}
                     api={api}
-                    directory={null}
-                    onDirectoryChange={() => {}}
+                    directory={directory}
+                    onDirectoryChange={onDirectoryChange}
                 />
             </div>
         </div>

@@ -85,10 +85,17 @@ export class OpencodeApi {
         return this.request<OpencodeSession[]>("/api/session");
     }
 
+    /** Creates a session. The working directory rides as `location.directory`
+     *  in the body (v2.0.x OpenAPI): a flat `directory` field — or the
+     *  `?directory=` query the newer SDK schema suggests — is silently
+     *  ignored, and the session lands in the server process's own cwd. */
     createSession(body: {title?: string; directory?: string} = {}): Promise<OpencodeSession> {
+        const payload: {title?: string; location?: {directory: string}} = {};
+        if (body.title !== undefined) payload.title = body.title;
+        if (body.directory) payload.location = {directory: body.directory};
         return this.request<OpencodeSession>("/api/session", {
             method: "POST",
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
         });
     }
 

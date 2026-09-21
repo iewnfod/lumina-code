@@ -143,6 +143,25 @@ export default function SessionBar(props: SessionBarProps) {
                 </div>
             </div>
 
+            {/* New session — its own full-width row above the session list.
+                No folder given → App defaults to the previous session's
+                project (each folder header's + pins that folder). */}
+            <div className="shrink-0 px-1.5 pt-0.5 pb-1">
+                <button
+                    type="button"
+                    className="w-full flex flex-row items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)] cursor-pointer hover:bg-[var(--lum-new-session-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
+                    style={{
+                        "--lum-new-session-hover": colors.hoverOverlay,
+                        color: colors.inactiveText,
+                    } as CSSProperties}
+                    title={t["New Session"]}
+                    onClick={() => onNew()}
+                >
+                    <Plus size={14}/>
+                    <span className="text-sm truncate leading-tight">{t["New Session"]}</span>
+                </button>
+            </div>
+
             <div
                 className={`flex-1 overflow-y-auto overflow-x-hidden px-1.5 ${isMacOS() ? "pt-1.5" : ""}`}
                 data-tauri-drag-region

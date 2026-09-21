@@ -9,8 +9,12 @@ import {ChevronDown, ChevronRight} from "lucide-react";
  * around it only by color, per the unified card spec.
  *
  * Callers size their icon (lucide `size={14}`) and may fold out arbitrary
- * content as children; the detail line truncates, pushing the chevron to
- * the row's right edge.
+ * content as children; the detail line truncates and the chevron sits
+ * directly after the text.
+ *
+ * The hover group lives on the button (not the wrapper) so nested FoldRows
+ * inside expanded children don't light up together — hovering one row only
+ * reveals its own chevron.
  */
 export default function FoldRow({
     icon,
@@ -28,21 +32,21 @@ export default function FoldRow({
     children?: ReactNode;
 }) {
     return (
-        <div className="group/row min-w-0 text-sm">
+        <div className="min-w-0 text-sm">
             <button
                 type="button"
-                className="flex items-center gap-2 w-full text-left cursor-pointer py-0.5 rounded-[var(--radius-xs)] opacity-50 hover:opacity-100 transition-opacity duration-[var(--duration-fast)]"
+                className="group/row flex items-center gap-2 w-full text-left cursor-pointer py-0.5 rounded-[var(--radius-xs)] opacity-50 hover:opacity-100 transition-opacity duration-[var(--duration-fast)]"
                 onClick={onToggle}
             >
                 <span className="shrink-0 flex items-center">{icon}</span>
                 <span className="shrink-0">{title}</span>
                 {detail != null && (
-                    <span className="min-w-0 flex-1 flex items-center gap-1.5 truncate">
+                    <span className="min-w-0 flex items-center gap-1.5 truncate">
                         {detail}
                     </span>
                 )}
                 <span
-                    className={`ml-auto shrink-0 transition-opacity duration-[var(--duration-fast)] ${expanded ? "opacity-60" : "opacity-0 group-hover/row:opacity-60"}`}
+                    className={`shrink-0 transition-opacity duration-[var(--duration-fast)] ${expanded ? "opacity-60" : "opacity-0 group-hover/row:opacity-60"}`}
                 >
                     {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </span>

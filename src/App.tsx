@@ -111,10 +111,38 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
         }
     }, [activeId, api, patch]);
 
-    const newSession = useCallback(async (directory?: string) => {
-        const created = await create(directory);
-        if (created) setActiveId(created.id);
-    }, [create]);
+    /** "New session" = back to the welcome screen (there is no empty-session
+     *  view; the session is created on the first send, see sendFirst).
+     *  Without an explicit folder (the sidebar-top button) the project
+     *  defaults to the previous session's — the active session's directory,
+     *  or the most recently updated one; already composing on the welcome
+     *  screen keeps the user's in-progress choice untouched. */
+    const newSession = useCallback((directory?: string) => {
+        if (directory !== undefined) {
+            setPendingDirectory(directory);
+        } else if (activeId !== null) {
+            const previous = activeSession ?? sessions[0];
+            setPendingDirectory(previous?.directory ?? previous?.location?.directory ?? null);
+        }
+        setActiveId(null);
+    }, [activeId, activeSession, sessions]);
+
+    /** The composer's project changed. There is no empty-session view —
+     *  the session is created on the first send — so pre-session this just
+     *  stages the choice; inside a conversation-less session (the picker
+     *  only shows before the first message) drop the empty session and
+     *  return to the welcome screen with the choice staged — nothing to
+     *  lose before the first message, and moving it server-side would
+     *  keep an empty session open. */
+    const changeDirectory = useCallback((directory: string | null) => {
+        if (!activeId) {
+            setPendingDirectory(directory);
+            return;
+        }
+        void remove(activeId);
+        setPendingDirectory(directory);
+        setActiveId(null);
+    }, [activeId, remove]);
 
     /** First send from the welcome screen: create the session (in the chosen
      *  directory), apply the staged model/agent, then deliver the prompt. */
@@ -251,6 +279,8 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                     model={effectiveModel}
                                     onAgentChange={changeAgent}
                                     onModelChange={changeModel}
+                                    directory={activeSession.directory ?? activeSession.location?.directory ?? null}
+                                    onDirectoryChange={changeDirectory}
                                 />
                             ) : (
                                 <div className="flex flex-col h-full w-full">
@@ -271,10 +301,10 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                             model={effectiveModel}
                                             onAgentChange={changeAgent}
                                             onModelChange={changeModel}
-                                            sessionStarted={false}
+                                            conversationStarted={false}
                                             api={api}
                                             directory={pendingDirectory}
-                                            onDirectoryChange={setPendingDirectory}
+                                            onDirectoryChange={changeDirectory}
                                         />
                                     </div>
                                 </div>

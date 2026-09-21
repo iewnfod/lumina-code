@@ -46,9 +46,9 @@ function readAttachment(file: File): Promise<ComposerAttachment | null> {
 /**
  * The prompt composer: auto-growing textarea (Enter sends, Shift+Enter adds
  * a newline) over a bottom toolbar — attachments + mode on the left; model,
- * thinking depth and send on the right. Before a session exists the left
- * side also carries the project-directory picker; the first send creates
- * the session (see App).
+ * thinking depth and send on the right. Until the conversation starts (on
+ * the welcome screen or in a freshly created session) the left side also
+ * carries the project picker.
  */
 export default function ChatInput({
     colors,
@@ -62,7 +62,7 @@ export default function ChatInput({
     model,
     onAgentChange,
     onModelChange,
-    sessionStarted,
+    conversationStarted,
     api,
     directory,
     onDirectoryChange,
@@ -81,8 +81,9 @@ export default function ChatInput({
     model: SessionModelRef | null;
     onAgentChange: (agent: string) => void;
     onModelChange: (model: SessionModelRef) => void;
-    /** False on the welcome screen — shows the directory picker. */
-    sessionStarted: boolean;
+    /** False until the conversation has its first message — shows the
+     *  project picker (welcome screen and freshly created sessions). */
+    conversationStarted: boolean;
     api: OpencodeApi | null;
     directory: string | null;
     onDirectoryChange: (directory: string | null) => void;
@@ -93,12 +94,13 @@ export default function ChatInput({
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Auto-grow up to ~8 lines.
+    // Auto-grow up to 5 lines, then scroll.
     useEffect(() => {
         const el = textareaRef.current;
         if (!el) return;
         el.style.height = "0px";
-        el.style.height = Math.min(el.scrollHeight, 200) + "px";
+        const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || el.scrollHeight;
+        el.style.height = Math.min(el.scrollHeight, Math.ceil(lineHeight * 5)) + "px";
     }, [text]);
 
     const addFiles = async (files: File[]) => {
@@ -205,7 +207,7 @@ export default function ChatInput({
                 disabled={disabled}
                 placeholder={disabled ? t["Connecting to OpenCode…"] : "Message OpenCode…"}
                 spellCheck={false}
-                className="flex-1 resize-none bg-transparent outline-none px-4 pt-3 pb-1.5 text-sm placeholder:opacity-40 disabled:opacity-50 max-h-[200px]"
+                className="resize-none bg-transparent outline-none px-4 pt-3 pb-1.5 text-sm placeholder:opacity-40 disabled:opacity-50 max-h-[calc(1.25rem*5)]"
                 onChange={(e) => setText(e.currentTarget.value)}
                 onPaste={onPaste}
                 onKeyDown={(e) => {
@@ -260,7 +262,7 @@ export default function ChatInput({
                         </div>
                     )}
                 </PopoverMenu>
-                {!sessionStarted && (
+                {!conversationStarted && (
                     <DirectoryPicker
                         api={api}
                         colors={colors}
@@ -329,7 +331,7 @@ export default function ChatInput({
                         )}
                     >
                         {(close) => (
-                            <div className="w-32">
+                            <div>
                                 <MenuLabel>{t["Thinking depth"]}</MenuLabel>
                                 {variants.map((v) => (
                                     <MenuItem
