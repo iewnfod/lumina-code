@@ -12,7 +12,9 @@ const enUs = {
     "Always on top is not supported on Wayland": "Always on top is not supported on Wayland",
     "New Session": "New Session",
     "Welcome to Lumina Code": "Welcome to Lumina Code",
-    "Connect OpenCode to start": "Connect OpenCode to start",
+    "Create a session to start": "Create a session to start",
+    "Connecting to OpenCode…": "Connecting to OpenCode…",
+    "Connection error": "Connection error",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;

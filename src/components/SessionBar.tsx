@@ -35,10 +35,26 @@ interface SessionBarProps {
     collapsed: boolean;
     /** Brand text shown in the sidebar's top-left. Falls back to "Lumina". */
     brandTitle?: string;
+    /** OpenCode connection indicator shown above the New Session button. */
+    connection?: ConnectionState;
 }
 
+export interface ConnectionState {
+    state: "connecting" | "connected" | "error";
+    label: string;
+    /** Full text for the tooltip (defaults to the label). */
+    detail?: string;
+}
+
+/** Indicator dot color per connection state — semantic, brand-adjacent. */
+const CONNECTION_DOT: Record<ConnectionState["state"], string> = {
+    connecting: "#f59e0b",
+    connected: "#22c55e",
+    error: "#ef4444",
+};
+
 export default function SessionBar(props: SessionBarProps) {
-    const {sessions, activeId, onSelect, onClose, onNew, backgroundColor, foregroundColor, collapsed, brandTitle} = props;
+    const {sessions, activeId, onSelect, onClose, onNew, backgroundColor, foregroundColor, collapsed, brandTitle, connection} = props;
     const t = useI18n();
 
     const colors = useSurfaceColors(backgroundColor);
@@ -158,6 +174,19 @@ export default function SessionBar(props: SessionBarProps) {
             </div>
 
             <div className="shrink-0 px-1.5 pb-1.5">
+                {connection && !collapsed && (
+                    <div
+                        className="my-1 flex items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)]"
+                        title={connection.detail ?? connection.label}
+                        style={{color: colors.inactiveText}}
+                    >
+                        <span
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{backgroundColor: CONNECTION_DOT[connection.state]}}
+                        />
+                        <span className="text-xs truncate">{connection.label}</span>
+                    </div>
+                )}
                 <motion.button
                     {...whileHoverTap}
                     className="lum-session-new flex flex-row items-center gap-2 w-full px-3 py-2.5 mt-1 transition-colors duration-[var(--duration-fast)] cursor-pointer rounded-[var(--radius-sm)] hover:bg-[var(--lum-new-hover)]"

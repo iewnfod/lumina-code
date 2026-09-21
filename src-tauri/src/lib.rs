@@ -1,3 +1,4 @@
+mod opencode;
 mod system;
 
 use tauri_plugin_log::TargetKind;
@@ -26,7 +27,18 @@ pub fn run() {
         )
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![system::is_wayland])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .manage(opencode::OpencodeState::default())
+        .invoke_handler(tauri::generate_handler![
+            system::is_wayland,
+            opencode::opencode_start
+        ])
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // Kill the app-owned OpenCode server when the app goes away,
+            // otherwise it would be orphaned on the user's machine.
+            if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+                opencode::shutdown(app_handle);
+            }
+        });
 }

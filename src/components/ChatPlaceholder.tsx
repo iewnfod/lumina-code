@@ -11,11 +11,11 @@ import {fadeSlideUp, staggerContainer} from "../lib/motion.ts";
  */
 export default function ChatPlaceholder({
     foregroundColor,
-    sessionName,
+    subtitle,
 }: {
     foregroundColor: string;
-    /** When a session is active, its name is shown as the subtitle. */
-    sessionName?: string;
+    /** Status line under the title — connection state or session name. */
+    subtitle?: string;
 }) {
     const t = useI18n();
 
@@ -33,12 +33,12 @@ export default function ChatPlaceholder({
                 src={Icon}
                 className="h-20 w-20 rounded-2xl pointer-events-none"
             />
-            <motion.div variants={fadeSlideUp} className="flex flex-col items-center gap-1.5 pointer-events-none">
+            <motion.div variants={fadeSlideUp} className="flex flex-col items-center gap-1.5 pointer-events-none max-w-md">
                 <h2 className="text-lg font-semibold" style={{color: foregroundColor}}>
                     {t["Welcome to Lumina Code"]}
                 </h2>
-                <p className="text-sm opacity-60" style={{color: foregroundColor}}>
-                    {sessionName ?? t["Connect OpenCode to start"]}
+                <p className="text-sm opacity-60 truncate w-full" style={{color: foregroundColor}}>
+                    {subtitle ?? t["Create a session to start"]}
                 </p>
             </motion.div>
         </motion.div>
