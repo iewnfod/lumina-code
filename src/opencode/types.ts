@@ -298,6 +298,29 @@ export interface EventMap {
         id: string;
         error?: unknown;
     };
+    /** v2.0.11 wire name for tool failure — the SDK/app previously
+     *  listened for "session.tool.error", which this server never emits.
+     *  Both are handled; payload shape is identical. */
+    "session.tool.failed": {
+        sessionID: string;
+        assistantMessageID: string;
+        id: string;
+        error?: unknown;
+        executed?: boolean;
+    };
+    /** v2.0.11 wire name for a failed step (e.g. the run was interrupted
+     *  by dismissing a question) — no `session.step.ended` follows. */
+    "session.step.failed": {
+        sessionID: string;
+        assistantMessageID: string;
+        error?: {type?: string; message?: string};
+        rawFinish?: string;
+        cost?: number;
+        tokens?: ChatAssistantMessage["tokens"];
+    };
+    /** The run stopped without succeeding/failing (dismissed question,
+     *  stop button, shutdown). Clears the busy indicator. */
+    "session.execution.interrupted": {sessionID: string; reason?: string};
     "session.usage.updated": {
         sessionID: string;
         cost?: number;

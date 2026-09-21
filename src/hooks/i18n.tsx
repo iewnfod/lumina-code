@@ -43,6 +43,8 @@ const enUs = {
     "Reject": "Reject",
     "Questions": "Questions",
     "Send answers": "Send answers",
+    "Previous": "Previous",
+    "Next": "Next",
     "Dismiss": "Dismiss",
     "Answer required": "Answer required",
     "Type your answer…": "Type your answer…",

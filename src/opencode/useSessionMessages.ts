@@ -248,10 +248,21 @@ export function useSessionMessages(
                     });
                     break;
                 }
-                case "session.tool.error": {
-                    const d = data as EventMap["session.tool.error"];
+                case "session.tool.error":
+                case "session.tool.failed": {
+                    // v2.0.11 emits "failed"; "error" kept for older
+                    // builds — identical payload.
+                    const d = data as EventMap["session.tool.failed"];
                     mutateTool(d.assistantMessageID, d.id, (t) => {
                         t.state = {status: "error", input: t.state.input, error: d.error};
+                    });
+                    break;
+                }
+                case "session.step.failed": {
+                    const d = data as EventMap["session.step.failed"];
+                    mutateAssistant(d.assistantMessageID, (m) => {
+                        m.error = d.error;
+                        m.time = {...m.time, completed: Date.now()};
                     });
                     break;
                 }

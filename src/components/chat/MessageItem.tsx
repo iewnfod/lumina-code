@@ -216,8 +216,10 @@ export function ActivityGroup({
     const thoughtCount = parts.length - toolCount;
     useEffect(() => {
         if (userToggled) return;
-        setExpanded(live);
-    }, [live, userToggled]);
+        // Stay expanded while live AND when something failed — the error
+        // reason must stay visible instead of hiding in the fold.
+        setExpanded(live || errored);
+    }, [live, errored, userToggled]);
 
     // Cross-message groups can be briefly empty (steps just opened, no
     // parts yet) — render nothing rather than a blank disclosure line.

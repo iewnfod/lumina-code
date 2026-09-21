@@ -253,7 +253,9 @@ function CustomTextInput({
 
 /** One question form: fields rendered from the server's schema (the
  *  question tool emits option-selects and free-text), answered in one
- *  batch. Memoized; local answer state resets with the form id. */
+ *  batch. Multi-question forms page through ONE field at a time instead
+ *  of stacking everything. Memoized; local answer state resets with the
+ *  form id. */
 export const QuestionCard = memo(function QuestionCard({
     form,
     colors,
@@ -278,6 +280,14 @@ export const QuestionCard = memo(function QuestionCard({
         [form.fields, answer],
     );
 
+    // One question per page — multi-question forms page through instead
+    // of stacking every field in one card. Clamped against `visible`
+    // shrinking (a `when` condition can hide a later field).
+    const [page, setPage] = useState(0);
+    const index = Math.min(page, visible.length - 1);
+    const current = visible[index];
+    const isLast = index >= visible.length - 1;
+
     const set = (key: string, value: FormAnswer[string]) =>
         setAnswer((prev) => ({...prev, [key]: value}));
 
@@ -287,14 +297,22 @@ export const QuestionCard = memo(function QuestionCard({
             ? (customText[f.key] ?? "").trim()
             : "";
 
-    const missing = visible.filter((f) => {
+    /** A required field the user hasn't answered (options or custom). */
+    const isMissing = (f: FormField) => {
         if (!f.required) return false;
         // A typed custom answer satisfies a required field too.
         if (customOf(f) !== "") return false;
         return normalize(f, answer[f.key]) === undefined;
-    });
+    };
     const submit = () => {
-        if (missing.length > 0) return;
+        // Something required went unanswered on an earlier page — go
+        // there instead of submitting (the button only gates the page
+        // the user is looking at).
+        const missIdx = visible.findIndex(isMissing);
+        if (missIdx !== -1) {
+            setPage(missIdx);
+            return;
+        }
         // Only visible fields ride in the payload; hidden branches were
         // never answered.
         const payload: FormAnswer = {};
@@ -316,128 +334,151 @@ export const QuestionCard = memo(function QuestionCard({
         border: `1px solid ${colors.glassBorder}`,
     };
 
+    /** The body of ONE field (the current page). */
+    const renderField = (field: FormField) => (
+        <div key={field.key} className="flex flex-col gap-1.5">
+            {field.title && (
+                <div className="flex items-baseline gap-2">
+                    <span className="text-xs font-medium">{field.title}</span>
+                    {field.required && (
+                        <span className="text-[10px] uppercase tracking-wider" style={{color: "#f59e0b"}}>
+                            {t["Answer required"]}
+                        </span>
+                    )}
+                </div>
+            )}
+            {field.description && (
+                <p className="text-xs leading-relaxed opacity-75">{field.description}</p>
+            )}
+            {field.type === "string" && field.options && field.options.length > 0 ? (
+                <div className="flex flex-col gap-1.5">
+                    {field.options.map((o, i) => (
+                        <OptionRow
+                            key={o.value}
+                            option={o}
+                            markerKind="number"
+                            index={i}
+                            // While custom text is typed, rows render
+                            // unselected — the typed answer is what
+                            // will be sent.
+                            selected={customOf(field) === "" && answer[field.key] === o.value}
+                            colors={colors}
+                            onClick={() => {
+                                // Picking a row replaces typed text.
+                                if (field.custom) {
+                                    setCustomText((prev) => ({...prev, [field.key]: ""}));
+                                }
+                                set(field.key, answer[field.key] === o.value ? "" : o.value);
+                            }}
+                        />
+                    ))}
+                    {field.custom && (
+                        <CustomTextInput
+                            value={customText[field.key] ?? ""}
+                            placeholder={t["Type your answer…"]}
+                            colors={colors}
+                            onChange={(text) =>
+                                setCustomText((prev) => ({...prev, [field.key]: text}))}
+                        />
+                    )}
+                </div>
+            ) : field.type === "multiselect" ? (
+                <div className="flex flex-col gap-1.5">
+                    {field.options.map((o, i) => {
+                        const held = (answer[field.key] as string[] | undefined) ?? [];
+                        const selected = held.includes(o.value);
+                        return (
+                            <OptionRow
+                                key={o.value}
+                                option={o}
+                                markerKind="checkbox"
+                                index={i}
+                                selected={selected}
+                                colors={colors}
+                                onClick={() =>
+                                    set(field.key, selected
+                                        ? held.filter((v) => v !== o.value)
+                                        : [...held, o.value])}
+                            />
+                        );
+                    })}
+                    {field.custom && (
+                        <CustomTextInput
+                            value={customText[field.key] ?? ""}
+                            placeholder={t["Type your answer…"]}
+                            colors={colors}
+                            onChange={(text) =>
+                                setCustomText((prev) => ({...prev, [field.key]: text}))}
+                        />
+                    )}
+                </div>
+            ) : field.type === "boolean" ? (
+                <div className="flex flex-col gap-1.5">
+                    {[true, false].map((v, i) => (
+                        <OptionRow
+                            key={String(v)}
+                            option={{value: String(v), label: v ? "Yes" : "No"}}
+                            markerKind="number"
+                            index={i}
+                            selected={answer[field.key] === v}
+                            colors={colors}
+                            onClick={() => set(field.key, v)}
+                        />
+                    ))}
+                </div>
+            ) : field.type === "external" ? (
+                <span className="text-xs break-all" style={{fontFamily: MONO, opacity: 0.75}}>
+                    {field.url}
+                </span>
+            ) : (
+                <input
+                    type={field.type === "number" || field.type === "integer" ? "number" : "text"}
+                    value={answer[field.key] as string | number | undefined ?? ""}
+                    placeholder={field.type === "string" ? (field.placeholder ?? t["Type your answer…"]) : ""}
+                    onChange={(e) => set(field.key, e.currentTarget.value)}
+                    className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs outline-none placeholder:opacity-40"
+                    style={inputStyle}
+                />
+            )}
+        </div>
+    );
+
     return (
         <Card colors={colors}>
             <div className="flex items-center gap-2 text-sm font-medium">
                 <MessageCircleQuestion size={15} className="shrink-0" style={{color: "var(--color-brand-lavender)"}}/>
                 <span>{form.title || t["Questions"]}</span>
+                {visible.length > 1 && (
+                    <span className="ml-auto shrink-0 text-xs opacity-50 tabular-nums select-none">
+                        {index + 1} / {visible.length}
+                    </span>
+                )}
             </div>
-            {visible.map((field) => (
-                <div key={field.key} className="flex flex-col gap-1.5">
-                    {field.title && (
-                        <div className="flex items-baseline gap-2">
-                            <span className="text-xs font-medium">{field.title}</span>
-                            {field.required && (
-                                <span className="text-[10px] uppercase tracking-wider" style={{color: "#f59e0b"}}>
-                                    {t["Answer required"]}
-                                </span>
-                            )}
-                        </div>
+            {current != null && renderField(current)}
+            <div className="flex items-center justify-between gap-2">
+                <CardButton label={t["Dismiss"]} colors={colors} onClick={() => onCancel(form)}/>
+                <div className="flex items-center gap-2">
+                    {visible.length > 1 && index > 0 && (
+                        <CardButton label={t["Previous"]} colors={colors} onClick={() => setPage(index - 1)}/>
                     )}
-                    {field.description && (
-                        <p className="text-xs leading-relaxed opacity-75">{field.description}</p>
-                    )}
-                    {field.type === "string" && field.options && field.options.length > 0 ? (
-                        <div className="flex flex-col gap-1.5">
-                            {field.options.map((o, i) => (
-                                <OptionRow
-                                    key={o.value}
-                                    option={o}
-                                    markerKind="number"
-                                    index={i}
-                                    // While custom text is typed, rows render
-                                    // unselected — the typed answer is what
-                                    // will be sent.
-                                    selected={customOf(field) === "" && answer[field.key] === o.value}
-                                    colors={colors}
-                                    onClick={() => {
-                                        // Picking a row replaces typed text.
-                                        if (field.custom) {
-                                            setCustomText((prev) => ({...prev, [field.key]: ""}));
-                                        }
-                                        set(field.key, answer[field.key] === o.value ? "" : o.value);
-                                    }}
-                                />
-                            ))}
-                            {field.custom && (
-                                <CustomTextInput
-                                    value={customText[field.key] ?? ""}
-                                    placeholder={t["Type your answer…"]}
-                                    colors={colors}
-                                    onChange={(text) =>
-                                        setCustomText((prev) => ({...prev, [field.key]: text}))}
-                                />
-                            )}
-                        </div>
-                    ) : field.type === "multiselect" ? (
-                        <div className="flex flex-col gap-1.5">
-                            {field.options.map((o, i) => {
-                                const held = (answer[field.key] as string[] | undefined) ?? [];
-                                const selected = held.includes(o.value);
-                                return (
-                                    <OptionRow
-                                        key={o.value}
-                                        option={o}
-                                        markerKind="checkbox"
-                                        index={i}
-                                        selected={selected}
-                                        colors={colors}
-                                        onClick={() =>
-                                            set(field.key, selected
-                                                ? held.filter((v) => v !== o.value)
-                                                : [...held, o.value])}
-                                    />
-                                );
-                            })}
-                            {field.custom && (
-                                <CustomTextInput
-                                    value={customText[field.key] ?? ""}
-                                    placeholder={t["Type your answer…"]}
-                                    colors={colors}
-                                    onChange={(text) =>
-                                        setCustomText((prev) => ({...prev, [field.key]: text}))}
-                                />
-                            )}
-                        </div>
-                    ) : field.type === "boolean" ? (
-                        <div className="flex flex-col gap-1.5">
-                            {[true, false].map((v, i) => (
-                                <OptionRow
-                                    key={String(v)}
-                                    option={{value: String(v), label: v ? "Yes" : "No"}}
-                                    markerKind="number"
-                                    index={i}
-                                    selected={answer[field.key] === v}
-                                    colors={colors}
-                                    onClick={() => set(field.key, v)}
-                                />
-                            ))}
-                        </div>
-                    ) : field.type === "external" ? (
-                        <span className="text-xs break-all" style={{fontFamily: MONO, opacity: 0.75}}>
-                            {field.url}
-                        </span>
+                    {visible.length > 1 && !isLast ? (
+                        <CardButton
+                            label={t["Next"]}
+                            primary
+                            disabled={current != null && isMissing(current)}
+                            colors={colors}
+                            onClick={() => setPage(index + 1)}
+                        />
                     ) : (
-                        <input
-                            type={field.type === "number" || field.type === "integer" ? "number" : "text"}
-                            value={answer[field.key] as string | number | undefined ?? ""}
-                            placeholder={field.type === "string" ? (field.placeholder ?? t["Type your answer…"]) : ""}
-                            onChange={(e) => set(field.key, e.currentTarget.value)}
-                            className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs outline-none placeholder:opacity-40"
-                            style={inputStyle}
+                        <CardButton
+                            label={t["Send answers"]}
+                            primary
+                            disabled={current != null && isMissing(current)}
+                            colors={colors}
+                            onClick={submit}
                         />
                     )}
                 </div>
-            ))}
-            <div className="flex items-center justify-end gap-2">
-                <CardButton label={t["Dismiss"]} colors={colors} onClick={() => onCancel(form)}/>
-                <CardButton
-                    label={t["Send answers"]}
-                    primary
-                    disabled={missing.length > 0}
-                    colors={colors}
-                    onClick={submit}
-                />
             </div>
         </Card>
     );

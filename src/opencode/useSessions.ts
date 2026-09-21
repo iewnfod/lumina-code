@@ -108,7 +108,10 @@ export function useSessions(
                     break;
                 }
                 case "session.execution.succeeded":
-                case "session.execution.failed": {
+                case "session.execution.failed":
+                case "session.execution.interrupted": {
+                    // "interrupted": dismissed question / stop button /
+                    // shutdown — the run is over either way.
                     const {sessionID} = event.data as {sessionID: string};
                     setBusyIds((prev) => {
                         if (!prev.has(sessionID)) return prev;

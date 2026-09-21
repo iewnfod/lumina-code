@@ -66,6 +66,18 @@ function lineCount(v: unknown): number | undefined {
     return typeof v === "string" && v ? v.split("\n").length : undefined;
 }
 
+/** Human text of a tool error payload — `{type, message}` objects carry
+ *  the reason ("The user dismissed this question", …). */
+function errorText(error: unknown): string | null {
+    if (error == null) return null;
+    if (typeof error === "object" && error !== null && "message" in error) {
+        const msg = (error as {message?: unknown}).message;
+        if (typeof msg === "string" && msg) return msg;
+    }
+    const s = String(error);
+    return s && s !== "[object Object]" ? s : null;
+}
+
 /** The "+N / −N" diff suffix for file-mutating tools. */
 function DiffCounts({added, removed}: {added?: number; removed?: number}) {
     if (added == null && removed == null) return null;
@@ -163,7 +175,8 @@ const ToolCard = memo(function ToolCard({
 
     useEffect(() => {
         if (userToggled) return;
-        setExpanded(status === "running");
+        // Errors stay expanded — the failure reason must be visible.
+        setExpanded(status === "running" || status === "error");
     }, [status, userToggled]);
 
     const {title, icon: Icon} = metaFor(part.name);
@@ -198,10 +211,10 @@ const ToolCard = memo(function ToolCard({
                         fontFamily: MONO,
                         background: colors.recessedBg,
                         border: `1px solid ${colors.glassBorder}`,
-                        color: colors.inactiveText,
+                        color: status === "error" ? "#f87171" : colors.inactiveText,
                     }}
                 >
-                    {output || (status === "error" ? "Tool failed" : "")}
+                    {output || errorText(part.state.error) || (status === "error" ? "Tool failed" : "")}
                 </div>
             )}
         </FoldRow>
