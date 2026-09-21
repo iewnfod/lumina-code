@@ -30,6 +30,25 @@ async function loadProviders(api: OpencodeApi, attempts = 5, delayMs = 1000): Pr
 }
 
 /**
+ * The agent list with the same transient-empty retry as {@link loadProviders}:
+ * a concurrent opencode instance can briefly hold the shared storage lock and
+ * make `/api/agent` come back empty (or fail), which would otherwise leave the
+ * mode picker with nothing to select.
+ */
+async function loadAgents(api: OpencodeApi, attempts = 5, delayMs = 1000): Promise<OpencodeAgent[]> {
+    for (let i = 0; ; i++) {
+        try {
+            const agents = ((await api.listAgents()) ?? []).filter((a) => a.mode === "primary" && !a.hidden);
+            if (agents.length > 0) return agents;
+        } catch {
+            // retried below
+        }
+        if (i >= attempts - 1) return [];
+        await new Promise((r) => setTimeout(r, delayMs));
+    }
+}
+
+/**
  * The composer's model/agent catalog: fetched once per server connection
  * (`GET /api/model` + `/api/agent` + `/api/provider`), along with the
  * server's default model so a fresh session preselects something sensible.
@@ -79,9 +98,9 @@ export function useModelCatalog(api: OpencodeApi | null): {
             });
         }).catch((e) => logError(`Failed to load models: ${e}`).catch(() => {}));
 
-        api.listAgents().then((list) => {
+        loadAgents(api).then((list) => {
             if (cancelled) return;
-            setAgents((list ?? []).filter((a) => a.mode === "primary" && !a.hidden));
+            setAgents(list);
         }).catch((e) => logError(`Failed to load agents: ${e}`).catch(() => {}));
         api.getDefaultModel().then((m) => {
             if (cancelled) return;
