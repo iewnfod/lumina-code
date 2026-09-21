@@ -12,6 +12,8 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Always on top is not supported on Wayland": "Wayland 下不支持窗口置顶",
     "New Session": "新建会话",
     "Other Sessions": "其他会话",
+    "Show more": "显示更多",
+    "Show less": "收起",
     "Welcome to Lumina Code": "欢迎使用 Lumina Code",
     "Create a session to start": "创建会话即可开始",
     "Connecting to OpenCode…": "正在连接 OpenCode…",

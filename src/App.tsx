@@ -211,6 +211,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                 id: s.id,
                 name: s.title?.trim() || "Untitled",
                 directory: s.directory ?? s.location?.directory,
+                updatedAt: s.time?.updated,
             })),
         [sessions],
     );

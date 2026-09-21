@@ -10,6 +10,8 @@ const enUs = {
     "Always on top is not supported on Wayland": "Always on top is not supported on Wayland",
     "New Session": "New Session",
     "Other Sessions": "Other Sessions",
+    "Show more": "Show more",
+    "Show less": "Show less",
     "Welcome to Lumina Code": "Welcome to Lumina Code",
     "Create a session to start": "Create a session to start",
     "Connecting to OpenCode…": "Connecting to OpenCode…",

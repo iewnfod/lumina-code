@@ -94,6 +94,48 @@ export default function ChatInput({
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // WebKitGTK (Tauri's webview on Linux) clears the native undo stack of
+    // JS-controlled inputs, so Ctrl+Z does nothing. Keep our own history:
+    // typing within COALESCE_MS collapses into one undo step.
+    const COALESCE_MS = 400;
+    const historyRef = useRef<{stack: string[]; index: number; lastAt: number}>({
+        stack: [""],
+        index: 0,
+        lastAt: 0,
+    });
+
+    const recordHistory = (value: string) => {
+        const h = historyRef.current;
+        const now = Date.now();
+        if (now - h.lastAt > COALESCE_MS) {
+            h.stack = h.stack.slice(0, h.index + 1);
+            h.stack.push(value);
+            if (h.stack.length > 200) h.stack.shift();
+            h.index = h.stack.length - 1;
+        } else {
+            h.stack[h.index] = value;
+        }
+        h.lastAt = now;
+    };
+
+    const undo = () => {
+        const h = historyRef.current;
+        if (h.index > 0) {
+            h.index--;
+            h.lastAt = 0;
+            setText(h.stack[h.index]);
+        }
+    };
+
+    const redo = () => {
+        const h = historyRef.current;
+        if (h.index < h.stack.length - 1) {
+            h.index++;
+            h.lastAt = 0;
+            setText(h.stack[h.index]);
+        }
+    };
+
     // Auto-grow up to 5 lines, then scroll.
     useEffect(() => {
         const el = textareaRef.current;
@@ -118,6 +160,7 @@ export default function ChatInput({
         if (!trimmed || disabled) return;
         onSend(trimmed, attachments);
         setText("");
+        historyRef.current = {stack: [""], index: 0, lastAt: 0};
         setAttachments([]);
         textareaRef.current?.focus();
     };
@@ -208,9 +251,25 @@ export default function ChatInput({
                 placeholder={disabled ? t["Connecting to OpenCode…"] : "Message OpenCode…"}
                 spellCheck={false}
                 className="resize-none bg-transparent outline-none px-4 pt-3 pb-1.5 text-sm placeholder:opacity-40 disabled:opacity-50 max-h-[calc(1.25rem*5)]"
-                onChange={(e) => setText(e.currentTarget.value)}
+                onChange={(e) => {
+                    const value = e.currentTarget.value;
+                    setText(value);
+                    recordHistory(value);
+                }}
                 onPaste={onPaste}
                 onKeyDown={(e) => {
+                    const mod = e.ctrlKey || e.metaKey;
+                    if (mod && (e.key === "z" || e.key === "Z")) {
+                        e.preventDefault();
+                        if (e.shiftKey) redo();
+                        else undo();
+                        return;
+                    }
+                    if (mod && (e.key === "y" || e.key === "Y")) {
+                        e.preventDefault();
+                        redo();
+                        return;
+                    }
                     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                         e.preventDefault();
                         submit();

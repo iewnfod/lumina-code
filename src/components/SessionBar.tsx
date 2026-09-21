@@ -23,6 +23,8 @@ export interface SessionInfo {
     name: string;
     /** Working directory the session lives in — tabs group under it. */
     directory?: string;
+    /** Last update time (epoch ms) — rendered as a relative age. */
+    updatedAt?: number;
 }
 
 interface SessionBarProps {
@@ -53,6 +55,9 @@ export interface ConnectionState {
     detail?: string;
 }
 
+/** Sessions shown per folder before the "Show more" expander. */
+const MAX_VISIBLE_SESSIONS = 5;
+
 /** Indicator dot color per connection state — semantic, brand-adjacent. */
 const CONNECTION_DOT: Record<ConnectionState["state"], string> = {
     connecting: "#f59e0b",
@@ -65,6 +70,17 @@ function folderLabel(directory: string): string {
     const trimmed = directory.replace(/[\\/]+$/, "");
     const base = trimmed.split(/[\\/]/).filter(Boolean).pop();
     return base || trimmed || directory;
+}
+
+/** Compact relative age: "now", "5m", "3h", "2d" — locale-neutral units. */
+function relativeAge(updatedAt: number, now: number): string {
+    const diff = Math.max(0, now - updatedAt);
+    const minutes = Math.floor(diff / 60_000);
+    if (minutes < 1) return "now";
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    return `${Math.floor(hours / 24)}d`;
 }
 
 /** Sessions bucketed by working directory, folders in order of each
@@ -84,12 +100,23 @@ export default function SessionBar(props: SessionBarProps) {
     const {sessions, activeId, onSelect, onClose, onNew, backgroundColor, foregroundColor, collapsed, brandTitle, connection, busyIds, pendingCounts} = props;
     const t = useI18n();
 
+    // Ticking "now" so relative ages stay fresh (minute resolution —
+    // re-rendering every 30s is plenty and keeps the list calm).
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+        return () => window.clearInterval(timer);
+    }, []);
+
     const colors = useSurfaceColors(backgroundColor);
     const {supportsGlass} = useGlass();
 
     // Folders the user has collapsed (by directory path). The active
     // session's folder always re-expands so the open tab can't vanish.
     const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(new Set());
+    // Folders expanded past the initial 5 most-recent sessions; each
+    // "Show more" press reveals another batch of 5.
+    const [extraDirs, setExtraDirs] = useState<Map<string, number>>(new Map());
     const toggleFolder = useCallback((directory: string) => {
         setCollapsedDirs((prev) => {
             const next = new Set(prev);
@@ -172,6 +199,15 @@ export default function SessionBar(props: SessionBarProps) {
             >
                 {groupByDirectory(sessions).map(([directory, groupSessions]) => {
                     const collapsed = collapsedDirs.has(directory);
+                    const activeIndex = activeId === null ? -1 : groupSessions.findIndex((s) => s.id === activeId);
+                    // Cap each folder at its 5 most-recent sessions; each
+                    // "Show more" reveals another 5. The active session always
+                    // stays visible even beyond the current cap.
+                    const visibleCount = Math.min(
+                        groupSessions.length,
+                        Math.max(MAX_VISIBLE_SESSIONS + (extraDirs.get(directory) ?? 0), activeIndex + 1),
+                    );
+                    const visibleSessions = groupSessions.slice(0, visibleCount);
                     return (
                         <div key={directory}>
                         <div
@@ -203,7 +239,7 @@ export default function SessionBar(props: SessionBarProps) {
                                 <ChevronRight size={12} />
                             </motion.span>
                         </div>
-                            {!collapsed && groupSessions.map((session) => {
+                            {!collapsed && visibleSessions.map((session) => {
                                 const isActive = session.id === activeId;
                                 return (
                                     <div
@@ -218,21 +254,23 @@ export default function SessionBar(props: SessionBarProps) {
                                             {...whileHoverTap}
                                             layout="position"
                                             transition={springSoft}
-                                            className={`lum-session-row group relative flex flex-row items-center justify-between px-3 py-2 rounded-[var(--radius-sm)] transition-colors duration-[var(--duration-base)] ease-[var(--duration-glass)] hover:bg-[var(--lum-session-hover)] ${isActive ? "bg-[var(--lum-session-active)]" : ""}`}
+                                            className={`lum-session-row group relative flex flex-row items-center justify-between pl-7 pr-3 py-2 rounded-[var(--radius-sm)] transition-colors duration-[var(--duration-base)] ease-[var(--duration-glass)] hover:bg-[var(--lum-session-hover)] ${isActive ? "bg-[var(--lum-session-active)]" : ""}`}
                                             style={{
                                                 "--lum-session-hover": isActive ? colors.accentOverlay : colors.hoverOverlay,
                                                 "--lum-session-active": colors.accentOverlay,
                                             } as CSSProperties}
                                             onClick={() => onSelect(session.id)}
                                         >
-                                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                {busyIds?.has(session.id) && (
-                                                    <span
-                                                        className="shrink-0 w-1.5 h-1.5 rounded-full animate-pulse"
-                                                        style={{backgroundColor: "var(--color-brand-lavender)"}}
-                                                    />
-                                                )}
-                                                <span
+                                        {/* Busy dot pins into the indent gutter left of
+                                            the row so session names stay aligned. */}
+                                        {busyIds?.has(session.id) && (
+                                            <span
+                                                className="absolute left-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full animate-pulse pointer-events-none"
+                                                style={{backgroundColor: "var(--color-brand-lavender)"}}
+                                            />
+                                        )}
+                                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                                            <span
                                                     className="text-sm truncate leading-tight"
                                                     style={{
                                                         color: isActive ? foregroundColor : colors.inactiveText,
@@ -250,24 +288,56 @@ export default function SessionBar(props: SessionBarProps) {
                                                     {pendingCounts.get(session.id)}
                                                 </span>
                                             )}
-                                            <button
-                                                className={`lum-session-close cursor-pointer opacity-0 rounded-[var(--radius-xs)] p-1 shrink-0 transition-all duration-[var(--duration-fast)] ml-1 group-hover:opacity-100 hover:bg-[var(--lum-session-active)]`}
-                                                title="Delete session"
-                                                style={{
-                                                    "--lum-session-active": colors.activeOverlay,
-                                                    color: isActive ? foregroundColor : colors.inactiveText,
-                                                } as CSSProperties}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    onClose(session.id);
-                                                }}
-                                            >
-                                                <X size={12} />
-                                            </button>
+                                            {/* Age and the delete button share one fixed-width
+                                                slot; hover cross-fades between them so the
+                                                title never shifts. */}
+                                            <div className="relative shrink-0 ml-1 w-5 h-4">
+                                                {session.updatedAt != null && (
+                                                    <span
+                                                        className="absolute inset-0 flex items-center justify-end text-[11px] tabular-nums transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
+                                                        style={{color: colors.inactiveText}}
+                                                        title={new Date(session.updatedAt).toLocaleString()}
+                                                    >
+                                                        {relativeAge(session.updatedAt, now)}
+                                                    </span>
+                                                )}
+                                                <button
+                                                    className="lum-session-close absolute inset-0 flex items-center justify-center cursor-pointer opacity-0 rounded-[var(--radius-xs)] transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100 hover:bg-[var(--lum-session-active)]"
+                                                    title="Delete session"
+                                                    style={{
+                                                        "--lum-session-active": colors.activeOverlay,
+                                                        color: isActive ? foregroundColor : colors.inactiveText,
+                                                    } as CSSProperties}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onClose(session.id);
+                                                    }}
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
                                         </motion.div>
                                     </div>
                                 );
                             })}
+                            {!collapsed && groupSessions.length > MAX_VISIBLE_SESSIONS && (
+                                <button
+                                    type="button"
+                                    className="w-full flex items-center px-7 py-1.5 text-[11px] cursor-pointer rounded-[var(--radius-sm)] hover:bg-[var(--lum-folder-more-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
+                                    style={{"--lum-folder-more-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
+                                    onClick={() => {
+                                        setExtraDirs((prev) => {
+                                            const next = new Map(prev);
+                                            next.set(directory, visibleCount >= groupSessions.length ? 0 : visibleCount);
+                                            return next;
+                                        });
+                                    }}
+                                >
+                                    {visibleCount >= groupSessions.length
+                                        ? t["Show less"]
+                                        : `${t["Show more"]} (${groupSessions.length - visibleCount})`}
+                                </button>
+                            )}
                         </div>
                     );
                 })}
