@@ -1,3 +1,4 @@
+import {memo} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {openUrl} from "@tauri-apps/plugin-opener";
@@ -7,8 +8,11 @@ import {openUrl} from "@tauri-apps/plugin-opener";
  * in main.css so the chat typography stays part of the design-token system
  * (radii, mono font) instead of a parallel stylesheet. Links open in the
  * system browser — the webview must never navigate away.
+ *
+ * Memoized: the markdown tree only re-parses when its text changes, which
+ * during streaming is exactly one message.
  */
-export default function Markdown({children}: {children: string}) {
+const Markdown = memo(function Markdown({children}: {children: string}) {
     return (
         <div className="lum-md">
             <ReactMarkdown
@@ -33,4 +37,6 @@ export default function Markdown({children}: {children: string}) {
             </ReactMarkdown>
         </div>
     );
-}
+});
+
+export default Markdown;

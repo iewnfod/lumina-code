@@ -4,7 +4,7 @@ import type {OpencodeApi} from "./api.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import {
     isAssistantMessage,
-    type AssistantTextPart,
+    type AssistantPart,
     type AssistantToolPart,
     type ChatAssistantMessage,
     type ChatMessage,
@@ -13,12 +13,19 @@ import {
 } from "./types.ts";
 
 /**
- * Messages of ONE session, live. Seeded from `GET …/message?order=asc`,
- * then driven by the fine-grained execution events on `/api/event`
- * (session.inbox.enqueued / step.started / text.delta / tool.* / step.ended)
- * so the conversation renders as it happens. Events for other sessions are
- * ignored — switching back re-seeds from the server, which is always the
- * source of truth.
+ * Messages of ONE session, live — built for long transcripts:
+ *
+ * - Seeded with the NEWEST page (`order=desc`, then reversed) — loading the
+ *   oldest-first page would show stale history on long sessions.
+ * - Older pages stream in on demand (`loadOlder`, cursor-based; cursor
+ *   requests must not carry `order`).
+ * - Event-bus updates are applied to a ref and flushed on an animation
+ *   frame, so a burst of text.delta frames renders once, not N times.
+ * - Clone-on-write updates keep untouched message identities stable, which
+ *   is what lets ChatView's memoized rows skip re-render.
+ *
+ * Events for other sessions are ignored; switching re-seeds from the server,
+ * which stays the source of truth.
  */
 export function useSessionMessages(
     api: OpencodeApi | null,
@@ -26,30 +33,95 @@ export function useSessionMessages(
     sessionId: string | null,
 ): {
     messages: ChatMessage[];
+    /** Whether the server holds older pages than what's loaded. */
+    hasMore: boolean;
+    loadingOlder: boolean;
+    loadOlder: () => void;
     send: (text: string) => Promise<void>;
     interrupt: () => Promise<void>;
 } {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [hasMore, setHasMore] = useState(false);
+    const [loadingOlder, setLoadingOlder] = useState(false);
+
     const apiRef = useRef(api);
     apiRef.current = api;
     const sessionRef = useRef(sessionId);
     sessionRef.current = sessionId;
+    // Ref-mirror of `messages`; events mutate it, rAF publishes it.
+    const messagesRef = useRef<ChatMessage[]>([]);
+    const flushScheduled = useRef(false);
+    // Cursor toward the next-older page (desc-sequence `cursor.next`).
+    const olderCursorRef = useRef<string | null>(null);
     // Generation guard: ignore async results from a previous session load.
     const loadGen = useRef(0);
 
-    // Seed on connect / session switch.
+    /** Publish ref state to React, coalescing bursts into one frame. */
+    function commit(immediate = false) {
+        if (immediate) {
+            flushScheduled.current = false;
+            setMessages(messagesRef.current);
+            return;
+        }
+        if (flushScheduled.current) return;
+        flushScheduled.current = true;
+        requestAnimationFrame(() => {
+            flushScheduled.current = false;
+            setMessages(messagesRef.current);
+        });
+    }
+
+    /** Apply a clone-on-write transformation then schedule a publish. */
+    function mutate(fn: (list: ChatMessage[]) => ChatMessage[], immediate = false) {
+        messagesRef.current = fn(messagesRef.current);
+        commit(immediate);
+    }
+
+    // Seed on connect / session switch: newest page, reversed to ascending.
     useEffect(() => {
         const gen = ++loadGen.current;
+        messagesRef.current = [];
+        olderCursorRef.current = null;
         setMessages([]);
+        setHasMore(false);
         if (!api || !sessionId) return;
-        api.listMessages(sessionId).then((list) => {
+        api.listMessagesPage(sessionId).then((page) => {
             if (gen !== loadGen.current) return; // switched away meanwhile
-            setMessages(list ?? []);
+            const ascending = (page?.data ?? []).slice().reverse();
+            olderCursorRef.current = page?.cursor?.next ?? null;
+            setHasMore(olderCursorRef.current !== null);
+            messagesRef.current = ascending;
+            setMessages(ascending);
         }).catch((e) => {
             if (gen !== loadGen.current) return;
             logError(`Failed to load messages for ${sessionId}: ${e}`).catch(() => {});
         });
     }, [api, sessionId]);
+
+    /** Fetch the next-older page and prepend it (ascending order). */
+    const loadOlder = useCallback(() => {
+        const a = apiRef.current;
+        const sid = sessionRef.current;
+        const cursor = olderCursorRef.current;
+        if (!a || !sid || !cursor) return;
+        setLoadingOlder(true);
+        a.listMessagesPage(sid, cursor).then((page) => {
+            olderCursorRef.current = page?.cursor?.next ?? null;
+            setHasMore(olderCursorRef.current !== null);
+            const older = (page?.data ?? []).slice().reverse();
+            if (older.length > 0) {
+                // Skip any ids we already hold (defensive against races).
+                const held = new Set(messagesRef.current.map((m) => m.id));
+                const fresh = older.filter((m) => !held.has(m.id));
+                messagesRef.current = [...fresh, ...messagesRef.current];
+                setMessages(messagesRef.current);
+            }
+        }).catch((e) => {
+            logError(`Failed to load older messages: ${e}`).catch(() => {});
+        }).finally(() => {
+            setLoadingOlder(false);
+        });
+    }, []);
 
     // Live event pipeline for the active session.
     useEffect(() => {
@@ -64,9 +136,9 @@ export function useSessionMessages(
                     const {inboxID, item} = data as EventMap["session.inbox.enqueued"];
                     if (item?.type !== "user") return;
                     const text = item.payload?.text ?? "";
-                    setMessages((prev) => {
-                        // Adopt the optimistic bubble this client appended in
-                        // send() (swap in the server id)…
+                    mutate((prev) => {
+                        // Adopt the optimistic bubble this client appended
+                        // in send() (swap in the server id)…
                         const last = prev[prev.length - 1];
                         if (
                             last && last.type === "user" &&
@@ -76,43 +148,56 @@ export function useSessionMessages(
                         }
                         // …or append when the prompt came from another client.
                         return [...prev, {id: inboxID, type: "user", text}];
-                    });
+                    }, true);
                     break;
                 }
                 case "session.step.started": {
                     const d = data as EventMap["session.step.started"];
-                    upsertAssistant({
-                        id: d.assistantMessageID,
-                        type: "assistant",
-                        agent: d.agent,
-                        model: d.model,
-                        content: [],
-                        time: {created: d.started},
-                    });
+                    mutate((prev) =>
+                        prev.some((m) => m.id === d.assistantMessageID)
+                            ? prev
+                            : [
+                                ...prev,
+                                {
+                                    id: d.assistantMessageID,
+                                    type: "assistant",
+                                    agent: d.agent,
+                                    model: d.model,
+                                    content: [],
+                                    time: {created: d.started},
+                                } satisfies ChatAssistantMessage,
+                            ],
+                    );
+                    break;
+                }
+                case "session.reasoning.started": {
+                    const d = data as EventMap["session.reasoning.started"];
+                    appendStreamPart(d.assistantMessageID, d.ordinal, "reasoning");
+                    break;
+                }
+                case "session.reasoning.delta": {
+                    const d = data as EventMap["session.reasoning.delta"];
+                    appendStreamDelta(d.assistantMessageID, d.ordinal, "reasoning", d.delta);
+                    break;
+                }
+                case "session.reasoning.ended": {
+                    const d = data as EventMap["session.reasoning.ended"];
+                    settleStreamPart(d.assistantMessageID, d.ordinal, "reasoning", d.text);
                     break;
                 }
                 case "session.text.started": {
                     const d = data as EventMap["session.text.started"];
-                    mutateAssistant(d.assistantMessageID, (m) => {
-                        m.content = [...m.content, {type: "text", text: ""} satisfies AssistantTextPart];
-                    });
+                    appendStreamPart(d.assistantMessageID, d.ordinal, "text");
                     break;
                 }
                 case "session.text.delta": {
                     const d = data as EventMap["session.text.delta"];
-                    mutateAssistant(d.assistantMessageID, (m) => {
-                        const part = nthTextPart(m, d.ordinal);
-                        if (part) part.text = part.text + d.delta;
-                        else m.content = [...m.content, {type: "text", text: d.delta}];
-                    });
+                    appendStreamDelta(d.assistantMessageID, d.ordinal, "text", d.delta);
                     break;
                 }
                 case "session.text.ended": {
                     const d = data as EventMap["session.text.ended"];
-                    mutateAssistant(d.assistantMessageID, (m) => {
-                        const part = nthTextPart(m, d.ordinal);
-                        if (part) part.text = d.text;
-                    });
+                    settleStreamPart(d.assistantMessageID, d.ordinal, "text", d.text);
                     break;
                 }
                 case "session.tool.input.started": {
@@ -172,19 +257,76 @@ export function useSessionMessages(
         });
     }, [subscribe]);
 
-    // --- Immutable-state helpers. Each produces a new array/object so React
-    //     re-renders; the draft mutation happens on a shallow clone. ---
+    // --- Streamed-part plumbing (reasoning and text share the mechanics;
+    //     `ordinal` indexes parts of the same kind). ---
 
-    function upsertAssistant(msg: ChatAssistantMessage) {
-        setMessages((prev) => {
-            if (prev.some((m) => m.id === msg.id)) return prev;
-            return [...prev, msg];
+    function appendStreamPart(
+        messageId: string,
+        ordinal: number,
+        kind: "text" | "reasoning",
+    ) {
+        mutateAssistant(messageId, (m) => {
+            if (nthPart(m, kind, ordinal)) return;
+            const part: AssistantPart = kind === "text"
+                ? {type: "text", text: ""}
+                : {type: "reasoning", text: ""};
+            m.content = [...m.content, part];
         });
     }
 
+    function appendStreamDelta(
+        messageId: string,
+        ordinal: number,
+        kind: "text" | "reasoning",
+        delta: string,
+    ) {
+        mutateAssistant(messageId, (m) => {
+            const part = nthPart(m, kind, ordinal);
+            if (part) part.text = part.text + delta;
+            else {
+                const fresh: AssistantPart = kind === "text"
+                    ? {type: "text", text: delta}
+                    : {type: "reasoning", text: delta};
+                m.content = [...m.content, fresh];
+            }
+        });
+    }
+
+    function settleStreamPart(
+        messageId: string,
+        ordinal: number,
+        kind: "text" | "reasoning",
+        text: string,
+    ) {
+        mutateAssistant(messageId, (m) => {
+            const part = nthPart(m, kind, ordinal);
+            if (part) part.text = text;
+        });
+    }
+
+    /** The nth part of a given kind (stream `ordinal`s are per-kind). */
+    function nthPart(
+        m: ChatAssistantMessage,
+        kind: "text" | "reasoning",
+        ordinal: number,
+    ): {text: string} | undefined {
+        let seen = -1;
+        for (const part of m.content) {
+            if (part.type === kind) {
+                seen += 1;
+                if (seen === ordinal) return part;
+            }
+        }
+        return undefined;
+    }
+
+    // --- Immutable-state helpers. Each produces new arrays/objects so React
+    //     re-renders while untouched messages keep their identity (memo). ---
+
     function mutateAssistant(id: string, fn: (draft: ChatAssistantMessage) => void) {
-        setMessages((prev) =>
-            prev.map((m) => {
+        mutate((prev) => {
+            let changed = false;
+            const next = prev.map((m) => {
                 if (!isAssistantMessage(m) || m.id !== id) return m;
                 const draft: ChatAssistantMessage = {
                     ...m,
@@ -192,9 +334,11 @@ export function useSessionMessages(
                     time: {...(m.time ?? {})},
                 };
                 fn(draft);
+                changed = true;
                 return draft;
-            }),
-        );
+            });
+            return changed ? next : prev;
+        });
     }
 
     function mutateTool(messageId: string, toolId: string, fn: (draft: AssistantToolPart) => void) {
@@ -208,18 +352,6 @@ export function useSessionMessages(
         });
     }
 
-    /** The nth AssistantTextPart (the event `ordinal` indexes text parts). */
-    function nthTextPart(m: ChatAssistantMessage, ordinal: number): AssistantTextPart | undefined {
-        let seen = -1;
-        for (const part of m.content) {
-            if (part.type === "text") {
-                seen += 1;
-                if (seen === ordinal) return part;
-            }
-        }
-        return undefined;
-    }
-
     // --- Actions ---
 
     const send = useCallback(async (text: string) => {
@@ -227,20 +359,22 @@ export function useSessionMessages(
         const a = apiRef.current;
         const sid = sessionRef.current;
         if (!a || !sid || !trimmed) return;
-        // Optimistic user bubble; the server response confirms with the real
-        // id (inbox.enqueued adds a duplicate-by-text that we dedupe below).
+        // Optimistic user bubble; the prompt response + inbox.enqueued event
+        // confirm it with the real id (see the inbox handler above).
         const optimistic: ChatUserMessage = {
             id: `local-${Date.now()}`,
             type: "user",
             text: trimmed,
         };
-        setMessages((prev) => [...prev, optimistic]);
+        messagesRef.current = [...messagesRef.current, optimistic];
+        commit(true);
         try {
             await a.sendPrompt(sid, trimmed);
         } catch (e) {
             logError(`Failed to send prompt: ${e}`).catch(() => {});
             // Drop the optimistic bubble so the failure is visible.
-            setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+            messagesRef.current = messagesRef.current.filter((m) => m.id !== optimistic.id);
+            commit(true);
         }
     }, []);
 
@@ -255,5 +389,5 @@ export function useSessionMessages(
         }
     }, []);
 
-    return {messages, send, interrupt};
+    return {messages, hasMore, loadingOlder, loadOlder, send, interrupt};
 }

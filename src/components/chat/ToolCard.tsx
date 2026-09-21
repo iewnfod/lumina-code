@@ -1,4 +1,4 @@
-import {useEffect, useState} from "react";
+import {memo, useEffect, useState} from "react";
 import {
     AlertCircle,
     CheckCircle2,
@@ -58,8 +58,10 @@ function toolSummary(part: AssistantToolPart): string {
  * Auto-expands while running so live progress is visible, folds on
  * completion to keep the transcript scannable (an explicit user toggle wins
  * until the next lifecycle transition).
+ *
+ * Memoized — see MessageItem.
  */
-export default function ToolCard({
+const ToolCard = memo(function ToolCard({
     part,
     colors,
 }: {
@@ -131,4 +133,6 @@ export default function ToolCard({
             )}
         </div>
     );
-}
+});
+
+export default ToolCard;

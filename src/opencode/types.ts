@@ -66,7 +66,13 @@ export interface AssistantTextPart {
     text: string;
 }
 
-export type AssistantPart = AssistantTextPart | AssistantToolPart;
+/** A reasoning-model thinking block inside an assistant message. */
+export interface AssistantReasoningPart {
+    type: "reasoning";
+    text: string;
+}
+
+export type AssistantPart = AssistantTextPart | AssistantReasoningPart | AssistantToolPart;
 
 export interface ChatUserMessage {
     id: string;
@@ -143,6 +149,9 @@ export interface EventMap {
     "session.text.started": {sessionID: string; assistantMessageID: string; ordinal: number};
     "session.text.delta": {sessionID: string; assistantMessageID: string; ordinal: number; delta: string};
     "session.text.ended": {sessionID: string; assistantMessageID: string; ordinal: number; text: string};
+    "session.reasoning.started": {sessionID: string; assistantMessageID: string; ordinal: number};
+    "session.reasoning.delta": {sessionID: string; assistantMessageID: string; ordinal: number; delta: string};
+    "session.reasoning.ended": {sessionID: string; assistantMessageID: string; ordinal: number; text: string};
     "session.tool.input.started": {sessionID: string; assistantMessageID: string; id: string; name: string};
     "session.tool.input.ended": {sessionID: string; assistantMessageID: string; id: string; text: string};
     "session.tool.called": {sessionID: string; assistantMessageID: string; id: string; input?: unknown};

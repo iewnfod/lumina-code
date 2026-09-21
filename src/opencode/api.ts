@@ -2,6 +2,16 @@ import type {ChatMessage, OpencodeSession} from "./types.ts";
 export type {Session} from "@opencode-ai/sdk/v2/client";
 export type {ChatMessage, OpencodeSession} from "./types.ts";
 
+/** The messages endpoint caps `limit` at 200 (400 above that). */
+const MESSAGES_PAGE_SIZE = 200;
+
+/** Raw shape of `GET /api/session/{id}/message` — NOT envelope-unwrapped
+ *  (the `data` here is the payload itself; unwrapping would lose `cursor`). */
+export interface MessagesPage {
+    data?: ChatMessage[];
+    cursor?: {previous?: string; next?: string};
+}
+
 /**
  * Thin typed REST client for the opencode server.
  *
@@ -29,6 +39,16 @@ export class OpencodeApi {
     ) {}
 
     private async request<T>(path: string, init?: RequestInit): Promise<T> {
+        const json = await this.requestRaw<unknown>(path, init);
+        if (json !== null && typeof json === "object" && "data" in json) {
+            return (json as {data: T}).data;
+        }
+        return json as T;
+    }
+
+    /** Same transport as {@link request} but returns the JSON body as-is —
+     *  for endpoints whose real payload contains its own `data` field. */
+    private async requestRaw<T>(path: string, init?: RequestInit): Promise<T> {
         const res = await fetch(this.baseUrl + path, {
             ...init,
             headers: {
@@ -43,11 +63,7 @@ export class OpencodeApi {
             throw new Error(`${res.status} ${res.statusText}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
         }
         if (res.status === 204) return undefined as T;
-        const json: unknown = await res.json();
-        if (json !== null && typeof json === "object" && "data" in json) {
-            return (json as {data: T}).data;
-        }
-        return json as T;
+        return (await res.json()) as T;
     }
 
     listSessions(): Promise<OpencodeSession[]> {
@@ -67,10 +83,14 @@ export class OpencodeApi {
         });
     }
 
-    /** Messages oldest-first. Cursor pagination available if ever needed. */
-    listMessages(sessionId: string): Promise<ChatMessage[]> {
-        return this.request<ChatMessage[]>(
-            `/api/session/${encodeURIComponent(sessionId)}/message?order=asc&limit=200`,
+    /** Messages page — desc order (newest first) with an optional cursor
+     *  toward older pages. `cursor` requests must NOT carry `order`. */
+    listMessagesPage(sessionId: string, cursor?: string): Promise<MessagesPage> {
+        const query = cursor
+            ? `?limit=${MESSAGES_PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}`
+            : `?order=desc&limit=${MESSAGES_PAGE_SIZE}`;
+        return this.requestRaw<MessagesPage>(
+            `/api/session/${encodeURIComponent(sessionId)}/message${query}`,
         );
     }
 

@@ -17,7 +17,6 @@ import {isLinux} from "./lib/platform.ts";
 import {appThemeFor} from "./lib/theme.ts";
 import {useOpencode} from "./opencode/useOpencode.ts";
 import {useSessions} from "./opencode/useSessions.ts";
-import {useSessionMessages} from "./opencode/useSessionMessages.ts";
 
 /**
  * Layout shell, ported from lumina-terminal's App.tsx: outer transparent
@@ -52,7 +51,6 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     const {status: connectionStatus, api, subscribe} = useOpencode();
     const {sessions, busyIds, create, remove} = useSessions(api, subscribe);
     const [activeId, setActiveId] = useState<string | null>(null);
-    const {messages, send, interrupt} = useSessionMessages(api, subscribe, activeId);
     const busy = activeId !== null && busyIds.has(activeId);
     const activeSession = sessions.find((s) => s.id === activeId) ?? null;
     const connected = connectionStatus.state === "connected";
@@ -157,12 +155,12 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                     <MaskedSurface className="absolute inset-0" style={{zIndex: 1}}>
                         {activeSession ? (
                             <ChatView
+                                api={api}
+                                subscribe={subscribe}
+                                sessionId={activeSession.id}
                                 backgroundColor={effectiveBg}
-                                messages={messages}
                                 busy={busy}
                                 disabled={!connected}
-                                onSend={(text) => void send(text)}
-                                onInterrupt={() => void interrupt()}
                             />
                         ) : (
                             <ChatPlaceholder
