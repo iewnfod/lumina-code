@@ -1,0 +1,27 @@
+{
+    "app": {
+        "windows": [
+            {
+                "title": "Lumina Code",
+                "width": 1280,
+                "height": 840,
+                "minWidth": 800,
+                "minHeight": 500,
+                "transparent": true,
+                "decorations": true,
+                "visible": false,
+                "titleBarStyle": "Overlay",
+                "hiddenTitle": true,
+                "trafficLightPosition": {
+                    "x": 18,
+                    "y": 18
+                }
+            }
+        ]
+    },
+    "bundle": {
+        "icon": [
+            "icons/icon.icns"
+        ]
+    }
+}

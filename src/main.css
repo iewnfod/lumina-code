@@ -1,0 +1,112 @@
+@import "tailwindcss";
+@import "@heroui/styles";
+
+/*
+ * Lumina Code — design tokens (Tailwind v4 CSS-first @theme).
+ *
+ * Ported as-is from lumina-terminal's main.css (minus the xterm stylesheet):
+ * the single source of truth for radii, motion, glass blur, and the brand
+ * palette. Chrome components consume them via Tailwind utilities (rounded-md
+ * → --radius-md), inline var() references, or the helpers in lib/glass.ts and
+ * lib/motion.ts.
+ */
+@theme {
+    /* Radii — soft, modern. Match the macOS Sequoia / Arc feel. */
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 20px;
+
+    /* Motion — one spring curve, two durations. lib/motion.ts mirrors these. */
+    --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-glass: cubic-bezier(0.4, 0, 0.2, 1);
+    --duration-fast: 150ms;
+    --duration-base: 250ms;
+    --duration-slow: 400ms;
+
+    /* Glass material — backdrop-filter strength. hooks/useGlass.ts drives the
+     * platform capability check; lib/glass.ts applies these. */
+    --glass-blur-sm: 8px;
+    --glass-blur: 16px;
+    --glass-blur-lg: 24px;
+    --glass-saturate: 1.6;
+
+    /* Brand — extracted from assets/icon.svg (cinnabar → lavender glyph
+     * gradient). Used as the single accent system. */
+    --color-brand-cinnabar: #FF461F;
+    --color-brand-lavender: #A892C7;
+    --color-brand-cinnabar-soft: #FF6A48;
+    --color-brand-lavender-soft: #BDA9D9;
+    --color-brand-gradient: linear-gradient(135deg, #FF461F 0%, #A892C7 100%);
+    --color-brand-gradient-soft: linear-gradient(135deg, rgba(255, 70, 31, 0.5) 0%, rgba(168, 146, 199, 0.5) 100%);
+
+    /* Semantic surface tokens consumed via var() in lib/glass.ts. These are
+     * the fallbacks for when the runtime bg-derived colors are not yet
+     * resolved. */
+    --color-elevated: rgb(255, 255, 255);
+}
+
+/* Dark-mode override for the elevated surface token. Under .dark (toggled by
+ * the theme pipeline) it becomes a near-black surface matching HeroUI's
+ * --surface dark value, so consumers stay legible in dark mode. */
+.dark,
+[data-theme="dark"] {
+    --color-elevated: oklch(21.03% 0.0059 285.89);
+}
+
+#root {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    position: absolute;
+    left: 0;
+    top: 0;
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/*
+ * Scrollbars — thin, glass-aware. This rule styles every scrollable surface
+ * (session list, settings panels) so they share one quiet look instead of the
+ * platform default.
+ */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(128, 128, 128, 0.35) transparent;
+}
+
+*::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: rgba(128, 128, 128, 0.35);
+    border-radius: var(--radius-sm);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background: rgba(128, 128, 128, 0.55);
+    background-clip: padding-box;
+}
+
+/* Selection — tinted with the brand cinnabar so highlighted text reads as
+ * part of the app identity rather than the OS default blue. */
+::selection {
+    background: rgba(255, 70, 31, 0.25);
+}
