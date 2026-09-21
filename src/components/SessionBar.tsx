@@ -7,7 +7,7 @@ import {CHROME_TITLE_BAR_HEIGHT} from "../constants.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
 import {useGlass} from "../hooks/useGlass.ts";
 import {glassSurface} from "../lib/glass.ts";
-import {durationBase, durationFast, easeGlass, easeSpring, fadeIn, springSnappy, springSoft, whileHoverTap} from "../lib/motion.ts";
+import {durationBase, durationFast, easeGlass, easeSpring, springSnappy, springSoft, whileHoverTap} from "../lib/motion.ts";
 import {useI18n} from "../hooks/i18n.tsx";
 
 /**
@@ -39,8 +39,6 @@ interface SessionBarProps {
     collapsed: boolean;
     /** Brand text shown in the sidebar's top-left. Falls back to "Lumina". */
     brandTitle?: string;
-    /** OpenCode connection indicator shown above the New Session button. */
-    connection?: ConnectionState;
     /** Sessions with an execution in flight — show a pulsing indicator. */
     busyIds?: ReadonlySet<string>;
     /** Pending server requests per session (permissions + question
@@ -48,22 +46,8 @@ interface SessionBarProps {
     pendingCounts?: ReadonlyMap<string, number>;
 }
 
-export interface ConnectionState {
-    state: "connecting" | "connected" | "error";
-    label: string;
-    /** Full text for the tooltip (defaults to the label). */
-    detail?: string;
-}
-
 /** Sessions shown per folder before the "Show more" expander. */
 const MAX_VISIBLE_SESSIONS = 5;
-
-/** Indicator dot color per connection state — semantic, brand-adjacent. */
-const CONNECTION_DOT: Record<ConnectionState["state"], string> = {
-    connecting: "#f59e0b",
-    connected: "#22c55e",
-    error: "#ef4444",
-};
 
 /** Group-header label for a directory: its last path segment. */
 function folderLabel(directory: string): string {
@@ -230,7 +214,7 @@ function MarqueeTitle({text, className, style}: {
 }
 
 export default function SessionBar(props: SessionBarProps) {
-    const {sessions, activeId, onSelect, onClose, onNew, backgroundColor, foregroundColor, collapsed, brandTitle, connection, busyIds, pendingCounts} = props;
+    const {sessions, activeId, onSelect, onClose, onNew, backgroundColor, foregroundColor, collapsed, brandTitle, busyIds, pendingCounts} = props;
     const t = useI18n();
 
     // Ticking "now" so relative ages stay fresh (minute resolution —
@@ -304,26 +288,6 @@ export default function SessionBar(props: SessionBarProps) {
                         </>
                     )}
                 </div>
-            </div>
-
-            {/* New session — its own full-width row above the session list.
-                No folder given → App defaults to the previous session's
-                project (each folder header's + pins that folder). */}
-            <div className="shrink-0 px-1.5 pt-0.5 pb-1">
-                <motion.button
-                    type="button"
-                    {...whileHoverTap}
-                    className="w-full flex flex-row items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)] cursor-pointer hover:bg-[var(--lum-new-session-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
-                    style={{
-                        "--lum-new-session-hover": colors.hoverOverlay,
-                        color: colors.inactiveText,
-                    } as CSSProperties}
-                    title={t["New Session"]}
-                    onClick={() => onNew()}
-                >
-                    <Plus size={14}/>
-                    <span className="text-sm truncate leading-tight">{t["New Session"]}</span>
-                </motion.button>
             </div>
 
             <div
@@ -426,7 +390,7 @@ export default function SessionBar(props: SessionBarProps) {
                                                             marginBottom: 0,
                                                             transition: {height: {duration: durationBase, ease: easeGlass}, opacity: {duration: durationFast, ease: easeGlass}},
                                                         }}
-                                                        className="relative my-0.5 overflow-hidden cursor-pointer"
+                                                        className="relative my-0.5 overflow-hidden -mx-1.5 px-1.5 cursor-pointer"
                                                     >
                                                         {/* Inner motion layer carries the spring scale
                                                             animation and the layout slide used when the
@@ -556,26 +520,25 @@ export default function SessionBar(props: SessionBarProps) {
                 })}
             </div>
 
-            <div className="shrink-0 px-1.5 pb-1.5">
-                <AnimatePresence>
-                    {connection && !collapsed && (
-                        <motion.div
-                            variants={fadeIn}
-                            initial="hidden"
-                            animate="show"
-                            exit="exit"
-                            className="my-1 flex items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)]"
-                            title={connection.detail ?? connection.label}
-                            style={{color: colors.inactiveText}}
-                        >
-                            <span
-                                className="w-2 h-2 rounded-full shrink-0"
-                                style={{backgroundColor: CONNECTION_DOT[connection.state]}}
-                            />
-                            <span className="text-xs truncate">{connection.label}</span>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+            {/* New session — its own full-width row at the sidebar's bottom
+                (bottom-left of the window). No folder given → App defaults
+                to the previous session's project (each folder header's +
+                pins that folder). */}
+            <div className="shrink-0 px-1.5 pt-0.5 pb-1.5">
+                <motion.button
+                    type="button"
+                    {...whileHoverTap}
+                    className="w-full flex flex-row items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)] cursor-pointer hover:bg-[var(--lum-new-session-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
+                    style={{
+                        "--lum-new-session-hover": colors.hoverOverlay,
+                        color: colors.inactiveText,
+                    } as CSSProperties}
+                    title={t["New Session"]}
+                    onClick={() => onNew()}
+                >
+                    <Plus size={14}/>
+                    <span className="text-sm truncate leading-tight">{t["New Session"]}</span>
+                </motion.button>
             </div>
         </div>
     );

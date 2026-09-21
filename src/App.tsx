@@ -3,7 +3,7 @@ import {AnimatePresence, motion} from "framer-motion";
 import {getCurrentWindow} from "@tauri-apps/api/window";
 import {error} from "@tauri-apps/plugin-log";
 import TitleBar from "./components/TitleBar.tsx";
-import SessionBar, {type ConnectionState, type SessionInfo} from "./components/SessionBar.tsx";
+import SessionBar, {type SessionInfo} from "./components/SessionBar.tsx";
 import ChatPlaceholder from "./components/ChatPlaceholder.tsx";
 import ChatView from "./components/chat/ChatView.tsx";
 import ChatInput from "./components/chat/ChatInput.tsx";
@@ -255,12 +255,6 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
         root.setAttribute("data-theme", dark ? "dark" : "light");
     }, [dark]);
 
-    const connection: ConnectionState = connectionStatus.state === "connecting"
-        ? {state: "connecting", label: t["Connecting to OpenCode…"]}
-        : connectionStatus.state === "connected"
-            ? {state: "connected", label: `OpenCode v${connectionStatus.version}`}
-            : {state: "error", label: t["Connection error"], detail: connectionStatus.message};
-
     const placeholderSubtitle = connectionStatus.state === "connecting"
         ? t["Connecting to OpenCode…"]
         : connectionStatus.state === "error"
@@ -282,7 +276,6 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                 foregroundColor={effectiveFg}
                 collapsed={false}
                 brandTitle="Lumina Code"
-                connection={connection}
                 busyIds={busyIds}
                 pendingCounts={pendingCounts}
             />
