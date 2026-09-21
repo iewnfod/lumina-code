@@ -202,6 +202,7 @@ const ToolCard = memo(function ToolCard({
             title={title}
             detail={toolDetail(part)}
             expanded={expanded}
+            active={status === "running"}
             onToggle={() => {
                 setUserToggled(true);
                 setExpanded((v) => !v);

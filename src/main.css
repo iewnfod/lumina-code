@@ -221,6 +221,39 @@ body {
 }
 
 /*
+ * Active-tool shimmer — a soft diagonal band of light sweeps across a
+ * FoldRow (`.lum-shimmer`) while its tool is executing, e.g. a Read
+ * pulling a file or a dispatched subagent at work. currentColor keeps the
+ * sweep legible over any surface; the band travels well past both edges
+ * so it reads as one continuous pass, not a bounce.
+ */
+.lum-shimmer {
+    position: relative;
+    overflow: hidden;
+}
+
+.lum-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+        105deg,
+        transparent 35%,
+        color-mix(in srgb, currentColor 14%, transparent) 50%,
+        transparent 65%
+    );
+    transform: translateX(-120%);
+    animation: lum-sweep 1.6s ease-in-out infinite;
+}
+
+@keyframes lum-sweep {
+    to {
+        transform: translateX(120%);
+    }
+}
+
+/*
  * Streaming appearance — block-level markdown children (paragraphs, code
  * blocks, lists) fade in as they are created mid-stream. Opacity only:
  * it's a non-layout property, so concurrent/restarted animations blend

@@ -155,10 +155,6 @@ function AssistantBlock({
     // card) expands live and folds when the run finishes.
     const livePart: ActivityPart | null =
         streaming && lastPart != null && lastPart.type !== "text" ? lastPart : null;
-    const toolRunning = message.content.some(
-        (p) => p.type === "tool" && p.state.status === "running",
-    );
-    const showTrailingIndicator = streaming && !reasoningLive;
 
     return (
         <motion.div
@@ -205,16 +201,9 @@ function AssistantBlock({
                     </motion.div>
                 );
             })}
-            {showTrailingIndicator && !toolRunning && (
-                <div className="flex items-center gap-1.5 h-4">
-                    <span className="inline-block w-[2px] h-[1em] bg-current animate-pulse rounded-[1px]" />
-                </div>
-            )}
         </motion.div>
     );
-}
-
-/**
+}/**
  * A run of consecutive tool calls / thoughts folded into one disclosure —
  * long agentic stretches read as a single collapsed summary line instead
  * of a wall of cards. Expanded while anything inside is streaming, folds
