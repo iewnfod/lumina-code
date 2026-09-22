@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useRef, useState} from "react";
+import {memo, useCallback, useEffect, useRef, useState} from "react";
 import {ArrowUp, Bot, Brain, Cpu, FileText, Paperclip, Square, X} from "lucide-react";
 import {LexicalComposer} from "@lexical/react/LexicalComposer";
 import {PlainTextPlugin} from "@lexical/react/LexicalPlainTextPlugin";
@@ -100,13 +100,29 @@ function triggerId(t: TriggerState): string {
     return `${t.nodeKey}:${t.offset}:${t.kind}`;
 }
 
+/** Chars that make a preceding `/` read as part of a path, URL or
+ *  identifier ("src/app", "24/7", "https://…") rather than a command
+ *  invocation — no command popup while typing those. */
+const PATH_CHARS = /[A-Za-z0-9_.\-~/:]/;
+
 /**
  * Detects an open trigger directly before the caret by looking at the
  * ANCHOR TEXT NODE — no serialization, no caret-to-string mapping. The
- * trigger must sit at the start of the node or right after whitespace,
- * still unclosed (no space between it and the caret). Mention nodes are
- * skipped: the caret can legally rest inside one (token text), but a chip
- * is never a trigger. Returns null when not autocompleting.
+ * word (non-space run) ending at the caret is scanned right-to-left for
+ * a trigger character; a space still closes the autocomplete.
+ *
+ * Trigger rules:
+ *  - `@` (files) fires ANYWHERE — glued to a word is fine ("看这个@src"),
+ *    like Slack/Discord mentions. CJK input has no natural spaces, so
+ *    requiring a word boundary would make mentions nearly untypable.
+ *  - `/` (commands) stays quiet inside paths and identifiers (rejected
+ *    when the previous char is a path char) but fires at the start,
+ *    after whitespace, punctuation and CJK text ("帮我/new").
+ * The RIGHTMOST passing trigger wins, and a `/` rejected as path-internal
+ * falls back to an earlier `@` ("a@b/c" is a file query, not a command).
+ * Mention nodes are skipped: the caret can legally rest inside one
+ * (token text), but a mention is never a trigger. Returns null when not
+ * autocompleting.
  */
 function $detectTrigger(): TriggerState | null {
     const sel = $getSelection();
@@ -125,14 +141,31 @@ function $detectTrigger(): TriggerState | null {
             before = prev.getTextContent();
         }
     }
-    const m = before.match(/(?:^|\s)([\/@])(\S*)$/);
-    if (!m) return null;
-    return {
-        kind: m[1] === "/" ? "command" : "file",
-        nodeKey: node.getKey(),
-        offset: before.length - m[2].length - 1,
-        query: m[2],
-    };
+    const run = before.match(/(\S*)$/)![1];
+    if (!run) return null;
+    const runStart = before.length - run.length;
+    // The char physically before the run — reaches across into the
+    // previous sibling text node when the run starts the node, so "src"
+    // + "/app" in split nodes still reads as one path.
+    const prevSibling = node.getPreviousSibling();
+    const beforeRun = runStart > 0
+        ? before[runStart - 1]
+        : $isTextNode(prevSibling)
+            ? prevSibling.getTextContent().slice(-1)
+            : undefined;
+    for (let i = run.length - 1; i >= 0; i--) {
+        const ch = run[i];
+        if (ch !== "@" && ch !== "/") continue;
+        const boundary = i > 0 ? run[i - 1] : beforeRun;
+        if (ch === "/" && boundary !== undefined && PATH_CHARS.test(boundary)) continue;
+        return {
+            kind: ch === "/" ? "command" : "file",
+            nodeKey: node.getKey(),
+            offset: runStart + i,
+            query: run.slice(i + 1),
+        };
+    }
+    return null;
 }
 
 /** One slash command to execute server-side instead of a plain prompt. */
@@ -195,8 +228,15 @@ function $skipFileMention(editor: LexicalEditor, direction: -1 | 1): boolean {
  * that exact node, and the box grows via CSS (min/max height on the
  * editable itself) — nothing serializes the editor into a plain string
  * just to map the caret back and forth.
+ *
+ * Memoized: the parent ChatView re-renders on every streaming frame (the
+ * transcript grows per rAF), and none of that concerns the composer.
+ * With memo + stable callbacks from ChatView (onSend/onInterrupt are
+ * useCallback'd there; every other prop is state or a primitive from App),
+ * the whole editor subtree — Lexical, pickers, the catalog grouping —
+ * skips re-rendering while tokens stream.
  */
-export default function ChatInput({
+const ChatInput = memo(function ChatInput({
     colors,
     disabled,
     busy,
@@ -525,7 +565,9 @@ export default function ChatInput({
             </div>
         </div>
     );
-}
+});
+
+export default ChatInput;
 
 /**
  * Everything editor-internal: trigger detection, suggestions, keyboard

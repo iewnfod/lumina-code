@@ -8,6 +8,8 @@ import {isAssistantMessage} from "../../opencode/types.ts";
 import type {
     ChatAssistantMessage,
     ChatMessage,
+    ComposerAttachment,
+    ComposerFileRef,
     FormAnswer,
     FormRequest,
     OpencodeAgent,
@@ -157,6 +159,22 @@ const ChatView = memo(function ChatView({
     // session is working — that's the streaming state (caret / thinking).
     const isStreaming = (m: ChatMessage) => busy && isAssistantMessage(m) && !m.time?.completed;
 
+    // Stable identities for the composer's callbacks. ChatView re-renders
+    // on every streaming frame; without these the memoized ChatInput would
+    // re-render (and re-run its whole editor + catalog-grouping subtree)
+    // 60×/s while tokens stream. send/interrupt are already stable
+    // (useCallback with empty deps in useSessionMessages).
+    const handleSend = useCallback(
+        (
+            text: string,
+            files: ComposerAttachment[],
+            fileRefs: ComposerFileRef[],
+            command: {name: string; arguments: string} | null,
+        ) => void send(text, files, fileRefs, command),
+        [send],
+    );
+    const handleInterrupt = useCallback(() => void interrupt(), [interrupt]);
+
     // Grow the render window / fetch an older page (both directions of
     // "earlier": in-memory tail first, then the server cursor).
     const loadEarlier = useCallback(() => {
@@ -197,14 +215,16 @@ const ChatView = memo(function ChatView({
     }, [renderLimit, messages]);
 
     // Follow the newest content while parked at the bottom. Small deltas
-    // (streaming tokens, a new message) glide smoothly; large ones (a
-    // session switch, first render) jump instantly so the view doesn't
-    // spend a second sweeping past pages of content.
+    // (a new message while idle) glide smoothly; large ones (a session
+    // switch, first render) jump instantly so the view doesn't spend a
+    // second sweeping past pages of content. Streaming deltas jump too:
+    // frames land every ~16ms and each restarts the eased animation from
+    // scratch — a burst of restarts reads as stutter, not motion.
     useEffect(() => {
         const el = scrollRef.current;
         if (el && atBottomRef.current) {
             const delta = el.scrollHeight - el.scrollTop - el.clientHeight;
-            if (delta > el.clientHeight) {
+            if (delta > el.clientHeight || busy) {
                 el.scrollTop = el.scrollHeight;
             } else {
                 // The smooth animation emits intermediate scroll events that
@@ -215,7 +235,7 @@ const ChatView = memo(function ChatView({
                 el.scrollTo({top: el.scrollHeight, behavior: "smooth"});
             }
         }
-    }, [messages]);
+    }, [messages, busy]);
 
     const handleScroll = () => {
         const el = scrollRef.current;
@@ -374,8 +394,8 @@ const ChatView = memo(function ChatView({
                         colors={colors}
                         disabled={disabled}
                         busy={busy}
-                        onSend={(text, files, fileRefs, command) => void send(text, files, fileRefs, command)}
-                        onInterrupt={() => void interrupt()}
+                        onSend={handleSend}
+                        onInterrupt={handleInterrupt}
                         agents={agents}
                         models={models}
                         agent={agent}
