@@ -76,6 +76,22 @@ export interface ComposerAttachment {
     uri: string;
 }
 
+/** A workspace file referenced via `@` in the composer — posted as a
+ *  `file://` URI on the prompt's `files[]`, so the model reads the real
+ *  file instead of inlined content. */
+export interface ComposerFileRef {
+    /** Absolute path (as `/api/find/file` returns it). */
+    path: string;
+}
+
+/** `GET /api/command` entry — a user-defined slash command. */
+export interface OpencodeCommand {
+    name: string;
+    description?: string;
+    agent?: string;
+    template: string;
+}
+
 /** A pending permission request (`permission.asked` payload shape —
  *  verified against server v2.0.11: the event carries the v1 NAME with
  *  the v2 `action`/`resources` payload; the SDK's `permission.v2.asked`

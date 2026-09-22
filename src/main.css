@@ -112,6 +112,25 @@ body {
 }
 
 /*
+ * Composer file chips (FileMentionNode — a token TextNode wearing pill
+ * styling; the icon rides as a background-image set inline per file type).
+ * white-space: nowrap keeps a chip atomic across line wraps.
+ */
+.lum-file-mention {
+    padding: 1px 5px 1px 19px;
+    border-radius: var(--radius-sm);
+    background-color: rgba(127, 127, 127, 0.18);
+    white-space: nowrap;
+}
+
+/* A selection sweeping across a chip shouldn't paint the cinnabar box over
+ * its text — keep it at the pill's own tint so chips read as atomic. */
+.lum-file-mention::selection {
+    background: rgba(127, 127, 127, 0.18);
+}
+
+
+/*
  * Markdown inside chat messages. Scoped under .lum-md (components/chat/
  * Markdown.tsx) so chat typography rides the design tokens — mono font, our
  * radii, quiet neutral surfaces that read over any effective background.

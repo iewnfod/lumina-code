@@ -32,6 +32,8 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Choose This Folder": "选择此文件夹",
     "Add attachment": "添加附件",
     "Remove attachment": "移除附件",
+    "No matching commands": "没有匹配的命令",
+    "No matching files": "没有匹配的文件",
     // --- Permission requests & questions ---
     "Permission request": "权限请求",
     "Access a folder outside the project": "访问项目外的文件夹",

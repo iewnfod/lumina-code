@@ -30,6 +30,8 @@ const enUs = {
     "Choose This Folder": "Choose This Folder",
     "Add attachment": "Add attachment",
     "Remove attachment": "Remove attachment",
+    "No matching commands": "No matching commands",
+    "No matching files": "No matching files",
     // --- Permission requests & questions ---
     "Permission request": "Permission request",
     "Access a folder outside the project": "Access a folder outside the project",

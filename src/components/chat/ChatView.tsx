@@ -354,7 +354,7 @@ const ChatView = memo(function ChatView({
                         colors={colors}
                         disabled={disabled}
                         busy={busy}
-                        onSend={(text, files) => void send(text, files)}
+                        onSend={(text, files, fileRefs, command) => void send(text, files, fileRefs, command)}
                         onInterrupt={() => void interrupt()}
                         agents={agents}
                         models={models}

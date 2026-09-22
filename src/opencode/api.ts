@@ -1,8 +1,10 @@
 import type {
     ChatMessage,
+    ComposerFileRef,
     FormAnswer,
     FormRequest,
     OpencodeAgent,
+    OpencodeCommand,
     OpencodeModel,
     OpencodeProject,
     OpencodeProvider,
@@ -15,6 +17,7 @@ export type {Session} from "@opencode-ai/sdk/v2/client";
 export type {
     ChatMessage,
     OpencodeAgent,
+    OpencodeCommand,
     OpencodeModel,
     OpencodeProject,
     OpencodeProvider,
@@ -144,6 +147,50 @@ export class OpencodeApi {
     /** Available models (includes each model's thinking-depth variants). */
     listModels(): Promise<OpencodeModel[]> {
         return this.request<OpencodeModel[]>("/api/model");
+    }
+
+    /** User-defined slash commands (markdown templates). */
+    listCommands(): Promise<OpencodeCommand[]> {
+        return this.request<OpencodeCommand[]>("/api/command");
+    }
+
+    /** Server-side fuzzy file finder — ranked by the server (respects
+     *  .gitignore). Verified against server v2.0.11: the SDK's
+     *  `/find/file` does not exist there; the real route is
+     *  `GET /api/fs/find` with the directory as a bracket-form
+     *  `location[directory]` query param, returning `{location, data}`
+     *  where `data[].path` is RELATIVE to that location — we return both
+     *  forms (short display path + absolute for the file:// URI). */
+    findFiles(query: string, directory?: string | null): Promise<{absolute: string; relative: string}[]> {
+        const params = new URLSearchParams({query, type: "file"});
+        if (directory) params.set("location[directory]", directory);
+        return this.requestRaw<{location?: {directory?: string}; data?: {path: string; type?: string}[]}>(
+            `/api/fs/find?${params.toString()}`,
+        ).then((r) => {
+            const base = (directory ?? r?.location?.directory ?? "").replace(/\/+$/, "");
+            return (r?.data ?? [])
+                .filter((f) => f.type !== "directory")
+                .map((f) => ({
+                    relative: f.path,
+                    absolute: base && !f.path.startsWith("/") ? `${base}/${f.path}` : f.path,
+                }));
+        });
+    }
+
+    /** Execute a slash command inside a session (server expands the
+     *  template and runs it like a prompt). */
+    runSessionCommand(sessionId: string, command: string, args: string): Promise<unknown> {
+        return this.request(`/api/session/${encodeURIComponent(sessionId)}/command`, {
+            method: "POST",
+            body: JSON.stringify({command, arguments: args}),
+        });
+    }
+
+    /** A composer file reference as it rides the prompt's `files[]` —
+     *  `file://` URLs point the server at the real file on disk. */
+    static fileRefToPromptFile(ref: ComposerFileRef): {uri: string; name: string} {
+        const base = ref.path.split("/").pop() ?? ref.path;
+        return {uri: `file://${ref.path}`, name: base};
     }
 
     /** The server's current default model. */

@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useRef, useState} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
-import type {OpencodeApi} from "./api.ts";
+import {OpencodeApi} from "./api.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import {
     isAssistantMessage,
@@ -10,6 +10,7 @@ import {
     type ChatMessage,
     type ChatUserMessage,
     type ComposerAttachment,
+    type ComposerFileRef,
     type EventMap,
 } from "./types.ts";
 
@@ -38,7 +39,12 @@ export function useSessionMessages(
     hasMore: boolean;
     loadingOlder: boolean;
     loadOlder: () => void;
-    send: (text: string, files?: ComposerAttachment[]) => Promise<void>;
+    send: (
+        text: string,
+        files?: ComposerAttachment[],
+        fileRefs?: ComposerFileRef[],
+        command?: {name: string; arguments: string} | null,
+    ) => Promise<void>;
     interrupt: () => Promise<void>;
 } {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -375,27 +381,39 @@ export function useSessionMessages(
 
     // --- Actions ---
 
-    const send = useCallback(async (text: string, files?: ComposerAttachment[]) => {
+    const send = useCallback(async (
+        text: string,
+        files?: ComposerAttachment[],
+        fileRefs?: ComposerFileRef[],
+        command?: {name: string; arguments: string} | null,
+    ) => {
         const trimmed = text.trim();
         const a = apiRef.current;
         const sid = sessionRef.current;
         if (!a || !sid || !trimmed) return;
+        const promptFiles = [
+            ...(files ?? []).map((f) => ({uri: f.uri, name: f.name})),
+            ...(fileRefs ?? []).map((r) => OpencodeApi.fileRefToPromptFile(r)),
+        ];
         // Optimistic user bubble; the prompt response + inbox.enqueued event
         // confirm it with the real id (see the inbox handler above).
         const optimistic: ChatUserMessage = {
             id: `local-${Date.now()}`,
             type: "user",
             text: trimmed,
-            files: files?.map((f) => ({name: f.name, mime: f.mime, uri: f.uri})),
+            files: [
+                ...(files ?? []).map((f) => ({name: f.name, mime: f.mime, uri: f.uri})),
+                ...(fileRefs ?? []).map((r) => ({name: r.path.split("/").pop() ?? r.path})),
+            ],
         };
         messagesRef.current = [...messagesRef.current, optimistic];
         commit(true);
         try {
-            await a.sendPrompt(
-                sid,
-                trimmed,
-                files?.map((f) => ({uri: f.uri, name: f.name})),
-            );
+            if (command) {
+                await a.runSessionCommand(sid, command.name, command.arguments);
+            } else {
+                await a.sendPrompt(sid, trimmed, promptFiles);
+            }
         } catch (e) {
             logError(`Failed to send prompt: ${e}`).catch(() => {});
             // Drop the optimistic bubble so the failure is visible.

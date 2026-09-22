@@ -21,10 +21,11 @@ import {isLinux} from "./lib/platform.ts";
 import {loadState, saveState} from "./lib/persist.ts";
 import {appThemeFor} from "./lib/theme.ts";
 import {useOpencode} from "./opencode/useOpencode.ts";
+import {OpencodeApi} from "./opencode/api.ts";
 import {useSessions} from "./opencode/useSessions.ts";
 import {useSessionRequests} from "./opencode/useSessionRequests.ts";
 import {useModelCatalog} from "./opencode/useModelCatalog.ts";
-import type {ComposerAttachment, SessionModelRef} from "./opencode/types.ts";
+import type {ComposerAttachment, ComposerFileRef, SessionModelRef} from "./opencode/types.ts";
 
 /**
  * Layout shell, ported from lumina-terminal's App.tsx: outer transparent
@@ -175,8 +176,14 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     }, [activeId, remove]);
 
     /** First send from the welcome screen: create the session (in the chosen
-     *  directory), apply the staged model/agent, then deliver the prompt. */
-    const sendFirst = useCallback(async (text: string, files: ComposerAttachment[]) => {
+     *  directory), apply the staged model/agent, then deliver the prompt
+     *  (or run a slash command server-side). */
+    const sendFirst = useCallback(async (
+        text: string,
+        files: ComposerAttachment[],
+        fileRefs: ComposerFileRef[] = [],
+        command: {name: string; arguments: string} | null = null,
+    ) => {
         if (!api) return;
         const created = await create(pendingDirectory ?? undefined);
         if (!created) return;
@@ -191,11 +198,14 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
             });
         }
         setActiveId(created.id);
-        await api.sendPrompt(
-            created.id,
-            text,
-            files.map((f) => ({uri: f.uri, name: f.name})),
-        ).catch((e) => {
+        const promptFiles = [
+            ...files.map((f) => ({uri: f.uri, name: f.name})),
+            ...fileRefs.map((r) => OpencodeApi.fileRefToPromptFile(r)),
+        ];
+        const deliver = command
+            ? api.runSessionCommand(created.id, command.name, command.arguments)
+            : api.sendPrompt(created.id, text, promptFiles);
+        await deliver.catch((e) => {
             error(`Failed to send prompt: ${e}`).catch(() => {});
         });
     }, [api, create, pendingAgent, pendingDirectory, pendingModel]);
@@ -363,7 +373,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                                     colors={composerColors}
                                                     disabled={!connected}
                                                     busy={false}
-                                                    onSend={(text, files) => void sendFirst(text, files)}
+                                                    onSend={(text, files, fileRefs, command) => void sendFirst(text, files, fileRefs, command)}
                                                     onInterrupt={() => {}}
                                                     agents={agents}
                                                     models={models}
