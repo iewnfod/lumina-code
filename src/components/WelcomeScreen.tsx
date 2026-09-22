@@ -72,6 +72,7 @@ export default function WelcomeScreen({
                 <ChatPlaceholder
                     foregroundColor={foregroundColor}
                     subtitle={subtitle}
+                    directory={directory}
                 />
                 <div className="max-w-3xl mx-auto w-full px-6">
                     <ChatInput

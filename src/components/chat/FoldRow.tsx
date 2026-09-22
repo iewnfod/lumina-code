@@ -69,7 +69,7 @@ export default function FoldRow({
                     <span className="shrink-0 flex items-center">{icon}</span>
                     {/* A plain-string title rolls on change — the same drum
                         turn as the title bar's session title — so a live
-                        label swapping to its summary ("Working…" → "3 tool
+                        label swapping to its summary ("Working..." → "3 tool
                         calls") turns instead of snapping. Node titles pass
                         through untouched. The wrapper is the drum: it pins
                         the departing span (popLayout) and clips it at the

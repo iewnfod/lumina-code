@@ -22,7 +22,7 @@ export default function ThinkingBlock({part, stateKey, live}: {part: AssistantRe
     return (
         <FoldRow
             icon={<Brain size={14} className={live ? "animate-pulse" : ""} />}
-            title={live ? t["Thinking…"] : t["Thought process"]}
+            title={live ? t["Thinking..."] : t["Thought process"]}
             detail={!expanded && snippet ? (
                 <span className="truncate">{snippet}</span>
             ) : null}

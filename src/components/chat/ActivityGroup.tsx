@@ -57,7 +57,7 @@ export default function ActivityGroup({
     const bits: string[] = [];
     if (toolCount > 0) bits.push(`${toolCount} ${toolCount > 1 ? t["tool calls"] : t["tool call"]}`);
     if (thoughtCount > 0) bits.push(`${thoughtCount} ${thoughtCount > 1 ? t["thoughts"] : t["thought"]}`);
-    const label = running ? t["Working…"] : bits.join(" · ");
+    const label = running ? t["Working..."] : bits.join(" · ");
     // Distinct tool names involved, e.g. "Edit · Shell · Grep".
     const names = [...new Set(
         parts.filter((p) => p.type === "tool").map((p) => toolDisplayName(p.name, t)),

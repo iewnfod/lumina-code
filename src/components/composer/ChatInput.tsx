@@ -220,7 +220,7 @@ const ChatInput = memo(function ChatInput({
                     api={api}
                     directory={directory}
                     commands={commands}
-                    placeholder={disabled ? t["Connecting to OpenCode…"] : t["Ask Lumina Code, use @ to add context, use / for commands"]}
+                    placeholder={disabled ? t["Connecting to OpenCode..."] : t["Ask Lumina Code, use @ to add context, use / for commands"]}
                     addFiles={addFiles}
                     onSubmit={handleSubmit}
                     onReady={(handle) => {

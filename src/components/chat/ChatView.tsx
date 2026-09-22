@@ -215,14 +215,14 @@ const ChatView = memo(function ChatView({
                                 className="flex justify-center py-2 select-none"
                             >
                                 <span className="text-xs opacity-40">
-                                    {loadingOlder ? t["Loading earlier messages…"] : t["Scroll to load earlier messages"]}
+                                    {loadingOlder ? t["Loading earlier messages..."] : t["Scroll to load earlier messages"]}
                                 </span>
                             </motion.div>
                         )}
                     </AnimatePresence>
                     {rendered.length === 0 && (
                         <div className="flex items-center justify-center h-full min-h-40 text-sm opacity-40 select-none">
-                            {disabled ? t["Waiting for OpenCode…"] : t["Send a message to start"]}
+                            {disabled ? t["Waiting for OpenCode..."] : t["Send a message to start"]}
                         </div>
                     )}
                     <TranscriptList

@@ -273,7 +273,7 @@ export const QuestionCard = memo(function QuestionCard({
                     {field.custom && (
                         <CustomTextInput
                             value={customText[field.key] ?? ""}
-                            placeholder={t["Type your answer…"]}
+                            placeholder={t["Type your answer..."]}
                             colors={colors}
                             onChange={(text) =>
                                 setCustomText((prev) => ({...prev, [field.key]: text}))}
@@ -304,7 +304,7 @@ export const QuestionCard = memo(function QuestionCard({
                     {field.custom && (
                         <CustomTextInput
                             value={customText[field.key] ?? ""}
-                            placeholder={t["Type your answer…"]}
+                            placeholder={t["Type your answer..."]}
                             colors={colors}
                             onChange={(text) =>
                                 setCustomText((prev) => ({...prev, [field.key]: text}))}
@@ -334,7 +334,7 @@ export const QuestionCard = memo(function QuestionCard({
                 <input
                     type={field.type === "number" || field.type === "integer" ? "number" : "text"}
                     value={answer[field.key] as string | number | undefined ?? ""}
-                    placeholder={field.type === "string" ? (field.placeholder ?? t["Type your answer…"]) : ""}
+                    placeholder={field.type === "string" ? (field.placeholder ?? t["Type your answer..."]) : ""}
                     onChange={(e) => set(field.key, e.currentTarget.value)}
                     onKeyDown={(e) => answerEnter(e, commitPage)}
                     className={ANSWER_INPUT_CLASS}

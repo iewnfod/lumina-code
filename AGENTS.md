@@ -203,7 +203,14 @@ src/
     │                      #   age/close slot), "Show more/less" expander.
     ├── sessionGrouping.ts # Pure sidebar mapping: SessionInfo view-model,
     │                      #   relativeAge, groupByDirectory. node-testable.
-    ├── ChatPlaceholder.tsx # Welcome-screen logo/status
+    ├── ChatPlaceholder.tsx # Welcome-screen logo + greeting
+    │                      #   (picked once per mount via greetings.ts).
+    ├── greetings.ts       # Pure welcome-greeting picker: per-language pools
+    │                      #   (independent id sets — zh-only memes don't leak
+    │                      #   to en), probability-gated special occasions
+    │                      #   (1024, Thursday KFC, late night, Friday deploy,
+    │                      #   Monday, weekend), {project} interpolation.
+    │                      #   node-testable.
     ├── WelcomeScreen.tsx  # The no-session surface: greeting + the staged
     │                      #   composer (session created on first send).
     ├── ui/                # Shared primitives (one of each thing)

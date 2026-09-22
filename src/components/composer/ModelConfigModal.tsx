@@ -285,14 +285,14 @@ export default function ModelConfigModal({
                                     type="text"
                                     autoFocus
                                     value={query}
-                                    placeholder={t["Search providers…"]}
+                                    placeholder={t["Search providers..."]}
                                     onChange={(e) => setQuery(e.currentTarget.value)}
                                     className="w-full bg-transparent text-xs outline-none placeholder:opacity-40"
                                 />
                             </label>
                             {integrations === null && !loadFailed && (
                                 <p className="text-xs py-4 text-center" style={{color: colors.inactiveText}}>
-                                    {t["Loading…"]}
+                                    {t["Loading..."]}
                                 </p>
                             )}
                             {loadFailed && (
@@ -394,7 +394,7 @@ export default function ModelConfigModal({
                         </div>
                     ) : rawConfig === null ? (
                         <p className="text-xs py-4 text-center" style={{color: colors.inactiveText}}>
-                            {configError ? t["Failed to load config"] : t["Loading…"]}
+                            {configError ? t["Failed to load config"] : t["Loading..."]}
                         </p>
                     ) : (
                         <div className="flex flex-col gap-2">
@@ -633,7 +633,7 @@ function ProviderDetail({
                     ))}
                     <div>
                         <Button
-                            label={busy ? t["Connecting…"] : t["Connect"]}
+                            label={busy ? t["Connecting..."] : t["Connect"]}
                             primary
                             colors={colors}
                             disabled={busy || key.trim() === ""}
@@ -655,7 +655,7 @@ function ProviderDetail({
                             <div className="flex items-center gap-2 text-xs">
                                 <Globe size={13} className="shrink-0 opacity-60"/>
                                 <span className="min-w-0 flex-1 truncate leading-normal">
-                                    {oauth.status === "pending" && t["Waiting for authorization…"]}
+                                    {oauth.status === "pending" && t["Waiting for authorization..."]}
                                     {oauth.status === "complete" && t["Authorization complete"]}
                                     {oauth.status === "failed" && t["Authorization failed"]}
                                     {oauth.status === "expired" && t["Authorization expired"]}

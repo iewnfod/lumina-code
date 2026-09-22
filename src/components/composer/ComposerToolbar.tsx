@@ -219,7 +219,7 @@ export default function ComposerToolbar({
                             <MenuItem colors={colors} onClick={() => openConfig(close)}>
                                 <span className="inline-flex items-center gap-1.5">
                                     <Settings2 size={13} className="shrink-0 opacity-60"/>
-                                    <span>{t["Configure models…"]}</span>
+                                    <span>{t["Configure models..."]}</span>
                                 </span>
                             </MenuItem>
                         )

@@ -86,6 +86,13 @@ export function currentLanguage(): Language | null {
     return stored;
 }
 
+/** The language the dictionary actually resolves to right now (explicit
+ *  choice → system language → en-us). For consumers whose content pools
+ *  are keyed by language (greetings) rather than looked up per-string. */
+export function resolvedLanguage(): Language {
+    return stored ?? system ?? "en-us";
+}
+
 /** Switch language and persist the choice; null clears it back to
  *  follow-the-system. Never throws. */
 export function setLanguage(lang: Language | null): void {

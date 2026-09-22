@@ -113,7 +113,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     }, [dark]);
 
     const placeholderSubtitle = connectionStatus.state === "connecting"
-        ? t["Connecting to OpenCode…"]
+        ? t["Connecting to OpenCode..."]
         : connectionStatus.state === "error"
             ? connectionStatus.message
             : null;

@@ -144,7 +144,7 @@ export default function DirectoryPicker({
                     >
                         <span className="inline-flex items-center gap-1.5">
                             <FolderSearch size={13}/>
-                            {t["Browse…"]}
+                            {t["Browse..."]}
                         </span>
                     </MenuItem>
                 </div>

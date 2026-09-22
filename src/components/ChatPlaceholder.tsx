@@ -1,31 +1,37 @@
+import {useMemo} from "react";
 import {motion} from "framer-motion";
 import CO from "../assets/CO.svg";
-import {useI18n} from "../hooks/i18n.tsx";
-import type {TranslationKey} from "../i18n/en-us.ts";
+import {resolvedLanguage} from "../hooks/i18n.tsx";
+import {folderLabel} from "../lib/path.ts";
+import {pickGreeting} from "./greetings.ts";
 import {fadeSlideUp, staggerContainer} from "../lib/motion.ts";
 
 /**
- * Time-of-day greeting shown above the centered composer on the welcome
- * screen — a small touch of personality instead of static marketing copy.
- * Falls back to a connection-status line while (dis)connecting.
+ * Greeting shown above the centered composer on the welcome screen —
+ * mostly plain time-of-day greetings, occasionally a meme, and
+ * special-occasion eggs (see greetings.ts). Falls back to a
+ * connection-status line while (dis)connecting.
  */
-function greetingKey(date: Date): TranslationKey {
-    const hour = date.getHours();
-    if (hour >= 5 && hour < 11) return "Good morning";
-    if (hour >= 11 && hour < 18) return "Good afternoon";
-    if (hour >= 18 && hour < 23) return "Good evening";
-    return "Good night";
-}
-
 export default function ChatPlaceholder({
     foregroundColor,
     subtitle,
+    directory,
 }: {
     foregroundColor: string;
     /** Status line under the greeting — connection state, when relevant. */
     subtitle?: string;
+    /** Selected working directory — feeds the {project} greetings. */
+    directory: string | null;
 }) {
-    const t = useI18n();
+    // Re-rolled per mount and when the language or directory changes
+    // (App re-renders on language switches via useI18n, which is what makes
+    // resolvedLanguage() observable here). Plain re-renders don't flicker.
+    const projectName = directory ? folderLabel(directory) : null;
+    const language = resolvedLanguage();
+    const greeting = useMemo(
+        () => pickGreeting({now: new Date(), language, projectName}),
+        [language, projectName],
+    );
 
     return (
         <motion.div
@@ -51,7 +57,7 @@ export default function ChatPlaceholder({
             />
             <motion.div variants={fadeSlideUp} className="flex flex-col items-center gap-1.5 max-w-md">
                 <h2 className="text-2xl font-normal" style={{color: foregroundColor}}>
-                    {t[greetingKey(new Date())]}
+                    {greeting}
                 </h2>
                 {subtitle ? (
                     <p className="text-sm opacity-60 truncate w-full" style={{color: foregroundColor}}>
