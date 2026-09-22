@@ -394,7 +394,7 @@ const ChatView = memo(function ChatView({
             <div className="shrink-0 max-w-3xl mx-auto w-full px-6 pb-4 flex flex-col gap-2">
                 {/* Pinned server requests — while any is pending, the
                     session's execution waits server-side, so they stay
-                    visible above the composer, never scrolled away. */}
+                    in the composer's place, never scrolled away. */}
                 {pendingPermissions.map((request) => (
                     <PermissionCard
                         key={request.id}
@@ -412,10 +412,10 @@ const ChatView = memo(function ChatView({
                         onCancel={onFormCancel}
                     />
                 ))}
-                {/* While a question is pending, the composer hides — the
-                    answer flow is the question card itself, not a
+                {/* While any request is pending, the composer hides —
+                    the answer flow is the request card itself, not a
                     free-typed prompt. */}
-                {pendingForms.length === 0 && (
+                {pendingForms.length === 0 && pendingPermissions.length === 0 && (
                     <ChatInput
                         colors={colors}
                         disabled={disabled}

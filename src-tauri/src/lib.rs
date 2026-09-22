@@ -5,15 +5,30 @@ use tauri_plugin_log::TargetKind;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // NVIDIA + WebKitGTK compositing workarounds, same as lumina-terminal.
+    // NVIDIA + WebKitGTK compositing workaround, same as lumina-terminal.
     #[cfg(target_os = "linux")]
     {
         std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
-        // DMABUF renderer workaround (tauri-apps/tauri#9394). On NVIDIA the
-        // DMABUF sharing path misbehaves (artifacts, degraded raster
-        // quality); falling back to the older buffer path renders text
-        // noticeably crisper. Cheap and safe for a chat-density UI.
-        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+        // Wayland fractional monitor scaling (e.g. 150%) makes GDK's GL
+        // surface render at a fractional scale, resampling the whole scene
+        // and visibly softening text. gl-no-fractional pins integer-scale
+        // GL buffers — empirically much sharper glyph edges. Must be set
+        // before GTK initializes. Appended, not overwritten, so an
+        // externally-set GDK_DEBUG survives.
+        let flag = "gl-no-fractional";
+        let merged = match std::env::var("GDK_DEBUG") {
+            Ok(existing) if !existing.is_empty() => {
+                if existing.split(',').any(|f| f == flag) {
+                    None // already requested; keep as-is
+                } else {
+                    Some(format!("{existing},{flag}"))
+                }
+            }
+            _ => Some(flag.to_string()),
+        };
+        if let Some(value) = merged {
+            std::env::set_var("GDK_DEBUG", value);
+        }
     }
 
     tauri::Builder::default()

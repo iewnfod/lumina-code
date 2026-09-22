@@ -12,11 +12,11 @@ import type {
 } from "../../opencode/types.ts";
 
 /**
- * Cards for the server's pending requests, pinned above the composer so
- * a blocked session can't hide them: permission asks (folder outside the
- * project, gated commands, …) and question forms (see api.ts for the
- * form-as-question mapping). While any of these is up, the session's
- * execution waits server-side — they render only while pending.
+ * Cards for the server's pending requests, pinned in place of the
+ * composer so a blocked session can't hide them: permission asks (folder
+ * outside the project, gated commands, …) and question forms (see api.ts
+ * for the form-as-question mapping). While any of these is up, the
+ * session's execution waits server-side — they render only while pending.
  */
 
 const MONO = "var(--font-mono, ui-monospace, monospace)";
@@ -39,7 +39,7 @@ function permissionPhrase(action: string, t: ReturnType<typeof useI18n>): string
 
 /** Card chrome shared by both request kinds — mirrors the composer's
  *  surface (recessed bg + glass border) so the pinned stack reads as one
- *  family above it. */
+ *  family in its place. */
 function Card({colors, children}: {colors: SurfaceColors; children: ReactNode}) {
     return (
         <div
@@ -254,8 +254,10 @@ function CustomTextInput({
 /** One question form: fields rendered from the server's schema (the
  *  question tool emits option-selects and free-text), answered in one
  *  batch. Multi-question forms page through ONE field at a time instead
- *  of stacking everything. Memoized; local answer state resets with the
- *  form id. */
+ *  of stacking everything. For question forms the card header shows the
+ *  current question's own header (the server hardcodes their title to
+ *  "Questions" and stashes the real label in each field's title).
+ *  Memoized; local answer state resets with the form id. */
 export const QuestionCard = memo(function QuestionCard({
     form,
     colors,
@@ -287,6 +289,14 @@ export const QuestionCard = memo(function QuestionCard({
     const index = Math.min(page, visible.length - 1);
     const current = visible[index];
     const isLast = index >= visible.length - 1;
+
+    // Question forms hardcode their title to "Questions" server-side and
+    // put the real label in each field's title (the question's header) —
+    // show THAT in the card header instead, with the question text
+    // (description) as the body. Other forms keep their own title and
+    // field titles.
+    const isQuestion = form.metadata?.kind === "question";
+    const header = isQuestion ? current?.title : form.title;
 
     const set = (key: string, value: FormAnswer[string]) =>
         setAnswer((prev) => ({...prev, [key]: value}));
@@ -337,7 +347,9 @@ export const QuestionCard = memo(function QuestionCard({
     /** The body of ONE field (the current page). */
     const renderField = (field: FormField) => (
         <div key={field.key} className="flex flex-col gap-1.5">
-            {field.title && (
+            {/* Question forms show the field title as the card header
+                (see `header` above) — don't repeat it in the body. */}
+            {field.title && !isQuestion && (
                 <div className="flex items-baseline gap-2">
                     <span className="text-xs font-medium">{field.title}</span>
                     {field.required && (
@@ -447,7 +459,7 @@ export const QuestionCard = memo(function QuestionCard({
         <Card colors={colors}>
             <div className="flex items-center gap-2 text-sm font-medium">
                 <MessageCircleQuestion size={15} className="shrink-0" style={{color: "var(--color-brand-lavender)"}}/>
-                <span>{form.title || t["Questions"]}</span>
+                {header && <span>{header}</span>}
                 {visible.length > 1 && (
                     <span className="ml-auto shrink-0 text-xs opacity-50 tabular-nums select-none">
                         {index + 1} / {visible.length}

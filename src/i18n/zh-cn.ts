@@ -52,7 +52,6 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Allow once": "仅此一次",
     "Always allow": "始终允许",
     "Reject": "拒绝",
-    "Questions": "提问",
     "Send answers": "发送回答",
     "Dismiss": "忽略",
     "Answer required": "必答",

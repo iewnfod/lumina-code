@@ -82,7 +82,7 @@ function groupByDirectory(sessions: SessionInfo[]): [string, SessionInfo[]][] {
 }
 
 /** Edge-fade width for overflowing tab titles (px). */
-const TITLE_FADE = 18;
+const TITLE_FADE = 32;
 
 /** Hover must rest this long before the tooltip opens (ms), counted
  *  fresh per row — a quick swipe across the list shouldn't pop it. */

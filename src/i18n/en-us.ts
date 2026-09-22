@@ -50,7 +50,6 @@ const enUs = {
     "Allow once": "Allow once",
     "Always allow": "Always allow",
     "Reject": "Reject",
-    "Questions": "Questions",
     "Send answers": "Send answers",
     "Dismiss": "Dismiss",
     "Answer required": "Answer required",

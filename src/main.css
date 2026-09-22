@@ -2,6 +2,38 @@
 @import "@heroui/styles";
 
 /*
+ * Bundled fonts — the app ships its own faces so typography (and text
+ * sharpness) is deterministic on every machine: many Linux installs have
+ * incomplete or Regular-only CJK fonts, which pushes bold runs through
+ * algorithmic faux bold and per-glyph fontconfig fallback roulette. The
+ * @font-face families below shadow any same-named system fonts. woff2 to
+ * keep the embedded footprint small (Tauri packs public/ into the binary).
+ * Licenses: public/fonts/LICENSE-*.txt. Sources: Noto (OFL, Google Fonts),
+ * Maple Mono NF CN (OFL, subframe7536/maple-font).
+ */
+@font-face {
+    font-family: "Noto Sans";
+    src: url("/fonts/NotoSans-VF.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "Noto Sans SC";
+    src: url("/fonts/NotoSansSC-VF.woff2") format("woff2");
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "Maple Mono NF CN";
+    src: url("/fonts/MapleMono-NF-CN-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+/*
  * Lumina Code — design tokens (Tailwind v4 CSS-first @theme).
  *
  * Ported as-is from lumina-terminal's main.css (minus the xterm stylesheet):
@@ -11,20 +43,18 @@
  * lib/motion.ts.
  */
 @theme {
-    /* Typography — explicit stacks instead of the Tailwind default. The
-     * default chain ends at generic sans-serif, whose CJK resolution goes
-     * through fontconfig; on machines configured with a Regular-only CJK
-     * font (e.g. Microsoft YaHei without a Bold face) every bold run in
-     * markdown renders as algorithmic faux bold — visibly smeared. Naming
-     * "Noto Sans CJK SC" (full weight range) before the generic pins real
-     * weights per platform: PingFang SC on macOS, Microsoft YaHei (which
-     * ships real bold on Windows) there. */
+    /* Typography — explicit stacks resolving to the BUNDLED faces declared
+     * above, so every weight (CJK Medium/SemiBold/Bold included) is real
+     * everywhere. Latin first (Noto Sans VF), CJK from Noto Sans SC VF;
+     * the platform names after them only matter if a bundled file fails
+     * to load. Windows' Microsoft YaHei ships real bold; PingFang SC does
+     * on macOS. */
     --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans",
-        "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
-    /* Mono — Maple Mono NF CN first where installed (the lumina-terminal
-     * code face, covers Latin + SC); the explicit CJK mono before the
-     * generic avoids bare `monospace` resolving to a KR-variant CJK mono
-     * (wrong hanzi shapes in code blocks) on some fontconfigs. */
+        "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    /* Mono — bundled Maple Mono NF CN (Latin + SC + nerd icons) first; the
+     * explicit CJK mono before the generic avoids bare `monospace`
+     * resolving to a KR-variant CJK mono (wrong hanzi shapes in code
+     * blocks) on some fontconfigs. */
     --font-mono: "Maple Mono NF CN", ui-monospace, "Noto Sans Mono CJK SC",
         Consolas, monospace;
 
@@ -164,9 +194,7 @@ body {
  * radii, quiet neutral surfaces that read over any effective background.
  */
 .lum-md {
-    /* 15px: at fractional Wayland scales every extra rastered pixel
-     * tightens glyph edges; 14px read soft. Code/tables scale via em. */
-    font-size: 0.9375rem;
+    font-size: 0.875rem;
     line-height: 1.65;
     overflow-wrap: break-word;
 }
