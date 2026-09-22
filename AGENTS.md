@@ -184,6 +184,12 @@ src/
 │   │                      #   to resolve appThemeFor's input.
 │   ├── useIsWayland.ts    # cached invoke("is_wayland")
 │   ├── useAlwaysOnTop.ts  # per-window pin (no-op on Wayland)
+│   ├── useDisabledModels.ts # Models switched OFF in the model settings
+│   │                      #   (hidden from the picker — the server has no
+│   │                      #   per-model enable API, so this is client-side
+│   │                      #   only): module store + own localStorage key
+│   │                      #   (useThemePreference pattern), keys are
+│   │                      #   "providerID/modelID".
 │   ├── useDragRegionDoubleClick.ts # capture-phase mousedown + explicit maximize toggle
 │   ├── useFollowBottom.ts # stream-follow stickiness for inner scroll regions
 │   ├── useCopy.ts         # copy feedback shared by run footers and the user
@@ -296,9 +302,11 @@ src/
     ├── ModelSettings.tsx # Formerly composer/ModelConfigModal: searchable
     │                      #   integration list, API-key connect, browser-OAuth
     │                      #   flow with attempt polling, credential
-    │                      #   activate/remove; custom OpenAI-compatible
-    │                      #   providers written to the global opencode.json
-    │                      #   (server hot-reloads → config.updated event).
+    │                      #   activate/remove, per-provider model switches
+    │                      #   (picker visibility via useDisabledModels);
+    │                      #   custom OpenAI-compatible providers written to
+    │                      #   the global opencode.json (server hot-reloads →
+    │                      #   config.updated event).
     ├── AboutSettings.tsx # App/server/dependency version rows (getVersion +
     │                      #   the connection's server version + package.json).
     ├── SettingRow.tsx    # Settings row primitive (ported from

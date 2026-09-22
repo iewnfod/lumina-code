@@ -1,4 +1,4 @@
-import type {IntegrationInfo, OpencodeConfigEntry} from "../../opencode/types.ts";
+import type {IntegrationInfo, OpencodeConfigEntry, OpencodeModel} from "../../opencode/types.ts";
 
 /**
  * Pure helpers for the model-configuration modal: integration search, and
@@ -153,6 +153,20 @@ export function freshConfigWithProvider(def: CustomProviderDef): string {
         null,
         2,
     );
+}
+
+/** One provider's catalog models, picker-ready: server-disabled and
+ *  deprecated entries dropped, duplicates merged (first occurrence
+ *  wins), sorted by display name — the same hygiene rules
+ *  useModelCatalog applies to the whole catalog. The server only lists
+ *  models for ACTIVE providers, so an unconnected integration yields []. */
+export function providerModels(models: OpencodeModel[], providerID: string): OpencodeModel[] {
+    const usable = models.filter(
+        (m) => m.providerID === providerID && m.enabled !== false && m.status !== "deprecated",
+    );
+    return usable
+        .filter((m, i) => usable.findIndex((o) => o.modelID === m.modelID) === i)
+        .sort((a, b) => (a.name ?? a.modelID).localeCompare(b.name ?? b.modelID));
 }
 
 /** Case-insensitive search over integration name/id, connected

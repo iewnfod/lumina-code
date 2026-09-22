@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type {IntegrationInfo, OpencodeConfigEntry} from "../../opencode/types.ts";
+import type {IntegrationInfo, OpencodeConfigEntry, OpencodeModel} from "../../opencode/types.ts";
 import {
     customProviderDefs,
     filterIntegrations,
     freshConfigWithProvider,
     globalConfigTarget,
     mergeCustomProvider,
+    providerModels,
     removeCustomProvider,
 } from "./modelConfig.ts";
 
@@ -172,4 +173,28 @@ test("filterIntegrations sorts connected first, stably", () => {
     assert.deepEqual(filterIntegrations(list, "").map((i) => i.id), ["bbb", "aaa", "ccc"]);
     // Query filtering applies before the connected-first sort.
     assert.deepEqual(filterIntegrations(list, "a").map((i) => i.id), ["aaa"]);
+});
+
+function model(providerID: string, modelID: string, extra: Partial<OpencodeModel> = {}): OpencodeModel {
+    return {id: `${providerID}/${modelID}`, modelID, providerID, ...extra};
+}
+
+test("providerModels keeps only the provider's usable models, deduped and sorted", () => {
+    const list = [
+        model("b", "b1", {name: "B one"}),
+        model("a", "zed", {name: "A zed"}),
+        model("a", "mid"),
+        model("a", "mid", {name: "A mid duplicate"}),
+        model("a", "off", {enabled: false}),
+        model("a", "old", {status: "deprecated"}),
+    ];
+    // Sorted by display name ("A zed" < "mid" case-insensitively); names
+    // fall back to the model id; the first occurrence wins the dedupe.
+    assert.deepEqual(providerModels(list, "a").map((m) => m.modelID), ["zed", "mid"]);
+    assert.deepEqual(providerModels(list, "a").map((m) => m.name), ["A zed", undefined]);
+});
+
+test("providerModels is empty for unknown or inactive providers", () => {
+    assert.deepEqual(providerModels([model("a", "a1")], "missing"), []);
+    assert.deepEqual(providerModels([], "a"), []);
 });

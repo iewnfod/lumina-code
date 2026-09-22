@@ -9,6 +9,7 @@ import type {
 } from "../../opencode/types.ts";
 import type {ContextUsage} from "../chat/usageStats.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {disabledModelKey, useDisabledModels} from "../../hooks/useDisabledModels.ts";
 import PopoverMenu, {MenuItem, MenuLabel} from "../ui/PopoverMenu.tsx";
 import ToolbarButton from "./ToolbarButton.tsx";
 import UsageRing from "../chat/UsageRing.tsx";
@@ -123,9 +124,17 @@ export default function ComposerToolbar({
     const currentVariant = model?.variant ?? variants[0]?.id;
     const agentName = agents.find((a) => a.id === agent)?.name ?? agent;
 
-    // Group the catalog by provider for the model picker.
+    // Group the catalog by provider for the model picker, hiding models
+    // the user switched off in the model settings (a client-side
+    // preference — the resolved current-model lookups above stay on the
+    // full list so an in-session disabled model keeps its label and
+    // context limit).
+    const disabledModels = useDisabledModels();
+    const pickableModels = disabledModels.size === 0
+        ? models
+        : models.filter((m) => !disabledModels.has(disabledModelKey(m.providerID, m.modelID)));
     const providerGroups: [string, OpencodeModel[]][] = [];
-    for (const m of models) {
+    for (const m of pickableModels) {
         const last = providerGroups[providerGroups.length - 1];
         if (last && last[0] === m.providerID) last[1].push(m);
         else providerGroups.push([m.providerID, [m]]);

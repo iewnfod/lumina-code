@@ -11,8 +11,10 @@ import type {
     IntegrationKeyMethod,
     IntegrationOAuthMethod,
     OAuthAttempt,
+    OpencodeModel,
 } from "../../opencode/types.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {disabledModelKey, setModelDisabled, useDisabledModels} from "../../hooks/useDisabledModels.ts";
 import Button from "../ui/Button.tsx";
 import IconButton from "../ui/IconButton.tsx";
 import {
@@ -21,6 +23,7 @@ import {
     freshConfigWithProvider,
     globalConfigTarget,
     mergeCustomProvider,
+    providerModels,
     removeCustomProvider,
     type CustomProviderDef,
     type GlobalConfigTarget,
@@ -266,8 +269,29 @@ export default function ModelSettings({
                     initial="hidden"
                     animate="show"
                     exit="exit"
-                    className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+                    className="min-h-0 flex-1 flex flex-col"
                 >
+                {/* The provider list's search box stays PINNED above the
+                 * scroll area (outside the scroll container) instead of
+                 * scrolling away with the rows. */}
+                {tab === "providers" && !inDetail && (
+                    <div className="shrink-0 px-4 pt-3 pb-2">
+                        <label className="flex items-center gap-2 h-8 px-2.5 rounded-[var(--radius-sm)]"
+                            style={{background: colors.recessedBg, border: `1px solid ${colors.glassBorder}`}}
+                        >
+                            <Search size={13} className="shrink-0 opacity-45"/>
+                            <input
+                                type="text"
+                                autoFocus
+                                value={query}
+                                placeholder={t["Search providers..."]}
+                                onChange={(e) => setQuery(e.currentTarget.value)}
+                                className="w-full bg-transparent text-xs outline-none placeholder:opacity-40"
+                            />
+                        </label>
+                    </div>
+                )}
+                <div className={`min-h-0 flex-1 overflow-y-auto px-4 pb-3 ${tab === "providers" && !inDetail ? "" : "pt-3"}`}>
                 {tab === "providers" && (
                     selected ? (
                         <ProviderDetail
@@ -284,19 +308,6 @@ export default function ModelSettings({
                         />
                     ) : (
                         <div className="flex flex-col gap-2">
-                            <label className="flex items-center gap-2 h-8 px-2.5 rounded-[var(--radius-sm)]"
-                                style={{background: colors.recessedBg, border: `1px solid ${colors.glassBorder}`}}
-                            >
-                                <Search size={13} className="shrink-0 opacity-45"/>
-                                <input
-                                    type="text"
-                                    autoFocus
-                                    value={query}
-                                    placeholder={t["Search providers..."]}
-                                    onChange={(e) => setQuery(e.currentTarget.value)}
-                                    className="w-full bg-transparent text-xs outline-none placeholder:opacity-40"
-                                />
-                            </label>
                             {integrations === null && !loadFailed && (
                                 <p className="text-xs py-4 text-center" style={{color: colors.inactiveText}}>
                                     {t["Loading..."]}
@@ -480,6 +491,7 @@ export default function ModelSettings({
                         </div>
                     )
                 )}
+                </div>
                 </motion.div>
             </AnimatePresence>
         </div>
@@ -520,6 +532,30 @@ function ProviderDetail({
 
     const [key, setKey] = useState("");
     const [answers, setAnswers] = useState<Record<string, string>>({});
+
+    // --- Models (picker-visibility toggles — a client-side preference;
+    // the server has no per-model enable API). Refetched whenever the
+    // integration list refreshes, since connecting a credential is what
+    // puts the provider's models into /api/model.
+    const [models, setModels] = useState<OpencodeModel[] | null>(null);
+    const [modelsFailed, setModelsFailed] = useState(false);
+    useEffect(() => {
+        if (!api) return;
+        let cancelled = false;
+        setModels(null);
+        api.listModels().then((list) => {
+            if (cancelled) return;
+            setModels(providerModels(list ?? [], integration.id));
+            setModelsFailed(false);
+        }).catch((e) => {
+            if (cancelled) return;
+            setModelsFailed(true);
+            logError(`Failed to list models for ${integration.id}: ${e}`).catch(() => {});
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [api, integration.id, integration.connections]);
 
     const connect = () => {
         if (!api || key.trim() === "") return;
@@ -716,6 +752,27 @@ function ProviderDetail({
                     <span className="font-mono">{envMethod.names.join(", ")}</span>
                 </p>
             )}
+
+            {/* Models — switch each model's visibility in the composer's
+             * picker. The server only lists models for ACTIVE providers,
+             * so an unconnected one shows the connect hint instead. */}
+            <section className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium">{t["Models"]}</span>
+                {models === null && !modelsFailed && (
+                    <p className="text-xs py-1" style={{color: colors.inactiveText}}>{t["Loading..."]}</p>
+                )}
+                {modelsFailed && (
+                    <p className="text-xs py-1" style={{color: colors.inactiveText}}>{t["Failed to load models"]}</p>
+                )}
+                {models !== null && models.length === 0 && (
+                    <p className="text-xs py-1" style={{color: colors.inactiveText}}>
+                        {t["Connect this provider to list its models"]}
+                    </p>
+                )}
+                {models?.map((m) => (
+                    <ModelToggleRow key={m.modelID} model={m} colors={colors}/>
+                ))}
+            </section>
         </div>
     );
 }
@@ -826,6 +883,65 @@ function CustomProviderForm({
                 <Button label={t["Cancel"]} colors={colors} onClick={onCancel}/>
             </div>
         </div>
+    );
+}
+
+/** One model row of a provider detail: display name and the
+ *  picker-visibility switch (subscribing to the store so rows stay in
+ *  sync when the same model is toggled elsewhere). */
+function ModelToggleRow({model, colors}: {model: OpencodeModel; colors: SurfaceColors}) {
+    const t = useI18n();
+    const disabledModels = useDisabledModels();
+    const enabled = !disabledModels.has(disabledModelKey(model.providerID, model.modelID));
+    return (
+        <div
+            className="flex items-center gap-2 px-2.5 py-1.5 rounded-[var(--radius-sm)] transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-row-hover)]"
+            style={{"--lum-row-hover": colors.hoverOverlay} as React.CSSProperties}
+        >
+            <span className="min-w-0 flex-1 truncate text-xs leading-normal">{model.name ?? model.modelID}</span>
+            <Switch
+                checked={enabled}
+                colors={colors}
+                label={enabled ? t["Enabled"] : t["Disabled"]}
+                onChange={(next) => setModelDisabled(model.providerID, model.modelID, !next)}
+            />
+        </div>
+    );
+}
+
+/** A small pill switch — the model rows' enable/disable control. */
+function Switch({checked, colors, label, onChange}: {
+    checked: boolean;
+    colors: SurfaceColors;
+    label: string;
+    onChange: (checked: boolean) => void;
+}) {
+    return (
+        <button
+            type="button"
+            role="switch"
+            aria-checked={checked}
+            aria-label={label}
+            title={label}
+            onClick={() => onChange(!checked)}
+            className="relative shrink-0 w-8 h-[18px] rounded-full cursor-pointer transition-colors duration-[var(--duration-fast)]"
+            style={{
+                background: checked ? colors.accentOverlay : colors.activeOverlay,
+                border: `1px solid ${colors.glassBorder}`,
+            }}
+        >
+            <motion.span
+                initial={false}
+                animate={{left: checked ? 15 : 3}}
+                transition={{type: "spring", stiffness: 500, damping: 35}}
+                className="absolute top-[2px] w-3 h-3 rounded-full"
+                style={{
+                    background: checked
+                        ? (colors.dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.65)")
+                        : colors.inactiveText,
+                }}
+            />
+        </button>
     );
 }
 
