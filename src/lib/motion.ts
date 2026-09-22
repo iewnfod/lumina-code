@@ -31,6 +31,10 @@ export const durationFast = 0.15;
 export const durationBase = 0.25;
 export const durationSlow = 0.4;
 
+/** One full drum turn. Enter and exit run it concurrently, so a swap is
+ *  busy for exactly this long — the drum's update queue times off it. */
+export const durationTitleRoll = 0.35;
+
 /** Easing matching `--ease-spring` (the JS-side mirror of the CSS curve). */
 export const easeSpring = [0.22, 1, 0.36, 1] as const;
 export const easeGlass = [0.4, 0, 0.2, 1] as const;
@@ -100,13 +104,13 @@ export const titleRoll: Variants = {
         opacity: 1,
         y: 0,
         rotateX: 0,
-        transition: {duration: 0.35, ease: easeSpring},
+        transition: {duration: durationTitleRoll, ease: easeSpring},
     },
     exit: {
         opacity: 0,
         y: "-100%",
         rotateX: 60,
-        transition: {duration: 0.35, ease: easeSpring},
+        transition: {duration: durationTitleRoll, ease: easeSpring},
     },
 };
 

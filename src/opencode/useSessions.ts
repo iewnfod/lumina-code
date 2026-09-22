@@ -17,7 +17,10 @@ function isRootSession(s: OpencodeSession): boolean {
 /**
  * The sidebar's session list, kept in sync with the OpenCode server:
  * seeded from `GET /api/session`, then live-patched from the event bus
- * (session.created / renamed / deleted), plus a running-state set driven by
+ * (session.created / inbox.enqueued / renamed / deleted — the enqueued
+ * signal re-lists so the list's `time.updated` ordering tracks each
+ * session's last question, not its creation), plus a running-state set
+ * driven by
  * execution.started/succeeded/failed so busy sessions can show an indicator
  * regardless of which one is open. The busy set is seeded from
  * `GET /api/session/active` on connect — runs already in flight when the
@@ -107,6 +110,16 @@ export function useSessions(
         return subscribe((event) => {
             switch (event.type) {
                 case "session.created": {
+                    void relist();
+                    break;
+                }
+                // A new user question was accepted into a session's inbox.
+                // The server bumps that session's `time.updated` (and
+                // re-orders GET /api/session) right here, but never
+                // broadcasts anything the list already listens to — without
+                // this re-list the sidebar's ages and ordering stay frozen
+                // at each session's creation time until the app restarts.
+                case "session.inbox.enqueued": {
                     void relist();
                     break;
                 }
