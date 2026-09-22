@@ -339,7 +339,8 @@ export function ActivityGroup({
  */
 function ThinkingBlock({part, stateKey, live}: {part: AssistantReasoningPart; stateKey: string; live: boolean}) {
     const {expanded, toggle} = useExpansion(stateKey, live, AUTO_EXPAND_MIN_DWELL_MS);
-    const {ref: thinkScroll, onScroll: thinkScrollHandler} = useFollowBottom<HTMLDivElement>(live);
+    const {ref: thinkScroll, onScroll: thinkScrollHandler, scrolled: tailScrolled} =
+        useFollowBottom<HTMLDivElement>(live);
 
     // Collapsed rows carry the thought's first line as a preview.
     const snippet = part.text.trim().split("\n")[0] ?? "";
@@ -357,7 +358,7 @@ function ThinkingBlock({part, stateKey, live}: {part: AssistantReasoningPart; st
             <div
                 ref={thinkScroll}
                 onScroll={thinkScrollHandler}
-                className="ml-5 mt-0.5 mb-1 text-sm whitespace-pre-wrap break-words max-h-72 overflow-y-auto opacity-60 leading-relaxed"
+                className={`ml-5 mt-0.5 mb-1 text-sm whitespace-pre-wrap break-words max-h-72 overflow-y-auto opacity-60 leading-relaxed${tailScrolled ? " lum-tail-fade" : ""}`}
             >
                 {part.text}
             </div>

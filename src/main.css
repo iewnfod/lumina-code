@@ -112,6 +112,18 @@ body {
 }
 
 /*
+ * Tail-chasing scroll regions (thinking text, tool output — see
+ * hooks/useFollowBottom.ts) jump to their tail on every streamed frame;
+ * a one-line fade at the top edge reads as flowing rather than snapping.
+ * Callers apply it only while the region is scrolled, so a box that opens
+ * at the very top keeps its first line crisp.
+ */
+.lum-tail-fade {
+    -webkit-mask-image: linear-gradient(to bottom, transparent, black 24px);
+    mask-image: linear-gradient(to bottom, transparent, black 24px);
+}
+
+/*
  * Composer file mentions (FileMentionNode — a token TextNode). Rendered as
  * plain COLORED TEXT with a small type icon: the per-type color and the
  * icon (an inline background-image data URI) are set per node in

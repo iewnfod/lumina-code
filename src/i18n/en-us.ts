@@ -17,6 +17,7 @@ const enUs = {
     "Good evening": "Good evening",
     "Good night": "Good night",
     "Connecting to OpenCode…": "Connecting to OpenCode…",
+    "Ask Lumina Code, use @ to add context, use / for commands": "Ask Lumina Code, use @ to add context, use / for commands",
     "Connection error": "Connection error",
     "Send": "Send",
     "Stop": "Stop",
@@ -32,6 +33,10 @@ const enUs = {
     "Remove attachment": "Remove attachment",
     "No matching commands": "No matching commands",
     "No matching files": "No matching files",
+    // --- Transcript run footer ---
+    "Copy": "Copy",
+    "Copied": "Copied",
+    "Task duration": "Task duration",
     // --- Permission requests & questions ---
     "Permission request": "Permission request",
     "Access a folder outside the project": "Access a folder outside the project",

@@ -19,6 +19,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Good evening": "晚上好呀，今天辛苦啦",
     "Good night": "夜深了，早点休息呀",
     "Connecting to OpenCode…": "正在连接 OpenCode…",
+    "Ask Lumina Code, use @ to add context, use / for commands": "向 Lumina Code 提问，使用 @ 添加上下文，使用 / 发送命令",
     "Connection error": "连接错误",
     "Send": "发送",
     "Stop": "停止",
@@ -34,6 +35,10 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Remove attachment": "移除附件",
     "No matching commands": "没有匹配的命令",
     "No matching files": "没有匹配的文件",
+    // --- Transcript run footer ---
+    "Copy": "复制",
+    "Copied": "已复制",
+    "Task duration": "任务持续时间",
     // --- Permission requests & questions ---
     "Permission request": "权限请求",
     "Access a folder outside the project": "访问项目外的文件夹",

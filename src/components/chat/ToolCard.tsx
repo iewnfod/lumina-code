@@ -223,7 +223,7 @@ const ToolCard = memo(function ToolCard({
         part.id,
         status === "error",
     );
-    const {ref: outputScroll, onScroll: outputScrollHandler} =
+    const {ref: outputScroll, onScroll: outputScrollHandler, scrolled: tailScrolled} =
         useFollowBottom<HTMLDivElement>(status === "running");
 
     const {title, icon: Icon} = metaFor(part.name);
@@ -256,7 +256,7 @@ const ToolCard = memo(function ToolCard({
                 <div
                     ref={outputScroll}
                     onScroll={outputScrollHandler}
-                    className="ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2 text-sm whitespace-pre-wrap break-words max-h-64 overflow-y-auto"
+                    className={`ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2 text-sm whitespace-pre-wrap break-words max-h-64 overflow-y-auto${tailScrolled ? " lum-tail-fade" : ""}`}
                     style={{
                         fontFamily: MONO,
                         background: colors.recessedBg,

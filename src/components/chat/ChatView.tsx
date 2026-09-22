@@ -1,4 +1,4 @@
-import {memo, useCallback, useEffect, useLayoutEffect, useRef, useState} from "react";
+import {Fragment, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode} from "react";
 import {AnimatePresence, motion} from "framer-motion";
 import {fadeIn} from "../../lib/motion.ts";
 import {useSurfaceColors} from "../../hooks/surfaceColors.ts";
@@ -20,6 +20,8 @@ import type {
 } from "../../opencode/types.ts";
 import {useSessionMessages} from "../../opencode/useSessionMessages.ts";
 import MessageItem, {ActivityGroup, effectiveTailPart, type ActivityEntry, type ActivityPart} from "./MessageItem.tsx";
+import RunFooter from "./RunFooter.tsx";
+import {collectRunFooters} from "./runFooters.ts";
 import ChatInput from "./ChatInput.tsx";
 import {PermissionCard, QuestionCard} from "./RequestCards.tsx";
 
@@ -316,50 +318,74 @@ const ChatView = memo(function ChatView({
                     )}
                     {(() => {
                         const blocks = blockify(rendered);
+                        // End-of-run footers (copy + duration) hang under
+                        // the block whose last message finished a turn.
+                        const footers = collectRunFooters(rendered, busy);
                         return blocks.map((block) => {
+                            // Every block rides in a Fragment so a footer
+                            // can appear below it later (run completes)
+                            // without remounting the block itself.
+                            let element: ReactNode;
+                            // The message that would end a run at this
+                            // block, if any.
+                            let runEndId: string | null = null;
                             if (block.kind === "message") {
-                                return (
+                                element = (
                                     <MessageItem
-                                        key={block.message.id}
                                         message={block.message}
                                         colors={colors}
                                         streaming={isStreaming(block.message)}
                                         directory={directory}
                                     />
                                 );
+                                if (isAssistantMessage(block.message)) runEndId = block.message.id;
+                            } else {
+                                const entries: ActivityEntry[] = [];
+                                for (const m of block.messages) {
+                                    m.content.forEach((part, i) => {
+                                        if (part.type !== "text") {
+                                            entries.push({part, key: `${m.id}:${i}`});
+                                        }
+                                    });
+                                }
+                                // Live while the streaming message's effective
+                                // tail is a tool/thought inside this run.
+                                const streamingMsg = block.messages.find(isStreaming);
+                                const tail = streamingMsg ? effectiveTailPart(streamingMsg) : undefined;
+                                const livePart: ActivityPart | null =
+                                    tail != null && tail.type !== "text" ? tail : null;
+                                // …and across step boundaries: the server opens a
+                                // NEW assistant message per model step, so between
+                                // one step's message completing and the next
+                                // step's first part nothing here is streaming —
+                                // but the run keeps growing at the transcript's
+                                // tail. Stay open for that whole span instead of
+                                // folding shut and popping back open per step.
+                                const runLive = busy && block === blocks[blocks.length - 1];
+                                element = (
+                                    <ActivityGroup
+                                        stateKey={block.messages[0].id}
+                                        entries={entries}
+                                        colors={colors}
+                                        livePart={livePart}
+                                        runLive={runLive}
+                                        directory={directory}
+                                    />
+                                );
+                                runEndId = block.messages[block.messages.length - 1].id;
                             }
-                            const entries: ActivityEntry[] = [];
-                            for (const m of block.messages) {
-                                m.content.forEach((part, i) => {
-                                    if (part.type !== "text") {
-                                        entries.push({part, key: `${m.id}:${i}`});
-                                    }
-                                });
-                            }
-                            // Live while the streaming message's effective
-                            // tail is a tool/thought inside this run.
-                            const streamingMsg = block.messages.find(isStreaming);
-                            const tail = streamingMsg ? effectiveTailPart(streamingMsg) : undefined;
-                            const livePart: ActivityPart | null =
-                                tail != null && tail.type !== "text" ? tail : null;
-                            // …and across step boundaries: the server opens a
-                            // NEW assistant message per model step, so between
-                            // one step's message completing and the next
-                            // step's first part nothing here is streaming —
-                            // but the run keeps growing at the transcript's
-                            // tail. Stay open for that whole span instead of
-                            // folding shut and popping back open per step.
-                            const runLive = busy && block === blocks[blocks.length - 1];
+                            const run = runEndId !== null ? footers.get(runEndId) : undefined;
+                            // Key stays the block's FIRST message id — for a
+                            // growing activity run the last id changes per
+                            // step and would remount the whole block.
+                            const key = block.kind === "message" ? block.message.id : block.messages[0].id;
                             return (
-                                <ActivityGroup
-                                    key={block.messages[0].id}
-                                    stateKey={block.messages[0].id}
-                                    entries={entries}
-                                    colors={colors}
-                                    livePart={livePart}
-                                    runLive={runLive}
-                                    directory={directory}
-                                />
+                                <Fragment key={key}>
+                                    {element}
+                                    {run && (
+                                        <RunFooter text={run.text} durationMs={run.durationMs} colors={colors}/>
+                                    )}
+                                </Fragment>
                             );
                         });
                     })()}
