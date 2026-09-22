@@ -29,12 +29,17 @@ import Hint from "../ui/Hint.tsx";
  *
  * Memoized: streaming updates clone only the message being appended to, so
  * the rest of a long transcript skips re-rendering entirely.
+ *
+ * `enter` gates the entrance animations (framer fadeSlideUp): only
+ * content that appeared live at the transcript's tail animates in;
+ * bulk-mounted history renders at its final state (see TranscriptList).
  */
 const MessageItem = memo(function MessageItem({
     message,
     colors,
     streaming,
     directory,
+    enter,
 }: {
     message: ChatMessage;
     colors: SurfaceColors;
@@ -42,9 +47,11 @@ const MessageItem = memo(function MessageItem({
     streaming: boolean;
     /** Session working directory — file tool paths inside it display relative. */
     directory?: string | null;
+    /** True when this message appeared live at the tail (animate in). */
+    enter: boolean;
 }) {
     if (isUserMessage(message)) {
-        return <UserBubble message={message} colors={colors} />;
+        return <UserBubble message={message} colors={colors} enter={enter} />;
     }
     if (isAssistantMessage(message)) {
         return (
@@ -53,6 +60,7 @@ const MessageItem = memo(function MessageItem({
                 colors={colors}
                 streaming={streaming}
                 directory={directory}
+                enter={enter}
             />
         );
     }
@@ -66,7 +74,7 @@ export default MessageItem;
  * "Show more" expander under the bubble. */
 const USER_BUBBLE_MAX_PX = 256;
 
-function UserBubble({message, colors}: {message: ChatUserMessage; colors: SurfaceColors}) {
+function UserBubble({message, colors, enter}: {message: ChatUserMessage; colors: SurfaceColors; enter: boolean}) {
     const t = useI18n();
     const {copied, copy} = useCopy();
     const files = message.files ?? [];
@@ -98,7 +106,7 @@ function UserBubble({message, colors}: {message: ChatUserMessage; colors: Surfac
         <motion.div
             className={`group/msg flex flex-col items-end mt-4 ${message.text ? "mb-1" : "mb-4"}`}
             variants={fadeSlideUp}
-            initial="hidden"
+            initial={enter ? "hidden" : false}
             animate="show"
         >
             {/* Attachments float ABOVE the bubble, outside it — the prompt
@@ -215,11 +223,13 @@ function AssistantBlock({
     colors,
     streaming,
     directory,
+    enter,
 }: {
     message: ChatAssistantMessage;
     colors: SurfaceColors;
     streaming: boolean;
     directory?: string | null;
+    enter: boolean;
 }) {
     // The part currently receiving frames (reasoning before the answer,
     // text after) drives the per-part live states.
@@ -234,7 +244,7 @@ function AssistantBlock({
         <motion.div
             className="flex flex-col gap-3 min-w-0"
             variants={fadeSlideUp}
-            initial="hidden"
+            initial={enter ? "hidden" : false}
             animate="show"
         >
             {segmentContent(message.content).map((segment, i) => {
@@ -244,10 +254,10 @@ function AssistantBlock({
                             key={i}
                             className="min-w-0"
                             variants={fadeSlideUp}
-                            initial="hidden"
+                            initial={enter ? "hidden" : false}
                             animate="show"
                         >
-                            <Markdown>{segment.part.text}</Markdown>
+                            <Markdown live={streaming}>{segment.part.text}</Markdown>
                         </motion.div>
                     );
                 }
@@ -256,7 +266,7 @@ function AssistantBlock({
                 if (segment.parts.length === 1) {
                     const part = segment.parts[0];
                     return (
-                        <motion.div key={i} variants={fadeSlideUp} initial="hidden" animate="show">
+                        <motion.div key={i} variants={fadeSlideUp} initial={enter ? "hidden" : false} animate="show">
                             {part.type === "reasoning" ? (
                                 <ThinkingBlock
                                     part={part}
@@ -272,7 +282,7 @@ function AssistantBlock({
                     );
                 }
                 return (
-                    <motion.div key={i} variants={fadeSlideUp} initial="hidden" animate="show">
+                    <motion.div key={i} variants={fadeSlideUp} initial={enter ? "hidden" : false} animate="show">
                         <ActivityGroup
                             stateKey={`${message.id}:seg:${i}`}
                             entries={segment.parts.map((part) => ({

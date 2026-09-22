@@ -15,12 +15,16 @@ import Hint from "../ui/Hint.tsx";
  * Reads as metadata, not content: FoldRow's dimmed rest opacity, lit on
  * hover; the duration stays passive and never lights up.
  */
-export default function RunFooter({text, durationMs, colors}: {
+export default function RunFooter({text, durationMs, colors, enter}: {
     /** Copyable answer text (markdown source). */
     text: string;
     /** Wall-clock run duration, if start and completion are known. */
     durationMs: number | null;
     colors: SurfaceColors;
+    /** True when this footer appeared live (its run just finished while
+     * the user watched). Footers bulk-mounted with session history render
+     * without an entrance — see TranscriptList's gating. */
+    enter: boolean;
 }) {
     const t = useI18n();
     const {copied, copy} = useCopy();
@@ -28,7 +32,7 @@ export default function RunFooter({text, durationMs, colors}: {
     return (
         <motion.div
             variants={fadeIn}
-            initial="hidden"
+            initial={enter ? "hidden" : false}
             animate="show"
             className="flex items-center gap-2 -mt-1.5"
         >

@@ -57,9 +57,17 @@ function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNo
     // prefixed with the path's file-type icon (Material Icon Theme — the
     // same set the composer's mentions use). FoldRow's detail slot already
     // provides the flex row + gap; the icon only needs its own shrink-0.
+    // The half-pixel lift is an optical correction, measured against the
+    // WebKitGTK raster: flex centers the icon on the text's metric line
+    // box, but Maple Mono's ink hugs a baseline that sits low in that box
+    // (ascent 12/descent 4 at 12px while the path glyphs span ~10.6 above
+    // and ~1 below), so the text reads ~0.5px high next to a box-centered
+    // icon. `relative` shifts painting without re-centering (a margin
+    // would be redistributed by items-center) and without transform's
+    // image resampling.
     const file = (s?: string) => s == null ? undefined : (
         <>
-            <img src={fileIconUrl(s)} alt="" className="w-4 h-4 shrink-0"/>
+            <img src={fileIconUrl(s)} alt="" className="w-4 h-4 shrink-0 relative top-[-0.5px]"/>
             {path(displayPath(s, directory))}
         </>
     );

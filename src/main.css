@@ -355,8 +355,14 @@ body {
  * insertion, so re-renders of already-present blocks never replay (this
  * additionally relies on the module-scope component map in Markdown.tsx
  * keeping DOM nodes alive across streamed tokens).
+ *
+ * Scoped to `.live` (the message currently streaming): an opacity
+ * animation forces each block onto its own compositing layer, and
+ * bulk-mounting a session's history used to start hundreds of them at
+ * once — a guaranteed frame drop on WebKitGTK. Historical blocks render
+ * with no animation at all.
  */
-.lum-md > * {
+.lum-md.live > * {
     animation: lum-appear var(--duration-slow) var(--ease-glass) both;
 }
 

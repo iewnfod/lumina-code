@@ -264,9 +264,15 @@ src/
     │   ├── transcript.ts  # Pure blockify(): folds runs of activity-only
     │   │                  #   assistant messages into TranscriptBlocks. node-testable.
     │   ├── TranscriptList.tsx # Renders the mounted slice as MessageItems /
-    │   │                  #   cross-message ActivityGroups + run footers.
+    │   │                  #   cross-message ActivityGroups + run footers. Owns
+    │   │                  #   entrance gating: only tail-appended content that
+    │   │                  #   appeared live (new ids after the last known one,
+    │   │                  #   freshly completed footers) animates in — history
+    │   │                  #   bulk-mounted on open/scroll-up renders instantly
+    │   │                  #   (concurrent-entrance bursts were the frame drops).
     │   ├── MessageItem.tsx # One message: user bubble or assistant document
-    │   │                  #   (segmented via messageParts.ts)
+    │   │                  #   (segmented via messageParts.ts); `enter` prop =
+    │   │                  #   animate this message's framer entrances or not.
     │   ├── messageParts.ts # Pure part segmentation: segmentContent,
     │   │                  #   effectiveTailPart, stable part keys.
     │   ├── ActivityGroup.tsx # Folded run of tool calls / thoughts
@@ -278,7 +284,18 @@ src/
     │   ├── RunFooter.tsx + runFooters.ts # Per-turn summary footer (pure collector in
     │   │                  #   runFooters.ts — node-testable)
     │   ├── UsageRing.tsx + usageStats.ts # Context/cost ring (pure math in usageStats.ts)
-    │   ├── Markdown.tsx   # Shared react-markdown + remark-gfm; links via plugin-opener
+    │   ├── Markdown.tsx   # Shared react-markdown + remark-gfm; links via plugin-opener.
+    │   │                  #   Splits text into memoized block chunks (only the
+    │   │                  #   tail chunk re-parses per streamed delta) and gates
+    │   │                  #   the CSS entrance fade to `live` (streaming)
+    │   │                  #   messages — see markdownBlocks.ts + main.css.
+    │   ├── markdownBlocks.ts # Pure markdown chunker: cuts at blank-line
+    │   │                  #   boundaries outside fenced code, conservatively
+    │   │                  #   (loose lists / indented continuations / ref-defs
+    │   │                  #   / html blocks never cut — refs & html fall back
+    │   │                  #   to a single chunk). Chunks freeze once a later
+    │   │                  #   chunk exists, which is what per-chunk memoization
+    │   │                  #   relies on. node-testable.
     │   ├── FoldRow.tsx + useExpansion.ts # Disclosure rows with anti-flash minimum open
     │   ├── PermissionCard.tsx / QuestionCard.tsx # RequestCards — the ONLY way a blocked
     │   │                  #   session moves forward (answers go to the reply endpoints).
