@@ -86,7 +86,7 @@ const TITLE_FADE = 18;
 
 /** Hover must rest this long before the tooltip opens (ms), counted
  *  fresh per row — a quick swipe across the list shouldn't pop it. */
-const TITLE_TOOLTIP_DELAY = 500;
+const TITLE_TOOLTIP_DELAY = 1000;
 
 /**
  * A single-line label that, when its text overflows, fades out at the
