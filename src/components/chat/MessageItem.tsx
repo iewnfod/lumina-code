@@ -315,7 +315,7 @@ export function ActivityGroup({
             onToggle={toggle}
         >
             <div
-                className="flex flex-col gap-1.5 pt-1.5 pl-2.5 ml-1 border-l"
+                className="flex flex-col gap-1.5 pt-1.5 pl-3 ml-1.5 border-l"
                 style={{borderColor: colors.glassBorder}}
             >
                 {entries.map(({part, key}) =>
