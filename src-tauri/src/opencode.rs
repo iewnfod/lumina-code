@@ -8,6 +8,16 @@
 //! `--cors` so browser-side fetches and the SSE stream pass the server's
 //! CORS check.
 //!
+//! Binary resolution prefers the bundled sidecar (Tauri `externalBin`,
+//! fetched by `pnpm fetch:opencode`) so the app runs the exact server
+//! version it was built and tested against — the same approach as the
+//! official OpenCode desktop app. `$OPENCODE_BIN` overrides it for
+//! development; a user-installed opencode is a last-resort fallback.
+//! Configuration, credentials, and sessions are intentionally shared with
+//! the user's own opencode; only the binary version is pinned. The bundled
+//! server's self-updater is disabled (`OPENCODE_DISABLE_AUTOUPDATE`) so it
+//! can never replace the pinned binary from under us.
+//!
 //! Auth: opencode v2 servers require HTTP basic auth (a random password is
 //! generated when none is set). We set `OPENCODE_SERVER_PASSWORD` ourselves
 //! and hand the credentials to the frontend in the connection payload.
@@ -35,6 +45,10 @@ const HEALTH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(500);
 /// Basic-auth username the opencode server expects.
 const SERVER_USERNAME: &str = "opencode";
+/// OpenCode server version the bundled sidecar is pinned to. Keep in sync
+/// with OPENCODE_VERSION in scripts/fetch-opencode.mjs (which downloads the
+/// binary) and the exact-pinned @opencode-ai/sdk in package.json.
+const EXPECTED_OPENCODE_VERSION: &str = "2.0.11";
 
 /// Connection info returned to the frontend once the server is ready.
 #[derive(Clone, Serialize)]
@@ -162,33 +176,68 @@ fn reap_orphaned_servers(app: &AppHandle) {
     }
 }
 
-/// Locate the opencode binary, in order:
-/// 1. `$OPENCODE_BIN` (explicit override)
-/// 2. a PATH scan
-/// 3. well-known installer locations (`~/.opencode/bin` is the official
+/// Locate the opencode server binary, in order:
+/// 1. `$OPENCODE_BIN` (explicit override — takes precedence so dev can run
+///    any version)
+/// 2. the sidecar bundled next to the app executable (Tauri `externalBin`;
+///    fetched per platform by `pnpm fetch:opencode`)
+/// 3. a PATH scan
+/// 4. well-known installer locations (`~/.opencode/bin` is the official
 ///    curl-installer path and is often not on PATH)
-fn find_opencode() -> Option<PathBuf> {
+///
+/// Returns the path and whether it is the bundled sidecar (whose version is
+/// pinned to EXPECTED_OPENCODE_VERSION).
+fn resolve_opencode() -> Option<(PathBuf, bool)> {
     if let Ok(bin) = std::env::var("OPENCODE_BIN") {
         let p = PathBuf::from(&bin);
         if p.is_file() {
-            return Some(p);
+            return Some((p, false));
         }
         log::warn!("OPENCODE_BIN={bin} does not exist, falling back to search");
     }
+    if let Some(p) = bundled_sidecar() {
+        return Some((p, true));
+    }
     if let Some(found) = scan_path_for_opencode() {
-        return Some(found);
+        return Some((found, false));
     }
-    if let Some(home) = std::env::var("HOME").ok().map(PathBuf::from) {
-        for candidate in [
-            home.join(".opencode/bin/opencode"),
-            home.join(".local/bin/opencode"),
-        ] {
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
+    well_known_opencode().map(|p| (p, false))
+}
+
+/// The bundled sidecar, if present. Tauri's `externalBin` places the binary
+/// next to the app executable with the target-triple suffix stripped; some
+/// layouts keep the suffixed name, so accept either.
+fn bundled_sidecar() -> Option<PathBuf> {
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    let suffix = if cfg!(windows) { ".exe" } else { "" };
+    let mut candidates = vec![exe_dir.join(format!("opencode{suffix}"))];
+    if let Some(triple) = target_triple() {
+        candidates.push(exe_dir.join(format!("opencode-{triple}{suffix}")));
     }
-    None
+    candidates.into_iter().find(|p| p.is_file())
+}
+
+/// The Rust target triple this build is for, matching the file suffix
+/// `pnpm fetch:opencode` uses for sidecars.
+fn target_triple() -> Option<String> {
+    let arch = std::env::consts::ARCH;
+    Some(match std::env::consts::OS {
+        "linux" => format!("{arch}-unknown-linux-gnu"),
+        "macos" => format!("{arch}-apple-darwin"),
+        "windows" => format!("{arch}-pc-windows-msvc"),
+        _ => return None,
+    })
+}
+
+/// Well-known user-installed opencode locations.
+fn well_known_opencode() -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok().map(PathBuf::from)?;
+    [
+        home.join(".opencode/bin/opencode"),
+        home.join(".local/bin/opencode"),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.is_file())
 }
 
 fn scan_path_for_opencode() -> Option<PathBuf> {
@@ -389,8 +438,10 @@ pub fn opencode_start(
     // provider/model reads).
     reap_orphaned_servers(&app);
 
-    let bin = find_opencode().ok_or_else(|| {
-        "opencode binary not found in PATH (set OPENCODE_BIN to override)".to_string()
+    let (bin, bundled) = resolve_opencode().ok_or_else(|| {
+        "opencode binary not found: bundled sidecar missing and none on PATH \
+         (run `pnpm fetch:opencode`, or set OPENCODE_BIN to override)"
+            .to_string()
     })?;
     let port = free_port()?;
     let password = generate_password();
@@ -404,8 +455,28 @@ pub fn opencode_start(
         .unwrap_or_else(|| PathBuf::from("."));
     let version = opencode_version(&bin);
 
+    // The bundled sidecar is app-controlled: any version drift means the
+    // binary was replaced out from under us (e.g. a stray self-update) and
+    // must be re-fetched before we run it. External binaries (OPENCODE_BIN
+    // or a user install) are merely warned about — dev overrides may
+    // legitimately pin something else.
+    if bundled && version != EXPECTED_OPENCODE_VERSION {
+        let msg = format!(
+            "bundled OpenCode is v{version} but this build pins \
+             v{EXPECTED_OPENCODE_VERSION}; re-run `pnpm fetch:opencode` and rebuild"
+        );
+        emit_status(&app, "error", msg.clone());
+        return Err(msg);
+    } else if version != EXPECTED_OPENCODE_VERSION {
+        log::warn!(
+            "External OpenCode v{version} differs from the pinned \
+             v{EXPECTED_OPENCODE_VERSION}; behavior may differ"
+        );
+    }
+
     log::info!(
-        "Starting OpenCode v{version}: {} serve --port {port} (cwd {}, cors {origin})",
+        "Starting {} OpenCode v{version}: {} serve --port {port} (cwd {}, cors {origin})",
+        if bundled { "bundled" } else { "external" },
         bin.display(),
         working_dir.display()
     );
@@ -417,6 +488,12 @@ pub fn opencode_start(
         .arg("--hostname").arg("127.0.0.1")
         .arg("--cors").arg(&origin)
         .env("OPENCODE_SERVER_PASSWORD", &password)
+        // Verified against the v2.0.11 updater: this env short-circuits the
+        // update check before the config policy is even read, so the pinned
+        // sidecar can never update itself. (The updater's installation-method
+        // detector would refuse anyway — the sidecar path matches no known
+        // installer — but make it deterministic.)
+        .env("OPENCODE_DISABLE_AUTOUPDATE", "1")
         .current_dir(&working_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

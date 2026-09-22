@@ -8,6 +8,7 @@ import {
     Globe,
     Hourglass,
     ListTodo,
+    MessageCircleQuestion,
     Search,
     SquareTerminal,
     Wrench,
@@ -39,6 +40,9 @@ const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon}> = {
     todoread: {title: "Todo", icon: ListTodo},
     webfetch: {title: "Fetch", icon: Globe},
     websearch: {title: "Search", icon: Globe},
+    // The question tool — the "AI asks the user" surface. Distinct from the
+    // generic wrench so its FoldRow reads as a question, not a tool call.
+    question: {title: "Ask you questions", icon: MessageCircleQuestion},
 };
 
 /** Display title for a tool name (used by ActivityGroup's summary too).

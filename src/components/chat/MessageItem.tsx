@@ -92,7 +92,7 @@ function UserBubble({message, colors}: {message: ChatUserMessage; colors: Surfac
                                 ) : (
                                     <FileText size={13} className="shrink-0 opacity-60"/>
                                 )}
-                                <span className="text-xs truncate">{f.name ?? "file"}</span>
+                                <span className="text-xs truncate leading-normal">{f.name ?? "file"}</span>
                             </span>
                         );
                     })}

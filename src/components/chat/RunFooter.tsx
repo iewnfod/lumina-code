@@ -65,7 +65,10 @@ export default function RunFooter({text, durationMs, colors}: {
                     title={t["Task duration"]}
                 >
                     <Clock size={12} className="shrink-0"/>
-                    <span className="translate-y-px">{formatDuration(durationMs)}</span>
+                    {/* -translate-y-[0.5px]: duration glyphs (digits + s/m/h) never
+                        descend below baseline, so the em box's descender
+                        space drags them low under items-center. */}
+<span className="leading-none -translate-y-[0.5px]">{formatDuration(durationMs)}</span>
                 </span>
             )}
         </motion.div>

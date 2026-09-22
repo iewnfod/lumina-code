@@ -48,7 +48,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Read files": "读取文件",
     "Fetch a web page": "抓取网页",
     "Search the web": "搜索网页",
-    "Ask you questions": "向你提问",
+    "Ask you questions": "提问",
     "Allow once": "仅此一次",
     "Always allow": "始终允许",
     "Reject": "拒绝",

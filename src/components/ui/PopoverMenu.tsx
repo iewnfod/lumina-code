@@ -126,7 +126,7 @@ export function MenuItem({
             <span className="w-3.5 shrink-0 inline-flex justify-center">
                 {selected && <Check size={13}/>}
             </span>
-            <span className="min-w-0 flex-1 truncate">{children}</span>
+            <span className="min-w-0 flex-1 truncate leading-normal">{children}</span>
         </button>
     );
 }
@@ -134,7 +134,7 @@ export function MenuItem({
 /** Non-interactive group label inside a PopoverMenu panel. */
 export function MenuLabel({children}: {children: ReactNode}) {
     return (
-        <div className="px-2.5 pt-1.5 pb-0.5 text-[10px] font-medium uppercase tracking-wider opacity-45 select-none">
+        <div className="px-2.5 pt-1.5 pb-0.5 text-[10px] leading-normal font-medium uppercase tracking-wider opacity-45 select-none">
             {children}
         </div>
     );

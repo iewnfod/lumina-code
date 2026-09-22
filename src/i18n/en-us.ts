@@ -46,7 +46,7 @@ const enUs = {
     "Read files": "Read files",
     "Fetch a web page": "Fetch a web page",
     "Search the web": "Search the web",
-    "Ask you questions": "Ask you questions",
+    "Ask you questions": "Question",
     "Allow once": "Allow once",
     "Always allow": "Always allow",
     "Reject": "Reject",

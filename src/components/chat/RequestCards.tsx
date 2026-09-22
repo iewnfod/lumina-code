@@ -215,7 +215,7 @@ function OptionRow({
             <RowMarker kind={markerKind} index={index} selected={selected} colors={colors}/>
             <span className="shrink-0 text-xs font-medium">{option.label}</span>
             {option.description && (
-                <span className="flex-1 min-w-0 text-xs opacity-60 truncate">
+                <span className="flex-1 min-w-0 text-xs opacity-60 truncate leading-normal">
                     {option.description}
                 </span>
             )}

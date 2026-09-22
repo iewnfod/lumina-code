@@ -79,7 +79,7 @@ export default function InputSuggestions({
                             <span className="shrink-0 font-medium">
                                 {item.kind === "command" ? `/${item.command.name}` : fileName(item.file.relative)}
                             </span>
-                            <span className="truncate opacity-50">
+                            <span className="truncate opacity-50 leading-normal">
                                 {item.kind === "command" ? item.command.description ?? "" : dirName(item.file.relative)}
                             </span>
                         </button>
