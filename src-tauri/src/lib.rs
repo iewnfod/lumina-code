@@ -5,10 +5,15 @@ use tauri_plugin_log::TargetKind;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // NVIDIA + WebKitGTK compositing workaround, same as lumina-terminal.
+    // NVIDIA + WebKitGTK compositing workarounds, same as lumina-terminal.
     #[cfg(target_os = "linux")]
     {
         std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
+        // DMABUF renderer workaround (tauri-apps/tauri#9394). On NVIDIA the
+        // DMABUF sharing path misbehaves (artifacts, degraded raster
+        // quality); falling back to the older buffer path renders text
+        // noticeably crisper. Cheap and safe for a chat-density UI.
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
 
     tauri::Builder::default()

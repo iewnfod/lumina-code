@@ -11,6 +11,23 @@
  * lib/motion.ts.
  */
 @theme {
+    /* Typography — explicit stacks instead of the Tailwind default. The
+     * default chain ends at generic sans-serif, whose CJK resolution goes
+     * through fontconfig; on machines configured with a Regular-only CJK
+     * font (e.g. Microsoft YaHei without a Bold face) every bold run in
+     * markdown renders as algorithmic faux bold — visibly smeared. Naming
+     * "Noto Sans CJK SC" (full weight range) before the generic pins real
+     * weights per platform: PingFang SC on macOS, Microsoft YaHei (which
+     * ships real bold on Windows) there. */
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans",
+        "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    /* Mono — Maple Mono NF CN first where installed (the lumina-terminal
+     * code face, covers Latin + SC); the explicit CJK mono before the
+     * generic avoids bare `monospace` resolving to a KR-variant CJK mono
+     * (wrong hanzi shapes in code blocks) on some fontconfigs. */
+    --font-mono: "Maple Mono NF CN", ui-monospace, "Noto Sans Mono CJK SC",
+        Consolas, monospace;
+
     /* Radii — soft, modern. Match the macOS Sequoia / Arc feel. */
     --radius-xs: 4px;
     --radius-sm: 6px;
@@ -147,7 +164,9 @@ body {
  * radii, quiet neutral surfaces that read over any effective background.
  */
 .lum-md {
-    font-size: 0.875rem;
+    /* 15px: at fractional Wayland scales every extra rastered pixel
+     * tightens glyph edges; 14px read soft. Code/tables scale via em. */
+    font-size: 0.9375rem;
     line-height: 1.65;
     overflow-wrap: break-word;
 }
