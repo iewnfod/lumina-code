@@ -5,7 +5,7 @@ import {openPath, openUrl} from "@tauri-apps/plugin-opener";
 import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
-import {fadeSlideUp, whileHoverTap} from "../../lib/motion.ts";
+import {fadeIn, whileHoverTap} from "../../lib/motion.ts";
 import type {
     IntegrationInfo,
     IntegrationKeyMethod,
@@ -264,12 +264,14 @@ export default function ModelSettings({
 
             {/* Body — keyed by sub-tab + detail target so switching between
              * providers/custom (and opening/closing a provider detail)
-             * runs the fadeSlideUp swap. initial={false}: the outer pane
-             * swap already animates the pane's first mount. */}
+             * crossfades. Pure opacity (fadeIn): a pane this tall reads
+             * "floaty" when it travels, so the swap stays grounded.
+             * initial={false}: the outer pane swap already animates the
+             * pane's first mount. */}
             <AnimatePresence mode="wait" initial={false}>
                 <motion.div
                     key={`${tab}-${selectedId ?? "list"}`}
-                    variants={fadeSlideUp}
+                    variants={fadeIn}
                     initial="hidden"
                     animate="show"
                     exit="exit"
@@ -923,3 +925,5 @@ function Field({label, colors, children}: {label: string; colors: SurfaceColors;
         </div>
     );
 }
+
+

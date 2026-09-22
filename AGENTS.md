@@ -286,7 +286,7 @@ src/
     │   │                  #   formLogic.ts (pure, node-testable).
     │   ├── RequestCardChrome.tsx # Card + CardButton + MONO_STYLE (mono
     │   │                  #   family + settings-driven --lum-code-size)
-    │   │                  #   shared by the request kinds and tool cards.
+    │   │                  # shared by the request kinds and tool cards.
     │   └── formLogic.ts   # Pure form-answer rules: fieldVisible (`when`
     │                      #   conditions), normalize (per-type values).
     ├── composer/          # The prompt composer
