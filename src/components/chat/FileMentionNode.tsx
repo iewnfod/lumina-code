@@ -21,12 +21,15 @@ export type SerializedFileMentionNode = Spread<
 >;
 
 /**
- * Inline file chip rendered as a TOKEN TextNode: the text is `@relative`,
- * styled (pill + icon) via `createDOM`. Token mode makes the whole chip
- * atomic — the caret skips over it as one character and Backspace deletes
- * it in one press — while movement/selection/undo stay 100% native,
- * including on WebKitGTK where non-editable decorator islands strand the
- * caret. (A previous DecoratorNode version did exactly that.)
+ * Inline file mention rendered as a TOKEN TextNode: the text is `@relative`,
+ * styled as COLORED TEXT with a small file-type icon (see `.lum-file-mention`
+ * in main.css) — deliberately not a chip/pill, which reads too heavy inline.
+ * Both the color and the icon are set inline in `createDOM` (the icon is a
+ * background-image data URI), so no extra DOM nodes exist and text metrics
+ * stay native. Token mode keeps the mention atomic — the caret skips it as
+ * one character and Backspace deletes it whole — while movement, selection
+ * and undo stay 100% native, including on WebKitGTK where non-editable
+ * decorator islands strand the caret.
  */
 export class FileMentionNode extends TextNode {
     __data: FileMentionData;
@@ -58,22 +61,22 @@ export class FileMentionNode extends TextNode {
         return {...json, type: "file-mention", version: 1, data: this.__data};
     }
 
-    /** Pill look: tinted background + a small file-type icon as inline
-     *  background image (no extra DOM nodes, so text metrics stay native). */
+    /** Colored-text look: type-tinted color + a small file-type icon as
+     *  inline background image. The chrome (padding, positioning) lives in
+     *  the `.lum-file-mention` CSS class. */
     createDOM(config: EditorConfig): HTMLElement {
         const dom = super.createDOM(config);
         const style = fileStyle(this.__data.relative);
         dom.className = "lum-file-mention";
         dom.title = this.__data.absolute;
+        dom.style.color = style.color;
         dom.style.backgroundImage = `url("data:image/svg+xml,${svgDataUrl(style)}")`;
-        dom.style.backgroundRepeat = "no-repeat";
-        dom.style.backgroundPosition = "3px center";
-        dom.style.backgroundSize = "12px 12px";
         return dom;
     }
 
-    /** Chips are immutable (never retargeted in place) — rebuild only if
-     *  text or target actually changed. Base signature is `this`-typed,
+    /** Mentions are immutable (never retargeted in place) — rebuild only if
+     *  text or target actually changed (the color derives from the path, so
+     *  a text change covers recoloring). Base signature is `this`-typed,
      *  which a subclass override can't satisfy, so compare directly. */
     updateDOM(prevNode: FileMentionNode): boolean {
         return (
@@ -103,8 +106,16 @@ export function $isFileMentionNode(node: LexicalNode | null | undefined): node i
     return node instanceof FileMentionNode;
 }
 
+/** Accent color for a path — shared with the suggestion list so the popup's
+ *  icons and the inserted mention always tint identically. */
+export function fileMentionColor(path: string): string {
+    return fileStyle(path).color;
+}
+
 // --- Icon per file category: minimal lucide-style SVG strokes, tinted per
-//     type (code / data / style / image / shell / generic). ---
+//     type (code / data / style / image / shell / generic). Colors are
+//     mid-saturation accents that stay legible on both light and dark
+//     composer surfaces. ---
 
 interface FileStyle {
     color: string;
@@ -115,10 +126,10 @@ interface FileStyle {
 function fileStyle(path: string): FileStyle {
     const ext = path.split(".").pop()?.toLowerCase() ?? "";
     if (["ts", "tsx", "js", "jsx", "mjs", "cjs", "rs", "go", "py", "java", "kt", "c", "h", "cpp", "rb"].includes(ext)) {
-        return {color: "#60a5fa", path: "M10 12.5 8 15l2 2.5M16 12.5 18 15l-2 2.5M14 11.5l-2 6"};
+        return {color: "#5aa2ff", path: "M10 12.5 8 15l2 2.5M16 12.5 18 15l-2 2.5M14 11.5l-2 6"};
     }
     if (["json", "json5", "jsonc", "yaml", "yml", "toml", "ini", "env"].includes(ext)) {
-        return {color: "#fbbf24", path: "M8 4c0 2.5-4 1.5-4 4s4 1.5 4 4-4 1.5-4 4 4 1.5 4 4M16 4c0 2.5 4 1.5 4 4s-4 1.5-4 4 4 1.5 4 4-4 1.5-4 4"};
+        return {color: "#f5b642", path: "M8 4c0 2.5-4 1.5-4 4s4 1.5 4 4-4 1.5-4 4 4 1.5 4 4M16 4c0 2.5 4 1.5 4 4s-4 1.5-4 4 4 1.5 4 4-4 1.5-4 4"};
     }
     if (["css", "scss", "less", "html", "svg"].includes(ext)) {
         return {color: "#f472b6", path: "M12 3v18M5 8l7-5 7 5-7 5z"};
@@ -129,7 +140,7 @@ function fileStyle(path: string): FileStyle {
     if (["sh", "bash", "zsh", "fish"].includes(ext)) {
         return {color: "#a78bfa", path: "M5 8l4 3-4 3M11 15h8"};
     }
-    return {color: "rgba(150,150,150,0.9)", path: "M15 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7zM14 3v5h5"};
+    return {color: "rgba(148,163,184,0.95)", path: "M15 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7zM14 3v5h5"};
 }
 
 function svgDataUrl(style: FileStyle): string {

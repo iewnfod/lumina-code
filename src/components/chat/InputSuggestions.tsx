@@ -2,7 +2,7 @@ import {useEffect, useRef} from "react";
 import {FileText, Terminal} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {OpencodeCommand} from "../../opencode/types.ts";
-import type {FileMentionData} from "./FileMentionNode.tsx";
+import {fileMentionColor, type FileMentionData} from "./FileMentionNode.tsx";
 
 /** One row of the composer's inline autocomplete (`/` commands, `@` files). */
 export type SuggestionItem =
@@ -71,7 +71,10 @@ export default function InputSuggestions({
                             {item.kind === "command" ? (
                                 <Terminal size={13} className="shrink-0 opacity-60"/>
                             ) : (
-                                <FileText size={13} className="shrink-0 opacity-60"/>
+                                // Tinted with the same per-type color the
+                                // inserted mention will carry, so picking a
+                                // row previews its final look.
+                                <FileText size={13} className="shrink-0" style={{color: fileMentionColor(item.file.relative)}}/>
                             )}
                             <span className="shrink-0 font-medium">
                                 {item.kind === "command" ? `/${item.command.name}` : fileName(item.file.relative)}

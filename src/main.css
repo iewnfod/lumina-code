@@ -112,21 +112,20 @@ body {
 }
 
 /*
- * Composer file chips (FileMentionNode — a token TextNode wearing pill
- * styling; the icon rides as a background-image set inline per file type).
- * white-space: nowrap keeps a chip atomic across line wraps.
+ * Composer file mentions (FileMentionNode — a token TextNode). Rendered as
+ * plain COLORED TEXT with a small type icon: the per-type color and the
+ * icon (an inline background-image data URI) are set per node in
+ * createDOM; this class carries the shared chrome only. No chip/pill —
+ * inline chrome reads too heavy next to normal text. white-space: nowrap
+ * keeps a mention on one line.
  */
 .lum-file-mention {
-    padding: 1px 5px 1px 19px;
-    border-radius: var(--radius-sm);
-    background-color: rgba(127, 127, 127, 0.18);
+    padding-left: 14px;
+    background-repeat: no-repeat;
+    background-position: 0 58%;
+    background-size: 11px 11px;
+    font-weight: 500;
     white-space: nowrap;
-}
-
-/* A selection sweeping across a chip shouldn't paint the cinnabar box over
- * its text — keep it at the pill's own tint so chips read as atomic. */
-.lum-file-mention::selection {
-    background: rgba(127, 127, 127, 0.18);
 }
 
 
