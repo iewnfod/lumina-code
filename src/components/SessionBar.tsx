@@ -1,5 +1,6 @@
 import {type CSSProperties, useCallback, useEffect, useRef, useState} from "react";
 import {motion, AnimatePresence} from "framer-motion";
+import {Tooltip} from "@heroui/react";
 import {ChevronRight, Plus, X} from "lucide-react";
 import Icon from "../assets/icon.svg";
 import {isMacOS} from "../lib/platform.ts";
@@ -83,138 +84,69 @@ function groupByDirectory(sessions: SessionInfo[]): [string, SessionInfo[]][] {
 /** Edge-fade width for overflowing tab titles (px). */
 const TITLE_FADE = 18;
 
-/** Hover must rest this long before the title plays (ms) — a quick
- *  swipe across the row shouldn't trigger the scroll. */
-const TITLE_HOVER_DELAY = 500;
-
-/** Playback speed of the hover scroll (px per second). */
-const TITLE_SPEED = 50;
+/** Hover must rest this long before the tooltip opens (ms) — a quick
+ *  swipe across the row shouldn't pop it. */
+const TITLE_TOOLTIP_DELAY = 500;
 
 /**
  * A single-line label that, when its text overflows, fades out at the
  * right edge (same dissolve as the transcript edges — no "…" ellipsis)
- * and, after a short hover debounce, plays one full seamless loop —
- * the text scrolls out left while the same title re-enters behind it,
- * ending exactly where it began — instead of popping a native tooltip.
- * Labels that fit never animate and never wear a mask.
+ * and shows the full title in a HeroUI tooltip once the pointer rests
+ * on it. Labels that fit never wear a mask or a tooltip.
  */
-function MarqueeTitle({text, className, style}: {
+function SessionTitle({text, className, style}: {
     text: string;
     className?: string;
     style?: CSSProperties;
 }) {
     const slotRef = useRef<HTMLSpanElement>(null);
-    const trackRef = useRef<HTMLSpanElement>(null);
-    const animRef = useRef<Animation | null>(null);
-    const hoverTimerRef = useRef<number | null>(null);
     const [overflowing, setOverflowing] = useState(false);
-    const [scrolling, setScrolling] = useState(false);
 
-    // Re-measure when the text or the sidebar width changes. Overflow is
-    // judged against ONE copy's width (the track holds two for the loop).
+    // Re-measure when the text or the sidebar width changes.
     useEffect(() => {
         const el = slotRef.current;
         if (!el) return;
-        const measure = () => {
-            const copy = trackRef.current?.firstElementChild;
-            setOverflowing(!!copy && (copy as HTMLElement).offsetWidth > el.clientWidth);
-        };
+        const measure = () => setOverflowing(el.scrollWidth > el.clientWidth);
         measure();
         const observer = new ResizeObserver(measure);
         observer.observe(el);
         return () => observer.disconnect();
     }, [text]);
 
-    const start = () => {
-        const track = trackRef.current;
-        if (!track || !overflowing) return;
-        // The track holds two copies; one copy's width (gap included) is
-        // exactly one loop period — translating by it brings the layout
-        // back to its start state, so one pass reads as a seamless loop.
-        const period = track.scrollWidth / 2;
-        if (period <= 0) return;
-        // Settle the mask change on its own frame BEFORE the transform
-        // animation starts — switching both in one frame forces a single
-        // repaint that reads as a flicker at the left edge.
-        requestAnimationFrame(() => {
-            setScrolling(true);
-            requestAnimationFrame(() => {
-                animRef.current?.cancel();
-                animRef.current = track.animate(
-                    [{transform: "translateX(0)"}, {transform: `translateX(${-period}px)`}],
-                    {duration: (period / TITLE_SPEED) * 1000, fill: "none", easing: "linear"},
-                );
-                animRef.current.finished
-                    .then(() => setScrolling(false))
-                    .catch(() => {});
-            });
-        });
-    };
-
-    const stop = () => {
-        if (hoverTimerRef.current !== null) {
-            window.clearTimeout(hoverTimerRef.current);
-            hoverTimerRef.current = null;
-        }
-        animRef.current?.cancel();
-        animRef.current = null;
-        setScrolling(false);
-    };
-
-    useEffect(stop, []);
-
-    // Bind hover to the whole row, not the text: the label is a narrow
-    // strip inside a much wider button, and the play trigger should be
-    // "pointer rests on the row". The row is the nearest .lum-session-row
-    // ancestor (falls back to the label itself).
-    useEffect(() => {
-        const el = slotRef.current;
-        if (!el) return;
-        const row = el.closest(".lum-session-row") ?? el;
-        const onEnter = () => {
-            hoverTimerRef.current = window.setTimeout(start, TITLE_HOVER_DELAY);
-        };
-        row.addEventListener("mouseenter", onEnter);
-        row.addEventListener("mouseleave", stop);
-        return () => {
-            row.removeEventListener("mouseenter", onEnter);
-            row.removeEventListener("mouseleave", stop);
-            stop();
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [overflowing, text]);
-
+    // The Tooltip scaffolding renders UNCONDITIONALLY so the measured
+    // span never moves in the tree. Wrapping it only once the text
+    // overflows remounts the span: the ResizeObserver keeps watching
+    // the detached node, which reports 0×0 and flips `overflowing`
+    // back off for good — no fade, no tooltip.
     return (
-        <span
-            ref={slotRef}
-            className={`overflow-hidden whitespace-nowrap ${className ?? ""}`}
-            style={{
-                ...style,
-                // Own composited layer: without it, WebKit recomputes the
-                // mask over the animating track every frame, which shows
-                // as flicker in the fade zones while the text moves.
-                transform: "translateZ(0)",
-                backfaceVisibility: "hidden",
-                ...(overflowing ? {
-                    WebkitMaskImage: scrolling
-                        ? `linear-gradient(to right, transparent 0, black ${TITLE_FADE}px, black calc(100% - ${TITLE_FADE}px), transparent 100%)`
-                        : `linear-gradient(to right, black calc(100% - ${TITLE_FADE}px), transparent 100%)`,
-                    maskImage: scrolling
-                        ? `linear-gradient(to right, transparent 0, black ${TITLE_FADE}px, black calc(100% - ${TITLE_FADE}px), transparent 100%)`
-                        : `linear-gradient(to right, black calc(100% - ${TITLE_FADE}px), transparent 100%)`,
-                } : {}),
-            }}
-        >
-            <span ref={trackRef} className="inline-block will-change-transform">
-                <span className="inline-block" style={{paddingRight: 24}}>{text}</span>
-                {/* The loop's re-entering copy only exists while the text
-                    overflows — a short title otherwise shows twice inside
-                    the wider-than-text clip slot. */}
-                {overflowing && (
-                    <span className="inline-block" style={{paddingRight: 24}}>{text}</span>
-                )}
-            </span>
-        </span>
+        <Tooltip delay={TITLE_TOOLTIP_DELAY} closeDelay={0}>
+            {/* The trigger renders a wrapper div that becomes the row's
+             * flex item — min-w-0 lets it shrink below the unbreakable
+             * one-liner, and w-full keeps the hover/anchor area as wide
+             * as the title slot was before the wrapper existed. With no
+             * Tooltip.Content mounted (text fits), hovering opens
+             * nothing. */}
+            <Tooltip.Trigger className="min-w-0 w-full">
+                <span
+                    ref={slotRef}
+                    className={`block overflow-hidden whitespace-nowrap ${className ?? ""}`}
+                    style={{
+                        ...style,
+                        ...(overflowing ? {
+                            WebkitMaskImage: `linear-gradient(to right, black calc(100% - ${TITLE_FADE}px), transparent 100%)`,
+                            maskImage: `linear-gradient(to right, black calc(100% - ${TITLE_FADE}px), transparent 100%)`,
+                        } : {}),
+                    }}
+                >
+                    {text}
+                </span>
+            </Tooltip.Trigger>
+            {overflowing && (
+                <Tooltip.Content>
+                    <p className="text-xs max-w-64 break-words">{text}</p>
+                </Tooltip.Content>
+            )}
+        </Tooltip>
     );
 }
 
@@ -420,7 +352,7 @@ export default function SessionBar(props: SessionBarProps) {
                                                                 />
                                                             )}
                                                             <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                                <MarqueeTitle
+                                                                <SessionTitle
                                                                     text={session.name}
                                                                     className="text-sm leading-tight"
                                                                     style={{
