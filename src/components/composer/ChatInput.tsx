@@ -1,5 +1,5 @@
 import {memo, useCallback, useEffect, useRef, useState} from "react";
-import {FileText, X} from "lucide-react";
+import {X} from "lucide-react";
 import {LexicalComposer} from "@lexical/react/LexicalComposer";
 import {error} from "@tauri-apps/plugin-log";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
@@ -15,6 +15,7 @@ import type {
     SessionUsage,
 } from "../../opencode/types.ts";
 import type {ContextUsage} from "../chat/usageStats.ts";
+import {fileIconUrl} from "../../lib/fileIcons.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import ComposerCore from "./ComposerCore.tsx";
 import ComposerToolbar from "./ComposerToolbar.tsx";
@@ -30,10 +31,10 @@ import {CommandMentionNode} from "./CommandMentionNode.tsx";
  * model, thinking depth, send on the right).
  *
  * Enter sends, Shift+Enter adds a newline; `@file` mentions render as
- * colored inline text; typing `/` or `@` at word start opens an inline
- * autocomplete (commands / workspace files). Until the conversation
- * starts (welcome screen or a freshly created session) the toolbar also
- * carries the project picker.
+ * inline text with a file-type icon; typing `/` or `@` at word start opens
+ * an inline autocomplete (commands / workspace files). Until the
+ * conversation starts (welcome screen or a freshly created session) the
+ * toolbar also carries the project picker.
  *
  * Memoized: the parent ChatView re-renders on every streaming frame (the
  * transcript grows per rAF), and none of that concerns the composer.
@@ -190,7 +191,7 @@ const ChatInput = memo(function ChatInput({
                             {a.mime.startsWith("image/") ? (
                                 <img src={a.uri} alt="" className="w-5 h-5 rounded-[var(--radius-xs)] object-cover shrink-0"/>
                             ) : (
-                                <FileText size={13} className="shrink-0 opacity-60"/>
+                                <img src={fileIconUrl(a.name)} alt="" className="w-4 h-4 shrink-0"/>
                             )}
                             <span className="text-xs truncate">{a.name}</span>
                             <button

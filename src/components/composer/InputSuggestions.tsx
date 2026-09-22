@@ -1,8 +1,9 @@
 import {useEffect, useRef} from "react";
-import {FileText, Terminal} from "lucide-react";
+import {Terminal} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {OpencodeCommand} from "../../opencode/types.ts";
-import {fileMentionColor, type FileMentionData} from "./FileMentionNode.tsx";
+import {fileIconUrl} from "../../lib/fileIcons.ts";
+import type {FileMentionData} from "./FileMentionNode.tsx";
 import {COMMAND_MENTION_COLOR} from "./CommandMentionNode.tsx";
 
 /** One row of the composer's inline autocomplete (`/` commands, `@` files). */
@@ -75,10 +76,10 @@ export default function InputSuggestions({
                                 // final look.
                                 <Terminal size={13} className="shrink-0" style={{color: COMMAND_MENTION_COLOR}}/>
                             ) : (
-                                // Tinted with the same per-type color the
-                                // inserted mention will carry, so picking a
-                                // row previews its final look.
-                                <FileText size={13} className="shrink-0" style={{color: fileMentionColor(item.file.relative)}}/>
+                                // The same icon the inserted mention will
+                                // carry, so a picked row previews its
+                                // final look.
+                                <img src={fileIconUrl(item.file.relative)} alt="" className="w-4 h-4 shrink-0"/>
                             )}
                             <span className="shrink-0 font-medium">
                                 {item.kind === "command" ? `/${item.command.name}` : fileName(item.file.relative)}

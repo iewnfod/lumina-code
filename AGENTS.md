@@ -26,6 +26,7 @@ between the two keeps a comment noting its origin.
 | Typecheck + build frontend | `pnpm build` (`tsc && vite build`) |
 | Unit tests (pure frontend logic) | `pnpm test` (`node --test "src/**/*.test.ts"`) |
 | Point dev at a different server binary | `OPENCODE_BIN=/path/to/opencode pnpm tauri dev` |
+| Regenerate Material file-type icons (after bumping `material-icon-theme`) | `pnpm gen:icons` (output is committed) |
 
 - `pnpm fetch:opencode` is a **prerequisite** for `tauri dev`/`tauri build`:
   Tauri's `externalBin` (`src-tauri/binaries/opencode`) must exist or the
@@ -149,6 +150,12 @@ src/
 │   ├── path.ts            # folderLabel (last path segment) + displayPath
 │   │                      #   (project-relative file paths) — shared by the
 │   │                      #   sidebar, directory picker and tool cards. node-testable.
+│   ├── fileIcons.ts       # fileIconName/fileIconUrl — file path → Material
+│   │                      #   Icon Theme SVG (public/icons/files, generated
+│   │                      #   by `pnpm gen:icons`; maps in
+│   │                      #   fileIcons.generated.ts). Used by composer
+│   │                      #   mentions/suggestions/attachment chips and
+│   │                      #   tool-card file lines. node-testable.
 │   ├── theme.ts           # appThemeFor(systemTheme) — lumina-code follows the system
 │   │                      #   light/dark (no per-profile palettes like lumina-terminal)
 │   ├── persist.ts         # loadState/saveState — cross-restart UI state in
@@ -313,6 +320,8 @@ types (opencode/types.ts, i18n keys)  ←  opencode/ + lib/  ←  hooks/  ←  c
   **Motion presets** → `lib/motion.ts`. **Color math** → `lib/color.ts`.
   **Surface colors** → `hooks/surfaceColors.ts` (or the `SurfaceColors`
   prop it produces — don't hand-mix variants in components).
+  **File-type icons** → `lib/fileIcons.ts` (never hand-roll per-extension
+  icon tables; regenerate assets via `pnpm gen:icons`).
 - **Chrome buttons** → `components/ui/IconButton.tsx`. **Dropdowns** →
   `PopoverMenu`. **Rounded chrome clipping** → `MaskedSurface`.
 - **Maximized / paddingOffset** → computed once in `App`, passed as props.

@@ -1,20 +1,23 @@
-import {memo} from "react";
+import {memo, useEffect, useRef, useState, type CSSProperties} from "react";
 import {motion} from "framer-motion";
-import {FileText, Terminal} from "lucide-react";
+import {Terminal} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useI18n} from "../../hooks/i18n.tsx";
 import type {
     ChatAssistantMessage,
     ChatMessage,
     ChatUserMessage,
 } from "../../opencode/types.ts";
 import {isAssistantMessage, isUserMessage} from "../../opencode/types.ts";
-import {fadeSlideUp} from "../../lib/motion.ts";
+import {fadeSlideUp, whileHoverTap} from "../../lib/motion.ts";
+import {fileIconUrl} from "../../lib/fileIcons.ts";
 import {COMMAND_MENTION_COLOR} from "../composer/CommandMentionNode.tsx";
 import Markdown from "./Markdown.tsx";
 import ToolCard from "./ToolCard.tsx";
 import SubagentCard, {isSubagentTool} from "./SubagentCard.tsx";
 import ThinkingBlock from "./ThinkingBlock.tsx";
 import ActivityGroup from "./ActivityGroup.tsx";
+import {useExpansion} from "./useExpansion.ts";
 import {effectiveTailPart, partKey, segmentContent, type ActivityPart} from "./messageParts.ts";
 
 /**
@@ -56,8 +59,34 @@ const MessageItem = memo(function MessageItem({
 
 export default MessageItem;
 
+/** Height cap for a user prompt bubble (matches the tool card body's
+ * max-h-64). Longer prompts clamp with a bottom fade and grow a
+ * "Show more" expander under the bubble. */
+const USER_BUBBLE_MAX_PX = 256;
+
 function UserBubble({message, colors}: {message: ChatUserMessage; colors: SurfaceColors}) {
+    const t = useI18n();
     const files = message.files ?? [];
+    const {expanded, toggle} = useExpansion(`user-bubble:${message.id}`, false);
+    const [clipped, setClipped] = useState(false);
+    const textRef = useRef<HTMLDivElement>(null);
+    // Does the text exceed the cap? Measured on the INNER wrapper so the
+    // bubble padding stays out of the comparison — and against the cap
+    // constant rather than clientHeight, because scrollHeight reports the
+    // full content height even while clamped, so the answer is identical
+    // collapsed or expanded (an expander must not vanish once opened). The
+    // observer's initial callback covers mount; later ones catch
+    // width-driven rewraps (window resize).
+    useEffect(() => {
+        const el = textRef.current;
+        if (!el) return;
+        const measure = () => setClipped(el.scrollHeight > USER_BUBBLE_MAX_PX);
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [message.text]);
+    const clamped = clipped && !expanded;
     return (
         // Extra vertical margin sets the turn apart from the tight
         // assistant flow around it (the column gap is only 12px).
@@ -86,7 +115,7 @@ function UserBubble({message, colors}: {message: ChatUserMessage; colors: Surfac
                                 {f.mime?.startsWith("image/") && src ? (
                                     <img src={src} alt="" className="w-5 h-5 rounded-[var(--radius-xs)] object-cover shrink-0"/>
                                 ) : (
-                                    <FileText size={13} className="shrink-0 opacity-60"/>
+                                    <img src={fileIconUrl(f.name ?? "file")} alt="" className="w-4 h-4 shrink-0"/>
                                 )}
                                 <span className="text-xs truncate leading-normal">{f.name ?? "file"}</span>
                             </span>
@@ -96,30 +125,50 @@ function UserBubble({message, colors}: {message: ChatUserMessage; colors: Surfac
             )}
             {message.text && (
                 <div
-                    className="max-w-[85%] rounded-[var(--radius-lg)] px-4 py-2.5 whitespace-pre-wrap break-words text-sm"
+                    className="max-w-[85%] rounded-[var(--radius-lg)] px-4 py-2.5 text-sm"
                     style={{background: colors.accentOverlay}}
                     title={message.command ? message.text : undefined}
                 >
-                    {message.command ? (
-                        // A slash-command submission: the server stored the
-                        // EXPANDED template (message.text), but the bubble
-                        // shows the compact invocation — chip + arguments —
-                        // like the composer's inline command mention. Hover
-                        // reveals the expanded prompt.
-                        <>
-                            <span
-                                className="inline-flex items-center gap-1 font-medium whitespace-nowrap"
-                                style={{color: COMMAND_MENTION_COLOR}}
-                            >
-                                <Terminal size={12} className="shrink-0"/>
-                                /{message.command.name}
-                            </span>
-                            {message.command.arguments && (
-                                <span> {message.command.arguments}</span>
-                            )}
-                        </>
-                    ) : message.text}
+                    {/* The clamp + fade live on this inner wrapper, not the
+                        bubble: a mask would dissolve the bubble's own
+                        translucent fill and rounded corners with it. */}
+                    <div
+                        ref={textRef}
+                        className={`whitespace-pre-wrap break-words${clamped ? " overflow-hidden lum-clamp-fade" : ""}`}
+                        style={clamped ? {maxHeight: USER_BUBBLE_MAX_PX} : undefined}
+                    >
+                        {message.command ? (
+                            // A slash-command submission: the server stored the
+                            // EXPANDED template (message.text), but the bubble
+                            // shows the compact invocation — chip + arguments —
+                            // like the composer's inline command mention. Hover
+                            // reveals the expanded prompt.
+                            <>
+                                <span
+                                    className="inline-flex items-center gap-1 font-medium whitespace-nowrap"
+                                    style={{color: COMMAND_MENTION_COLOR}}
+                                >
+                                    <Terminal size={12} className="shrink-0"/>
+                                    /{message.command.name}
+                                </span>
+                                {message.command.arguments && (
+                                    <span> {message.command.arguments}</span>
+                                )}
+                            </>
+                        ) : message.text}
+                    </div>
                 </div>
+            )}
+            {clipped && (
+                <motion.button
+                    type="button"
+                    {...whileHoverTap}
+                    className="mt-1 px-2 py-1 text-[11px] cursor-pointer rounded-[var(--radius-sm)] hover:bg-[var(--lum-bubble-more-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
+                    style={{"--lum-bubble-more-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
+                    onClick={toggle}
+                >
+                    {expanded ? t["Show less"] : t["Show more"]}
+                </motion.button>
             )}
         </motion.div>
     );

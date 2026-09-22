@@ -171,20 +171,34 @@ body {
 }
 
 /*
+ * Clamped regions that expand on demand (the user prompt bubble — see
+ * MessageItem.tsx). The inverse of .lum-tail-fade: content dissolves at the
+ * BOTTOM edge where the clamp cuts it. The mask must sit on an inner text
+ * wrapper, never on the bubble itself — masks multiply into backgrounds, and
+ * the bubble's translucent accent fill and rounded corners have to stay
+ * solid to the edge.
+ */
+.lum-clamp-fade {
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
+    mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
+}
+
+/*
  * Composer file mentions (FileMentionNode — a token TextNode). Rendered as
- * plain COLORED TEXT with a small type icon: the per-type color and the
- * icon (an inline background-image data URI) are set per node in
- * createDOM; this class carries the shared chrome only. No chip/pill —
- * inline chrome reads too heavy next to normal text. white-space: nowrap
- * keeps a mention on one line. Command mentions (CommandMentionNode)
- * share the same chrome with a terminal glyph.
+ * plain medium-weight text with a small colorful file-type icon (Material
+ * Icon Theme): the icon URL is set per node in createDOM (background-image
+ * pointing at the generated /icons/files assets); this class carries the
+ * shared chrome only. No chip/pill — inline chrome reads too heavy next to
+ * normal text. white-space: nowrap keeps a mention on one line. Command
+ * mentions (CommandMentionNode) share the same chrome with a terminal
+ * glyph.
  */
 .lum-file-mention,
 .lum-command-mention {
-    padding-left: 14px;
+    padding-left: 19px;
     background-repeat: no-repeat;
     background-position: 0 58%;
-    background-size: 11px 11px;
+    background-size: 16px 16px;
     font-weight: 500;
     white-space: nowrap;
 }

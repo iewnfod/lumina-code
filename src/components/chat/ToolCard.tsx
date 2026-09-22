@@ -8,6 +8,7 @@ import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import {displayPath} from "../../lib/path.ts";
+import {fileIconUrl} from "../../lib/fileIcons.ts";
 import {errorText, inputObject, inputStr, lineCount, metaFor} from "./toolMeta.ts";
 import {useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
@@ -53,8 +54,16 @@ function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNo
     const path = (s?: string) => (
         <span className="truncate min-w-0" style={{fontFamily: MONO}}>{s}</span>
     );
-    // File paths inside the project show relative to the session directory.
-    const file = (s?: string) => path(s == null ? undefined : displayPath(s, directory));
+    // File paths inside the project show relative to the session directory,
+    // prefixed with the path's file-type icon (Material Icon Theme — the
+    // same set the composer's mentions use). FoldRow's detail slot already
+    // provides the flex row + gap; the icon only needs its own shrink-0.
+    const file = (s?: string) => s == null ? undefined : (
+        <>
+            <img src={fileIconUrl(s)} alt="" className="w-4 h-4 shrink-0"/>
+            {path(displayPath(s, directory))}
+        </>
+    );
     switch (part.name) {
         case "bash":
         case "shell":
