@@ -3,6 +3,7 @@ import {FileText, Terminal} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {OpencodeCommand} from "../../opencode/types.ts";
 import {fileMentionColor, type FileMentionData} from "./FileMentionNode.tsx";
+import {COMMAND_MENTION_COLOR} from "./CommandMentionNode.tsx";
 
 /** One row of the composer's inline autocomplete (`/` commands, `@` files). */
 export type SuggestionItem =
@@ -69,7 +70,10 @@ export default function InputSuggestions({
                             style={i === selected ? {background: colors.activeOverlay} : undefined}
                         >
                             {item.kind === "command" ? (
-                                <Terminal size={13} className="shrink-0 opacity-60"/>
+                                // Same accent the inserted command mention
+                                // will carry, so a picked row previews its
+                                // final look.
+                                <Terminal size={13} className="shrink-0" style={{color: COMMAND_MENTION_COLOR}}/>
                             ) : (
                                 // Tinted with the same per-type color the
                                 // inserted mention will carry, so picking a

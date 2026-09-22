@@ -1,6 +1,6 @@
 import {memo} from "react";
 import {motion} from "framer-motion";
-import {AlertCircle, Brain, FileText, Loader2, Wrench} from "lucide-react";
+import {AlertCircle, Brain, FileText, Loader2, Terminal, Wrench} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {
     AssistantPart,
@@ -18,6 +18,7 @@ import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import Markdown from "./Markdown.tsx";
 import ToolCard, {toolDisplayName} from "./ToolCard.tsx";
 import SubagentCard, {isSubagentTool} from "./SubagentCard.tsx";
+import {COMMAND_MENTION_COLOR} from "./CommandMentionNode.tsx";
 import {AUTO_EXPAND_MIN_DWELL_MS, useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 
@@ -102,8 +103,27 @@ function UserBubble({message, colors}: {message: ChatUserMessage; colors: Surfac
                 <div
                     className="max-w-[85%] rounded-[var(--radius-lg)] px-4 py-2.5 whitespace-pre-wrap break-words text-sm"
                     style={{background: colors.accentOverlay}}
+                    title={message.command ? message.text : undefined}
                 >
-                    {message.text}
+                    {message.command ? (
+                        // A slash-command submission: the server stored the
+                        // EXPANDED template (message.text), but the bubble
+                        // shows the compact invocation — chip + arguments —
+                        // like the composer's inline command mention. Hover
+                        // reveals the expanded prompt.
+                        <>
+                            <span
+                                className="inline-flex items-center gap-1 font-medium whitespace-nowrap"
+                                style={{color: COMMAND_MENTION_COLOR}}
+                            >
+                                <Terminal size={12} className="shrink-0"/>
+                                /{message.command.name}
+                            </span>
+                            {message.command.arguments && (
+                                <span> {message.command.arguments}</span>
+                            )}
+                        </>
+                    ) : message.text}
                 </div>
             )}
         </motion.div>

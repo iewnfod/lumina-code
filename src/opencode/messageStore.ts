@@ -1,10 +1,12 @@
 import type {MessagesPage, OpencodeEvent} from "./api.ts";
 import {
     isAssistantMessage,
+    isUserMessage,
     type AssistantPart,
     type AssistantToolPart,
     type ChatAssistantMessage,
     type ChatMessage,
+    type ChatUserMessage,
     type EventMap,
     type ToolState,
 } from "./types.ts";
@@ -36,17 +38,28 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
             const files = d.item.payload?.files;
             // Already held (seed race or another handler pass)?
             if (list.some((m) => m.id === d.inboxID)) return list;
+            // A slash-command submission enqueues with the EXPANDED
+            // template as its text — stamp the compact form so the
+            // transcript renders `/name args` instead of the wall of
+            // template prose (FIFO, so rapid commands map one-to-one).
+            const command = takePendingCommand(data.sessionID ?? "");
+            const incoming: ChatUserMessage = command
+                ? {id: d.inboxID, type: "user", text, files, command}
+                : {id: d.inboxID, type: "user", text, files};
             // Adopt the optimistic bubble send() appended (swap in the
-            // server id)…
+            // server id): by text for plain prompts, or by the pending
+            // command for command submissions — the optimistic text is
+            // the compact form and the event text the expanded template,
+            // so they can never match by content.
             const last = list[list.length - 1];
             if (
-                last && last.type === "user" &&
-                last.id.startsWith("local-") && last.text === text
+                last && isUserMessage(last) && last.id.startsWith("local-") &&
+                (last.text === text || (command != null && last.command?.name === command.name))
             ) {
-                return [...list.slice(0, -1), {id: d.inboxID, type: "user", text, files}];
+                return [...list.slice(0, -1), incoming];
             }
             // …or append when the prompt came from another client.
-            return [...list, {id: d.inboxID, type: "user", text, files}];
+            return [...list, incoming];
         }
         case "session.step.started": {
             const d = data as EventMap["session.step.started"];
@@ -156,7 +169,14 @@ export function applySeedPage(
     const messages = ascending.map((pm) => {
         const local = byId.get(pm.id);
         if (!local) return pm;
-        if (!isAssistantMessage(local) || !isAssistantMessage(pm)) return pm;
+        if (!isAssistantMessage(local) || !isAssistantMessage(pm)) {
+            // User messages: the page knows only the expanded template —
+            // keep the compact command form a local event stamped.
+            if (isUserMessage(local) && isUserMessage(pm) && local.command && !pm.command) {
+                return {...pm, command: local.command};
+            }
+            return pm;
+        }
         return mergeAssistant(local, pm);
     });
     const pageIds = new Set(ascending.map((m) => m.id));
@@ -179,6 +199,54 @@ export function applyOlderPage(
         messages: fresh.length > 0 ? [...fresh, ...list] : list,
         cursor: page?.cursor?.next ?? null,
     };
+}
+
+// --- Pending slash-command submissions -------------------------------------
+//
+// The server stores a command submission as its EXPANDED template text and
+// carries no metadata linking it back to `/name args`. Send paths register
+// the compact form here right before running the command; the confirming
+// `session.inbox.enqueued` frame (or a seed reconcile) stamps it onto the
+// stored message. A per-session FIFO queue maps rapid commands one-to-one.
+
+const pendingCommands = new Map<string, {name: string; arguments: string}[]>();
+
+/** Register a command submission's compact form for the NEXT user-message
+ *  enqueue in that session. Returns an undo fn — call it when the command
+ *  request FAILS and the message falls back to a plain prompt (the
+ *  fallback enqueues the raw text and must not be stamped). */
+export function recordPendingCommand(
+    sessionId: string,
+    command: {name: string; arguments: string},
+): () => void {
+    let queue = pendingCommands.get(sessionId);
+    if (!queue) {
+        queue = [];
+        pendingCommands.set(sessionId, queue);
+    }
+    const entry = command;
+    queue.push(entry);
+    return () => {
+        const q = pendingCommands.get(sessionId);
+        if (!q) return;
+        const i = q.indexOf(entry);
+        if (i >= 0) q.splice(i, 1);
+    };
+}
+
+/** Consume the oldest pending command for a session (empty when the
+ *  enqueue belonged to a plain prompt). */
+function takePendingCommand(sessionId: string): {name: string; arguments: string} | undefined {
+    const queue = pendingCommands.get(sessionId);
+    if (!queue || queue.length === 0) return undefined;
+    const entry = queue.shift();
+    if (queue.length === 0) pendingCommands.delete(sessionId);
+    return entry;
+}
+
+/** Drop a session's pending entries (session deleted). */
+export function dropPendingCommands(sessionId: string): void {
+    pendingCommands.delete(sessionId);
 }
 
 // --- Part plumbing (stream `ordinal`s are per-kind). ---

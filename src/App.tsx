@@ -22,6 +22,7 @@ import {loadState, saveState} from "./lib/persist.ts";
 import {appThemeFor} from "./lib/theme.ts";
 import {useOpencode} from "./opencode/useOpencode.ts";
 import {OpencodeApi} from "./opencode/api.ts";
+import {prepareCommandSubmission} from "./opencode/useSessionMessages.ts";
 import {useSessions} from "./opencode/useSessions.ts";
 import {useSessionRequests} from "./opencode/useSessionRequests.ts";
 import {useModelCatalog} from "./opencode/useModelCatalog.ts";
@@ -207,6 +208,11 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
             ...files.map((f) => ({uri: f.uri, name: f.name})),
             ...fileRefs.map((r) => OpencodeApi.fileRefToPromptFile(r)),
         ];
+        // Stamp the compact form BEFORE the request: the server enqueues
+        // (and emits the confirming event) before the response arrives,
+        // and the brand-new session needs its store entry anyway so the
+        // event bus keeps the frame.
+        const undoPending = command ? prepareCommandSubmission(created.id, command) : null;
         // A rejected slash command must not strand the freshly created
         // session with nothing in it — deliver the raw text as a plain
         // prompt so the model can interpret it instead.
@@ -216,6 +222,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                 await api.runSessionCommand(created.id, command.name, command.arguments);
             } catch (e) {
                 error(`Command ${command.name} failed, sending as prompt: ${e}`).catch(() => {});
+                undoPending?.(); // the fallback is a plain prompt now
                 await api.sendPrompt(created.id, text, promptFiles);
             }
         })();

@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import {OpencodeApi} from "./api.ts";
-import {applyEvent, applyOlderPage, applySeedPage} from "./messageStore.ts";
+import {applyEvent, applyOlderPage, applySeedPage, dropPendingCommands, recordPendingCommand} from "./messageStore.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {
     ChatMessage,
@@ -66,6 +66,7 @@ function ensureBus(subscribe: (handler: OpencodeEventHandler) => () => void) {
         const sid = (event.data as {sessionID?: string} | null)?.sessionID;
         if (!sid) return;
         if (event.type === "session.deleted") {
+            dropPendingCommands(sid);
             if (entries.delete(sid)) notify(sid);
             return;
         }
@@ -77,6 +78,18 @@ function ensureBus(subscribe: (handler: OpencodeEventHandler) => () => void) {
             notify(sid);
         }
     });
+}
+
+/** Prepare a slash-command submission for a session that may not have a
+ *  store entry yet (first send from the welcome screen): create the entry
+ *  so the event bus keeps the confirming enqueue frame, and register the
+ *  compact form for stamping. Returns an undo fn for the fallback path. */
+export function prepareCommandSubmission(
+    sessionId: string,
+    command: {name: string; arguments: string},
+): () => void {
+    entryOf(sessionId);
+    return recordPendingCommand(sessionId, command);
 }
 
 export function useSessionMessages(
@@ -205,6 +218,8 @@ export function useSessionMessages(
         ];
         // Optimistic user bubble; the prompt response + inbox.enqueued event
         // confirm it with the real id (applyEvent adopts it in messageStore).
+        // A command submission carries its compact form so the transcript
+        // renders `/name args`, not the expanded template the event brings.
         const optimistic: ChatUserMessage = {
             id: `local-${Date.now()}`,
             type: "user",
@@ -213,12 +228,16 @@ export function useSessionMessages(
                 ...(files ?? []).map((f) => ({name: f.name, mime: f.mime, uri: f.uri})),
                 ...(fileRefs ?? []).map((r) => ({name: r.path.split("/").pop() ?? r.path})),
             ],
+            ...(command ? {command} : {}),
         };
         const entry = entries.get(sid);
         if (entry) {
             entry.messages = [...entry.messages, optimistic];
             notify(sid);
         }
+        // The stamp applies only when the command itself runs — a fallback
+        // prompt must enqueue UNstamped (its text is the raw `/name args`).
+        const undoPending = command ? recordPendingCommand(sid, command) : null;
         try {
             if (command) {
                 await a.runSessionCommand(sid, command.name, command.arguments);
@@ -230,6 +249,7 @@ export function useSessionMessages(
             // the raw text still means something to the model. Retry
             // once as a plain prompt; only when that also fails is the
             // send considered lost.
+            undoPending?.();
             if (command) {
                 try {
                     await a.sendPrompt(sid, trimmed, promptFiles);

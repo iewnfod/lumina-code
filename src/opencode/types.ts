@@ -233,6 +233,12 @@ export interface ChatUserMessage {
     type: "user";
     text: string;
     files?: UserMessageFile[];
+    /** Present when this message came from a slash-command submission:
+     *  `text` carries the EXPANDED template the server stores (there is no
+     *  server-side command metadata), while the transcript renders the
+     *  compact `{name} {arguments}` form. Stamped client-side from the
+     *  pending-command registry in messageStore.ts. */
+    command?: {name: string; arguments: string};
     time?: {created?: number};
 }
 

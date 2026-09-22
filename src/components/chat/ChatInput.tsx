@@ -27,6 +27,7 @@ import {
     mergeRegister,
     type EditorState,
     type LexicalEditor,
+    type LexicalNode,
 } from "lexical";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
@@ -46,6 +47,7 @@ import UsageRing from "./UsageRing.tsx";
 import DirectoryPicker from "./DirectoryPicker.tsx";
 import InputSuggestions, {type SuggestionItem} from "./InputSuggestions.tsx";
 import {$createFileMentionNode, $isFileMentionNode, FileMentionNode} from "./FileMentionNode.tsx";
+import {$createCommandMentionNode, $isCommandMentionNode, CommandMentionNode} from "./CommandMentionNode.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 
 /** Hard cap per attachment — data URIs ride inside the prompt JSON. */
@@ -110,6 +112,12 @@ function triggerId(t: TriggerState): string {
     return `${t.nodeKey}:${t.offset}:${t.kind}`;
 }
 
+/** Either inline mention kind — both are token TextNodes the caret must
+ *  step over and the trigger detector must not read as plain text. */
+function $isMentionNode(node: LexicalNode | null | undefined): node is FileMentionNode | CommandMentionNode {
+    return $isFileMentionNode(node) || $isCommandMentionNode(node);
+}
+
 /** Chars that make a preceding `/` read as part of a path, URL or
  *  identifier ("src/app", "24/7", "https://…") rather than a command
  *  invocation — no command popup while typing those. */
@@ -139,14 +147,14 @@ function $detectTrigger(): TriggerState | null {
     if (!$isRangeSelection(sel) || !sel.isCollapsed()) return null;
     let node = sel.anchor.getNode();
     let offset = sel.anchor.offset;
-    if (!$isTextNode(node) || $isFileMentionNode(node)) return null;
+    if (!$isTextNode(node) || $isMentionNode(node)) return null;
     let before = node.getTextContent().slice(0, offset);
     // Caret resting at a node boundary: the trigger may sit at the END of
     // the previous text node (left there by a split or an undo). Reading
     // through that boundary keeps behavior identical to plain-text editors.
     if (offset === 0) {
         const prev = node.getPreviousSibling();
-        if ($isTextNode(prev) && !$isFileMentionNode(prev)) {
+        if ($isTextNode(prev) && !$isMentionNode(prev)) {
             node = prev;
             before = prev.getTextContent();
         }
@@ -184,23 +192,23 @@ export interface PendingCommand {
     arguments: string;
 }
 
-/** Atomic ←/→ across a file mention: when the caret sits inside a mention
- *  (the native caret can land in token text) or right next to one, land the
- *  selection on the FAR side of the whole mention in a single step. Returns
- *  whether it handled the key. */
-function $skipFileMention(editor: LexicalEditor, direction: -1 | 1): boolean {
+/** Atomic ←/→ across a mention (file or command): when the caret sits
+ *  inside one (the native caret can land in token text) or right next to
+ *  one, land the selection on the FAR side of the whole mention in a
+ *  single step. Returns whether it handled the key. */
+function $skipMention(editor: LexicalEditor, direction: -1 | 1): boolean {
     const jump = editor.getEditorState().read((): -1 | 1 | null => {
         const sel = $getSelection();
         if (!$isRangeSelection(sel) || !sel.isCollapsed()) return null;
         const anchor = sel.anchor;
         const node = anchor.getNode();
-        if ($isFileMentionNode(node)) return direction;
+        if ($isMentionNode(node)) return direction;
         if ($isTextNode(node)) {
             if (direction === -1 && anchor.offset === 0) {
-                return $isFileMentionNode(node.getPreviousSibling()) ? -1 : null;
+                return $isMentionNode(node.getPreviousSibling()) ? -1 : null;
             }
             if (direction === 1 && anchor.offset === node.getTextContentSize()) {
-                return $isFileMentionNode(node.getNextSibling()) ? 1 : null;
+                return $isMentionNode(node.getNextSibling()) ? 1 : null;
             }
         }
         return null;
@@ -211,9 +219,9 @@ function $skipFileMention(editor: LexicalEditor, direction: -1 | 1): boolean {
         const sel = $getSelection();
         if (!$isRangeSelection(sel)) return;
         let node = sel.anchor.getNode();
-        if (!$isFileMentionNode(node)) {
+        if (!$isMentionNode(node)) {
             const sibling = direction === -1 ? node.getPreviousSibling() : node.getNextSibling();
-            if (!sibling || !$isFileMentionNode(sibling)) return;
+            if (!sibling || !$isMentionNode(sibling)) return;
             node = sibling;
         }
         if (direction === -1) node.selectPrevious();
@@ -359,7 +367,7 @@ const ChatInput = memo(function ChatInput({
 
     const initialConfig = {
         namespace: "lumina-composer",
-        nodes: [FileMentionNode],
+        nodes: [FileMentionNode, CommandMentionNode],
         onError: (e: unknown) => console.error("[composer]", e),
     };
 
@@ -758,9 +766,17 @@ function ComposerCore({
                     const before = content.slice(0, trig.offset);
                     const after = content.slice(trig.offset + 1 + trig.query.length);
                     if (item.kind === "command") {
-                        const insert = `/${item.command.name} `;
-                        node.setTextContent(before + insert + after);
-                        node.select(before.length + insert.length);
+                        // Command: atomic `/name` mention + a trailing
+                        // space to type arguments into — mirrors the file
+                        // mention below (token node, whole-word delete,
+                        // serializes back to `/name` on submit).
+                        const mention = $createCommandMentionNode({name: item.command.name});
+                        const space = $createTextNode(" ");
+                        node.setTextContent(before);
+                        node.insertAfter(mention);
+                        mention.insertAfter(space);
+                        if (after) space.insertAfter($createTextNode(after));
+                        space.select(1);
                         return;
                     }
                     // File: mention + a trailing space to land the caret in.
@@ -900,7 +916,7 @@ function ComposerCore({
             editor.registerCommand(
                 KEY_ARROW_LEFT_COMMAND,
                 (event) => {
-                    if ($skipFileMention(editor, -1)) {
+                    if ($skipMention(editor, -1)) {
                         event?.preventDefault();
                         return true;
                     }
@@ -911,7 +927,7 @@ function ComposerCore({
             editor.registerCommand(
                 KEY_ARROW_RIGHT_COMMAND,
                 (event) => {
-                    if ($skipFileMention(editor, 1)) {
+                    if ($skipMention(editor, 1)) {
                         event?.preventDefault();
                         return true;
                     }

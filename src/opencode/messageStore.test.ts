@@ -1,9 +1,10 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {applyEvent, applyOlderPage, applySeedPage} from "./messageStore.ts";
+import {applyEvent, applyOlderPage, applySeedPage, recordPendingCommand} from "./messageStore.ts";
 import type {OpencodeEvent} from "./api.ts";
 import type {MessagesPage} from "./api.ts";
-import type {ChatAssistantMessage, ChatMessage} from "./types.ts";
+import type {ChatAssistantMessage, ChatMessage, ChatUserMessage} from "./types.ts";
+import {isUserMessage} from "./types.ts";
 
 /**
  * Pure-logic tests for the per-session message store: the event reducer
@@ -211,4 +212,69 @@ test("text parts stream and settle alongside reasoning", () => {
     list = applyEvent(list, ev("session.text.delta", {assistantMessageID: MID, ordinal: 0, delta: "er."}));
     const textPart = asst(list).content.find((p) => p.type === "text") as {text: string} | undefined;
     assert.equal(textPart?.text, "Answer.");
+});
+
+// --- Slash-command stamping (compact `/name args` over the expanded
+//     template the server stores) ---
+
+function enqueue(text: string, inboxID = "msg_user_cmd"): OpencodeEvent {
+    return ev("session.inbox.enqueued", {inboxID, item: {type: "user", payload: {text}}});
+}
+
+test("command enqueue stamps the compact form and adopts the optimistic bubble", () => {
+    recordPendingCommand(SID, {name: "init", arguments: "只要前端"});
+    let list: ChatMessage[] = [
+        {
+            id: "local-1",
+            type: "user",
+            text: "/init 只要前端",
+            command: {name: "init", arguments: "只要前端"},
+        },
+    ];
+    // The event text is the EXPANDED template — it can never match the
+    // optimistic text; adoption must go through the pending command.
+    list = applyEvent(list, enqueue("Create or update AGENTS.md — long expanded template…"));
+    assert.equal(list.length, 1, "optimistic bubble adopted, not duplicated");
+    const m = list[0];
+    assert.ok(isUserMessage(m));
+    assert.equal(m.id, "msg_user_cmd");
+    assert.equal(m.text.includes("expanded template"), true, "expanded prompt kept as the stored text");
+    assert.deepEqual(m.command, {name: "init", arguments: "只要前端"});
+});
+
+test("plain-prompt fallback enqueues unstamped", () => {
+    // The command request failed and the raw text went out as a prompt —
+    // the pending stamp was undone, so the text-match adoption drops it.
+    const undo = recordPendingCommand(SID, {name: "init", arguments: "x"});
+    undo();
+    let list: ChatMessage[] = [
+        {id: "local-1", type: "user", text: "/init x", command: {name: "init", arguments: "x"}},
+    ];
+    list = applyEvent(list, enqueue("/init x", "msg_user_fb"));
+    assert.equal(list.length, 1);
+    const m = list[0];
+    assert.ok(isUserMessage(m));
+    assert.equal(m.id, "msg_user_fb");
+    assert.equal(m.command, undefined, "a fallback prompt must render as its raw text");
+    assert.equal(m.text, "/init x");
+});
+
+test("seed merge keeps the compact command stamp on user messages", () => {
+    // Switching sessions reconciles against the server page, which knows
+    // only the expanded template — the locally stamped compact form wins.
+    let list: ChatMessage[] = [
+        {
+            id: "msg_user_cmd",
+            type: "user",
+            text: "expanded template",
+            command: {name: "init", arguments: "x"},
+        },
+    ];
+    const page: MessagesPage = {
+        data: [{id: "msg_user_cmd", type: "user", text: "expanded template"}], // desc order
+    };
+    const seeded = applySeedPage(list, page);
+    const m = seeded.messages.find((x): x is ChatUserMessage => isUserMessage(x) && x.id === "msg_user_cmd");
+    assert.ok(m, "stamped message kept");
+    assert.deepEqual(m.command, {name: "init", arguments: "x"});
 });

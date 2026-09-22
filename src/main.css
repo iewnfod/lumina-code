@@ -176,9 +176,11 @@ body {
  * icon (an inline background-image data URI) are set per node in
  * createDOM; this class carries the shared chrome only. No chip/pill —
  * inline chrome reads too heavy next to normal text. white-space: nowrap
- * keeps a mention on one line.
+ * keeps a mention on one line. Command mentions (CommandMentionNode)
+ * share the same chrome with a terminal glyph.
  */
-.lum-file-mention {
+.lum-file-mention,
+.lum-command-mention {
     padding-left: 14px;
     background-repeat: no-repeat;
     background-position: 0 58%;

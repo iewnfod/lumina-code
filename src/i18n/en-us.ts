@@ -67,6 +67,7 @@ const enUs = {
     "Todo": "Todo",
     "Fetch": "Fetch",
     "Search": "Search",
+    "Skill": "Skill",
     "Subagent": "Subagent",
     "Tool failed": "Tool failed",
     "Subagent failed": "Subagent failed",

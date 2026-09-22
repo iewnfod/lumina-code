@@ -69,6 +69,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Todo": "待办",
     "Fetch": "抓取网页",
     "Search": "搜索网页",
+    "Skill": "技能",
     "Subagent": "子代理",
     "Tool failed": "工具执行失败",
     "Subagent failed": "子代理执行失败",

@@ -10,6 +10,7 @@ import {
     ListTodo,
     MessageCircleQuestion,
     Search,
+    Sparkles,
     SquareTerminal,
     Wrench,
     type LucideIcon,
@@ -43,6 +44,7 @@ const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon}> = {
     // The question tool — the "AI asks the user" surface. Distinct from the
     // generic wrench so its FoldRow reads as a question, not a tool call.
     question: {title: "Ask you questions", icon: MessageCircleQuestion},
+    skill: {title: "Skill", icon: Sparkles},
 };
 
 /** Display title for a tool name (used by ActivityGroup's summary too).
@@ -172,6 +174,23 @@ function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNo
             return path(inputStr(o, "url"));
         case "websearch":
             return path(inputStr(o, "query"));
+        case "skill":
+            // The skill being loaded — its id ("arkts-standards", …), not the raw JSON.
+            return path(inputStr(o, "id"));
+        case "question": {
+            // Each question carries a short `header` label; show those
+            // instead of the full questions JSON (options and all).
+            const questions = Array.isArray(o.questions) ? o.questions : [];
+            const headers = questions
+                .map((q) =>
+                    q != null && typeof q === "object"
+                        ? (q as {header?: unknown}).header
+                        : undefined)
+                .filter((h): h is string => typeof h === "string" && h.length > 0);
+            return headers.length > 0 ? (
+                <span className="truncate min-w-0">{headers.join(" / ")}</span>
+            ) : null;
+        }
         default: {
             const json = JSON.stringify(part.state.input);
             if (!json || json === "{}") return null;
