@@ -166,6 +166,8 @@ src/
 │   ├── persist.ts         # loadState/saveState — cross-restart UI state in
 │   │                      #   localStorage ("lumina-code:ui-state": open session,
 │   │                      #   model, agent, directory). Never throws.
+│   ├── clipboard.ts       # copyText — clipboard write with an execCommand
+│   │                      #   fallback for webviews lacking the async API
 │   └── dragRegionDoubleClick.ts # pure predicate behind the title-bar double-click
 │
 ├── hooks/                 # React hooks (start with `use`; i18n.tsx provides JSX context)
@@ -180,6 +182,8 @@ src/
 │   ├── useAlwaysOnTop.ts  # per-window pin (no-op on Wayland)
 │   ├── useDragRegionDoubleClick.ts # capture-phase mousedown + explicit maximize toggle
 │   ├── useFollowBottom.ts # stream-follow stickiness for inner scroll regions
+│   ├── useCopy.ts         # copy feedback shared by run footers and the user
+│   │                      #   bubble: copied flag + ✓ linger reset
 │   └── useTranscriptScroll.ts # ChatView's scroll machinery: bottom-follow with
 │                              #   programmatic-scroll guards, prepend anchoring
 │                              #   around render-window growth, geometry re-pin,

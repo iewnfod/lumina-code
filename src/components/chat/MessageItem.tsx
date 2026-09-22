@@ -1,6 +1,6 @@
 import {memo, useEffect, useRef, useState, type CSSProperties} from "react";
 import {motion} from "framer-motion";
-import {Terminal} from "lucide-react";
+import {Terminal, Check, Copy} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {
@@ -11,6 +11,7 @@ import type {
 import {isAssistantMessage, isUserMessage} from "../../opencode/types.ts";
 import {fadeSlideUp, whileHoverTap} from "../../lib/motion.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
+import {useCopy} from "../../hooks/useCopy.ts";
 import {COMMAND_MENTION_COLOR} from "../composer/CommandMentionNode.tsx";
 import Markdown from "./Markdown.tsx";
 import ToolCard from "./ToolCard.tsx";
@@ -66,6 +67,7 @@ const USER_BUBBLE_MAX_PX = 256;
 
 function UserBubble({message, colors}: {message: ChatUserMessage; colors: SurfaceColors}) {
     const t = useI18n();
+    const {copied, copy} = useCopy();
     const files = message.files ?? [];
     const {expanded, toggle} = useExpansion(`user-bubble:${message.id}`, false);
     const [clipped, setClipped] = useState(false);
@@ -88,10 +90,12 @@ function UserBubble({message, colors}: {message: ChatUserMessage; colors: Surfac
     }, [message.text]);
     const clamped = clipped && !expanded;
     return (
-        // Extra vertical margin sets the turn apart from the tight
-        // assistant flow around it (the column gap is only 12px).
+        // Top margin sets the turn apart from the tight assistant flow
+        // (the column gap is only 12px); with text, the lower spacing is
+        // carried by the quiet actions row under the bubble instead of raw
+        // margin (files-only bubbles keep the full bottom margin).
         <motion.div
-            className="flex flex-col items-end my-4"
+            className={`group/msg flex flex-col items-end mt-4 ${message.text ? "mb-1" : "mb-4"}`}
             variants={fadeSlideUp}
             initial="hidden"
             animate="show"
@@ -159,16 +163,39 @@ function UserBubble({message, colors}: {message: ChatUserMessage; colors: Surfac
                     </div>
                 </div>
             )}
-            {clipped && (
-                <motion.button
-                    type="button"
-                    {...whileHoverTap}
-                    className="mt-1 px-2 py-1 text-[11px] cursor-pointer rounded-[var(--radius-sm)] hover:bg-[var(--lum-bubble-more-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
-                    style={{"--lum-bubble-more-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
-                    onClick={toggle}
-                >
-                    {expanded ? t["Show less"] : t["Show more"]}
-                </motion.button>
+            {/* Quiet actions row under the bubble: the copy affordance sits
+                beside the clamp expander (hover-revealed like the sidebar's
+                row actions; stays lit while the ✓ lingers so the
+                confirmation isn't hidden by the pointer leaving). Copies
+                the full prompt — for a slash-command submission that's the
+                expanded template, matching the bubble's hover title.
+                transform-gpu for the same WebKitGTK compositing reason as
+                RunFooter. */}
+            {message.text && (
+                <div className="flex items-center gap-1 mt-1">
+                    <button
+                        type="button"
+                        onClick={() => void copy(message.text)}
+                        title={copied ? t["Copied"] : t["Copy"]}
+                        className={`inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none hover:bg-[var(--lum-bubble-copy-hover)] transition-[opacity,background-color] duration-[var(--duration-fast)] transform-gpu ${copied ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"}`}
+                        style={{"--lum-bubble-copy-hover": colors.hoverOverlay} as CSSProperties}
+                    >
+                        {copied
+                            ? <Check size={14} className="shrink-0"/>
+                            : <Copy size={14} className="shrink-0"/>}
+                    </button>
+                    {clipped && (
+                        <motion.button
+                            type="button"
+                            {...whileHoverTap}
+                            className="px-2 py-1 text-[11px] cursor-pointer rounded-[var(--radius-sm)] hover:bg-[var(--lum-bubble-more-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
+                            style={{"--lum-bubble-more-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
+                            onClick={toggle}
+                        >
+                            {expanded ? t["Show less"] : t["Show more"]}
+                        </motion.button>
+                    )}
+                </div>
             )}
         </motion.div>
     );

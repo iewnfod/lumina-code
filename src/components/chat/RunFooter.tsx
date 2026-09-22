@@ -1,12 +1,10 @@
-import {useEffect, useRef, useState, type CSSProperties} from "react";
+import type {CSSProperties} from "react";
 import {motion} from "framer-motion";
 import {Check, Clock, Copy} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {useCopy} from "../../hooks/useCopy.ts";
 import {fadeIn} from "../../lib/motion.ts";
-
-/** How long the ✓ confirmation lingers before reverting to the copy icon. */
-const COPIED_RESET_MS = 2000;
 
 /**
  * The quiet footer under a finished run: a copy affordance for the run's
@@ -24,18 +22,7 @@ export default function RunFooter({text, durationMs, colors}: {
     colors: SurfaceColors;
 }) {
     const t = useI18n();
-    const [copied, setCopied] = useState(false);
-    const resetTimer = useRef<number>(0);
-
-    // A pending reset must never outlive the row.
-    useEffect(() => () => window.clearTimeout(resetTimer.current), []);
-
-    const onCopy = async () => {
-        if (!(await copyText(text))) return;
-        setCopied(true);
-        window.clearTimeout(resetTimer.current);
-        resetTimer.current = window.setTimeout(() => setCopied(false), COPIED_RESET_MS);
-    };
+    const {copied, copy} = useCopy();
 
     return (
         <motion.div
@@ -46,7 +33,7 @@ export default function RunFooter({text, durationMs, colors}: {
         >
             <button
                 type="button"
-                onClick={() => void onCopy()}
+                onClick={() => void copy(text)}
                 title={copied ? t["Copied"] : t["Copy"]}
                 // transform-gpu: the hover fades opacity across the 1.0
                 // boundary, which on the WebKitGTK webview churns compositing
@@ -73,30 +60,6 @@ export default function RunFooter({text, durationMs, colors}: {
             )}
         </motion.div>
     );
-}
-
-/** Clipboard write with a legacy fallback for webviews without the async
- *  Clipboard API. Returns whether the text made it out. */
-async function copyText(text: string): Promise<boolean> {
-    try {
-        await navigator.clipboard.writeText(text);
-        return true;
-    } catch {
-        const area = document.createElement("textarea");
-        area.value = text;
-        area.style.position = "fixed";
-        area.style.opacity = "0";
-        document.body.appendChild(area);
-        area.select();
-        let ok = false;
-        try {
-            ok = document.execCommand("copy");
-        } catch {
-            // stays false
-        }
-        area.remove();
-        return ok;
-    }
 }
 
 /** Compact wall-clock duration: 4.2s · 12s · 1m 03s · 2h 14m. */
