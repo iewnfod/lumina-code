@@ -178,6 +178,10 @@ src/
 │   ├── surfaceColors.ts   # useSurfaceColors(bg) → derived border/overlay/accent colors
 │   ├── useGlass.ts        # backdrop-filter capability (disabled on Linux/WebKitGTK)
 │   ├── useSystemTheme.ts  # OS light/dark (module-cached)
+│   ├── useThemePreference.ts # Manual light/dark override ("system" follows
+│   │                      #   the OS) — module store + own localStorage key
+│   │                      #   (same pattern as i18n), consumed once in App
+│   │                      #   to resolve appThemeFor's input.
 │   ├── useIsWayland.ts    # cached invoke("is_wayland")
 │   ├── useAlwaysOnTop.ts  # per-window pin (no-op on Wayland)
 │   ├── useDragRegionDoubleClick.ts # capture-phase mousedown + explicit maximize toggle
@@ -256,7 +260,7 @@ src/
     │   ├── RequestCardChrome.tsx # Card + CardButton shared by the request kinds
     │   └── formLogic.ts   # Pure form-answer rules: fieldVisible (`when`
     │                      #   conditions), normalize (per-type values).
-    └── composer/          # The prompt composer
+    ├── composer/          # The prompt composer
         ├── ChatInput.tsx  # Composer shell: staged attachments (chips),
         │                  #   slash-command fetch (per-directory, retried),
         │                  #   LexicalComposer wiring, toolbar.
@@ -268,18 +272,10 @@ src/
         │                  #   send/stop on the right. Owns the catalog →
         │                  #   picker mapping (provider groups, variants) and
         │                  #   the model-config entry (empty-state "no models
-        │                  #   configured" when catalogOnly, persistent bottom
-        │                  #   "configure models…" row) opening ModelConfigModal.
-        ├── ModelConfigModal.tsx # Provider-credential + custom-provider manager
-        │                  #   (opened from the model picker): searchable
-        │                  #   integration list, API-key connect, browser-OAuth
-        │                  #   flow with attempt polling, credential
-        │                  #   activate/remove; custom OpenAI-compatible
-        │                  #   providers written to the global opencode.json
-        │                  #   (server hot-reloads → config.updated event).
-        ├── modelConfig.ts # Pure model-config logic: integration search,
-        │                  #   custom-provider config merge/remove/read-back,
-        │                  #   global-config-target discovery. node-testable.
+        │                  #   configured" when catalogOnly, and the
+        │                  #   scrollable list's last "configure models…"
+        │                  #   row) raising onOpenModelConfig (App opens
+        │                  #   Settings on Model).
         ├── composerTriggers.ts # Lexical node-tree algorithms: `@`/`/` trigger
         │                  #   detection (CJK-aware) + atomic mention ←/→.
         ├── composerAttachments.ts # Data-URI attachment reader + size cap
@@ -287,6 +283,29 @@ src/
         ├── FileMentionNode.tsx / CommandMentionNode.tsx # Lexical token TextNodes
         ├── ToolbarButton.tsx # The composer's compact toolbar control
         └── DirectoryPicker.tsx # Working-directory chooser (dialog + GET /api/project)
+
+    └── settings/           # The settings modal (title-bar gear; layout
+                           #   follows lumina-terminal's settings pages)
+    ├── SettingsModal.tsx # Modal shell: left tab rail (General / Model /
+    │                      #   About) over ui/Modal; ONE pane mounts at a
+    │                      #   time (mount doubles as the pane's open →
+    │                      #   ModelSettings loads/resets on mount). App owns
+    │                      #   {open, tab} so entry points deep-link a tab.
+    ├── GeneralSettings.tsx # Language + appearance rows; both act instantly
+    │                      #   through module stores (i18n, useThemePreference).
+    ├── ModelSettings.tsx # Formerly composer/ModelConfigModal: searchable
+    │                      #   integration list, API-key connect, browser-OAuth
+    │                      #   flow with attempt polling, credential
+    │                      #   activate/remove; custom OpenAI-compatible
+    │                      #   providers written to the global opencode.json
+    │                      #   (server hot-reloads → config.updated event).
+    ├── AboutSettings.tsx # App/server/dependency version rows (getVersion +
+    │                      #   the connection's server version + package.json).
+    ├── SettingRow.tsx    # Settings row primitive (ported from
+    │                      #   lumina-terminal, reduced to control/info).
+    └── modelConfig.ts    # Pure model-config logic: integration search,
+                          #   custom-provider config merge/remove/read-back,
+                          #   global-config-target discovery. node-testable.
 ```
 
 ### Backend (`src-tauri/src/`)

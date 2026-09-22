@@ -79,6 +79,16 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     // --- Settings ---
     "Language": "语言",
     "Follow System": "跟随系统",
+    "Settings": "设置",
+    "General": "通用",
+    "About": "关于",
+    "Appearance": "外观",
+    "Light": "浅色",
+    "Dark": "深色",
+    "Lumina Code version": "Lumina Code 版本",
+    "OpenCode server": "OpenCode 服务器",
+    "Not connected": "未连接",
+    "Dependencies": "依赖",
     // --- Session usage ring ---
     "Session usage": "会话用量",
     "Context": "上下文",

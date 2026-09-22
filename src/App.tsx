@@ -1,4 +1,4 @@
-import {useEffect} from "react";
+import {useCallback, useEffect, useState} from "react";
 import {AnimatePresence, motion} from "framer-motion";
 import {getCurrentWindow} from "@tauri-apps/api/window";
 import {error} from "@tauri-apps/plugin-log";
@@ -6,6 +6,7 @@ import TitleBar from "./components/TitleBar.tsx";
 import SessionBar from "./components/SessionBar.tsx";
 import WelcomeScreen from "./components/WelcomeScreen.tsx";
 import ChatView from "./components/chat/ChatView.tsx";
+import SettingsModal, {type SettingsTab} from "./components/settings/SettingsModal.tsx";
 import MaskedSurface from "./components/ui/MaskedSurface.tsx";
 import {useMaximized} from "./hooks/maximized.ts";
 import {usePaddingOffset} from "./hooks/paddingOffset.ts";
@@ -13,6 +14,8 @@ import {useDragRegionDoubleClick} from "./hooks/useDragRegionDoubleClick.ts";
 import {useGlass} from "./hooks/useGlass.ts";
 import {useI18n} from "./hooks/i18n.tsx";
 import {useSystemTheme} from "./hooks/useSystemTheme.ts";
+import {useThemePreference} from "./hooks/useThemePreference.ts";
+import {useSurfaceColors} from "./hooks/surfaceColors.ts";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {fadeIn, springSwap} from "./lib/motion.ts";
 import {isLinux} from "./lib/platform.ts";
@@ -39,10 +42,14 @@ import type {SessionUsage} from "./opencode/types.ts";
 function InnerApp({isMaximized}: {isMaximized: boolean}) {
     const t = useI18n();
     // Effective theme: lumina-terminal derives this from the active
-    // terminal's palette; lumina-code follows the system light/dark with the
-    // same neutral bases (see lib/theme.ts).
+    // terminal's palette; lumina-code follows the system light/dark with
+    // the same neutral bases (see lib/theme.ts). The settings modal's
+    // appearance preference can pin light/dark; "system" keeps the live
+    // OS setting.
+    const themePreference = useThemePreference();
     const systemTheme = useSystemTheme();
-    const {theme: effectiveTheme, bg: effectiveBg, fg: effectiveFg, dark, contentBg} = appThemeFor(systemTheme);
+    const resolvedTheme = themePreference === "system" ? systemTheme : themePreference;
+    const {theme: effectiveTheme, bg: effectiveBg, fg: effectiveFg, dark, contentBg} = appThemeFor(resolvedTheme);
 
     // Glass material filling the content area. The chat surface is clipped to
     // a rounded rectangle; its four corners are transparent, exposing this
@@ -84,6 +91,24 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
         ? {tokens: activeSession.tokens, cost: activeSession.cost}
         : null;
     const connected = connectionStatus.state === "connected";
+
+    // The settings modal: the title-bar gear opens it, and the model
+    // picker's "Configure models…" deep-links to its Model tab. App owns
+    // open + tab so entry points can preselect the pane.
+    const [settings, setSettings] = useState<{open: boolean; tab: SettingsTab}>({open: false, tab: "general"});
+    const openSettings = useCallback((tab: SettingsTab = "general") => {
+        setSettings({open: true, tab});
+    }, []);
+    const closeSettings = useCallback(() => {
+        setSettings((prev) => ({...prev, open: false}));
+    }, []);
+    const changeSettingsTab = useCallback((tab: SettingsTab) => {
+        setSettings((prev) => (prev.tab === tab ? prev : {...prev, tab}));
+    }, []);
+    // Stable so the memoized ChatView/ChatInput subtree skips re-rendering.
+    const openModelConfig = useCallback(() => openSettings("model"), [openSettings]);
+    // The modal's surface derives from the same chrome bg as everything else.
+    const settingsColors = useSurfaceColors(effectiveBg);
 
     const sessionInfos = sessions.map((s) => ({
         id: s.id,
@@ -148,6 +173,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                     // Command palette arrives with the business logic; the
                     // button stays in place so the chrome is final.
                     onOpenCommandPalette={() => {}}
+                    onOpenSettings={() => openSettings()}
                     isMaximized={isMaximized}
                 />
                 <div className="flex-1 relative overflow-hidden">
@@ -200,6 +226,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                             onModelChange={changeModel}
                                             directory={activeSession.directory ?? activeSession.location?.directory ?? null}
                                             onDirectoryChange={changeDirectory}
+                                            onOpenModelConfig={openModelConfig}
                                             usage={activeUsage}
                                             pendingPermissions={pendingAllPermissions.filter((p) => p.sessionID === activeSession.id)}
                                             pendingForms={pendingAllForms.filter((f) => f.sessionID === activeSession.id)}
@@ -226,6 +253,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                         api={api}
                                         directory={pendingDirectory}
                                         onDirectoryChange={changeDirectory}
+                                        onOpenModelConfig={openModelConfig}
                                     />
                                 )}
                             </AnimatePresence>
@@ -233,6 +261,17 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                     </MaskedSurface>
                 </div>
             </div>
+            {/* The settings modal (title-bar gear; the model picker
+                deep-links to its Model tab). */}
+            <SettingsModal
+                open={settings.open}
+                tab={settings.tab}
+                onTabChange={changeSettingsTab}
+                onClose={closeSettings}
+                api={api}
+                colors={settingsColors}
+                serverVersion={connected ? connectionStatus.version : null}
+            />
             {/* Linux window outline: some desktop environments draw no
                 compositor shadow, so the borderless window's edge is
                 invisible against a matching wallpaper. An inset box-shadow

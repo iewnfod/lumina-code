@@ -81,9 +81,13 @@ export function useI18n(): Record<TranslationKey, string> {
     return useSyncExternalStore(subscribe, getSnapshot);
 }
 
-/** The effective language, or null while following the system. */
-export function currentLanguage(): Language | null {
-    return stored;
+/** The STORED choice, reactive. The dictionary store above can't drive a
+ *  choice picker: two choices may resolve to the SAME cached table (an
+ *  explicit "zh-cn" vs follow-system on a zh system), so its snapshot is
+ *  identical across the switch and React bails out of the re-render. This
+ *  snapshot is the raw `stored` primitive — it changes on every switch. */
+export function useLanguageChoice(): Language | null {
+    return useSyncExternalStore(subscribe, () => stored);
 }
 
 /** The language the dictionary actually resolves to right now (explicit

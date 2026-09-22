@@ -7,12 +7,10 @@ import {useSurfaceColors} from "../hooks/surfaceColors.ts";
 import {useGlass} from "../hooks/useGlass.ts";
 import {useAlwaysOnTop} from "../hooks/useAlwaysOnTop.ts";
 import {useIsWayland} from "../hooks/useIsWayland.ts";
-import {useI18n, setLanguage, currentLanguage, type Language} from "../hooks/i18n.tsx";
+import {useI18n} from "../hooks/i18n.tsx";
 import {glassSurface} from "../lib/glass.ts";
 import { info } from "@tauri-apps/plugin-log";
-import type {SurfaceColors} from "../hooks/surfaceColors.ts";
 import IconButton from "./ui/IconButton.tsx";
-import PopoverMenu, {MenuItem, MenuLabel} from "./ui/PopoverMenu.tsx";
 import RollingTitle from "./ui/RollingTitle.tsx";
 import WindowControl from "./ui/WindowControls.tsx";
 import {CHROME_TITLE_BAR_HEIGHT} from "../constants.ts";
@@ -75,85 +73,26 @@ function PinButton({size, hoverOverlay, activeOverlay, fg, style}: PinButtonProp
     );
 }
 
-interface SettingsMenuProps {
-    size: number;
-    hoverOverlay: string;
-    activeOverlay: string;
-    colors: SurfaceColors;
-    fg: string;
-    style?: CSSProperties;
-}
-
-/** Language switcher on the settings button — the first (and, until a real
- *  settings panel lands, only) entry in it. Language names stay in their
- *  own language regardless of the active one. */
-function SettingsMenu({size, hoverOverlay, activeOverlay, colors, fg, style}: SettingsMenuProps) {
-    const t = useI18n();
-    const active = currentLanguage();
-
-    const item = (lang: Language | null, label: string, close: () => void) => (
-        <MenuItem
-            key={lang ?? "system"}
-            colors={colors}
-            selected={active === lang}
-            onClick={() => {
-                info(`Language set to ${lang ?? "system"} from title bar`);
-                setLanguage(lang);
-                close();
-            }}
-        >
-            {lang === null ? t["Follow System"] : label}
-        </MenuItem>
-    );
-
-    return (
-        <PopoverMenu
-            colors={colors}
-            align="end"
-            direction="down"
-            trigger={({toggle}) => (
-                <IconButton
-                    size={size}
-                    hoverOverlay={hoverOverlay}
-                    activeOverlay={activeOverlay}
-                    style={{color: fg, ...style}}
-                    onClick={() => { info("Settings menu opened from title bar"); toggle(); }}
-                    aria-label={t["Language"]}
-                >
-                    <Settings size={18} />
-                </IconButton>
-            )}
-        >
-            {(close) => (
-                <>
-                    <MenuLabel>{t["Language"]}</MenuLabel>
-                    {item(null, "", close)}
-                    {item("en-us", "English", close)}
-                    {item("zh-cn", "简体中文", close)}
-                </>
-            )}
-        </PopoverMenu>
-    );
-}
-
 export default function TitleBar({
     theme,
     title,
     onOpenCommandPalette,
+    onOpenSettings,
     isMaximized,
 } : {
     theme: ChromeTheme | null,
     /** Active session's title, shown in the bar's left side. */
     title?: string | null,
     onOpenCommandPalette: () => void,
+    /** Opens the settings modal (General / Model / About tabs). */
+    onOpenSettings: () => void,
     isMaximized: boolean,
 }) {
     const t = useI18n();
     const bg = theme?.background ?? "black";
     const fg = theme?.foreground ?? "white";
 
-    const surface = useSurfaceColors(bg);
-    const { hoverOverlay, activeOverlay } = surface;
+    const {hoverOverlay, activeOverlay} = useSurfaceColors(bg);
     const {supportsGlass} = useGlass();
     const glass = glassSurface(bg, supportsGlass, {blurPx: 14});
     const size = CHROME_TITLE_BAR_HEIGHT;
@@ -191,14 +130,16 @@ export default function TitleBar({
                 >
                     <Search size={18} />
                 </IconButton>
-                <SettingsMenu
+                <IconButton
                     size={28}
                     hoverOverlay={hoverOverlay}
                     activeOverlay={activeOverlay}
-                    colors={surface}
-                    fg={fg}
-                    style={{marginRight: 8}}
-                />
+                    style={{color: fg, marginRight: 8}}
+                    onClick={() => { info("Settings opened from title bar"); onOpenSettings(); }}
+                    aria-label={t["Settings"]}
+                >
+                    <Settings size={18} />
+                </IconButton>
             </div>
         );
     }
@@ -234,14 +175,16 @@ export default function TitleBar({
                 >
                     <Search size={18} />
                 </IconButton>
-                <SettingsMenu
+                <IconButton
                     size={size}
                     hoverOverlay={hoverOverlay}
                     activeOverlay={activeOverlay}
-                    colors={surface}
-                    fg={fg}
-                    style={{borderRadius: 0}}
-                />
+                    style={{color: fg, borderRadius: 0}}
+                    onClick={() => { info("Settings opened from title bar"); onOpenSettings(); }}
+                    aria-label={t["Settings"]}
+                >
+                    <Settings size={18} />
+                </IconButton>
                 <WindowControl size={size} isMaximized={isMaximized} hoverOverlay={hoverOverlay} activeOverlay={activeOverlay} closeHover={closeHover} fg={fg} />
             </div>
         </div>

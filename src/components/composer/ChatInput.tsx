@@ -60,6 +60,7 @@ const ChatInput = memo(function ChatInput({
     api,
     directory,
     onDirectoryChange,
+    onOpenModelConfig,
     usage = null,
     contextUsage = null,
 }: {
@@ -86,6 +87,8 @@ const ChatInput = memo(function ChatInput({
     api: OpencodeApi | null;
     directory: string | null;
     onDirectoryChange: (directory: string | null) => void;
+    /** Opens the settings modal on its Model tab (model/provider config). */
+    onOpenModelConfig: () => void;
     /** Session cumulative usage — tooltip reference lines only. */
     usage?: SessionUsage | null;
     /** The session's current context reading (last measured step). */
@@ -249,6 +252,7 @@ const ChatInput = memo(function ChatInput({
                 catalogOnly={catalogOnly}
                 directory={directory}
                 onDirectoryChange={onDirectoryChange}
+                onOpenModelConfig={onOpenModelConfig}
                 usage={usage}
                 contextUsage={contextUsage}
             />

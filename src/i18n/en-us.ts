@@ -77,6 +77,16 @@ const enUs = {
     // --- Settings ---
     "Language": "Language",
     "Follow System": "Follow System",
+    "Settings": "Settings",
+    "General": "General",
+    "About": "About",
+    "Appearance": "Appearance",
+    "Light": "Light",
+    "Dark": "Dark",
+    "Lumina Code version": "Lumina Code version",
+    "OpenCode server": "OpenCode server",
+    "Not connected": "Not connected",
+    "Dependencies": "Dependencies",
     // --- Session usage ring ---
     "Session usage": "Session usage",
     "Context": "Context",

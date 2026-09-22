@@ -1,9 +1,11 @@
 import {useCallback, useEffect, useMemo, useState} from "react";
+import {AnimatePresence, motion} from "framer-motion";
 import {ArrowLeft, Globe, Search, Trash2} from "lucide-react";
 import {openPath, openUrl} from "@tauri-apps/plugin-opener";
 import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
+import {fadeSlideUp, whileHoverTap} from "../../lib/motion.ts";
 import type {
     IntegrationInfo,
     IntegrationKeyMethod,
@@ -11,7 +13,6 @@ import type {
     OAuthAttempt,
 } from "../../opencode/types.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
-import Modal from "../ui/Modal.tsx";
 import Button from "../ui/Button.tsx";
 import IconButton from "../ui/IconButton.tsx";
 import {
@@ -32,24 +33,25 @@ const DEFAULT_NPM = "@ai-sdk/openai-compatible";
 const PROVIDER_ID_RE = /^[A-Za-z0-9._-]+$/;
 
 /**
- * The model-configuration modal, opened from the model picker: manage
- * provider credentials (paste an API key, log in with account providers
- * via browser OAuth, activate/remove stored keys) and define custom
- * OpenAI-compatible providers (written to the global opencode.json, which
- * the server hot-reloads). Catalog refresh is event-driven — every
- * mutation here makes the server emit `credential.updated` /
- * `config.updated`, which bumps useModelCatalog's revision.
+ * The settings modal's Model pane (formerly the standalone
+ * ModelConfigModal; the model picker's "Configure models…" entry now
+ * opens the settings modal on this tab): manage provider credentials
+ * (paste an API key, log in with account providers via browser OAuth,
+ * activate/remove stored keys) and define custom OpenCode-compatible
+ * providers (written to the global opencode.json, which the server
+ * hot-reloads). Catalog refresh is event-driven — every mutation here
+ * makes the server emit `credential.updated` / `config.updated`, which
+ * bumps useModelCatalog's revision.
+ *
+ * The pane mounts only while active (SettingsModal renders one pane at a
+ * time), so mount IS the open — data loads and draft state resets here.
  */
-export default function ModelConfigModal({
-    open,
+export default function ModelSettings({
     api,
     colors,
-    onClose,
 }: {
-    open: boolean;
     api: OpencodeApi | null;
     colors: SurfaceColors;
-    onClose: () => void;
 }) {
     const t = useI18n();
     const [tab, setTab] = useState<"providers" | "custom">("providers");
@@ -114,9 +116,8 @@ export default function ModelConfigModal({
         });
     }, [api]);
 
-    // Load on every open; state resets for a clean slate.
+    // Load on mount; unmounting (tab switch / modal close) resets state.
     useEffect(() => {
-        if (!open) return;
         setTab("providers");
         setQuery("");
         setSelectedId(null);
@@ -125,7 +126,7 @@ export default function ModelConfigModal({
         setActionError(null);
         loadIntegrations();
         loadConfig();
-    }, [open, loadIntegrations, loadConfig]);
+    }, [loadIntegrations, loadConfig]);
 
     const selected = useMemo(
         () => integrations?.find((i) => i.id === selectedId) ?? null,
@@ -200,54 +201,48 @@ export default function ModelConfigModal({
     };
 
     return (
-        <Modal
-            open={open}
-            onClose={onClose}
-            colors={colors}
-            width={560}
-            title={
-                inDetail && selected ? (
-                    <span className="flex items-center gap-1.5 min-w-0">
-                        <IconButton
-                            size={22}
-                            hoverOverlay={colors.hoverOverlay}
-                            activeOverlay={colors.activeOverlay}
-                            aria-label={t["Back"]}
-                            title={t["Back"]}
-                            onClick={backToProviders}
-                        >
-                            <ArrowLeft size={15}/>
-                        </IconButton>
-                        <span className="truncate leading-normal">{selected.name}</span>
-                    </span>
-                ) : (
-                    t["Model settings"]
-                )
-            }
-        >
-            {/* Tab row — hidden inside a provider detail (the header's back
-             * row is the only way out, so the page reads as one flow). */}
-            {!inDetail && (
+        <div className="flex flex-col h-full min-h-0">
+            {/* Header row: the provider detail's back row replaces the tab
+             * row while a detail is open (the back button is the only way
+             * out, so the page reads as one flow) — the layout the old
+             * modal's title slot used to carry. */}
+            {inDetail && selected ? (
+                <div className="flex items-center gap-1.5 px-4 pt-3 shrink-0 min-w-0">
+                    <IconButton
+                        size={22}
+                        hoverOverlay={colors.hoverOverlay}
+                        activeOverlay={colors.activeOverlay}
+                        aria-label={t["Back"]}
+                        title={t["Back"]}
+                        onClick={backToProviders}
+                    >
+                        <ArrowLeft size={15}/>
+                    </IconButton>
+                    <span className="truncate text-sm font-semibold leading-normal">{selected.name}</span>
+                </div>
+            ) : (
                 <div className="flex items-center gap-1 px-4 pt-3 shrink-0">
                 {(["providers", "custom"] as const).map((key) => (
-                    <button
+                    <motion.button
                         key={key}
                         type="button"
                         onClick={() => {
                             setTab(key);
                             setActionError(null);
                         }}
+                        {...whileHoverTap}
                         className={`h-7 px-3 rounded-[var(--radius-sm)] text-xs font-medium cursor-pointer transition-colors duration-[var(--duration-fast)] ${
                             tab === key ? "" : "hover:bg-[var(--lum-tab-hover)]"
                         }`}
                         style={
                             tab === key
-                                ? {background: colors.activeOverlay}
+                                // Same lavender accent as the sidebar's selected session.
+                                ? {background: colors.accentOverlay}
                                 : {"--lum-tab-hover": colors.hoverOverlay, color: colors.inactiveText} as React.CSSProperties
                         }
                     >
                         {key === "providers" ? t["Providers"] : t["Custom"]}
-                    </button>
+                    </motion.button>
                 ))}
                 </div>
             )}
@@ -260,7 +255,19 @@ export default function ModelConfigModal({
                 </div>
             )}
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            {/* Body — keyed by sub-tab + detail target so switching between
+             * providers/custom (and opening/closing a provider detail)
+             * runs the fadeSlideUp swap. initial={false}: the outer pane
+             * swap already animates the pane's first mount. */}
+            <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                    key={`${tab}-${selectedId ?? "list"}`}
+                    variants={fadeSlideUp}
+                    initial="hidden"
+                    animate="show"
+                    exit="exit"
+                    className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+                >
                 {tab === "providers" && (
                     selected ? (
                         <ProviderDetail
@@ -307,13 +314,14 @@ export default function ModelConfigModal({
                             )}
                             <div className="flex flex-col">
                                 {visibleIntegrations.map((i) => (
-                                    <button
+                                    <motion.button
                                         key={i.id}
                                         type="button"
                                         onClick={() => {
                                             setSelectedId(i.id);
                                             setActionError(null);
                                         }}
+                                        {...whileHoverTap}
                                         className="flex items-center justify-between gap-2 w-full px-2.5 py-2 rounded-[var(--radius-sm)] text-left cursor-pointer transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-row-hover)]"
                                         style={{"--lum-row-hover": colors.hoverOverlay} as React.CSSProperties}
                                     >
@@ -329,7 +337,7 @@ export default function ModelConfigModal({
                                                 {t["Connected"]}
                                             </span>
                                         )}
-                                    </button>
+                                    </motion.button>
                                 ))}
                             </div>
                         </div>
@@ -409,13 +417,14 @@ export default function ModelConfigModal({
                                     className="flex items-center gap-2 px-2.5 py-2 rounded-[var(--radius-sm)]"
                                     style={{background: colors.recessedBg, border: `1px solid ${colors.glassBorder}`}}
                                 >
-                                    <button
+                                    <motion.button
                                         type="button"
                                         onClick={() => {
                                             setEditing(def);
                                             setEditingNew(false);
                                             setActionError(null);
                                         }}
+                                        {...whileHoverTap}
                                         className="min-w-0 flex-1 text-left cursor-pointer"
                                         title={def.baseURL}
                                     >
@@ -423,7 +432,7 @@ export default function ModelConfigModal({
                                         <div className="text-[10px] truncate leading-normal" style={{color: colors.inactiveText}}>
                                             {def.id} · {def.models.map((m) => m.id).join(", ")}
                                         </div>
-                                    </button>
+                                    </motion.button>
                                     <Button
                                         label={t["Remove"]}
                                         colors={colors}
@@ -471,8 +480,9 @@ export default function ModelConfigModal({
                         </div>
                     )
                 )}
-            </div>
-        </Modal>
+                </motion.div>
+            </AnimatePresence>
+        </div>
     );
 }
 
@@ -788,16 +798,17 @@ function CustomProviderForm({
                                 placeholder={t["Model name"]}
                                 onChange={(name) => setModel(index, {name})}
                             />
-                            <button
+                            <motion.button
                                 type="button"
                                 title={t["Remove"]}
                                 disabled={draft.models.length <= 1}
                                 onClick={() => setDraft((prev) => ({...prev, models: prev.models.filter((_, i) => i !== index)}))}
+                                {...whileHoverTap}
                                 className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-[var(--radius-sm)] cursor-pointer transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-model-remove)] disabled:opacity-30 disabled:cursor-not-allowed"
                                 style={{"--lum-model-remove": colors.hoverOverlay} as React.CSSProperties}
                             >
                                 <Trash2 size={13}/>
-                            </button>
+                            </motion.button>
                         </div>
                     ))}
                     <div>

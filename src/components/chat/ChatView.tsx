@@ -61,6 +61,7 @@ const ChatView = memo(function ChatView({
     onModelChange,
     directory,
     onDirectoryChange,
+    onOpenModelConfig,
     usage,
     pendingPermissions,
     pendingForms,
@@ -88,6 +89,8 @@ const ChatView = memo(function ChatView({
     /** The session's working directory (null = server default). */
     directory: string | null;
     onDirectoryChange: (directory: string | null) => void;
+    /** Opens the settings modal on its Model tab (model/provider config). */
+    onOpenModelConfig: () => void;
     /** The session's cumulative usage — tooltip reference lines for the
      *  composer's context ring (which itself reads the transcript's last
      *  measured step; null on the welcome screen). */
@@ -275,6 +278,7 @@ const ChatView = memo(function ChatView({
                         catalogOnly={catalogOnly}
                         directory={directory}
                         onDirectoryChange={onDirectoryChange}
+                        onOpenModelConfig={onOpenModelConfig}
                         usage={usage}
                         contextUsage={contextUsage}
                     />

@@ -16,7 +16,6 @@ import {durationFast} from "../../lib/motion.ts";
 export default function PopoverMenu({
     trigger,
     children,
-    footer,
     colors,
     align = "start",
     direction = "up",
@@ -28,10 +27,6 @@ export default function PopoverMenu({
     trigger: (props: {open: boolean; toggle: () => void}) => ReactNode;
     /** Panel content; receives a `close` fn for item clicks. */
     children: (close: () => void) => ReactNode;
-    /** Optional pinned footer BELOW the scrollable list (e.g. the model
-     *  picker's "configure models…" row) — stays visible no matter how
-     *  long the list scrolls. Receives the same `close` fn. */
-    footer?: (close: () => void) => ReactNode;
     colors: SurfaceColors;
     align?: "start" | "end";
     /** Which way the panel opens relative to the trigger. Bottom-composer
@@ -95,19 +90,10 @@ export default function PopoverMenu({
                         } ${panelClassName}`}
                         style={panelStyle}
                     >
-                        {/* The list scrolls; an optional footer below stays
-                         * pinned (the panel itself no longer scrolls). */}
+                        {/* The whole panel body scrolls as one list. */}
                         <div className="min-h-0 overflow-y-auto">
                             {children(() => setOpen(false))}
                         </div>
-                        {footer && (
-                            <div
-                                className="shrink-0 mt-1 border-t"
-                                style={{borderColor: colors.glassBorder}}
-                            >
-                                {footer(() => setOpen(false))}
-                            </div>
-                        )}
                     </motion.div>
                 )}
             </AnimatePresence>

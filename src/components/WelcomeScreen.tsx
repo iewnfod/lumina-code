@@ -36,6 +36,7 @@ export default function WelcomeScreen({
     api,
     directory,
     onDirectoryChange,
+    onOpenModelConfig,
 }: {
     /** The chrome bg the composer's surface derives from. */
     backgroundColor: string;
@@ -57,6 +58,8 @@ export default function WelcomeScreen({
     api: OpencodeApi | null;
     directory: string | null;
     onDirectoryChange: (directory: string | null) => void;
+    /** Opens the settings modal on its Model tab (model/provider config). */
+    onOpenModelConfig: () => void;
 }) {
     const colors: SurfaceColors = useSurfaceColors(backgroundColor);
 
@@ -92,6 +95,7 @@ export default function WelcomeScreen({
                         catalogOnly={catalogOnly}
                         directory={directory}
                         onDirectoryChange={onDirectoryChange}
+                        onOpenModelConfig={onOpenModelConfig}
                     />
                 </div>
             </div>

@@ -1,10 +1,13 @@
+import {motion} from "framer-motion";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {whileHoverTap} from "../../lib/motion.ts";
 
 /**
  * The chrome's labeled button: primary (cinnabar fill) or ghost with the
  * runtime-derived surface colors. Extracted from RequestCardChrome so
  * every chrome surface (request cards, modals) shares one button — the
- * labeled sibling of IconButton.
+ * labeled sibling of IconButton. Carries the shared hover/tap spring
+ * (lib/motion's whileHoverTap) like IconButton does.
  */
 export default function Button({
     label,
@@ -22,10 +25,11 @@ export default function Button({
     type?: "button" | "submit";
 }) {
     return (
-        <button
+        <motion.button
             type={type}
             disabled={disabled}
             onClick={onClick}
+            {...whileHoverTap}
             className="h-7 px-3 rounded-[var(--radius-sm)] text-xs font-medium cursor-pointer select-none transition-colors duration-[var(--duration-fast)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--lum-btn-hover)]"
             style={primary
                 ? {
@@ -40,6 +44,6 @@ export default function Button({
                 } as React.CSSProperties}
         >
             {label}
-        </button>
+        </motion.button>
     );
 }
