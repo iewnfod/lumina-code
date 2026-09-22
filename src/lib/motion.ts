@@ -87,12 +87,13 @@ export const fadeIn: Variants = {
     exit: {opacity: 0, transition: {duration: durationFast, ease: easeGlass}},
 };
 
-/** Drum-roll swap — title-bar text. The old title rolls up over the drum's
- *  top horizon while the new one rolls in from beneath the bottom. Enter and
- *  exit share identical timing so both spans turn as one rigid cylinder.
- *  Pair with `transformPerspective` in the element's style for the
- *  cylindrical depth cue, and clip at the bar's edges (overflow-hidden) so
- *  text vanishes over the horizon instead of escaping the bar. */
+/** Drum-roll swap — rolling text (title bar session title, fold-row
+ *  titles). The old title rolls up over the drum's top horizon while the
+ *  new one rolls in from beneath the bottom. Enter and exit share
+ *  identical timing so both spans turn as one rigid cylinder. Pair with
+ *  `transformPerspective` in the element's style for the cylindrical depth
+ *  cue, and a positioned, edge-clipping container (overflow-hidden) so
+ *  text vanishes over the horizon instead of escaping. */
 export const titleRoll: Variants = {
     hidden: {opacity: 0, y: "100%", rotateX: -60},
     show: {

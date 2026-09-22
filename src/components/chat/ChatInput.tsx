@@ -410,7 +410,7 @@ const ChatInput = memo(function ChatInput({
                 />
             </LexicalComposer>
 
-            <div className="flex items-center gap-1 px-2 pb-2 pt-0.5">
+            <div className="flex items-center gap-0.5 px-2 pb-2 pt-0.5">
                 {/* Left: attachments, mode, and (pre-session) directory. */}
                 <ToolbarButton
                     icon={<Paperclip size={14}/>}
@@ -543,24 +543,20 @@ const ChatInput = memo(function ChatInput({
                     </PopoverMenu>
                 )}
                 {busy ? (
-                    <button
-                        type="button"
+                    <ToolbarButton
+                        icon={<Square size={14}/>}
+                        colors={colors}
                         title={t["Stop"]}
                         onClick={onInterrupt}
-                        className="ml-1 inline-flex items-center justify-center w-8 h-8 rounded-[var(--radius-sm)] cursor-pointer hover:bg-[rgba(128,128,128,0.2)] transition-colors duration-[var(--duration-fast)]"
-                    >
-                        <Square size={14}/>
-                    </button>
+                    />
                 ) : (
-                    <button
-                        type="button"
+                    <ToolbarButton
+                        icon={<ArrowUp size={14}/>}
+                        colors={colors}
                         title={t["Send"]}
-                        onClick={() => composerApiRef.current?.submit()}
                         disabled={disabled || !canSend}
-                        className="ml-1 inline-flex items-center justify-center w-8 h-8 rounded-[var(--radius-sm)] cursor-pointer transition-colors duration-[var(--duration-fast)] disabled:opacity-35 disabled:cursor-not-allowed hover:bg-[rgba(128,128,128,0.2)]"
-                    >
-                        <ArrowUp size={16}/>
-                    </button>
+                        onClick={() => composerApiRef.current?.submit()}
+                    />
                 )}
             </div>
         </div>

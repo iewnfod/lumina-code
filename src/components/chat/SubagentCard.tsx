@@ -2,6 +2,7 @@ import {memo} from "react";
 import {AlertCircle, Bot} from "lucide-react";
 import type {AssistantToolPart} from "../../opencode/types.ts";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useI18n} from "../../hooks/i18n.tsx";
 import {useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 import Markdown from "./Markdown.tsx";
@@ -42,6 +43,7 @@ const SubagentCard = memo(function SubagentCard({
     colors: SurfaceColors;
 }) {
     const status = part.state.status;
+    const t = useI18n();
     const {expanded, toggle} = useExpansion(part.id, status === "error");
 
     const input =
@@ -54,7 +56,7 @@ const SubagentCard = memo(function SubagentCard({
     const label = inputStr(input, "description") ?? inputStr(input, "prompt");
     const title = agent
         ? agent.charAt(0).toUpperCase() + agent.slice(1)
-        : "Subagent";
+        : t["Subagent"];
 
     const icon = status === "running"
         ? <Bot size={14} className="animate-pulse" />
@@ -86,7 +88,7 @@ const SubagentCard = memo(function SubagentCard({
                         color: "#f87171",
                     }}
                 >
-                    {output || errorText(part.state.error) || "Subagent failed"}
+                    {output || errorText(part.state.error) || t["Subagent failed"]}
                 </div>
             ) : output ? (
                 <div

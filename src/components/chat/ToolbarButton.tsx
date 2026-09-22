@@ -44,7 +44,10 @@ export default function ToolbarButton({
             } as React.CSSProperties}
         >
             {icon}
-            {label != null && <span className="text-xs font-medium truncate max-w-44">{label}</span>}
+            {/* Noto's tall ascent (room for CJK) drops the Latin baseline ~1px
+             * below the flex centerline; nudge labels up to sit level with
+             * the geometrically-centered icons. */}
+            {label != null && <span className="text-xs font-medium truncate max-w-44 -translate-y-px">{label}</span>}
             {chevron && <ChevronUp size={12} className="shrink-0 opacity-60"/>}
         </button>
     );

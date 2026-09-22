@@ -1,4 +1,4 @@
-import {memo, useMemo, useState, type CSSProperties, type ReactNode} from "react";
+import {memo, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode} from "react";
 import {Check, MessageCircleQuestion, ShieldAlert} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
@@ -39,11 +39,13 @@ function permissionPhrase(action: string, t: ReturnType<typeof useI18n>): string
 
 /** Card chrome shared by both request kinds — mirrors the composer's
  *  surface (recessed bg + glass border) so the pinned stack reads as one
- *  family in its place. */
+ *  family in its place. The card's hairline is the ONLY border: everything
+ *  inside is chrome-less (washes, indents, dimming) so the card reads as
+ *  one surface instead of a grid of nested boxes. */
 function Card({colors, children}: {colors: SurfaceColors; children: ReactNode}) {
     return (
         <div
-            className="rounded-[var(--radius-lg)] px-4 py-3 flex flex-col gap-2.5"
+            className="rounded-[var(--radius-lg)] px-4 py-3 flex flex-col gap-3"
             style={{background: colors.recessedBg, border: `1px solid ${colors.glassBorder}`}}
         >
             {children}
@@ -77,8 +79,8 @@ function CardButton({
                     "--lum-request-btn-hover": "rgba(255,255,255,0.15)",
                 } as CSSProperties
                 : {
+                    // Ghost, like the composer's ToolbarButton — no outline.
                     color: colors.inactiveText,
-                    border: `1px solid ${colors.glassBorder}`,
                     "--lum-request-btn-hover": colors.hoverOverlay,
                 } as CSSProperties}
         >
@@ -108,15 +110,11 @@ export const PermissionCard = memo(function PermissionCard({
             </div>
             {request.resources.length > 0 && (
                 <div
-                    className="flex flex-col gap-1 rounded-[var(--radius-sm)] px-3 py-2 max-h-32 overflow-y-auto"
-                    style={{
-                        background: colors.hoverOverlay,
-                        border: `1px solid ${colors.glassBorder}`,
-                        fontFamily: MONO,
-                    }}
+                    className="flex flex-col gap-0.5 pl-6 max-h-32 overflow-y-auto"
+                    style={{fontFamily: MONO}}
                 >
                     {request.resources.map((r, i) => (
-                        <span key={i} className="text-xs opacity-80 break-all">{r}</span>
+                        <span key={i} className="text-xs opacity-70 break-all">{r}</span>
                     ))}
                 </div>
             )}
@@ -215,9 +213,7 @@ function OptionRow({
             } as CSSProperties}
         >
             <RowMarker kind={markerKind} index={index} selected={selected} colors={colors}/>
-            <span className={`shrink-0 text-xs ${selected ? "font-medium" : "font-medium"}`}>
-                {option.label}
-            </span>
+            <span className="shrink-0 text-xs font-medium">{option.label}</span>
             {option.description && (
                 <span className="flex-1 min-w-0 text-xs opacity-60 truncate">
                     {option.description}
@@ -227,17 +223,41 @@ function OptionRow({
     );
 }
 
-/** The free-text input shown under option chips on `custom` fields. */
+/** Chrome-less answer inputs (custom text + plain text/number): no fill,
+ *  no border, no focus ring — exactly the composer's editable. The hover
+ *  wash (kept while focused) is the whole affordance; the blinking caret
+ *  says "focused". */
+const ANSWER_INPUT_CLASS =
+    "w-full bg-transparent rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs outline-none placeholder:opacity-40 " +
+    "hover:bg-[var(--lum-answer-hover)] focus:bg-[var(--lum-answer-hover)] " +
+    "transition-colors duration-[var(--duration-fast)]";
+
+function answerInputVars(colors: SurfaceColors): CSSProperties {
+    return {"--lum-answer-hover": colors.hoverOverlay} as CSSProperties;
+}
+
+/** Enter commits an answer input — but not the Enter that confirms an
+ *  IME composition (CJK input), which must land as text, not submit. */
+function answerEnter(e: KeyboardEvent, commit: () => void) {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    commit();
+}
+
+/** The free-text input shown under option rows on `custom` fields. */
 function CustomTextInput({
     value,
     placeholder,
     colors,
     onChange,
+    onCommit,
 }: {
     value: string;
     placeholder: string;
     colors: SurfaceColors;
     onChange: (text: string) => void;
+    /** Enter (outside IME composition) fires this — see {@link answerEnter}. */
+    onCommit: () => void;
 }) {
     return (
         <input
@@ -245,8 +265,9 @@ function CustomTextInput({
             value={value}
             placeholder={placeholder}
             onChange={(e) => onChange(e.currentTarget.value)}
-            className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs outline-none placeholder:opacity-40"
-            style={{background: colors.hoverOverlay, border: `1px solid ${colors.glassBorder}`}}
+            onKeyDown={(e) => answerEnter(e, onCommit)}
+            className={ANSWER_INPUT_CLASS}
+            style={answerInputVars(colors)}
         />
     );
 }
@@ -339,10 +360,16 @@ export const QuestionCard = memo(function QuestionCard({
         onReply(form, payload);
     };
 
-    const inputStyle: CSSProperties = {
-        background: colors.hoverOverlay,
-        border: `1px solid ${colors.glassBorder}`,
+    /** Enter in an answer input commits the page — the same thing
+     *  clicking the primary button does: next question, or send on the
+     *  last one. No-ops when the button itself would be disabled. */
+    const commitPage = () => {
+        if (current == null || isMissing(current)) return;
+        if (isLast) submit();
+        else setPage(index + 1);
     };
+
+    const inputStyle = answerInputVars(colors);
 
     /** The body of ONE field (the current page). */
     const renderField = (field: FormField) => (
@@ -391,6 +418,7 @@ export const QuestionCard = memo(function QuestionCard({
                             colors={colors}
                             onChange={(text) =>
                                 setCustomText((prev) => ({...prev, [field.key]: text}))}
+                            onCommit={commitPage}
                         />
                     )}
                 </div>
@@ -421,6 +449,7 @@ export const QuestionCard = memo(function QuestionCard({
                             colors={colors}
                             onChange={(text) =>
                                 setCustomText((prev) => ({...prev, [field.key]: text}))}
+                            onCommit={commitPage}
                         />
                     )}
                 </div>
@@ -448,7 +477,8 @@ export const QuestionCard = memo(function QuestionCard({
                     value={answer[field.key] as string | number | undefined ?? ""}
                     placeholder={field.type === "string" ? (field.placeholder ?? t["Type your answer…"]) : ""}
                     onChange={(e) => set(field.key, e.currentTarget.value)}
-                    className="rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs outline-none placeholder:opacity-40"
+                    onKeyDown={(e) => answerEnter(e, commitPage)}
+                    className={ANSWER_INPUT_CLASS}
                     style={inputStyle}
                 />
             )}

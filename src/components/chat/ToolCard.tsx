@@ -15,14 +15,16 @@ import {
 } from "lucide-react";
 import type {AssistantToolPart} from "../../opencode/types.ts";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useI18n, type TranslationKey} from "../../hooks/i18n.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import {useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 
 const MONO = "var(--font-mono, ui-monospace, monospace)";
 
-/** Human title + icon per known tool; falls back to a capitalized wrench. */
-const TOOL_META: Record<string, {title: string; icon: LucideIcon}> = {
+/** Human title (as a translation key) + icon per known tool; falls back
+ *  to a capitalized wrench. */
+const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon}> = {
     bash: {title: "Shell", icon: SquareTerminal},
     shell: {title: "Shell", icon: SquareTerminal},
     power_shell: {title: "Shell", icon: SquareTerminal},
@@ -39,13 +41,18 @@ const TOOL_META: Record<string, {title: string; icon: LucideIcon}> = {
     websearch: {title: "Search", icon: Globe},
 };
 
-/** Display title for a tool name (used by ActivityGroup's summary too). */
-export function toolDisplayName(name: string): string {
-    return TOOL_META[name]?.title ?? (name.charAt(0).toUpperCase() + name.slice(1));
+/** Display title for a tool name (used by ActivityGroup's summary too).
+ *  Known tools resolve through the active language's dictionary; the
+ *  capitalized fallback for unknown tools is the raw name and stays
+ *  untranslated (it's a proper noun, not copy). */
+export function toolDisplayName(name: string, t: Record<TranslationKey, string>): string {
+    const meta = TOOL_META[name];
+    return meta ? t[meta.title] : name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-function metaFor(name: string): {title: string; icon: LucideIcon} {
-    return TOOL_META[name] ?? {title: toolDisplayName(name), icon: Wrench};
+function metaFor(name: string, t: Record<TranslationKey, string>): {title: string; icon: LucideIcon} {
+    const meta = TOOL_META[name];
+    return meta ? {title: t[meta.title], icon: meta.icon} : {title: toolDisplayName(name, t), icon: Wrench};
 }
 
 function inputObject(part: AssistantToolPart): Record<string, unknown> | null {
@@ -226,7 +233,8 @@ const ToolCard = memo(function ToolCard({
     const {ref: outputScroll, onScroll: outputScrollHandler, scrolled: tailScrolled} =
         useFollowBottom<HTMLDivElement>(status === "running");
 
-    const {title, icon: Icon} = metaFor(part.name);
+    const t = useI18n();
+    const {title, icon: Icon} = metaFor(part.name, t);
     // Running tools breathe (opacity pulse) on their own icon — same live
     // cue as thinking's brain; pending waits quietly, errors go red.
     const icon = status === "running"
@@ -264,7 +272,7 @@ const ToolCard = memo(function ToolCard({
                         color: status === "error" ? "#f87171" : colors.inactiveText,
                     }}
                 >
-                    {output || errorText(part.state.error) || (status === "error" ? "Tool failed" : "")}
+                    {output || errorText(part.state.error) || (status === "error" ? t["Tool failed"] : "")}
                 </div>
             )}
         </FoldRow>

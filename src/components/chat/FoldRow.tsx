@@ -2,6 +2,7 @@ import {type ReactNode} from "react";
 import {AnimatePresence, motion} from "framer-motion";
 import {ChevronRight} from "lucide-react";
 import {durationBase, durationFast, easeGlass, easeSpring} from "../../lib/motion.ts";
+import RollingTitle from "../ui/RollingTitle.tsx";
 
 /**
  * The one disclosure-row anatomy shared by every non-prose transcript
@@ -66,7 +67,20 @@ export default function FoldRow({
                     } group-hover/row:opacity-100`}
                 >
                     <span className="shrink-0 flex items-center">{icon}</span>
-                    <span className="shrink-0">{title}</span>
+                    {/* A plain-string title rolls on change — the same drum
+                        turn as the title bar's session title — so a live
+                        label swapping to its summary ("Working…" → "3 tool
+                        calls") turns instead of snapping. Node titles pass
+                        through untouched. The wrapper is the drum: it pins
+                        the departing span (popLayout) and clips it at the
+                        line's edges. */}
+                    {typeof title === "string" ? (
+                        <span className="relative shrink-0 overflow-hidden">
+                            <RollingTitle text={title} className="block"/>
+                        </span>
+                    ) : (
+                        <span className="shrink-0">{title}</span>
+                    )}
                     {detail != null && (
                         <span className="min-w-0 flex items-center gap-1.5 truncate">
                             {detail}

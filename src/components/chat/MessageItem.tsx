@@ -13,6 +13,7 @@ import type {
 } from "../../opencode/types.ts";
 import {isAssistantMessage, isUserMessage} from "../../opencode/types.ts";
 import {fadeSlideUp} from "../../lib/motion.ts";
+import {useI18n} from "../../hooks/i18n.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import Markdown from "./Markdown.tsx";
 import ToolCard, {toolDisplayName} from "./ToolCard.tsx";
@@ -279,6 +280,7 @@ export function ActivityGroup({
     directory?: string | null;
 }) {
     const parts = entries.map((e) => e.part);
+    const t = useI18n();
     const live = runLive || (livePart != null && parts.includes(livePart));
     const running = parts.some((p) => p.type === "tool" && p.state.status === "running");
     const errored = parts.some((p) => p.type === "tool" && p.state.status === "error");
@@ -291,12 +293,12 @@ export function ActivityGroup({
     const toolCount = parts.filter((p) => p.type === "tool").length;
     const thoughtCount = parts.length - toolCount;
     const bits: string[] = [];
-    if (toolCount > 0) bits.push(`${toolCount} tool call${toolCount > 1 ? "s" : ""}`);
-    if (thoughtCount > 0) bits.push(`${thoughtCount} thought${thoughtCount > 1 ? "s" : ""}`);
-    const label = running ? "Working…" : bits.join(" · ");
+    if (toolCount > 0) bits.push(`${toolCount} ${toolCount > 1 ? t["tool calls"] : t["tool call"]}`);
+    if (thoughtCount > 0) bits.push(`${thoughtCount} ${thoughtCount > 1 ? t["thoughts"] : t["thought"]}`);
+    const label = running ? t["Working…"] : bits.join(" · ");
     // Distinct tool names involved, e.g. "Edit · Shell · Grep".
     const names = [...new Set(
-        parts.filter((p) => p.type === "tool").map((p) => toolDisplayName(p.name)),
+        parts.filter((p) => p.type === "tool").map((p) => toolDisplayName(p.name, t)),
     )];
 
     return (
@@ -338,6 +340,7 @@ export function ActivityGroup({
  * model moves on to the answer — unless the reader toggled it themselves.
  */
 function ThinkingBlock({part, stateKey, live}: {part: AssistantReasoningPart; stateKey: string; live: boolean}) {
+    const t = useI18n();
     const {expanded, toggle} = useExpansion(stateKey, live, AUTO_EXPAND_MIN_DWELL_MS);
     const {ref: thinkScroll, onScroll: thinkScrollHandler, scrolled: tailScrolled} =
         useFollowBottom<HTMLDivElement>(live);
@@ -348,7 +351,7 @@ function ThinkingBlock({part, stateKey, live}: {part: AssistantReasoningPart; st
     return (
         <FoldRow
             icon={<Brain size={14} className={live ? "animate-pulse" : ""} />}
-            title={live ? "Thinking…" : "Thought process"}
+            title={live ? t["Thinking…"] : t["Thought process"]}
             detail={!expanded && snippet ? (
                 <span className="truncate">{snippet}</span>
             ) : null}
