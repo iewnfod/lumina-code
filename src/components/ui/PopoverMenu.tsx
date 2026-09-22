@@ -16,6 +16,7 @@ import {durationFast} from "../../lib/motion.ts";
 export default function PopoverMenu({
     trigger,
     children,
+    footer,
     colors,
     align = "start",
     direction = "up",
@@ -27,6 +28,10 @@ export default function PopoverMenu({
     trigger: (props: {open: boolean; toggle: () => void}) => ReactNode;
     /** Panel content; receives a `close` fn for item clicks. */
     children: (close: () => void) => ReactNode;
+    /** Optional pinned footer BELOW the scrollable list (e.g. the model
+     *  picker's "configure models…" row) — stays visible no matter how
+     *  long the list scrolls. Receives the same `close` fn. */
+    footer?: (close: () => void) => ReactNode;
     colors: SurfaceColors;
     align?: "start" | "end";
     /** Which way the panel opens relative to the trigger. Bottom-composer
@@ -83,14 +88,26 @@ export default function PopoverMenu({
                         animate={{opacity: 1, y: 0, scale: 1}}
                         exit={{opacity: 0, y: rise, scale: 0.98, transition: {duration: durationFast}}}
                         transition={{duration: durationFast, ease: [0.22, 1, 0.36, 1]}}
-                        className={`absolute z-50 min-w-40 max-h-72 overflow-y-auto rounded-[var(--radius-md)] py-1 ${
+                        className={`absolute z-50 min-w-40 max-h-72 flex flex-col rounded-[var(--radius-md)] py-1 ${
                             direction === "down" ? "top-full mt-1.5" : "bottom-full mb-1.5"
                         } ${
                             align === "start" ? "left-0" : "right-0"
                         } ${panelClassName}`}
                         style={panelStyle}
                     >
-                        {children(() => setOpen(false))}
+                        {/* The list scrolls; an optional footer below stays
+                         * pinned (the panel itself no longer scrolls). */}
+                        <div className="min-h-0 overflow-y-auto">
+                            {children(() => setOpen(false))}
+                        </div>
+                        {footer && (
+                            <div
+                                className="shrink-0 mt-1 border-t"
+                                style={{borderColor: colors.glassBorder}}
+                            >
+                                {footer(() => setOpen(false))}
+                            </div>
+                        )}
                     </motion.div>
                 )}
             </AnimatePresence>

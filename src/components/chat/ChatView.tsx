@@ -54,6 +54,7 @@ const ChatView = memo(function ChatView({
     disabled,
     agents,
     models,
+    catalogOnly,
     agent,
     model,
     onAgentChange,
@@ -77,6 +78,9 @@ const ChatView = memo(function ChatView({
     /** Composer catalog + effective selections (owned by App). */
     agents: OpencodeAgent[];
     models: OpencodeModel[];
+    /** No authenticated provider of the user's own — the model picker
+     *  shows its "nothing configured" entry above the free catalog. */
+    catalogOnly: boolean;
     agent: string;
     model: SessionModelRef | null;
     onAgentChange: (agent: string) => void;
@@ -268,6 +272,7 @@ const ChatView = memo(function ChatView({
                         onModelChange={onModelChange}
                         conversationStarted={hasConversation}
                         api={api}
+                        catalogOnly={catalogOnly}
                         directory={directory}
                         onDirectoryChange={onDirectoryChange}
                         usage={usage}

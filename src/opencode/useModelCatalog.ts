@@ -1,6 +1,7 @@
 import {useEffect, useState} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import type {OpencodeApi} from "./api.ts";
+import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {OpencodeAgent, OpencodeModel, OpencodeProvider} from "./types.ts";
 
 /**
@@ -58,16 +59,39 @@ async function loadAgents(api: OpencodeApi, attempts = 5, delayMs = 1000): Promi
  * entries), so we keep the authenticated providers' models, dedupe by
  * (provider, model), and fall back to everything only when the user has no
  * authenticated provider at all.
+ *
+ * The catalog also reloads whenever credentials or config change on the
+ * server (`credential.updated` / `config.updated` — connecting an API key
+ * in the model-config modal, writing custom providers, `opencode auth` in
+ * a terminal…) via a revision counter fed by the event bus.
  */
-export function useModelCatalog(api: OpencodeApi | null): {
+export function useModelCatalog(
+    api: OpencodeApi | null,
+    subscribe: ((handler: OpencodeEventHandler) => () => void) | null,
+): {
     models: OpencodeModel[];
     /** User-selectable modes: primary, non-hidden agents (build/plan/…). */
     agents: OpencodeAgent[];
     defaultModel: OpencodeModel | null;
+    /** True when the ONLY provider is the free catalog — the user has no
+     * authenticated provider of their own (drives the picker's empty state). */
+    catalogOnly: boolean;
 } {
     const [models, setModels] = useState<OpencodeModel[]>([]);
     const [agents, setAgents] = useState<OpencodeAgent[]>([]);
     const [defaultModel, setDefaultModel] = useState<OpencodeModel | null>(null);
+    const [catalogOnly, setCatalogOnly] = useState(false);
+    const [revision, setRevision] = useState(0);
+
+    useEffect(() => {
+        if (!subscribe) return;
+        return subscribe((event) => {
+            // Payloads are empty on this server generation — bump and refetch.
+            if (event.type === "credential.updated" || event.type === "config.updated") {
+                setRevision((r) => r + 1);
+            }
+        });
+    }, [subscribe]);
 
     useEffect(() => {
         if (!api) return;
@@ -75,7 +99,8 @@ export function useModelCatalog(api: OpencodeApi | null): {
 
         loadProviders(api).then((providers) => {
             if (cancelled) return;
-            const catalogOnly = providers.every((p) => isCatalogProvider(p.settings));
+            const onlyCatalog = providers.every((p) => isCatalogProvider(p.settings));
+            setCatalogOnly(onlyCatalog);
             const catalogIds = new Set(
                 providers.filter((p) => isCatalogProvider(p.settings)).map((p) => p.id),
             );
@@ -94,7 +119,7 @@ export function useModelCatalog(api: OpencodeApi | null): {
                 const sortedOwn = own.slice().sort((a, b) =>
                     (b.released ?? 0) - (a.released ?? 0) || (a.name ?? a.id).localeCompare(b.name ?? b.id),
                 );
-                setModels(catalogOnly ? deduped : sortedOwn);
+                setModels(onlyCatalog ? deduped : sortedOwn);
             });
         }).catch((e) => logError(`Failed to load models: ${e}`).catch(() => {}));
 
@@ -109,7 +134,7 @@ export function useModelCatalog(api: OpencodeApi | null): {
         return () => {
             cancelled = true;
         };
-    }, [api]);
+    }, [api, revision]);
 
-    return {models, agents, defaultModel};
+    return {models, agents, defaultModel, catalogOnly};
 }

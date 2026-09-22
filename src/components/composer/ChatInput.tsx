@@ -51,6 +51,7 @@ const ChatInput = memo(function ChatInput({
     onInterrupt,
     agents,
     models,
+    catalogOnly,
     agent,
     model,
     onAgentChange,
@@ -71,6 +72,9 @@ const ChatInput = memo(function ChatInput({
     /** Selectable modes (primary agents). */
     agents: OpencodeAgent[];
     models: OpencodeModel[];
+    /** No authenticated provider of the user's own — the model picker
+     *  shows its "nothing configured" entry above the free catalog. */
+    catalogOnly: boolean;
     /** Effective selections (session-bound once a session exists). */
     agent: string;
     model: SessionModelRef | null;
@@ -242,6 +246,7 @@ const ChatInput = memo(function ChatInput({
                 onModelChange={onModelChange}
                 conversationStarted={conversationStarted}
                 api={api}
+                catalogOnly={catalogOnly}
                 directory={directory}
                 onDirectoryChange={onDirectoryChange}
                 usage={usage}

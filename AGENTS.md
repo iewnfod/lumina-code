@@ -133,7 +133,12 @@ src/
 │   │                      #   execution server-side. Global, not per-session, so sidebar
 │   │                      #   badges work for inactive sessions.
 │   └── useModelCatalog.ts # Providers/agents/models + server default, fetched per
-│                          #   connection. Free-catalog (OpenCode Zen) models hidden
+│                          #   connection AND re-fetched whenever the bus reports
+│                          #   credential.updated / config.updated (connecting a key
+│                          #   in the model-config modal, writing custom providers…).
+│                          #   Exposes catalogOnly (only the free Zen catalog = the
+│                          #   picker's "no models configured" state). Free-catalog
+│                          #   (OpenCode Zen) models hidden
 │                          #   unless they're all the user has. Provider/agent reads
 │                          #   RETRY on transient empties (a second opencode instance
 │                          #   holding the shared storage lock) — an empty provider list
@@ -199,6 +204,10 @@ src/
     │                      #   composer (session created on first send).
     ├── ui/                # Shared primitives (one of each thing)
     │   ├── IconButton.tsx # THE chrome button — never hand-roll <button> hover swaps
+    │   ├── Button.tsx     # THE labeled button (primary/ghost) — shared by request
+    │   │                  #   cards (re-exported as CardButton) and modals
+    │   ├── Modal.tsx      # Portal-rendered modal chrome (fadeIn backdrop +
+    │   │                  #   scaleIn panel, Escape/backdrop close)
     │   ├── MaskedSurface.tsx # SVG rounded-rect clip exposing the glass chrome corners
     │   ├── PopoverMenu.tsx   # Shared dropdown menu
     │   ├── RollingTitle.tsx # Ellipsized title that scrolls on hover
@@ -246,7 +255,20 @@ src/
         ├── ComposerToolbar.tsx # Bottom toolbar: attach/mode/project on the
         │                  #   left; usage ring, model, thinking depth,
         │                  #   send/stop on the right. Owns the catalog →
-        │                  #   picker mapping (provider groups, variants).
+        │                  #   picker mapping (provider groups, variants) and
+        │                  #   the model-config entry (empty-state "no models
+        │                  #   configured" when catalogOnly, persistent bottom
+        │                  #   "configure models…" row) opening ModelConfigModal.
+        ├── ModelConfigModal.tsx # Provider-credential + custom-provider manager
+        │                  #   (opened from the model picker): searchable
+        │                  #   integration list, API-key connect, browser-OAuth
+        │                  #   flow with attempt polling, credential
+        │                  #   activate/remove; custom OpenAI-compatible
+        │                  #   providers written to the global opencode.json
+        │                  #   (server hot-reloads → config.updated event).
+        ├── modelConfig.ts # Pure model-config logic: integration search,
+        │                  #   custom-provider config merge/remove/read-back,
+        │                  #   global-config-target discovery. node-testable.
         ├── composerTriggers.ts # Lexical node-tree algorithms: `@`/`/` trigger
         │                  #   detection (CJK-aware) + atomic mention ←/→.
         ├── composerAttachments.ts # Data-URI attachment reader + size cap

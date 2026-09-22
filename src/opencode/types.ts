@@ -66,6 +66,94 @@ export interface OpencodeProject {
     time?: {created?: number; updated?: number};
 }
 
+// --- Integrations & credentials (verified against server v2.0.11) ---
+//
+// `/api/integration` enumerates every provider the server knows how to
+// authenticate (226 on this build), each with its auth methods and the
+// connections already established. Connecting a key (`connect/key`) or
+// completing OAuth stores a credential and ACTIVATES the provider
+// immediately — no server restart; the bus then emits `credential.updated`
+// (EMPTY payload — consumers must re-fetch).
+
+/** One extra input a key/oauth method may ask for (e.g. Azure's resource
+ *  name). Only `type: "string"` fields exist on this server generation;
+ *  answers ride the connect body's `answer` map. */
+export interface IntegrationFormField {
+    key: string;
+    title?: string;
+    required?: boolean;
+    type: string;
+    placeholder?: string;
+}
+
+/** Paste an API key (`POST /api/integration/{id}/connect/key`). */
+export interface IntegrationKeyMethod {
+    type: "key";
+    label?: string;
+    form?: IntegrationFormField[];
+}
+
+/** Provider is already authenticated via an environment variable. */
+export interface IntegrationEnvMethod {
+    type: "env";
+    names: string[];
+}
+
+/** Browser OAuth (`POST /api/integration/{id}/connect/oauth` with this
+ *  method's `id` as `methodID`). Supported by few providers (OpenAI's
+ *  ChatGPT plans, GitHub Copilot, DigitalOcean, Zen, Poe, Snowflake, xAI). */
+export interface IntegrationOAuthMethod {
+    id: string;
+    type: "oauth";
+    label: string;
+    form?: IntegrationFormField[];
+}
+
+export type IntegrationMethod =
+    | IntegrationKeyMethod
+    | IntegrationEnvMethod
+    | IntegrationOAuthMethod;
+
+/** An established connection. `credential` entries come from `/connect`
+ *  flows (listed ACTIVE-FIRST — the server moves the active credential to
+ *  index 0 on connect/activate; there is no explicit active flag on the
+ *  wire); `env` entries mean an environment variable already works. */
+export type IntegrationConnection =
+    | {type: "credential"; id: string; label: string}
+    | {type: "env"; name: string};
+
+/** `GET /api/integration` entry. */
+export interface IntegrationInfo {
+    id: string;
+    name: string;
+    methods: IntegrationMethod[];
+    connections: IntegrationConnection[];
+}
+
+/** `POST /api/integration/{id}/connect/oauth` result — open `url` in the
+ *  system browser, then poll the attempt until it leaves "pending". */
+export interface OAuthAttempt {
+    attemptID: string;
+    url: string;
+    instructions: string;
+    mode: "auto" | "code" | string;
+    time?: {created?: number; expires?: number};
+}
+
+/** `GET /api/integration/{id}/connect/oauth/{attemptID}` — one of
+ *  "pending" | "complete" | "failed" | "expired" (kept loose otherwise). */
+export interface OAuthAttemptStatus {
+    status: "pending" | "complete" | "failed" | "expired";
+    [key: string]: unknown;
+}
+
+/** `GET /api/config` entry — configuration documents and discovery
+ *  directories, lowest → highest priority. The FIRST entry is always the
+ *  global config location (`~/.config/opencode` or the XDG override). */
+export type OpencodeConfigEntry =
+    | {type: "document"; path: string; info?: unknown}
+    | {type: "directory"; path: string};
+
 /** An attachment staged in the composer (data-URI form). */
 export interface ComposerAttachment {
     id: string;
@@ -385,4 +473,11 @@ export interface EventMap {
     "form.created": {form: FormRequest};
     "form.replied": {id: string; sessionID: string; answer?: FormAnswer};
     "form.cancelled": {id: string; sessionID: string};
+    /** Credential store changed (key connected, credential removed or
+     *  activated). Payload is EMPTY on this server generation — consumers
+     *  must re-fetch /api/integration + the model catalog. */
+    "credential.updated": Record<string, never>;
+    /** A config document changed and was hot-reloaded (providers, models,
+     *  agents…). Payload is EMPTY — re-fetch whatever reads config. */
+    "config.updated": Record<string, never>;
 }

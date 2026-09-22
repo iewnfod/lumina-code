@@ -28,6 +28,7 @@ export default function WelcomeScreen({
     onSend,
     agents,
     models,
+    catalogOnly,
     agent,
     model,
     onAgentChange,
@@ -46,6 +47,9 @@ export default function WelcomeScreen({
     onSend: (text: string, files: ComposerAttachment[], fileRefs: ComposerFileRef[], command: PendingCommand | null) => void;
     agents: OpencodeAgent[];
     models: OpencodeModel[];
+    /** No authenticated provider of the user's own — the model picker
+     *  shows its "nothing configured" entry above the free catalog. */
+    catalogOnly: boolean;
     agent: string;
     model: SessionModelRef | null;
     onAgentChange: (agent: string) => void;
@@ -84,6 +88,7 @@ export default function WelcomeScreen({
                         onModelChange={onModelChange}
                         conversationStarted={false}
                         api={api}
+                        catalogOnly={catalogOnly}
                         directory={directory}
                         onDirectoryChange={onDirectoryChange}
                     />

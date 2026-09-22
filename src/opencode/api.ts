@@ -3,8 +3,12 @@ import type {
     ComposerFileRef,
     FormAnswer,
     FormRequest,
+    IntegrationInfo,
+    OAuthAttempt,
+    OAuthAttemptStatus,
     OpencodeAgent,
     OpencodeCommand,
+    OpencodeConfigEntry,
     OpencodeModel,
     OpencodeProject,
     OpencodeProvider,
@@ -16,8 +20,12 @@ import type {
 export type {Session} from "@opencode-ai/sdk/v2/client";
 export type {
     ChatMessage,
+    IntegrationInfo,
+    OAuthAttempt,
+    OAuthAttemptStatus,
     OpencodeAgent,
     OpencodeCommand,
+    OpencodeConfigEntry,
     OpencodeModel,
     OpencodeProject,
     OpencodeProvider,
@@ -86,6 +94,27 @@ export class OpencodeApi {
         }
         if (res.status === 204) return undefined as T;
         return (await res.json()) as T;
+    }
+
+    /** Raw-file variant of {@link requestRaw} for fs endpoints: the body
+     *  is the file's bytes (no JSON, no envelope) and the write side sends
+     *  plain text. Error replies are still JSON; thrown errors carry the
+     *  HTTP `status` so callers can tell "absent" (404) from failure. */
+    private async requestRawText(path: string, init?: RequestInit): Promise<string> {
+        const res = await fetch(this.baseUrl + path, {
+            ...init,
+            headers: {
+                Authorization: this.authorization,
+                ...init?.headers,
+            },
+        });
+        if (!res.ok) {
+            const detail = await res.text().catch(() => "");
+            const err = new Error(`${res.status} ${res.statusText}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+            (err as Error & {status?: number}).status = res.status;
+            throw err;
+        }
+        return res.text();
     }
 
     listSessions(): Promise<OpencodeSession[]> {
@@ -301,6 +330,119 @@ export class OpencodeApi {
             `/api/session/${encodeURIComponent(sessionId)}/form/${encodeURIComponent(formId)}`,
             {method: "DELETE"},
         );
+    }
+
+    // --- Integrations & credentials (verified against server v2.0.11) ---
+
+    /** Every authenticatable provider with its auth methods and current
+     *  connections. Response is `{location, data}` (NOT envelope-wrapped). */
+    listIntegrations(): Promise<IntegrationInfo[]> {
+        return this.requestRaw<{data?: IntegrationInfo[]}>("/api/integration")
+            .then((r) => r?.data ?? []);
+    }
+
+    /** Store an API-key credential for an integration — the new credential
+     *  auto-activates and its provider goes live immediately (204 reply,
+     *  then `credential.updated` on the bus). `answer` carries any extra
+     *  form fields the method declares (e.g. Azure's `resourceName`). */
+    connectIntegrationKey(
+        integrationId: string,
+        key: string,
+        answer?: Record<string, string>,
+    ): Promise<void> {
+        const body: {key: string; answer?: Record<string, string>} = {key};
+        if (answer) body.answer = answer;
+        return this.request<void>(
+            `/api/integration/${encodeURIComponent(integrationId)}/connect/key`,
+            {method: "POST", body: JSON.stringify(body)},
+        );
+    }
+
+    /** Start a browser OAuth flow: returns the URL to open in the system
+     *  browser; poll {@link getIntegrationOAuthStatus} until it leaves
+     *  "pending". The server itself listens on the loopback redirect. */
+    startIntegrationOAuth(integrationId: string, methodId: string): Promise<OAuthAttempt> {
+        return this.requestRaw<{data?: OAuthAttempt}>(
+            `/api/integration/${encodeURIComponent(integrationId)}/connect/oauth`,
+            {method: "POST", body: JSON.stringify({methodID: methodId})},
+        ).then((r) => {
+            if (!r?.data) throw new Error("oauth attempt came back empty");
+            return r.data;
+        });
+    }
+
+    /** Poll an OAuth attempt: "pending" → "complete" | "failed" | "expired". */
+    getIntegrationOAuthStatus(integrationId: string, attemptId: string): Promise<OAuthAttemptStatus> {
+        return this.requestRaw<{data?: OAuthAttemptStatus}>(
+            `/api/integration/${encodeURIComponent(integrationId)}/connect/oauth/${encodeURIComponent(attemptId)}`,
+        ).then((r) => r?.data ?? {status: "pending"});
+    }
+
+    /** Abort a pending OAuth attempt (204). */
+    cancelIntegrationOAuth(integrationId: string, attemptId: string): Promise<void> {
+        return this.request<void>(
+            `/api/integration/${encodeURIComponent(integrationId)}/connect/oauth/${encodeURIComponent(attemptId)}`,
+            {method: "DELETE"},
+        );
+    }
+
+    /** Remove a stored credential (204). Removing the last credential
+     *  deactivates the provider. */
+    deleteCredential(credentialId: string): Promise<void> {
+        return this.request<void>(`/api/credential/${encodeURIComponent(credentialId)}`, {
+            method: "DELETE",
+        });
+    }
+
+    /** Make a stored credential the active one (204) — only meaningful
+     *  when an integration holds several. */
+    activateCredential(credentialId: string): Promise<void> {
+        return this.request<void>(`/api/credential/${encodeURIComponent(credentialId)}/activate`, {
+            method: "POST",
+        });
+    }
+
+    // --- Config file access for custom providers (v2.0.11 quirks) ---
+    //
+    // The server only hot-reloads config from DISK, and its
+    // `/api/experimental/config` PATCH accepts nothing but `shell` — so
+    // custom providers are managed by rewriting the global opencode.json:
+    // read raw (fs/read), merge the `provider` entry, write back
+    // (experimental fs/write). The server picks the change up within ~2s
+    // and emits config.updated / provider.updated / model.updated.
+
+    /** Config documents + discovery directories, lowest → highest
+     *  priority. The first entry is the GLOBAL config location. */
+    listConfigEntries(): Promise<OpencodeConfigEntry[]> {
+        return this.request<OpencodeConfigEntry[]>("/api/config");
+    }
+
+    /** Read one file as text, relative to a directory (fs/read is confined
+     *  to the location — unlike fs/write). Returns null when the file
+     *  doesn't exist (404); other failures throw. Callers MUST NOT treat
+     *  a failed read as "absent" — rewriting on that assumption would
+     *  clobber a config we failed to read. */
+    async readTextFile(directory: string, name: string): Promise<string | null> {
+        const params = new URLSearchParams({"location[directory]": directory});
+        try {
+            return await this.requestRawText(`/api/fs/read/${encodeURIComponent(name)}?${params.toString()}`);
+        } catch (e) {
+            if ((e as {status?: number}).status === 404) return null;
+            throw e;
+        }
+    }
+
+    /** Write text to an ABSOLUTE path (experimental fs/write is not
+     *  location-confined; missing parent directories are created).
+     *  Server quirk: the endpoint REJECTS `Content-Type: application/json`
+     *  with 415 — the body must ride as octet-stream (verified v2.0.11). */
+    writeTextFile(absolutePath: string, content: string): Promise<void> {
+        const params = new URLSearchParams({path: absolutePath});
+        return this.request<void>(`/api/experimental/fs/write?${params.toString()}`, {
+            method: "POST",
+            headers: {"Content-Type": "application/octet-stream"},
+            body: content,
+        });
     }
 }
 

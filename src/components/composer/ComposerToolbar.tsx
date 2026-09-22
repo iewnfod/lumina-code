@@ -1,4 +1,5 @@
-import {ArrowUp, Bot, Brain, Cpu, Paperclip, Square} from "lucide-react";
+import {useState} from "react";
+import {ArrowUp, Bot, Brain, Cpu, Paperclip, Settings2, Square} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {
@@ -13,6 +14,7 @@ import PopoverMenu, {MenuItem, MenuLabel} from "../ui/PopoverMenu.tsx";
 import ToolbarButton from "./ToolbarButton.tsx";
 import UsageRing from "../chat/UsageRing.tsx";
 import DirectoryPicker from "./DirectoryPicker.tsx";
+import ModelConfigModal from "./ModelConfigModal.tsx";
 
 /** Display labels for the thinking-depth variants a model can carry. */
 const DEPTH_LABELS: Record<string, string> = {
@@ -47,6 +49,7 @@ export default function ComposerToolbar({
     onInterrupt,
     agents,
     models,
+    catalogOnly,
     agent,
     model,
     onAgentChange,
@@ -70,6 +73,10 @@ export default function ComposerToolbar({
     /** Selectable modes (primary agents). */
     agents: OpencodeAgent[];
     models: OpencodeModel[];
+    /** No authenticated provider of the user's own — the picker leads
+     *  with its "nothing configured" entry (the free catalog still lists
+     *  below as a usable fallback). */
+    catalogOnly: boolean;
     /** Effective selections (session-bound once a session exists). */
     agent: string;
     model: SessionModelRef | null;
@@ -87,6 +94,18 @@ export default function ComposerToolbar({
     contextUsage?: ContextUsage | null;
 }) {
     const t = useI18n();
+    const [configOpen, setConfigOpen] = useState(false);
+
+    /** The picker's empty-state entry shows when the user has no model
+     *  provider of their own — either nothing authenticated at all (empty
+     *  catalog) or only the free public catalog. Hidden while there is no
+     *  connection (nothing for the modal to talk to). */
+    const showEmptyEntry = api != null && (models.length === 0 || catalogOnly);
+
+    const openConfig = (close: () => void) => {
+        close();
+        setConfigOpen(true);
+    };
 
     // Resolved catalog entries for the current selections.
     const currentModel = model
@@ -194,6 +213,18 @@ export default function ComposerToolbar({
                 align="end"
                 panelClassName="w-60"
                 title={t["Model"]}
+                footer={
+                    api != null
+                        ? (close) => (
+                            <MenuItem colors={colors} onClick={() => openConfig(close)}>
+                                <span className="inline-flex items-center gap-1.5">
+                                    <Settings2 size={13} className="shrink-0 opacity-60"/>
+                                    <span>{t["Configure models…"]}</span>
+                                </span>
+                            </MenuItem>
+                        )
+                        : undefined
+                }
                 trigger={({open, toggle}) => (
                     <ToolbarButton
                         icon={<Cpu size={14}/>}
@@ -206,6 +237,19 @@ export default function ComposerToolbar({
             >
                 {(close) => (
                     <div>
+                        {showEmptyEntry && (
+                            <>
+                                <MenuItem colors={colors} onClick={() => openConfig(close)}>
+                                    <span className="inline-flex items-center gap-1.5">
+                                        <Settings2 size={13} className="shrink-0 opacity-60"/>
+                                        <span>{t["No models configured"]}</span>
+                                    </span>
+                                </MenuItem>
+                                {models.length > 0 && (
+                                    <div className="my-1 border-t" style={{borderColor: colors.glassBorder}}/>
+                                )}
+                            </>
+                        )}
                         {providerGroups.map(([provider, group]) => (
                             <div key={provider}>
                                 <MenuLabel>{provider}</MenuLabel>
@@ -228,6 +272,12 @@ export default function ComposerToolbar({
                     </div>
                 )}
             </PopoverMenu>
+            <ModelConfigModal
+                open={configOpen && api != null}
+                api={api}
+                colors={colors}
+                onClose={() => setConfigOpen(false)}
+            />
             {variants.length > 0 && currentVariant !== undefined && (
                 <PopoverMenu
                     colors={colors}

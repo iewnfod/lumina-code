@@ -60,7 +60,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
         replyForm,
         cancelForm,
     } = useSessionRequests(api, subscribe);
-    const {models, agents, defaultModel} = useModelCatalog(api);
+    const {models, agents, defaultModel, catalogOnly} = useModelCatalog(api, subscribe);
     const {
         sessions,
         busyIds,
@@ -193,6 +193,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                             disabled={!connected}
                                             agents={agents}
                                             models={models}
+                                            catalogOnly={catalogOnly}
                                             agent={effectiveAgent}
                                             model={effectiveModel}
                                             onAgentChange={changeAgent}
@@ -217,6 +218,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                         onSend={(text, files, fileRefs, command) => void sendFirst(text, files, fileRefs, command)}
                                         agents={agents}
                                         models={models}
+                                        catalogOnly={catalogOnly}
                                         agent={effectiveAgent}
                                         model={effectiveModel}
                                         onAgentChange={changeAgent}
