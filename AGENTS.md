@@ -58,11 +58,11 @@ Bumping one without the others breaks the build or the startup check.
 
 ```
 src/
-├── App.tsx                # Layout shell + all OpenCode wiring: connection
-│                          #   (useOpencode), session list (useSessions), pending
-│                          #   requests (useSessionRequests), model catalog, active
-│                          #   session + composer staging, cross-restart restore
-│                          #   (lib/persist.ts). App() wraps InnerApp with
+├── App.tsx                # Layout shell only: chrome (glass frame, sidebar,
+│                          #   title bar) + OpenCode wiring via hooks
+│                          #   (useOpencode, useSessionRequests, useModelCatalog,
+│                          #   useSessionFlow) and the session ↔ welcome-screen
+│                          #   swap. App() wraps InnerApp with
 │                          #   useMaximized/usePaddingOffset/useDragRegionDoubleClick.
 ├── main.tsx               # ReactDOM entry (React.StrictMode) + attachConsole
 ├── constants.ts           # CHROME_TITLE_BAR_HEIGHT
@@ -71,30 +71,36 @@ src/
 │
 ├── opencode/              # THE domain layer — everything talking to the server
 │   ├── api.ts             # OpencodeApi: hand-rolled typed REST client (fetch +
-│   │                      #   basic auth, `{"data": …}` envelope unwrap) + SSE via
-│   │                      #   fetch (streamServerEvents; Authorization header rules
-│   │                      #   out native EventSource) + OpencodeEvent. Hand-rolled on
-│   │                      #   purpose: the SDK's generated client drifts from the
-│   │                      #   installed v2.0.x server (paths & body encoding); the SDK
-│   │                      #   is imported types-only. Server quirks documented inline:
+│   │                      #   basic auth, `{"data": …}` envelope unwrap).
+│   │                      #   Hand-rolled on purpose: the SDK's generated
+│   │                      #   client drifts from the installed v2.0.x server
+│   │                      #   (paths & body encoding); the SDK is imported
+│   │                      #   types-only. Server quirks documented inline:
 │   │                      #   messages `limit` caps at 200; session create sends
 │   │                      #   `location.directory` (a flat `directory` is silently
 │   │                      #   ignored); `?roots=true` doesn't work (root sessions are
 │   │                      #   filtered client-side); questions are forms on this
 │   │                      #   server generation; GET /api/session/active seeds busy
 │   │                      #   state predating the event stream.
+│   ├── eventStream.ts     # SSE transport: OpencodeEvent envelope +
+│   │                      #   streamServerEvents (fetch-based; the Authorization
+│   │                      #   header rules out native EventSource) with backoff
+│   │                      #   reconnect.
 │   ├── types.ts           # Wire types hand-defined from live observation of server
 │   │                      #   v2.0.x (NOT the SDK's shapes) + ChatMessage model +
-│   │                      #   EventMap keyed by bus event type.
+│   │                      #   PendingCommand + EventMap keyed by bus event type.
 │   ├── messageStore.ts    # Pure per-session message reducer: applyEvent (bus →
 │   │                      #   list), applySeedPage/applyOlderPage (server merges that
-│   │                      #   never truncate streamed content), pending-command
-│   │                      #   stamping. Clone-on-write — untouched messages keep
-│   │                      #   identity so memoized rows skip re-render. node-testable.
+│   │                      #   never truncate streamed content). Clone-on-write —
+│   │                      #   untouched messages keep identity so memoized rows
+│   │                      #   skip re-render. node-testable.
 │   │                      #   THE invariant: streamed reasoning/text deltas exist ONLY
 │   │                      #   on the event bus (the server persists a part when it
 │   │                      #   ENDS, carrying "" until then), so a list must never be
 │   │                      #   rebuilt from a server snapshot alone.
+│   ├── pendingCommands.ts # Pure registry of pending slash-command submissions
+│   │                      #   (compact `/name args` forms stamped onto the
+│   │                      #   confirming enqueue event; per-session FIFO + undo).
 │   ├── useOpencode.ts     # Server connection: invoke("opencode_start") → API client
 │   │                      #   + auth token + event stream; subscribe() fans frames out
 │   │                      #   to handlers. Server lifecycle is Rust-owned — the effect
@@ -114,6 +120,12 @@ src/
 │   │                      #   events to every tracked session. Cursor-based loadOlder.
 │   │                      #   prepareCommandSubmission pre-creates the entry so a
 │   │                      #   first-send slash command keeps its enqueue frame.
+│   ├── useSessionFlow.ts  # App-level session flow: active session id + composer
+│   │                      #   staging (pendingModel/pendingAgent/pendingDirectory
+│   │                      #   seeded from lib/persist.ts), changeModel/changeAgent/
+│   │                      #   changeDirectory/newSession/deleteSession, sendFirst
+│   │                      #   (create-then-deliver with the slash-command fallback),
+│   │                      #   and the cross-restart save. Wraps useSessions.
 │   ├── useSessionRequests.ts # Pending server→user asks across ALL sessions (permission
 │   │                      #   requests + forms), seeded from the list endpoints then
 │   │                      #   bus-maintained; a pending ask blocks the session's
@@ -134,6 +146,9 @@ src/
 │   │                      #   backdrop-filter is written (Wayland fallback lives here)
 │   ├── color.ts           # color math (luminance, foreground, adjust)
 │   ├── motion.ts          # framer-motion presets (fadeIn, springSwap, …)
+│   ├── path.ts            # folderLabel (last path segment) + displayPath
+│   │                      #   (project-relative file paths) — shared by the
+│   │                      #   sidebar, directory picker and tool cards. node-testable.
 │   ├── theme.ts           # appThemeFor(systemTheme) — lumina-code follows the system
 │   │                      #   light/dark (no per-profile palettes like lumina-terminal)
 │   ├── persist.ts         # loadState/saveState — cross-restart UI state in
@@ -152,47 +167,92 @@ src/
 │   ├── useIsWayland.ts    # cached invoke("is_wayland")
 │   ├── useAlwaysOnTop.ts  # per-window pin (no-op on Wayland)
 │   ├── useDragRegionDoubleClick.ts # capture-phase mousedown + explicit maximize toggle
-│   └── useFollowBottom.ts # stream-follow stickiness for inner scroll regions
+│   ├── useFollowBottom.ts # stream-follow stickiness for inner scroll regions
+│   └── useTranscriptScroll.ts # ChatView's scroll machinery: bottom-follow with
+│                              #   programmatic-scroll guards, prepend anchoring
+│                              #   around render-window growth, geometry re-pin,
+│                              #   visibilitychange catch-up.
 │
 └── components/
-    ├── TitleBar.tsx       # Drag region + window controls
-    ├── SessionBar.tsx     # Left glass sidebar: session list (busy dots, pending
-    │                      #   badges), new-session button, recency-ordered
+    ├── TitleBar.tsx       # Drag region + chrome buttons (window controls in
+    │                      #   ui/WindowControls.tsx, language menu inline)
+    ├── SessionBar.tsx     # Left glass sidebar shell: brand row, folder
+    │                      #   collapse/expand state, relative-age ticker,
+    │                      #   bottom new-session button; groups render
+    │                      #   through SessionFolder.
+    ├── SessionTitle.tsx   # Single-line label: edge-fade truncation + a
+    │                      #   hover-debounced HeroUI tooltip when overflowing.
+    ├── SessionFolder.tsx  # One directory group: collapsible header (+/chevron),
+    │                      #   animated session rows (busy dot, pending badge,
+    │                      #   age/close slot), "Show more/less" expander.
+    ├── sessionGrouping.ts # Pure sidebar mapping: SessionInfo view-model,
+    │                      #   relativeAge, groupByDirectory. node-testable.
     ├── ChatPlaceholder.tsx # Welcome-screen logo/status
+    ├── WelcomeScreen.tsx  # The no-session surface: greeting + the staged
+    │                      #   composer (session created on first send).
     ├── ui/                # Shared primitives (one of each thing)
     │   ├── IconButton.tsx # THE chrome button — never hand-roll <button> hover swaps
     │   ├── MaskedSurface.tsx # SVG rounded-rect clip exposing the glass chrome corners
     │   ├── PopoverMenu.tsx   # Shared dropdown menu
-    │   └── RollingTitle.tsx # Ellipsized title that scrolls on hover
-    └── chat/              # The conversation surface
-        ├── ChatView.tsx   # Transcript column + composer for the active session.
-        │                  #   Bounded DOM: only RENDER_LIMIT (60) newest entries mount;
-        │                  #   IntersectionObserver on the top sentinel grows the window
-        │                  #   (and fetches older pages) on scroll-up; scroll anchoring
-        │                  #   keeps the viewport steady on prepend. blockify() folds runs
-        │                  #   of activity-only assistant messages into one ActivityGroup.
-        ├── ChatInput.tsx  # Lexical-based composer: @file & /command mention nodes,
-        │                  #   attachments (data URIs, 10 MB cap), model/agent/thinking
-        │                  #   pickers, usage ring, directory picker. Memoized.
-        ├── MessageItem.tsx # One message: user bubble or assistant document (reasoning
-        │                  #   disclosures, text, tool cards, subagent cards)
-        ├── RequestCards.tsx # PermissionCard + QuestionCard — the ONLY way a blocked
-        │                  #   session moves forward (answers go to the reply endpoints)
-        ├── SubagentCard.tsx / ToolCard.tsx # Tool-call renderers (per-tool icons/titles)
-        ├── RunFooter.tsx + runFooters.ts # Per-turn summary footer (pure collector in
-        │                  #   runFooters.ts — node-testable)
-        ├── UsageRing.tsx + usageStats.ts # Context/cost ring (pure math in usageStats.ts)
-        ├── Markdown.tsx   # Shared react-markdown + remark-gfm; links via plugin-opener
-        ├── FoldRow.tsx + useExpansion.ts # Disclosure rows with anti-flash minimum open
-        ├── InputSuggestions.tsx # Composer autocomplete popup (@ / / triggers)
-        ├── FileMentionNode.tsx / CommandMentionNode.tsx # Lexical decorator nodes
+    │   ├── RollingTitle.tsx # Ellipsized title that scrolls on hover
+    │   └── WindowControls.tsx # minimize/maximize/close cluster (non-macOS)
+    ├── chat/              # The conversation surface
+    │   ├── ChatView.tsx   # Transcript column + composer for the active session.
+    │   │                  #   Bounded DOM: only RENDER_LIMIT (60) newest entries mount;
+    │   │                  #   IntersectionObserver on the top sentinel grows the window
+    │   │                  #   (and fetches older pages) on scroll-up. Scrolling lives
+    │   │                  #   in hooks/useTranscriptScroll.ts; block folding in
+    │   │                  #   transcript.ts; rendering in TranscriptList.tsx.
+    │   ├── transcript.ts  # Pure blockify(): folds runs of activity-only
+    │   │                  #   assistant messages into TranscriptBlocks. node-testable.
+    │   ├── TranscriptList.tsx # Renders the mounted slice as MessageItems /
+    │   │                  #   cross-message ActivityGroups + run footers.
+    │   ├── MessageItem.tsx # One message: user bubble or assistant document
+    │   │                  #   (segmented via messageParts.ts)
+    │   ├── messageParts.ts # Pure part segmentation: segmentContent,
+    │   │                  #   effectiveTailPart, stable part keys.
+    │   ├── ActivityGroup.tsx # Folded run of tool calls / thoughts
+    │   ├── ThinkingBlock.tsx # Reasoning disclosure (live while streaming)
+    │   ├── ToolCard.tsx   # One tool call as a FoldRow (detail/accent lines)
+    │   ├── toolMeta.ts    # Pure tool display table + input-shape helpers
+    │   │                  #   (TOOL_META, toolDisplayName, errorText). node-testable.
+    │   ├── SubagentCard.tsx # Subagent tool renderer
+    │   ├── RunFooter.tsx + runFooters.ts # Per-turn summary footer (pure collector in
+    │   │                  #   runFooters.ts — node-testable)
+    │   ├── UsageRing.tsx + usageStats.ts # Context/cost ring (pure math in usageStats.ts)
+    │   ├── Markdown.tsx   # Shared react-markdown + remark-gfm; links via plugin-opener
+    │   ├── FoldRow.tsx + useExpansion.ts # Disclosure rows with anti-flash minimum open
+    │   ├── PermissionCard.tsx / QuestionCard.tsx # RequestCards — the ONLY way a blocked
+    │   │                  #   session moves forward (answers go to the reply endpoints).
+    │   │                  #   Shared chrome in RequestCardChrome.tsx; answer rules in
+    │   │                  #   formLogic.ts (pure, node-testable).
+    │   ├── RequestCardChrome.tsx # Card + CardButton shared by the request kinds
+    │   └── formLogic.ts   # Pure form-answer rules: fieldVisible (`when`
+    │                      #   conditions), normalize (per-type values).
+    └── composer/          # The prompt composer
+        ├── ChatInput.tsx  # Composer shell: staged attachments (chips),
+        │                  #   slash-command fetch (per-directory, retried),
+        │                  #   LexicalComposer wiring, toolbar.
+        ├── ComposerCore.tsx # Editor internals: trigger-driven suggestions,
+        │                  #   keyboard routing (Enter/arrows/Tab/Esc, IME-safe),
+        │                  #   submit serialization, paste-to-attach.
+        ├── ComposerToolbar.tsx # Bottom toolbar: attach/mode/project on the
+        │                  #   left; usage ring, model, thinking depth,
+        │                  #   send/stop on the right. Owns the catalog →
+        │                  #   picker mapping (provider groups, variants).
+        ├── composerTriggers.ts # Lexical node-tree algorithms: `@`/`/` trigger
+        │                  #   detection (CJK-aware) + atomic mention ←/→.
+        ├── composerAttachments.ts # Data-URI attachment reader + size cap
+        ├── InputSuggestions.tsx # Autocomplete popup (@ / / triggers)
+        ├── FileMentionNode.tsx / CommandMentionNode.tsx # Lexical token TextNodes
+        ├── ToolbarButton.tsx # The composer's compact toolbar control
         └── DirectoryPicker.tsx # Working-directory chooser (dialog + GET /api/project)
 ```
 
 ### Backend (`src-tauri/src/`)
 
 Intentionally thin — server lifecycle only. All business logic lives in the
-frontend. Four files:
+frontend. `system.rs` plus the `opencode/` module:
 
 ```
 src-tauri/src/
@@ -202,19 +262,24 @@ src-tauri/src/
 │                  #   GTK init (__NV_DISABLE_EXPLICIT_SYNC; GDK_DEBUG=gl-no-fractional
 │                  #   for Wayland fractional scaling), invoke_handler, and the Exit
 │                  #   hook that kills the owned server (opencode::shutdown).
-├── opencode.rs    # OpenCode server lifecycle: resolve binary ($OPENCODE_BIN →
-│                  #   bundled sidecar → PATH → ~/.opencode/bin), spawn `opencode serve`
-│                  #   on a free loopback port with a generated password +
-│                  #   OPENCODE_SERVER_PASSWORD, pass the webview origin to --cors,
-│                  #   wait for readiness (GET /api/session WITH auth — unknown routes
-│                  #   serve the SPA HTML with HTTP 200, so the probe must check the
-│                  #   body is JSON), enforce EXPECTED_OPENCODE_VERSION on the sidecar,
-│                  #   monitor thread emitting "opencode-status", and orphan reaping:
-│                  #   every spawn records <app_data>/servers/<pid>.txt (body = port) and
-│                  #   later runs kill only provably-ours servers (cmdline check via
-│                  #   /proc; dev rebuilds strand several — two servers sharing the
-│                  #   user's storage cause transiently EMPTY provider reads).
-└── system.rs      # is_wayland command (XDG_SESSION_TYPE, WAYLAND_DISPLAY fallback)
+├── system.rs      # is_wayland command (XDG_SESSION_TYPE, WAYLAND_DISPLAY fallback)
+└── opencode/      # OpenCode server lifecycle, split by concern:
+    ├── mod.rs     # Orchestration: OpencodeState/OpencodeConnection types,
+    │              #   the `opencode_start` command (spawn `opencode serve` with a
+    │              #   generated password + OPENCODE_SERVER_PASSWORD, the webview
+    │              #   origin to --cors, version-pin enforcement, monitor thread
+    │              #   emitting "opencode-status") and shutdown.
+    ├── resolve.rs # Binary discovery ($OPENCODE_BIN → bundled sidecar → PATH →
+    │              #   ~/.opencode/bin) + `--version` parsing.
+    ├── probe.rs   # Spawn prerequisites + readiness: free_port, base64,
+    │              #   generate_password, and the minimal HTTP GET that polls
+    │              #   /api/session WITH auth (unknown routes serve the SPA HTML
+    │              #   with HTTP 200, so the probe checks the body is JSON).
+    └── reap.rs    # Orphan reaping: every spawn records
+                   #   <app_data>/servers/<pid>.txt (body = port) and later runs
+                   #   kill only provably-ours servers (cmdline check via /proc;
+                   #   dev rebuilds strand several — two servers sharing the
+                   #   user's storage cause transiently EMPTY provider reads).
 ```
 
 ---
@@ -227,7 +292,8 @@ src-tauri/src/
 types (opencode/types.ts, i18n keys)  ←  opencode/ + lib/  ←  hooks/  ←  components/  ←  App
 ```
 
-- `lib/` and `opencode/messageStore.ts` are pure: no React, no JSX. Pure
+- `lib/`, `opencode/messageStore.ts` and `opencode/pendingCommands.ts` are
+  pure: no React, no JSX. Pure
   modules are what `pnpm test` can load (node:test + type stripping, no
   bundler) — keep new logic testable by keeping it there.
 - `opencode/` is the only layer that talks to the server. Components never
@@ -263,8 +329,9 @@ file, stop and extract.**
 ### 3.3 App-level flow facts (easy to break by accident)
 
 - **There is no empty-session view.** A session is created server-side only
-  on the first send (`App.sendFirst`); before that the welcome screen holds
-  the composer with staged `pendingModel/pendingAgent/pendingDirectory`,
+  on the first send (`useSessionFlow`'s `sendFirst`); before that the
+  welcome screen holds the composer with staged
+  `pendingModel/pendingAgent/pendingDirectory`,
   seeded from the last run via `lib/persist.ts`. Changing the project
   directory pre-session stages the choice; inside a conversation-less
   session it drops the empty session and returns to the welcome screen.
@@ -312,7 +379,9 @@ warn, error}`; the frontend imports from `@tauri-apps/plugin-log`.
 ### 3.6 Tests
 
 `pnpm test` runs node:test over `src/**/*.test.ts` — pure-logic modules
-only (message reducer, run-footer collection, usage math). New pure logic
+only (message reducer, run-footer collection, usage math, transcript
+folding, form answers, session grouping, path display, tool metadata). New
+pure logic
 that matters (reducers, collectors, mapping) belongs in a pure module WITH
 a colocated test; UI wiring is verified by `pnpm build` + running the app.
 The Rust side currently has no test suite — keep it thin enough not to

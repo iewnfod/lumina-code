@@ -1,4 +1,5 @@
 import {useSyncExternalStore} from "react";
+import {error as logError} from "@tauri-apps/plugin-log";
 import enUs, {type TranslationKey} from "../i18n/en-us.ts";
 import zhCn from "../i18n/zh-cn.ts";
 
@@ -96,7 +97,7 @@ export function setLanguage(lang: Language | null): void {
             localStorage.setItem(STORAGE_KEY, lang);
         }
     } catch (e) {
-        console.error(`Failed to persist language choice: ${e}`);
+        logError(`Failed to persist language choice: ${e}`).catch(() => {});
     }
     snapshot = resolveTable(stored ?? system);
     for (const listener of listeners) listener();

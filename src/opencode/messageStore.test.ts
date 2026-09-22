@@ -1,7 +1,8 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {applyEvent, applyOlderPage, applySeedPage, recordPendingCommand} from "./messageStore.ts";
-import type {OpencodeEvent} from "./api.ts";
+import {applyEvent, applyOlderPage, applySeedPage} from "./messageStore.ts";
+import {recordPendingCommand} from "./pendingCommands.ts";
+import type {OpencodeEvent} from "./eventStream.ts";
 import type {MessagesPage} from "./api.ts";
 import type {ChatAssistantMessage, ChatMessage, ChatUserMessage} from "./types.ts";
 import {isUserMessage} from "./types.ts";

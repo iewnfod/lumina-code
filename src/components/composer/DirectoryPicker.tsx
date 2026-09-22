@@ -1,18 +1,14 @@
 import {useEffect, useState} from "react";
 import {Folder, FolderSearch, GitBranch} from "lucide-react";
 import {open as openDialog} from "@tauri-apps/plugin-dialog";
+import {warn} from "@tauri-apps/plugin-log";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {OpencodeProject} from "../../opencode/types.ts";
+import {folderLabel} from "../../lib/path.ts";
 import PopoverMenu, {MenuItem, MenuLabel} from "../ui/PopoverMenu.tsx";
 import ToolbarButton from "./ToolbarButton.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
-
-/** Last path segment — the picker's compact label. */
-function folderLabel(path: string): string {
-    const trimmed = path.replace(/[\\/]+$/, "");
-    return trimmed.split(/[\\/]/).filter(Boolean).pop() ?? trimmed ?? path;
-}
 
 /**
  * Project-directory picker for the not-yet-started session: quick picks
@@ -89,7 +85,7 @@ export default function DirectoryPicker({
                 onChange(chosen);
             }
         } catch (e) {
-            console.warn(`[directory-picker] native dialog failed: ${e}`);
+            warn(`Native folder dialog failed: ${e}`).catch(() => {});
         }
     };
 

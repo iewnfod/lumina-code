@@ -6,7 +6,7 @@ import {useI18n} from "../../hooks/i18n.tsx";
 import {useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 import Markdown from "./Markdown.tsx";
-import {errorText} from "./ToolCard.tsx";
+import {errorText} from "./toolMeta.ts";
 
 const MONO = "var(--font-mono, ui-monospace, monospace)";
 

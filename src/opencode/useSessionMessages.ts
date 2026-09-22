@@ -1,13 +1,15 @@
 import {useCallback, useEffect, useRef, useState} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import {OpencodeApi} from "./api.ts";
-import {applyEvent, applyOlderPage, applySeedPage, dropPendingCommands, recordPendingCommand} from "./messageStore.ts";
+import {applyEvent, applyOlderPage, applySeedPage} from "./messageStore.ts";
+import {dropPendingCommands, recordPendingCommand} from "./pendingCommands.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {
     ChatMessage,
     ChatUserMessage,
     ComposerAttachment,
     ComposerFileRef,
+    PendingCommand,
 } from "./types.ts";
 
 /**
@@ -86,7 +88,7 @@ function ensureBus(subscribe: (handler: OpencodeEventHandler) => () => void) {
  *  compact form for stamping. Returns an undo fn for the fallback path. */
 export function prepareCommandSubmission(
     sessionId: string,
-    command: {name: string; arguments: string},
+    command: PendingCommand,
 ): () => void {
     entryOf(sessionId);
     return recordPendingCommand(sessionId, command);
@@ -106,7 +108,7 @@ export function useSessionMessages(
         text: string,
         files?: ComposerAttachment[],
         fileRefs?: ComposerFileRef[],
-        command?: {name: string; arguments: string} | null,
+        command?: PendingCommand | null,
     ) => Promise<void>;
     interrupt: () => Promise<void>;
 } {
@@ -206,7 +208,7 @@ export function useSessionMessages(
         text: string,
         files?: ComposerAttachment[],
         fileRefs?: ComposerFileRef[],
-        command?: {name: string; arguments: string} | null,
+        command?: PendingCommand | null,
     ) => {
         const trimmed = text.trim();
         const a = apiRef.current;

@@ -1,5 +1,5 @@
-import {memo, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode} from "react";
-import {Check, MessageCircleQuestion, ShieldAlert} from "lucide-react";
+import {memo, useMemo, useState, type CSSProperties, type KeyboardEvent} from "react";
+import {Check, MessageCircleQuestion} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {
@@ -7,149 +7,29 @@ import type {
     FormField,
     FormFieldOption,
     FormRequest,
-    PermissionDecision,
-    PermissionRequest,
 } from "../../opencode/types.ts";
+import {fieldVisible, normalize} from "./formLogic.ts";
+import {Card, CardButton, MONO} from "./RequestCardChrome.tsx";
 
-/**
- * Cards for the server's pending requests, pinned in place of the
- * composer so a blocked session can't hide them: permission asks (folder
- * outside the project, gated commands, …) and question forms (see api.ts
- * for the form-as-question mapping). While any of these is up, the
- * session's execution waits server-side — they render only while pending.
- */
+/** Chrome-less answer inputs (custom text + plain text/number): no fill,
+ *  no border, no focus ring — exactly the composer's editable. The hover
+ *  wash (kept while focused) is the whole affordance; the blinking caret
+ *  says "focused". */
+const ANSWER_INPUT_CLASS =
+    "w-full bg-transparent rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs outline-none placeholder:opacity-40 " +
+    "hover:bg-[var(--lum-answer-hover)] focus:bg-[var(--lum-answer-hover)] " +
+    "transition-colors duration-[var(--duration-fast)]";
 
-const MONO = "var(--font-mono, ui-monospace, monospace)";
-
-/** Human phrase per permission action (observed set on server v2.0.11);
- *  unknown actions fall back to a capitalized raw name. */
-function permissionPhrase(action: string, t: ReturnType<typeof useI18n>): string {
-    switch (action) {
-        case "external_directory": return t["Access a folder outside the project"];
-        case "bash": case "shell": return t["Run a shell command"];
-        case "edit": case "apply_patch": return t["Edit a file"];
-        case "write": return t["Write a file"];
-        case "read": return t["Read files"];
-        case "webfetch": return t["Fetch a web page"];
-        case "websearch": return t["Search the web"];
-        case "question": return t["Ask you questions"];
-        default: return action.charAt(0).toUpperCase() + action.slice(1);
-    }
+function answerInputVars(colors: SurfaceColors): CSSProperties {
+    return {"--lum-answer-hover": colors.hoverOverlay} as CSSProperties;
 }
 
-/** Card chrome shared by both request kinds — mirrors the composer's
- *  surface (recessed bg + glass border) so the pinned stack reads as one
- *  family in its place. The card's hairline is the ONLY border: everything
- *  inside is chrome-less (washes, indents, dimming) so the card reads as
- *  one surface instead of a grid of nested boxes. */
-function Card({colors, children}: {colors: SurfaceColors; children: ReactNode}) {
-    return (
-        <div
-            className="rounded-[var(--radius-lg)] px-4 py-3 flex flex-col gap-3"
-            style={{background: colors.recessedBg, border: `1px solid ${colors.glassBorder}`}}
-        >
-            {children}
-        </div>
-    );
-}
-
-function CardButton({
-    label,
-    primary = false,
-    disabled = false,
-    colors,
-    onClick,
-}: {
-    label: string;
-    primary?: boolean;
-    disabled?: boolean;
-    colors: SurfaceColors;
-    onClick: () => void;
-}) {
-    return (
-        <button
-            type="button"
-            disabled={disabled}
-            onClick={onClick}
-            className="h-7 px-3 rounded-[var(--radius-sm)] text-xs font-medium cursor-pointer select-none transition-colors duration-[var(--duration-fast)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--lum-request-btn-hover)]"
-            style={primary
-                ? {
-                    background: "var(--color-brand-cinnabar)",
-                    color: "#fff",
-                    "--lum-request-btn-hover": "rgba(255,255,255,0.15)",
-                } as CSSProperties
-                : {
-                    // Ghost, like the composer's ToolbarButton — no outline.
-                    color: colors.inactiveText,
-                    "--lum-request-btn-hover": colors.hoverOverlay,
-                } as CSSProperties}
-        >
-            {label}
-        </button>
-    );
-}
-
-/** One pending permission request: what it wants + the resources it
- *  names, with once / always / reject. Memoized — the card is static
- *  until it disappears. */
-export const PermissionCard = memo(function PermissionCard({
-    request,
-    colors,
-    onDecision,
-}: {
-    request: PermissionRequest;
-    colors: SurfaceColors;
-    onDecision: (request: PermissionRequest, decision: PermissionDecision) => void;
-}) {
-    const t = useI18n();
-    return (
-        <Card colors={colors}>
-            <div className="flex items-center gap-2 text-sm font-medium">
-                <ShieldAlert size={15} className="shrink-0" style={{color: "#f59e0b"}}/>
-                <span>{permissionPhrase(request.action, t)}</span>
-            </div>
-            {request.resources.length > 0 && (
-                <div
-                    className="flex flex-col gap-0.5 pl-6 max-h-32 overflow-y-auto"
-                    style={{fontFamily: MONO}}
-                >
-                    {request.resources.map((r, i) => (
-                        <span key={i} className="text-xs opacity-70 break-all">{r}</span>
-                    ))}
-                </div>
-            )}
-            <div className="flex items-center justify-end gap-2">
-                <CardButton label={t["Reject"]} colors={colors} onClick={() => onDecision(request, "reject")}/>
-                <CardButton label={t["Always allow"]} colors={colors} onClick={() => onDecision(request, "always")}/>
-                <CardButton label={t["Allow once"]} primary colors={colors} onClick={() => onDecision(request, "once")}/>
-            </div>
-        </Card>
-    );
-});
-
-// --- Question form ---
-
-/** Whether a field's `when` conditions pass against the current answer. */
-function fieldVisible(field: FormField, answer: FormAnswer): boolean {
-    if (!field.when || field.when.length === 0) return true;
-    return field.when.every((c) => {
-        const v = answer[c.key];
-        if (c.op === "eq") return String(v) === String(c.value);
-        return String(v) !== String(c.value);
-    });
-}
-
-/** An answer the server accepts for this field, or undefined (empty). */
-function normalize(field: FormField, value: unknown): string | number | boolean | string[] | undefined {
-    if (field.type === "multiselect") {
-        return Array.isArray(value) && value.length > 0 ? value : undefined;
-    }
-    if (field.type === "boolean") return typeof value === "boolean" ? value : undefined;
-    if (field.type === "number" || field.type === "integer") {
-        return value === "" || value == null ? undefined : Number(value);
-    }
-    const s = typeof value === "string" ? value.trim() : "";
-    return s !== "" ? s : undefined;
+/** Enter commits an answer input — but not the Enter that confirms an
+ *  IME composition (CJK input), which must land as text, not submit. */
+function answerEnter(e: KeyboardEvent, commit: () => void) {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    commit();
 }
 
 /** The leading marker of an option row: the row number on
@@ -221,27 +101,6 @@ function OptionRow({
             )}
         </button>
     );
-}
-
-/** Chrome-less answer inputs (custom text + plain text/number): no fill,
- *  no border, no focus ring — exactly the composer's editable. The hover
- *  wash (kept while focused) is the whole affordance; the blinking caret
- *  says "focused". */
-const ANSWER_INPUT_CLASS =
-    "w-full bg-transparent rounded-[var(--radius-sm)] px-2.5 py-1.5 text-xs outline-none placeholder:opacity-40 " +
-    "hover:bg-[var(--lum-answer-hover)] focus:bg-[var(--lum-answer-hover)] " +
-    "transition-colors duration-[var(--duration-fast)]";
-
-function answerInputVars(colors: SurfaceColors): CSSProperties {
-    return {"--lum-answer-hover": colors.hoverOverlay} as CSSProperties;
-}
-
-/** Enter commits an answer input — but not the Enter that confirms an
- *  IME composition (CJK input), which must land as text, not submit. */
-function answerEnter(e: KeyboardEvent, commit: () => void) {
-    if (e.key !== "Enter" || e.nativeEvent.isComposing || e.keyCode === 229) return;
-    e.preventDefault();
-    commit();
 }
 
 /** The free-text input shown under option rows on `custom` fields. */
@@ -458,7 +317,7 @@ export const QuestionCard = memo(function QuestionCard({
                     {[true, false].map((v, i) => (
                         <OptionRow
                             key={String(v)}
-                            option={{value: String(v), label: v ? "Yes" : "No"}}
+                            option={{value: String(v), label: v ? t["Yes"] : t["No"]}}
                             markerKind="number"
                             index={i}
                             selected={answer[field.key] === v}

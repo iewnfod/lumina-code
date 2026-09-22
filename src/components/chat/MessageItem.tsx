@@ -1,26 +1,21 @@
 import {memo} from "react";
 import {motion} from "framer-motion";
-import {AlertCircle, Brain, FileText, Loader2, Terminal, Wrench} from "lucide-react";
+import {FileText, Terminal} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {
-    AssistantPart,
-    AssistantReasoningPart,
-    AssistantTextPart,
-    AssistantToolPart,
     ChatAssistantMessage,
     ChatMessage,
     ChatUserMessage,
 } from "../../opencode/types.ts";
 import {isAssistantMessage, isUserMessage} from "../../opencode/types.ts";
 import {fadeSlideUp} from "../../lib/motion.ts";
-import {useI18n} from "../../hooks/i18n.tsx";
-import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
+import {COMMAND_MENTION_COLOR} from "../composer/CommandMentionNode.tsx";
 import Markdown from "./Markdown.tsx";
-import ToolCard, {toolDisplayName} from "./ToolCard.tsx";
+import ToolCard from "./ToolCard.tsx";
 import SubagentCard, {isSubagentTool} from "./SubagentCard.tsx";
-import {COMMAND_MENTION_COLOR} from "./CommandMentionNode.tsx";
-import {AUTO_EXPAND_MIN_DWELL_MS, useExpansion} from "./useExpansion.ts";
-import FoldRow from "./FoldRow.tsx";
+import ThinkingBlock from "./ThinkingBlock.tsx";
+import ActivityGroup from "./ActivityGroup.tsx";
+import {effectiveTailPart, partKey, segmentContent, type ActivityPart} from "./messageParts.ts";
 
 /**
  * One transcript entry. User messages are right-aligned accent bubbles;
@@ -130,65 +125,6 @@ function UserBubble({message, colors}: {message: ChatUserMessage; colors: Surfac
     );
 }
 
-export type ActivityPart = AssistantReasoningPart | AssistantToolPart;
-
-/** The message's effective tail — trailing whitespace-only text parts
- *  (providers emit empty text blocks between tool calls) don't count. */
-export function effectiveTailPart(m: ChatAssistantMessage): AssistantPart | undefined {
-    let end = m.content.length;
-    while (end > 0) {
-        const p = m.content[end - 1];
-        if (p.type === "text" && p.text.trim() === "") {
-            end--;
-            continue;
-        }
-        break;
-    }
-    return end > 0 ? m.content[end - 1] : undefined;
-}
-
-/** Display segment: a text part, or a run of consecutive activity parts. */
-type Segment =
-    | {kind: "text"; part: AssistantTextPart}
-    | {kind: "activity"; parts: ActivityPart[]};
-
-/** Stable identity for an activity part: `${message.id}:${indexInMessage}`.
- *  Parts are appended (never reordered) and streaming updates mutate part
- *  objects in place, so both the index and the object identity hold for the
- *  part's lifetime — the key survives ChatView's run regrouping, where the
- *  same part moves between component subtrees and must keep its expansion
- *  state. */
-function partKey(message: ChatAssistantMessage, part: ActivityPart): string {
-    return `${message.id}:${message.content.indexOf(part)}`;
-}
-
-/** One activity part of a folded run, paired with its stable key. */
-export type ActivityEntry = {part: ActivityPart; key: string};
-
-/**
- * Fold consecutive reasoning/tool parts into segments; text parts break the
- * runs. Runs of 2+ render as one ActivityGroup disclosure so a wall of tool
- * calls and thoughts doesn't bury the prose.
- *
- * Whitespace-only text parts are skipped entirely: providers emit empty
- * text blocks between tool calls, and they'd both split runs (defeating the
- * merge) and render as stray gaps.
- */
-function segmentContent(content: AssistantPart[]): Segment[] {
-    const segments: Segment[] = [];
-    for (const part of content) {
-        if (part.type === "text") {
-            if (part.text.trim() === "") continue;
-            segments.push({kind: "text", part});
-            continue;
-        }
-        const last = segments[segments.length - 1];
-        if (last?.kind === "activity") last.parts.push(part);
-        else segments.push({kind: "activity", parts: [part]});
-    }
-    return segments;
-}
-
 function AssistantBlock({
     message,
     colors,
@@ -266,125 +202,5 @@ function AssistantBlock({
                 );
             })}
         </motion.div>
-    );
-}/**
- * A run of consecutive tool calls / thoughts folded into one disclosure —
- * long agentic stretches read as a single collapsed summary line instead
- * of a wall of cards. Expanded while anything inside is streaming, folds
- * when the run finishes (an explicit user toggle wins, as elsewhere).
- *
- * `runLive` covers step boundaries: the server opens a NEW assistant
- * message per model step, so between one step's message completing and
- * the next step's message opening its first part, nothing in `parts` is
- * streaming — but the run isn't over. While the session stays busy and
- * this group is the transcript's tail, the fold stays open instead of
- * flapping closed and right back open on every step transition.
- */
-export function ActivityGroup({
-    entries,
-    stateKey,
-    colors,
-    livePart,
-    runLive = false,
-    directory,
-}: {
-    entries: ActivityEntry[];
-    /** Stable identity of this group — persistence key for expansion. */
-    stateKey: string;
-    colors: SurfaceColors;
-    /** The message part currently streaming, if it lives in this group. */
-    livePart: ActivityPart | null;
-    /** The run is still growing at the transcript's tail — stay expanded. */
-    runLive?: boolean;
-    /** Session working directory — file tool paths inside it display relative. */
-    directory?: string | null;
-}) {
-    const parts = entries.map((e) => e.part);
-    const t = useI18n();
-    const live = runLive || (livePart != null && parts.includes(livePart));
-    const running = parts.some((p) => p.type === "tool" && p.state.status === "running");
-    const errored = parts.some((p) => p.type === "tool" && p.state.status === "error");
-    const {expanded, toggle} = useExpansion(stateKey, live || errored);
-
-    // Cross-message groups can be briefly empty (steps just opened, no
-    // parts yet) — render nothing rather than a blank disclosure line.
-    if (parts.length === 0) return null;
-
-    const toolCount = parts.filter((p) => p.type === "tool").length;
-    const thoughtCount = parts.length - toolCount;
-    const bits: string[] = [];
-    if (toolCount > 0) bits.push(`${toolCount} ${toolCount > 1 ? t["tool calls"] : t["tool call"]}`);
-    if (thoughtCount > 0) bits.push(`${thoughtCount} ${thoughtCount > 1 ? t["thoughts"] : t["thought"]}`);
-    const label = running ? t["Working…"] : bits.join(" · ");
-    // Distinct tool names involved, e.g. "Edit · Shell · Grep".
-    const names = [...new Set(
-        parts.filter((p) => p.type === "tool").map((p) => toolDisplayName(p.name, t)),
-    )];
-
-    return (
-        <FoldRow
-            icon={running
-                ? <Loader2 size={14} className="animate-spin" />
-                : errored
-                    ? <AlertCircle size={14} style={{color: "#ef4444"}} />
-                    : <Wrench size={14} />}
-            title={label}
-            active={running}
-            detail={names.length > 0 ? (
-                <span className="truncate">{names.join(" · ")}</span>
-            ) : null}
-            expanded={expanded}
-            onToggle={toggle}
-        >
-            <div
-                className="flex flex-col gap-1.5 pt-1.5 pl-3 ml-1.5 border-l"
-                style={{borderColor: colors.glassBorder}}
-            >
-                {entries.map(({part, key}) =>
-                    part.type === "reasoning" ? (
-                        <ThinkingBlock key={key} stateKey={key} part={part} live={livePart === part} />
-                    ) : isSubagentTool(part.name) ? (
-                        <SubagentCard key={part.id ?? key} part={part} colors={colors} />
-                    ) : (
-                        <ToolCard key={part.id ?? key} part={part} colors={colors} directory={directory} />
-                    ),
-                )}
-            </div>
-        </FoldRow>
-    );
-}
-
-/**
- * Reasoning-model thinking process: a dimmed disclosure above the answer.
- * Expanded (live) while the thoughts stream in, auto-collapsed once the
- * model moves on to the answer — unless the reader toggled it themselves.
- */
-function ThinkingBlock({part, stateKey, live}: {part: AssistantReasoningPart; stateKey: string; live: boolean}) {
-    const t = useI18n();
-    const {expanded, toggle} = useExpansion(stateKey, live, AUTO_EXPAND_MIN_DWELL_MS);
-    const {ref: thinkScroll, onScroll: thinkScrollHandler, scrolled: tailScrolled} =
-        useFollowBottom<HTMLDivElement>(live);
-
-    // Collapsed rows carry the thought's first line as a preview.
-    const snippet = part.text.trim().split("\n")[0] ?? "";
-
-    return (
-        <FoldRow
-            icon={<Brain size={14} className={live ? "animate-pulse" : ""} />}
-            title={live ? t["Thinking…"] : t["Thought process"]}
-            detail={!expanded && snippet ? (
-                <span className="truncate">{snippet}</span>
-            ) : null}
-            expanded={expanded}
-            onToggle={toggle}
-        >
-            <div
-                ref={thinkScroll}
-                onScroll={thinkScrollHandler}
-                className={`ml-5 mt-0.5 mb-1 text-sm whitespace-pre-wrap break-words max-h-72 overflow-y-auto opacity-60 leading-relaxed${tailScrolled ? " lum-tail-fade" : ""}`}
-            >
-                {part.text}
-            </div>
-        </FoldRow>
     );
 }

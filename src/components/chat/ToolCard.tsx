@@ -1,114 +1,18 @@
 import {memo, type ReactNode} from "react";
 import {
     AlertCircle,
-    FilePen,
-    FilePlus,
-    FolderOpen,
-    FolderSearch,
-    Globe,
     Hourglass,
-    ListTodo,
-    MessageCircleQuestion,
-    Search,
-    Sparkles,
-    SquareTerminal,
-    Wrench,
-    type LucideIcon,
 } from "lucide-react";
 import type {AssistantToolPart} from "../../opencode/types.ts";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
-import {useI18n, type TranslationKey} from "../../hooks/i18n.tsx";
+import {useI18n} from "../../hooks/i18n.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
+import {displayPath} from "../../lib/path.ts";
+import {errorText, inputObject, inputStr, lineCount, metaFor} from "./toolMeta.ts";
 import {useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 
 const MONO = "var(--font-mono, ui-monospace, monospace)";
-
-/** Human title (as a translation key) + icon per known tool; falls back
- *  to a capitalized wrench. */
-const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon}> = {
-    bash: {title: "Shell", icon: SquareTerminal},
-    shell: {title: "Shell", icon: SquareTerminal},
-    power_shell: {title: "Shell", icon: SquareTerminal},
-    edit: {title: "Edit", icon: FilePen},
-    apply_patch: {title: "Edit", icon: FilePen},
-    write: {title: "Write", icon: FilePlus},
-    read: {title: "Read", icon: FolderOpen},
-    grep: {title: "Grep", icon: Search},
-    glob: {title: "Glob", icon: FolderSearch},
-    list: {title: "List", icon: FolderSearch},
-    todowrite: {title: "Todo", icon: ListTodo},
-    todoread: {title: "Todo", icon: ListTodo},
-    webfetch: {title: "Fetch", icon: Globe},
-    websearch: {title: "Search", icon: Globe},
-    // The question tool — the "AI asks the user" surface. Distinct from the
-    // generic wrench so its FoldRow reads as a question, not a tool call.
-    question: {title: "Ask you questions", icon: MessageCircleQuestion},
-    skill: {title: "Skill", icon: Sparkles},
-};
-
-/** Display title for a tool name (used by ActivityGroup's summary too).
- *  Known tools resolve through the active language's dictionary; the
- *  capitalized fallback for unknown tools is the raw name and stays
- *  untranslated (it's a proper noun, not copy). */
-export function toolDisplayName(name: string, t: Record<TranslationKey, string>): string {
-    const meta = TOOL_META[name];
-    return meta ? t[meta.title] : name.charAt(0).toUpperCase() + name.slice(1);
-}
-
-function metaFor(name: string, t: Record<TranslationKey, string>): {title: string; icon: LucideIcon} {
-    const meta = TOOL_META[name];
-    return meta ? {title: t[meta.title], icon: meta.icon} : {title: toolDisplayName(name, t), icon: Wrench};
-}
-
-function inputObject(part: AssistantToolPart): Record<string, unknown> | null {
-    const input = part.state.input;
-    if (input === undefined || input === null) return null;
-    if (typeof input !== "object") return null;
-    return input as Record<string, unknown>;
-}
-
-function inputStr(o: Record<string, unknown>, ...keys: string[]): string | undefined {
-    for (const key of keys) {
-        const v = o[key];
-        if (typeof v === "string" && v) return v;
-    }
-    return undefined;
-}
-
-function lineCount(v: unknown): number | undefined {
-    return typeof v === "string" && v ? v.split("\n").length : undefined;
-}
-
-/** Display form of a file path: relative to the session's working
- *  directory when the target lives inside the project, the absolute
- *  path untouched when it doesn't. Non-absolute inputs (already-relative
- *  paths, URLs, patterns) pass through unchanged. */
-function displayPath(p: string, directory?: string | null): string {
-    if (!directory) return p;
-    const absolute = p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p);
-    if (!absolute) return p;
-    const sep = directory.includes("\\") ? "\\" : "/";
-    const trim = (s: string) => (sep === "/" ? s.replace(/\/+$/, "") : s.replace(/\\+$/, ""));
-    // Trim trailing separators on both sides, keeping a bare "/" root intact.
-    const base = trim(directory) || (sep === "/" ? "/" : "");
-    const target = trim(p);
-    if (target === base) return ".";
-    const prefix = base.endsWith(sep) ? base : base + sep;
-    return target.startsWith(prefix) ? target.slice(prefix.length) : p;
-}
-
-/** Human text of a tool error payload — `{type, message}` objects carry
- *  the reason ("The user dismissed this question", …). */
-export function errorText(error: unknown): string | null {
-    if (error == null) return null;
-    if (typeof error === "object" && error !== null && "message" in error) {
-        const msg = (error as {message?: unknown}).message;
-        if (typeof msg === "string" && msg) return msg;
-    }
-    const s = String(error);
-    return s && s !== "[object Object]" ? s : null;
-}
 
 /** The "+N / −N" diff suffix for file-mutating tools. Rendered through
  *  FoldRow's accent slot — outside the row's dimmed region — so the
@@ -231,7 +135,8 @@ function toolAccent(part: AssistantToolPart): ReactNode {
  * popping output; only errors open themselves so the failure reason stays
  * visible (an explicit user toggle always wins).
  *
- * Memoized — see MessageItem.
+ * Memoized — see MessageItem. Names, icons and input-shape helpers live
+ * in toolMeta.ts; path display in lib/path.ts.
  */
 const ToolCard = memo(function ToolCard({
     part,

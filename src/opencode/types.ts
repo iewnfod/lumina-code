@@ -92,6 +92,16 @@ export interface OpencodeCommand {
     template: string;
 }
 
+/** A slash-command submission in flight: the compact `/name args` form
+ *  the composer parsed. The server stores (and enqueues) the EXPANDED
+ *  template, so the compact form rides alongside via the pending-command
+ *  registry (opencode/pendingCommands.ts) and is stamped onto the user
+ *  message for display. */
+export interface PendingCommand {
+    name: string;
+    arguments: string;
+}
+
 /** A pending permission request (`permission.asked` payload shape —
  *  verified against server v2.0.11: the event carries the v1 NAME with
  *  the v2 `action`/`resources` payload; the SDK's `permission.v2.asked`

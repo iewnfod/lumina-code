@@ -1,6 +1,5 @@
 import type {CSSProperties} from "react";
-import {LucideMaximize, LucideMinimize, LucideMinus, LucideX, Pin, PinOff, Search, Settings} from "lucide-react";
-import {getCurrentWindow} from "@tauri-apps/api/window";
+import {Pin, PinOff, Search, Settings} from "lucide-react";
 import {Tooltip} from "@heroui/react";
 import type {ChromeTheme} from "../lib/theme.ts";
 import {isMacOS} from "../lib/platform.ts";
@@ -10,102 +9,20 @@ import {useAlwaysOnTop} from "../hooks/useAlwaysOnTop.ts";
 import {useIsWayland} from "../hooks/useIsWayland.ts";
 import {useI18n, setLanguage, currentLanguage, type Language} from "../hooks/i18n.tsx";
 import {glassSurface} from "../lib/glass.ts";
-import { info, error } from "@tauri-apps/plugin-log";
+import { info } from "@tauri-apps/plugin-log";
 import type {SurfaceColors} from "../hooks/surfaceColors.ts";
 import IconButton from "./ui/IconButton.tsx";
 import PopoverMenu, {MenuItem, MenuLabel} from "./ui/PopoverMenu.tsx";
 import RollingTitle from "./ui/RollingTitle.tsx";
+import WindowControl from "./ui/WindowControls.tsx";
 import {CHROME_TITLE_BAR_HEIGHT} from "../constants.ts";
 
 /**
  * Window title bar. Ported from lumina-terminal's TitleBar (the only change:
  * the theme prop is typed as the minimal ChromeTheme instead of xterm's
  * ITheme). Layout, glass material, button order and sizing are identical.
+ * The window controls themselves live in ui/WindowControls.tsx.
  */
-
-interface WindowControlProps {
-    size: number;
-    isMaximized: boolean;
-    hoverOverlay: string;
-    activeOverlay: string;
-    /** Brand-tinted wash for the close button on hover. */
-    closeHover: string;
-    fg: string;
-}
-
-function WindowControl({size, isMaximized, hoverOverlay, activeOverlay, closeHover, fg}: WindowControlProps) {
-    const handleMinimize = () => {
-        info("Window minimized");
-        getCurrentWindow().minimize().catch((e) => {
-            error(`Failed to minimize window: ${e}`).catch(() => {});
-        });
-    }
-
-    const handleMaximize = () => {
-        info("Window maximized");
-        getCurrentWindow().maximize().catch((e) => {
-            error(`Failed to maximize window: ${e}`).catch(() => {});
-        });
-    }
-
-    const handleUnmaximize = () => {
-        info("Window unmaximized");
-        getCurrentWindow().unmaximize().catch((e) => {
-            error(`Failed to unmaximize window: ${e}`).catch(() => {});
-        });
-    }
-
-    const handleClose = () => {
-        info("Window close requested");
-        getCurrentWindow().close().catch((e) => {
-            error(`Failed to close window: ${e}`).catch(() => {});
-        });
-    }
-
-    return (
-        <div className="flex flex-row justify-end items-center" style={{height: size}}>
-            <IconButton
-                size={size}
-                hoverOverlay={hoverOverlay}
-                activeOverlay={activeOverlay}
-                style={{color: fg, borderRadius: 0}}
-                onClick={handleMinimize}
-            >
-                <LucideMinus size={16}/>
-            </IconButton>
-            {isMaximized ? (
-                <IconButton
-                    size={size}
-                    hoverOverlay={hoverOverlay}
-                    activeOverlay={activeOverlay}
-                    style={{color: fg, borderRadius: 0}}
-                    onClick={handleUnmaximize}
-                >
-                    <LucideMinimize size={16}/>
-                </IconButton>
-            ) : (
-                <IconButton
-                    size={size}
-                    hoverOverlay={hoverOverlay}
-                    activeOverlay={activeOverlay}
-                    style={{color: fg, borderRadius: 0}}
-                    onClick={handleMaximize}
-                >
-                    <LucideMaximize size={16}/>
-                </IconButton>
-            )}
-            <IconButton
-                size={size}
-                hoverOverlay={closeHover}
-                activeOverlay={closeHover}
-                style={{color: fg, borderRadius: 0}}
-                onClick={handleClose}
-            >
-                <LucideX size={16}/>
-            </IconButton>
-        </div>
-    );
-}
 
 interface PinButtonProps {
     size: number;

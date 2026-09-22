@@ -94,6 +94,15 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Cache hit rate": "缓存命中率",
     "Session total": "会话累计",
     "Cost": "费用",
+    // --- Transcript chrome ---
+    "Untitled": "无标题",
+    "Loading earlier messages…": "正在加载更早的消息…",
+    "Scroll to load earlier messages": "滚动以加载更早的消息",
+    "Waiting for OpenCode…": "等待 OpenCode…",
+    "Send a message to start": "发送消息开始对话",
+    "Delete session": "删除会话",
+    "Yes": "是",
+    "No": "否",
 };
 
 export default zhCn;

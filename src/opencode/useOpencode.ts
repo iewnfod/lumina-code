@@ -2,7 +2,8 @@ import {useCallback, useEffect, useRef, useState} from "react";
 import {invoke} from "@tauri-apps/api/core";
 import {listen} from "@tauri-apps/api/event";
 import {error, info} from "@tauri-apps/plugin-log";
-import {OpencodeApi, streamServerEvents, type OpencodeEvent} from "./api.ts";
+import {OpencodeApi} from "./api.ts";
+import {streamServerEvents, type OpencodeEvent} from "./eventStream.ts";
 
 /**
  * The OpenCode connection layer.

@@ -92,6 +92,15 @@ const enUs = {
     "Cache hit rate": "Cache hit rate",
     "Session total": "Session total",
     "Cost": "Cost",
+    // --- Transcript chrome ---
+    "Untitled": "Untitled",
+    "Loading earlier messages…": "Loading earlier messages…",
+    "Scroll to load earlier messages": "Scroll to load earlier messages",
+    "Waiting for OpenCode…": "Waiting for OpenCode…",
+    "Send a message to start": "Send a message to start",
+    "Delete session": "Delete session",
+    "Yes": "Yes",
+    "No": "No",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;
