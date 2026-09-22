@@ -1,0 +1,179 @@
+import {test} from "node:test";
+import assert from "node:assert/strict";
+import {applyEvent, applyOlderPage, applySeedPage} from "./messageStore.ts";
+import type {OpencodeEvent} from "./api.ts";
+import type {MessagesPage} from "./api.ts";
+import type {ChatAssistantMessage, ChatMessage} from "./types.ts";
+
+/**
+ * Pure-logic tests for the per-session message store: the event reducer
+ * and the server-page merges. The headline regression: reasoning streamed
+ * before a tab switch must survive the switch-back reconcile (the server
+ * snapshot carries "" for a mid-flight part) plus the deltas that arrived
+ * while the session was backgrounded — without waiting for
+ * session.reasoning.ended.
+ */
+
+const SID = "ses_test";
+const MID = "msg_asst_1";
+
+function ev(type: string, data: Record<string, unknown>): OpencodeEvent {
+    return {type, data: {sessionID: SID, ...data}};
+}
+
+function stepStarted(): OpencodeEvent {
+    return ev("session.step.started", {assistantMessageID: MID, agent: "build", model: {id: "m"}});
+}
+function reasoningStarted(ordinal = 0): OpencodeEvent {
+    return ev("session.reasoning.started", {assistantMessageID: MID, ordinal});
+}
+function reasoningDelta(delta: string, ordinal = 0): OpencodeEvent {
+    return ev("session.reasoning.delta", {assistantMessageID: MID, ordinal, delta});
+}
+function reasoningEnded(text: string, ordinal = 0): OpencodeEvent {
+    return ev("session.reasoning.ended", {assistantMessageID: MID, ordinal, text});
+}
+
+function asst(list: ChatMessage[]): ChatAssistantMessage {
+    const m = list.find((x) => x.type === "assistant");
+    assert.ok(m, "assistant message missing");
+    return m as ChatAssistantMessage;
+}
+
+function reasoningText(list: ChatMessage[], ordinal = 0): string {
+    let seen = -1;
+    for (const part of asst(list).content) {
+        if (part.type === "reasoning") {
+            seen += 1;
+            if (seen === ordinal) return part.text;
+        }
+    }
+    return "";
+}
+
+/** Server page as captured MID-RUN: the persisted reasoning part exists
+ *  but its text is "" until session.reasoning.ended lands (verified
+ *  against opencode v2.0.11 message-updater.ts: deltas are never
+ *  persisted). */
+function midRunPage(...userTexts: string[]): MessagesPage {
+    return {
+        data: [
+            ...(userTexts.map((text, i) => ({id: `msg_user_${i}`, type: "user", text}))),
+            {
+                id: MID,
+                type: "assistant",
+                content: [{type: "reasoning", text: ""}],
+                time: {created: 1},
+            },
+        ].reverse(), // endpoint order: desc, newest first
+        cursor: undefined,
+    };
+}
+
+test("switch-back keeps streamed reasoning: seed merge + away deltas, before ended", () => {
+    // Phase 1 — watch the think block stream on the active tab.
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, reasoningStarted());
+    list = applyEvent(list, reasoningDelta("Let me "));
+    list = applyEvent(list, reasoningDelta("consider "));
+
+    // Phase 2 — switch back later: reconcile against the server snapshot
+    // (in-flight part reads "") while MORE deltas arrived in the
+    // background between switch-away and switch-back.
+    const seeded = applySeedPage(list, midRunPage("question"));
+    assert.equal(
+        reasoningText(seeded.messages),
+        "Let me consider ",
+        "seed merge must keep locally streamed text over the server's empty snapshot",
+    );
+
+    const afterAway = applyEvent(seeded.messages, reasoningDelta("the options."));
+    assert.equal(afterAway.length, 2, "user bubble from page + assistant");
+    assert.equal(reasoningText(afterAway), "Let me consider the options.");
+});
+
+test("reasoning.ended still settles the full text", () => {
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, reasoningStarted());
+    list = applyEvent(list, reasoningDelta("partial"));
+    list = applyEvent(list, reasoningEnded("the complete thought"));
+    assert.equal(reasoningText(list), "the complete thought");
+});
+
+test("delta without started re-attaches a part (event-stream gap)", () => {
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, reasoningDelta("resumed"));
+    assert.equal(reasoningText(list), "resumed");
+});
+
+test("content events without step.started re-attach the message shell", () => {
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, reasoningDelta("orphan"));
+    assert.equal(reasoningText(list), "orphan");
+});
+
+test("seed keeps a local optimistic user bubble the page doesn't know yet", () => {
+    let list: ChatMessage[] = [
+        {id: "local-123", type: "user", text: "hello"},
+    ];
+    const seeded = applySeedPage(list, midRunPage());
+    assert.deepEqual(
+        seeded.messages.map((m) => m.id),
+        [MID, "local-123"],
+        "page messages first, locally-held unknown messages appended",
+    );
+});
+
+test("seed merge prefers the more advanced tool state from either side", () => {
+    // Local: tool completed via events (server snapshot predates it).
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_1", name: "bash"}));
+    list = applyEvent(list, ev("session.tool.called", {assistantMessageID: MID, id: "tool_1", input: {cmd: "ls"}}));
+    list = applyEvent(list, ev("session.tool.success", {assistantMessageID: MID, id: "tool_1", content: [{type: "text", text: "ok"}]}));
+
+    // Server page still shows the part as pending/absent — its copy must
+    // not regress the locally observed completion.
+    const page: MessagesPage = {
+        data: [{
+            id: MID,
+            type: "assistant",
+            content: [{type: "reasoning", text: ""}],
+        }],
+    };
+    const seeded = applySeedPage(list, page);
+    const tool = asst(seeded.messages).content.find((p) => p.type === "tool");
+    assert.ok(tool && tool.type === "tool");
+    assert.equal(tool.state.status, "completed");
+    assert.deepEqual(tool.state.content, [{type: "text", text: "ok"}]);
+});
+
+test("applyOlderPage prepends unseen history and updates the cursor", () => {
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    const older: MessagesPage = {
+        data: [{id: "msg_u0", type: "user", text: "old"}], // desc order
+        cursor: {next: "cursor-2"},
+    };
+    const merged = applyOlderPage(list, older);
+    assert.deepEqual(merged.messages.map((m) => m.id), ["msg_u0", MID]);
+    assert.equal(merged.cursor, "cursor-2");
+    // Re-applying the same page must not duplicate.
+    const again = applyOlderPage(merged.messages, older);
+    assert.deepEqual(again.messages.map((m) => m.id), ["msg_u0", MID]);
+});
+
+test("text parts stream and settle alongside reasoning", () => {
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, reasoningStarted(0));
+    list = applyEvent(list, reasoningEnded("thought", 0));
+    list = applyEvent(list, ev("session.text.started", {assistantMessageID: MID, ordinal: 0}));
+    list = applyEvent(list, ev("session.text.delta", {assistantMessageID: MID, ordinal: 0, delta: "Answ"}));
+    list = applyEvent(list, ev("session.text.delta", {assistantMessageID: MID, ordinal: 0, delta: "er."}));
+    const textPart = asst(list).content.find((p) => p.type === "text") as {text: string} | undefined;
+    assert.equal(textPart?.text, "Answer.");
+});

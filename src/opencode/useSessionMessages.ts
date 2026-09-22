@@ -1,34 +1,84 @@
 import {useCallback, useEffect, useRef, useState} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import {OpencodeApi} from "./api.ts";
+import {applyEvent, applyOlderPage, applySeedPage} from "./messageStore.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
-import {
-    isAssistantMessage,
-    type AssistantPart,
-    type AssistantToolPart,
-    type ChatAssistantMessage,
-    type ChatMessage,
-    type ChatUserMessage,
-    type ComposerAttachment,
-    type ComposerFileRef,
-    type EventMap,
+import type {
+    ChatMessage,
+    ChatUserMessage,
+    ComposerAttachment,
+    ComposerFileRef,
 } from "./types.ts";
 
 /**
- * Messages of ONE session, live — built for long transcripts:
+ * Messages of ONE session, live — the React binding over a module-level
+ * store that keeps one list per session.
  *
- * - Seeded with the NEWEST page (`order=desc`, then reversed) — loading the
- *   oldest-first page would show stale history on long sessions.
- * - Older pages stream in on demand (`loadOlder`, cursor-based; cursor
- *   requests must not carry `order`).
- * - Event-bus updates are applied to a ref and flushed on an animation
- *   frame, so a burst of text.delta frames renders once, not N times.
- * - Clone-on-write updates keep untouched message identities stable, which
- *   is what lets ChatView's memoized rows skip re-render.
+ * The store outlives ChatView unmounts on purpose: streamed reasoning /
+ * text deltas exist ONLY on the event bus (the opencode server persists
+ * a part when it ends, carrying "" until then — see messageStore.ts), so
+ * a session switched away from must keep accumulating frames in the
+ * background. Switching back renders the kept list instantly and
+ * reconciles with the newest server page via a merge that never
+ * truncates streamed content.
  *
- * Events for other sessions are ignored; switching re-seeds from the server,
- * which stays the source of truth.
+ * Older pages stream in on demand (`loadOlder`, cursor-based); event-bus
+ * updates apply clone-on-write so untouched message identities stay
+ * stable, which is what lets ChatView's memoized rows skip re-render.
  */
+
+interface SessionEntry {
+    messages: ChatMessage[];
+    /** Cursor toward the next-older page (desc-sequence `cursor.next`). */
+    cursor: string | null;
+    /** The newest page has landed at least once. */
+    seeded: boolean;
+    /** Guards in-flight page requests: only the latest one applies. */
+    seq: number;
+}
+
+/** Per-session store; survives session switches and webview reloads of
+ *  the conversation view. Entries drop on `session.deleted`. */
+const entries = new Map<string, SessionEntry>();
+const listeners = new Set<(sessionId: string) => void>();
+
+function entryOf(sessionId: string): SessionEntry {
+    let entry = entries.get(sessionId);
+    if (!entry) {
+        entry = {messages: [], cursor: null, seeded: false, seq: 0};
+        entries.set(sessionId, entry);
+    }
+    return entry;
+}
+
+function notify(sessionId: string) {
+    for (const listener of listeners) listener(sessionId);
+}
+
+/** The single bus handler, installed once per app run (`subscribe` is
+ *  stable). Applies events to EVERY tracked session — including ones
+ *  backgrounded behind another tab, whose deltas would otherwise be lost
+ *  for good. */
+let busUnsubscribe: (() => void) | null = null;
+function ensureBus(subscribe: (handler: OpencodeEventHandler) => () => void) {
+    if (busUnsubscribe) return;
+    busUnsubscribe = subscribe((event) => {
+        const sid = (event.data as {sessionID?: string} | null)?.sessionID;
+        if (!sid) return;
+        if (event.type === "session.deleted") {
+            if (entries.delete(sid)) notify(sid);
+            return;
+        }
+        const entry = entries.get(sid);
+        if (!entry) return; // never opened here — nothing to keep live
+        const next = applyEvent(entry.messages, event);
+        if (next !== entry.messages) {
+            entry.messages = next;
+            notify(sid);
+        }
+    });
+}
+
 export function useSessionMessages(
     api: OpencodeApi | null,
     subscribe: (handler: OpencodeEventHandler) => () => void,
@@ -55,58 +105,65 @@ export function useSessionMessages(
     apiRef.current = api;
     const sessionRef = useRef(sessionId);
     sessionRef.current = sessionId;
-    // Ref-mirror of `messages`; events mutate it, rAF publishes it.
-    const messagesRef = useRef<ChatMessage[]>([]);
-    const flushScheduled = useRef(false);
-    // Cursor toward the next-older page (desc-sequence `cursor.next`).
-    const olderCursorRef = useRef<string | null>(null);
-    // Generation guard: ignore async results from a previous session load.
-    const loadGen = useRef(0);
 
-    /** Publish ref state to React, coalescing bursts into one frame. */
-    function commit(immediate = false) {
-        if (immediate) {
-            flushScheduled.current = false;
-            setMessages(messagesRef.current);
-            return;
-        }
+    /** Publish the active entry to React, coalescing bursts (streaming
+     *  delta frames) into one animation frame. Reads the store at flush
+     *  time, so frames absorbed meanwhile are included. */
+    const flushScheduled = useRef(false);
+    function scheduleFlush() {
         if (flushScheduled.current) return;
         flushScheduled.current = true;
         requestAnimationFrame(() => {
             flushScheduled.current = false;
-            setMessages(messagesRef.current);
+            const sid = sessionRef.current;
+            const entry = sid !== null ? entries.get(sid) : undefined;
+            if (!entry) {
+                setMessages([]);
+                setHasMore(false);
+                return;
+            }
+            setMessages(entry.messages);
+            setHasMore(entry.seeded && entry.cursor !== null);
         });
     }
 
-    /** Apply a clone-on-write transformation then schedule a publish. */
-    function mutate(fn: (list: ChatMessage[]) => ChatMessage[], immediate = false) {
-        messagesRef.current = fn(messagesRef.current);
-        commit(immediate);
-    }
-
-    // Seed on connect / session switch: newest page, reversed to ascending.
     useEffect(() => {
-        const gen = ++loadGen.current;
-        messagesRef.current = [];
-        olderCursorRef.current = null;
-        setMessages([]);
-        setHasMore(false);
+        ensureBus(subscribe);
+    }, [subscribe]);
+
+    // Render the active session's entry and follow its changes. A
+    // returning session paints from the store immediately — its in-flight
+    // content included, before any server round-trip.
+    useEffect(() => {
+        if (sessionId === null) return;
+        entryOf(sessionId);
+        scheduleFlush();
+        const listener = (sid: string) => {
+            if (sid === sessionId) scheduleFlush();
+        };
+        listeners.add(listener);
+        return () => {
+            listeners.delete(listener);
+        };
+    }, [sessionId]);
+
+    // First activation seeds from the server (newest page); later
+    // activations reconcile against it — applySeedPage merges, so
+    // content streamed past the snapshot survives while anything the
+    // store missed (e.g. across an event-stream gap) is adopted.
+    useEffect(() => {
         if (!api || !sessionId) return;
+        const entry = entryOf(sessionId);
+        const seq = ++entry.seq;
         api.listMessagesPage(sessionId).then((page) => {
-            if (gen !== loadGen.current) return; // switched away meanwhile
-            const ascending = (page?.data ?? []).slice().reverse();
-            olderCursorRef.current = page?.cursor?.next ?? null;
-            setHasMore(olderCursorRef.current !== null);
-            // Merge race guard: a user message may have been admitted (event
-            // bus) while this request was in flight — the page snapshot predates
-            // it, so a blind overwrite would drop the bubble. Re-append any
-            // locally held message the page doesn't know about.
-            const pageIds = new Set(ascending.map((m) => m.id));
-            const newer = messagesRef.current.filter((m) => !pageIds.has(m.id));
-            messagesRef.current = newer.length > 0 ? [...ascending, ...newer] : ascending;
-            setMessages(messagesRef.current);
+            if (seq !== entry.seq) return; // superseded by a newer request
+            const merged = applySeedPage(entry.messages, page);
+            entry.messages = merged.messages;
+            entry.cursor = merged.cursor;
+            entry.seeded = true;
+            notify(sessionId);
         }).catch((e) => {
-            if (gen !== loadGen.current) return;
+            if (seq !== entry.seq) return;
             logError(`Failed to load messages for ${sessionId}: ${e}`).catch(() => {});
         });
     }, [api, sessionId]);
@@ -115,284 +172,20 @@ export function useSessionMessages(
     const loadOlder = useCallback(() => {
         const a = apiRef.current;
         const sid = sessionRef.current;
-        const cursor = olderCursorRef.current;
-        if (!a || !sid || !cursor) return;
+        const entry = sid !== null ? entries.get(sid) : undefined;
+        if (!a || !sid || !entry || entry.cursor === null) return;
         setLoadingOlder(true);
-        a.listMessagesPage(sid, cursor).then((page) => {
-            olderCursorRef.current = page?.cursor?.next ?? null;
-            setHasMore(olderCursorRef.current !== null);
-            const older = (page?.data ?? []).slice().reverse();
-            if (older.length > 0) {
-                // Skip any ids we already hold (defensive against races).
-                const held = new Set(messagesRef.current.map((m) => m.id));
-                const fresh = older.filter((m) => !held.has(m.id));
-                messagesRef.current = [...fresh, ...messagesRef.current];
-                setMessages(messagesRef.current);
-            }
+        a.listMessagesPage(sid, entry.cursor).then((page) => {
+            const merged = applyOlderPage(entry.messages, page);
+            entry.messages = merged.messages;
+            entry.cursor = merged.cursor;
+            notify(sid);
         }).catch((e) => {
             logError(`Failed to load older messages: ${e}`).catch(() => {});
         }).finally(() => {
             setLoadingOlder(false);
         });
     }, []);
-
-    // Live event pipeline for the active session.
-    useEffect(() => {
-        return subscribe((event) => {
-            const sid = sessionRef.current;
-            if (!sid) return;
-            const data = event.data as {sessionID?: string} | null;
-            if (!data || data.sessionID !== sid) return;
-
-            switch (event.type) {
-                case "session.inbox.enqueued": {
-                    const {inboxID, item} = data as EventMap["session.inbox.enqueued"];
-                    if (item?.type !== "user") return;
-                    const text = item.payload?.text ?? "";
-                    const files = item.payload?.files;
-                    mutate((prev) => {
-                        // Already held (seed race or another handler pass)?
-                        if (prev.some((m) => m.id === inboxID)) return prev;
-                        // Adopt the optimistic bubble this client appended
-                        // in send() (swap in the server id)…
-                        const last = prev[prev.length - 1];
-                        if (
-                            last && last.type === "user" &&
-                            last.id.startsWith("local-") && last.text === text
-                        ) {
-                            return [...prev.slice(0, -1), {id: inboxID, type: "user", text, files}];
-                        }
-                        // …or append when the prompt came from another client.
-                        return [...prev, {id: inboxID, type: "user", text, files}];
-                    }, true);
-                    break;
-                }
-                case "session.step.started": {
-                    const d = data as EventMap["session.step.started"];
-                    mutate((prev) =>
-                        prev.some((m) => m.id === d.assistantMessageID)
-                            ? prev
-                            : [
-                                ...prev,
-                                {
-                                    id: d.assistantMessageID,
-                                    type: "assistant",
-                                    agent: d.agent,
-                                    model: d.model,
-                                    content: [],
-                                    time: {created: d.started},
-                                } satisfies ChatAssistantMessage,
-                            ],
-                    );
-                    break;
-                }
-                case "session.reasoning.started": {
-                    const d = data as EventMap["session.reasoning.started"];
-                    appendStreamPart(d.assistantMessageID, d.ordinal, "reasoning");
-                    break;
-                }
-                case "session.reasoning.delta": {
-                    const d = data as EventMap["session.reasoning.delta"];
-                    appendStreamDelta(d.assistantMessageID, d.ordinal, "reasoning", d.delta);
-                    break;
-                }
-                case "session.reasoning.ended": {
-                    const d = data as EventMap["session.reasoning.ended"];
-                    settleStreamPart(d.assistantMessageID, d.ordinal, "reasoning", d.text);
-                    break;
-                }
-                case "session.text.started": {
-                    const d = data as EventMap["session.text.started"];
-                    appendStreamPart(d.assistantMessageID, d.ordinal, "text");
-                    break;
-                }
-                case "session.text.delta": {
-                    const d = data as EventMap["session.text.delta"];
-                    appendStreamDelta(d.assistantMessageID, d.ordinal, "text", d.delta);
-                    break;
-                }
-                case "session.text.ended": {
-                    const d = data as EventMap["session.text.ended"];
-                    settleStreamPart(d.assistantMessageID, d.ordinal, "text", d.text);
-                    break;
-                }
-                case "session.tool.input.started": {
-                    const d = data as EventMap["session.tool.input.started"];
-                    mutateAssistant(d.assistantMessageID, (m) => {
-                        m.content = [
-                            ...m.content,
-                            {
-                                type: "tool",
-                                id: d.id,
-                                name: d.name,
-                                state: {status: "pending"},
-                            } satisfies AssistantToolPart,
-                        ];
-                    }, true);
-                    break;
-                }
-                case "session.tool.called": {
-                    const d = data as EventMap["session.tool.called"];
-                    mutateTool(d.assistantMessageID, d.id, (t) => {
-                        t.state = {status: "running", input: d.input};
-                    });
-                    break;
-                }
-                case "session.tool.progress":
-                    // Output streams via progress frames; the full content
-                    // arrives with tool.success — nothing to do here yet.
-                    break;
-                case "session.tool.success": {
-                    const d = data as EventMap["session.tool.success"];
-                    mutateTool(d.assistantMessageID, d.id, (t) => {
-                        t.state = {
-                            status: "completed",
-                            input: t.state.input,
-                            content: d.content,
-                            metadata: d.metadata,
-                        };
-                    });
-                    break;
-                }
-                case "session.tool.error":
-                case "session.tool.failed": {
-                    // v2.0.11 emits "failed"; "error" kept for older
-                    // builds — identical payload.
-                    const d = data as EventMap["session.tool.failed"];
-                    mutateTool(d.assistantMessageID, d.id, (t) => {
-                        t.state = {status: "error", input: t.state.input, error: d.error};
-                    });
-                    break;
-                }
-                case "session.step.failed": {
-                    const d = data as EventMap["session.step.failed"];
-                    mutateAssistant(d.assistantMessageID, (m) => {
-                        m.error = d.error;
-                        m.time = {...m.time, completed: Date.now()};
-                    });
-                    break;
-                }
-                case "session.step.ended": {
-                    const d = data as EventMap["session.step.ended"];
-                    mutateAssistant(d.assistantMessageID, (m) => {
-                        m.finish = d.finish;
-                        m.time = {...m.time, completed: Date.now()};
-                    });
-                    break;
-                }
-            }
-        });
-    }, [subscribe]);
-
-    // --- Streamed-part plumbing (reasoning and text share the mechanics;
-    //     `ordinal` indexes parts of the same kind). ---
-
-    function appendStreamPart(
-        messageId: string,
-        ordinal: number,
-        kind: "text" | "reasoning",
-    ) {
-        mutateAssistant(messageId, (m) => {
-            if (nthPart(m, kind, ordinal)) return;
-            const part: AssistantPart = kind === "text"
-                ? {type: "text", text: ""}
-                : {type: "reasoning", text: ""};
-            m.content = [...m.content, part];
-        }, true);
-    }
-
-    function appendStreamDelta(
-        messageId: string,
-        ordinal: number,
-        kind: "text" | "reasoning",
-        delta: string,
-    ) {
-        mutateAssistant(messageId, (m) => {
-            const part = nthPart(m, kind, ordinal);
-            if (part) part.text = part.text + delta;
-            else {
-                const fresh: AssistantPart = kind === "text"
-                    ? {type: "text", text: delta}
-                    : {type: "reasoning", text: delta};
-                m.content = [...m.content, fresh];
-            }
-        }, true);
-    }
-
-    function settleStreamPart(
-        messageId: string,
-        ordinal: number,
-        kind: "text" | "reasoning",
-        text: string,
-    ) {
-        mutateAssistant(messageId, (m) => {
-            const part = nthPart(m, kind, ordinal);
-            if (part) part.text = text;
-        }, true);
-    }
-
-    /** The nth part of a given kind (stream `ordinal`s are per-kind). */
-    function nthPart(
-        m: ChatAssistantMessage,
-        kind: "text" | "reasoning",
-        ordinal: number,
-    ): {text: string} | undefined {
-        let seen = -1;
-        for (const part of m.content) {
-            if (part.type === kind) {
-                seen += 1;
-                if (seen === ordinal) return part;
-            }
-        }
-        return undefined;
-    }
-
-    // --- Immutable-state helpers. Each produces new arrays/objects so React
-    //     re-renders while untouched messages keep their identity (memo). ---
-
-    function mutateAssistant(id: string, fn: (draft: ChatAssistantMessage) => void, ensure = false) {
-        mutate((prev) => {
-            // Re-attach: a content event may reference a message whose
-            // step.started predated this mount or an event-stream gap
-            // (webview reload / reconnect while the run continued
-            // server-side) — create the shell on demand so streaming
-            // resumes instead of silently dropping the frames.
-            if (ensure && !prev.some((m) => isAssistantMessage(m) && m.id === id)) {
-                const draft: ChatAssistantMessage = {
-                    id,
-                    type: "assistant",
-                    content: [],
-                    time: {created: Date.now()},
-                };
-                fn(draft);
-                return [...prev, draft];
-            }
-            let changed = false;
-            const next = prev.map((m) => {
-                if (!isAssistantMessage(m) || m.id !== id) return m;
-                const draft: ChatAssistantMessage = {
-                    ...m,
-                    content: [...m.content],
-                    time: {...(m.time ?? {})},
-                };
-                fn(draft);
-                changed = true;
-                return draft;
-            });
-            return changed ? next : prev;
-        });
-    }
-
-    function mutateTool(messageId: string, toolId: string, fn: (draft: AssistantToolPart) => void) {
-        mutateAssistant(messageId, (m) => {
-            m.content = m.content.map((p) => {
-                if (p.type !== "tool" || p.id !== toolId) return p;
-                const draft: AssistantToolPart = {...p, state: {...p.state}, time: {...p.time}};
-                fn(draft);
-                return draft;
-            });
-        }, true);
-    }
 
     // --- Actions ---
 
@@ -411,7 +204,7 @@ export function useSessionMessages(
             ...(fileRefs ?? []).map((r) => OpencodeApi.fileRefToPromptFile(r)),
         ];
         // Optimistic user bubble; the prompt response + inbox.enqueued event
-        // confirm it with the real id (see the inbox handler above).
+        // confirm it with the real id (applyEvent adopts it in messageStore).
         const optimistic: ChatUserMessage = {
             id: `local-${Date.now()}`,
             type: "user",
@@ -421,8 +214,11 @@ export function useSessionMessages(
                 ...(fileRefs ?? []).map((r) => ({name: r.path.split("/").pop() ?? r.path})),
             ],
         };
-        messagesRef.current = [...messagesRef.current, optimistic];
-        commit(true);
+        const entry = entries.get(sid);
+        if (entry) {
+            entry.messages = [...entry.messages, optimistic];
+            notify(sid);
+        }
         try {
             if (command) {
                 await a.runSessionCommand(sid, command.name, command.arguments);
@@ -432,8 +228,11 @@ export function useSessionMessages(
         } catch (e) {
             logError(`Failed to send prompt: ${e}`).catch(() => {});
             // Drop the optimistic bubble so the failure is visible.
-            messagesRef.current = messagesRef.current.filter((m) => m.id !== optimistic.id);
-            commit(true);
+            const current = entries.get(sid);
+            if (current) {
+                current.messages = current.messages.filter((m) => m.id !== optimistic.id);
+                notify(sid);
+            }
         }
     }, []);
 
