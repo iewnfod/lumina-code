@@ -100,7 +100,7 @@ export default function SettingsModal({
                         >
                             {tab === "general" && <GeneralSettings colors={colors}/>}
                             {tab === "model" && <ModelSettings api={api} colors={colors}/>}
-                            {tab === "about" && <AboutSettings colors={colors} serverVersion={serverVersion}/>}
+                            {tab === "about" && <AboutSettings serverVersion={serverVersion}/>}
                         </motion.div>
                     </AnimatePresence>
                 </div>

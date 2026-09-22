@@ -335,10 +335,14 @@ src/
     │                      #   custom OpenAI-compatible providers written to
     │                      #   the global opencode.json (server hot-reloads →
     │                      #   config.updated event).
-    ├── AboutSettings.tsx # App/server/dependency version rows (getVersion +
-    │                      #   the connection's server version + package.json).
+    ├── AboutSettings.tsx # About pane: centered identity hero (icon +
+    │                      #   name + app version via getVersion), the
+    │                      #   OpenCode server version as a key/value line,
+    │                      #   and dependencies as a two-column grid —
+    │                      #   whitespace-separated, no hairline rows.
     ├── SettingRow.tsx    # Settings row primitive (ported from
-    │                      #   lumina-terminal, reduced to control/info).
+    │                      #   lumina-terminal, reduced to the control row;
+    │                      #   the About pane renders its own fact lines).
     ├── Switch.tsx        # The settings pill switch (extracted from
     │                      #   ModelSettings when General needed one too).
     ├── TextInput.tsx     # The settings boxed text input (same extraction).

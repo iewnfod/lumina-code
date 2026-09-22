@@ -95,8 +95,7 @@ const enUs = {
     "Increase font size": "Increase font size",
     "Default": "Default",
     "Reset to default": "Reset to default",
-    "Lumina Code version": "Lumina Code version",
-    "OpenCode server": "OpenCode server",
+    "OpenCode": "OpenCode",
     "Not connected": "Not connected",
     "Dependencies": "Dependencies",
     // --- Session usage ring ---

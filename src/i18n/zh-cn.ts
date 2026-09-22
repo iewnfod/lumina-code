@@ -97,8 +97,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Increase font size": "增大字号",
     "Default": "默认",
     "Reset to default": "恢复默认",
-    "Lumina Code version": "Lumina Code 版本",
-    "OpenCode server": "OpenCode 服务器",
+    "OpenCode": "OpenCode",
     "Not connected": "未连接",
     "Dependencies": "依赖",
     // --- Session usage ring ---
