@@ -37,6 +37,7 @@ export default function FoldRow({
     accent,
     expanded,
     onToggle,
+    active = false,
     children,
 }: {
     icon: ReactNode;
@@ -47,6 +48,9 @@ export default function FoldRow({
     accent?: ReactNode;
     expanded: boolean;
     onToggle: () => void;
+    /** The row's task is in progress — raise the rest-state opacity
+     *  (80 instead of 50) so live work reads at a glance. */
+    active?: boolean;
     children?: ReactNode;
 }) {
     return (
@@ -56,7 +60,11 @@ export default function FoldRow({
                 className="group/row flex items-center gap-2 w-full text-left cursor-pointer py-0.5 rounded-[var(--radius-xs)]"
                 onClick={onToggle}
             >
-                <span className="flex items-center gap-2 min-w-0 opacity-50 group-hover/row:opacity-100 transition-opacity duration-[var(--duration-fast)] transform-gpu">
+                <span
+                    className={`flex items-center gap-2 min-w-0 transition-opacity duration-[var(--duration-fast)] transform-gpu ${
+                        active ? "opacity-80" : "opacity-50"
+                    } group-hover/row:opacity-100`}
+                >
                     <span className="shrink-0 flex items-center">{icon}</span>
                     <span className="shrink-0">{title}</span>
                     {detail != null && (

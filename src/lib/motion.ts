@@ -87,6 +87,28 @@ export const fadeIn: Variants = {
     exit: {opacity: 0, transition: {duration: durationFast, ease: easeGlass}},
 };
 
+/** Drum-roll swap — title-bar text. The old title rolls up over the drum's
+ *  top horizon while the new one rolls in from beneath the bottom. Enter and
+ *  exit share identical timing so both spans turn as one rigid cylinder.
+ *  Pair with `transformPerspective` in the element's style for the
+ *  cylindrical depth cue, and clip at the bar's edges (overflow-hidden) so
+ *  text vanishes over the horizon instead of escaping the bar. */
+export const titleRoll: Variants = {
+    hidden: {opacity: 0, y: "100%", rotateX: -60},
+    show: {
+        opacity: 1,
+        y: 0,
+        rotateX: 0,
+        transition: {duration: 0.35, ease: easeSpring},
+    },
+    exit: {
+        opacity: 0,
+        y: "-100%",
+        rotateX: 60,
+        transition: {duration: 0.35, ease: easeSpring},
+    },
+};
+
 /**
  * Hover/tap micro-interactions for an interactive element. Apply to a
  * `motion.button`/`motion.div` via `whileHover`/`whileTap` — no variants

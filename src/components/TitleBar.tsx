@@ -12,7 +12,7 @@ import {useI18n, setLanguage, currentLanguage, type Language} from "../hooks/i18
 import {glassSurface} from "../lib/glass.ts";
 import { info, error } from "@tauri-apps/plugin-log";
 import {AnimatePresence, motion} from "framer-motion";
-import {fadeIn} from "../lib/motion.ts";
+import {titleRoll} from "../lib/motion.ts";
 import type {SurfaceColors} from "../hooks/surfaceColors.ts";
 import IconButton from "./ui/IconButton.tsx";
 import PopoverMenu, {MenuItem, MenuLabel} from "./ui/PopoverMenu.tsx";
@@ -220,6 +220,41 @@ function SettingsMenu({size, hoverOverlay, activeOverlay, colors, fg, style}: Se
     );
 }
 
+interface RollingTitleProps {
+    title?: string | null;
+    className: string;
+    fg: string;
+}
+
+/** Title text painted on a drum: when the title changes (tab switch, session
+ *  rename), the old text rolls up over the drum's top horizon while the new
+ *  text rolls in from beneath the bottom.
+ *
+ *  `key={title}` makes AnimatePresence treat any change as an exit/enter
+ *  pair, and `popLayout` pins the departing span at its measured spot so
+ *  both texts occupy the same drum face while turning. The container clips
+ *  at the bar's edges so text vanishes over the horizon (see the
+ *  `overflow-hidden` on the wrapping divs below). */
+function RollingTitle({title, className, fg}: RollingTitleProps) {
+    return (
+        <AnimatePresence initial={false} mode="popLayout">
+            {title && (
+                <motion.span
+                    key={title}
+                    variants={titleRoll}
+                    initial="hidden"
+                    animate="show"
+                    exit="exit"
+                    className={className}
+                    style={{color: fg, transformPerspective: 220}}
+                >
+                    {title}
+                </motion.span>
+            )}
+        </AnimatePresence>
+    );
+}
+
 export default function TitleBar({
     theme,
     title,
@@ -256,21 +291,8 @@ export default function TitleBar({
                     color: fg,
                 }}
             >
-                <div className="flex-1 min-w-0 flex items-center" data-tauri-drag-region>
-                    <AnimatePresence>
-                        {title && (
-                            <motion.span
-                                variants={fadeIn}
-                                initial="hidden"
-                                animate="show"
-                                exit="exit"
-                                className="px-2 text-sm font-medium truncate"
-                                style={{color: fg}}
-                            >
-                                {title}
-                            </motion.span>
-                        )}
-                    </AnimatePresence>
+                <div className="relative flex-1 min-w-0 flex items-center self-stretch overflow-hidden" data-tauri-drag-region>
+                    <RollingTitle title={title} className="px-2 text-sm font-medium truncate" fg={fg}/>
                 </div>
                 <PinButton
                     size={28}
@@ -310,21 +332,8 @@ export default function TitleBar({
                 color: fg,
             }}
         >
-            <div className="flex-1 min-w-0 flex items-center" data-tauri-drag-region>
-                <AnimatePresence>
-                    {title && (
-                        <motion.span
-                            variants={fadeIn}
-                            initial="hidden"
-                            animate="show"
-                            exit="exit"
-                            className="pl-3 pr-2 text-sm font-medium truncate"
-                            style={{color: fg}}
-                        >
-                            {title}
-                        </motion.span>
-                    )}
-                </AnimatePresence>
+            <div className="relative flex-1 min-w-0 flex items-center self-stretch overflow-hidden" data-tauri-drag-region>
+                <RollingTitle title={title} className="pl-3 pr-2 text-sm font-medium truncate" fg={fg}/>
             </div>
             <div className="flex flex-row items-center h-full">
                 <PinButton

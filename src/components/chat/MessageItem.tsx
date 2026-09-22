@@ -16,6 +16,7 @@ import {fadeSlideUp} from "../../lib/motion.ts";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import Markdown from "./Markdown.tsx";
 import ToolCard, {toolDisplayName} from "./ToolCard.tsx";
+import SubagentCard, {isSubagentTool} from "./SubagentCard.tsx";
 import {AUTO_EXPAND_MIN_DWELL_MS, useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 
@@ -220,6 +221,8 @@ function AssistantBlock({
                                     stateKey={partKey(message, part)}
                                     live={reasoningLive && part === lastPart}
                                 />
+                            ) : isSubagentTool(part.name) ? (
+                                <SubagentCard part={part} colors={colors} />
                             ) : (
                                 <ToolCard part={part} colors={colors} directory={directory} />
                             )}
@@ -304,6 +307,7 @@ export function ActivityGroup({
                     ? <AlertCircle size={14} style={{color: "#ef4444"}} />
                     : <Wrench size={14} />}
             title={label}
+            active={running}
             detail={names.length > 0 ? (
                 <span className="truncate">{names.join(" · ")}</span>
             ) : null}
@@ -317,6 +321,8 @@ export function ActivityGroup({
                 {entries.map(({part, key}) =>
                     part.type === "reasoning" ? (
                         <ThinkingBlock key={key} stateKey={key} part={part} live={livePart === part} />
+                    ) : isSubagentTool(part.name) ? (
+                        <SubagentCard key={part.id ?? key} part={part} colors={colors} />
                     ) : (
                         <ToolCard key={part.id ?? key} part={part} colors={colors} directory={directory} />
                     ),

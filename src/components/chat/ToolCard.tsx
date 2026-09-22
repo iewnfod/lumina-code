@@ -87,7 +87,7 @@ function displayPath(p: string, directory?: string | null): string {
 
 /** Human text of a tool error payload — `{type, message}` objects carry
  *  the reason ("The user dismissed this question", …). */
-function errorText(error: unknown): string | null {
+export function errorText(error: unknown): string | null {
     if (error == null) return null;
     if (typeof error === "object" && error !== null && "message" in error) {
         const msg = (error as {message?: unknown}).message;
@@ -248,6 +248,7 @@ const ToolCard = memo(function ToolCard({
             title={title}
             detail={toolDetail(part, directory)}
             accent={toolAccent(part)}
+            active={status === "running"}
             expanded={expanded}
             onToggle={toggle}
         >
