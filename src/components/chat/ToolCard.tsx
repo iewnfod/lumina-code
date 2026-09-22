@@ -16,7 +16,7 @@ import {
 import type {AssistantToolPart} from "../../opencode/types.ts";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
-import {AUTO_EXPAND_MIN_DWELL_MS, useExpansion} from "./useExpansion.ts";
+import {useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 
 const MONO = "var(--font-mono, ui-monospace, monospace)";
@@ -179,9 +179,9 @@ function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNo
 /**
  * One tool invocation as a FoldRow: tool icon (or status icon while
  * pending/running/failed) + title + input summary; the full output folds
- * out on click. Auto-expands while running so live progress is visible,
- * folds on completion to keep the transcript scannable (an explicit user
- * toggle wins until the next lifecycle transition).
+ * out on click. Folded by default while running — a quiet status row, no
+ * popping output; only errors open themselves so the failure reason stays
+ * visible (an explicit user toggle always wins).
  *
  * Memoized — see MessageItem.
  */
@@ -196,16 +196,14 @@ const ToolCard = memo(function ToolCard({
     directory?: string | null;
 }) {
     const status = part.state.status;
-    // Auto-expands while running so live progress is visible, folds on
-    // completion to keep the transcript scannable (an explicit user
-    // toggle wins until the next lifecycle transition). The dwell keeps
-    // quick tools from flashing open→closed. State is keyed by the tool
-    // call's server id, so it survives ChatView's run regrouping.
+    // Folded by default — a running tool reads as a quiet pulsing row,
+    // its output doesn't pop open; only errors open themselves so the
+    // failure reason stays visible. An explicit user toggle wins. State
+    // is keyed by the tool call's server id, so it survives ChatView's
+    // run regrouping.
     const {expanded, toggle} = useExpansion(
         part.id,
-        // Errors stay expanded — the failure reason must be visible.
-        status === "running" || status === "error",
-        AUTO_EXPAND_MIN_DWELL_MS,
+        status === "error",
     );
     const {ref: outputScroll, onScroll: outputScrollHandler} =
         useFollowBottom<HTMLDivElement>(status === "running");

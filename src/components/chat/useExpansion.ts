@@ -2,9 +2,9 @@ import {useEffect, useRef, useState} from "react";
 
 /**
  * Minimum time a system-opened disclosure stays open before an auto-fold
- * lands. Quick tools (glob/grep/read finish in well under a second) would
- * otherwise flash open→closed — the fold animation barely starts before
- * the tool completes and folds it right back shut.
+ * lands. Short live phases (a thought finishing in well under a second)
+ * would otherwise flash open→closed — the fold animation barely starts
+ * before the live phase ends and folds it right back shut.
  */
 export const AUTO_EXPAND_MIN_DWELL_MS = 800;
 
