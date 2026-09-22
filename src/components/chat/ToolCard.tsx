@@ -12,8 +12,7 @@ import {fileIconUrl} from "../../lib/fileIcons.ts";
 import {errorText, inputObject, inputStr, lineCount, metaFor} from "./toolMeta.ts";
 import {useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
-
-const MONO = "var(--font-mono, ui-monospace, monospace)";
+import {MONO_STYLE} from "./RequestCardChrome.tsx";
 
 /** The "+N / −N" diff suffix for file-mutating tools. Rendered through
  *  FoldRow's accent slot — outside the row's dimmed region — so the
@@ -48,11 +47,11 @@ function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNo
     if (!o) {
         const raw = part.state.input;
         return raw == null ? null : (
-            <span className="truncate" style={{fontFamily: MONO}}>{String(raw)}</span>
+            <span className="truncate" style={MONO_STYLE}>{String(raw)}</span>
         );
     }
     const path = (s?: string) => (
-        <span className="truncate min-w-0" style={{fontFamily: MONO}}>{s}</span>
+        <span className="truncate min-w-0" style={MONO_STYLE}>{s}</span>
     );
     // File paths inside the project show relative to the session directory,
     // prefixed with the path's file-type icon (Material Icon Theme — the
@@ -107,7 +106,7 @@ function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNo
         default: {
             const json = JSON.stringify(part.state.input);
             if (!json || json === "{}") return null;
-            return <span className="truncate" style={{fontFamily: MONO}}>
+            return <span className="truncate" style={MONO_STYLE}>
                 {json.length > 120 ? json.slice(0, 117) + "…" : json}
             </span>;
         }
@@ -201,9 +200,9 @@ const ToolCard = memo(function ToolCard({
                 <div
                     ref={outputScroll}
                     onScroll={outputScrollHandler}
-                    className={`ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2 text-sm whitespace-pre-wrap break-words max-h-64 overflow-y-auto${tailScrolled ? " lum-tail-fade" : ""}`}
+                    className={`ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2 whitespace-pre-wrap break-words max-h-64 overflow-y-auto${tailScrolled ? " lum-tail-fade" : ""}`}
                     style={{
-                        fontFamily: MONO,
+                        ...MONO_STYLE,
                         background: colors.recessedBg,
                         border: `1px solid ${colors.glassBorder}`,
                         color: status === "error" ? "#f87171" : colors.inactiveText,

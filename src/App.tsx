@@ -16,6 +16,7 @@ import {useI18n} from "./hooks/i18n.tsx";
 import {useSystemTheme} from "./hooks/useSystemTheme.ts";
 import {useThemePreference} from "./hooks/useThemePreference.ts";
 import {useSurfaceColors} from "./hooks/surfaceColors.ts";
+import {useWindowOutline} from "./hooks/useWindowOutline.ts";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {fadeIn, springSwap} from "./lib/motion.ts";
 import {isLinux} from "./lib/platform.ts";
@@ -56,6 +57,10 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     // chrome layer beneath — so the chrome reads as a continuous frame
     // wrapping the content with rounded inner corners.
     const {supportsGlass} = useGlass();
+
+    // The Linux window outline is a user preference (General settings);
+    // see the outline overlay near the end of this component.
+    const outlineEnabled = useWindowOutline();
 
     // --- OpenCode connection, session list, active conversation ---
     const {status: connectionStatus, api, subscribe} = useOpencode();
@@ -278,9 +283,9 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                 overlay (not border/outline) — no layout shift, follows the
                 rounded corners, and paints above the content which would
                 otherwise cover a container-edge line. Hidden when maximized
-                like the rounded-lg above. */}
+                like the rounded-lg above; toggleable in General settings. */}
             <AnimatePresence>
-                {isLinux() && !isMaximized && (
+                {isLinux() && !isMaximized && outlineEnabled && (
                     <motion.div
                         aria-hidden
                         variants={fadeIn}

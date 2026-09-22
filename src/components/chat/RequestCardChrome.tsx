@@ -1,8 +1,15 @@
 import type {ReactNode} from "react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 
-/** Monospace stack used for resource lists and tool-ish text. */
-export const MONO = "var(--font-mono, ui-monospace, monospace)";
+/** Monospace stack used for mono surfaces (tool output, resource lists). */
+const MONO = "var(--font-mono, ui-monospace, monospace)";
+
+/** Mono text style — the family stack plus the settings-driven code-size
+ *  token (see hooks/useTypography.ts), so every mono surface (tool
+ *  output, resource lists, code blocks) resizes with the Code font size
+ *  setting. The former local MONO copies in ToolCard/SubagentCard were
+ *  folded into this shared pair. */
+export const MONO_STYLE = {fontFamily: MONO, fontSize: "var(--lum-code-size)"} as const;
 
 // CardButton moved to ui/Button.tsx so non-request chrome (the model
 // config modal) can share it; re-exported here for the request cards.

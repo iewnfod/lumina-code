@@ -163,6 +163,14 @@ src/
 │   │                      #   tool-card file lines. node-testable.
 │   ├── theme.ts           # appThemeFor(systemTheme) — lumina-code follows the system
 │   │                      #   light/dark (no per-profile palettes like lumina-terminal)
+│   ├── typography.ts      # Custom typography for the General settings:
+│   │                      #   sanitize/persist shape, CSS family-stack builder
+│   │                      #   (quoted custom family + @theme fallback), and
+│   │                      #   applyTypography — runtime overrides of
+│   │                      #   --font-sans/--font-mono (verified: preflight
+│   │                      #   resolves html's font through them), root
+│   │                      #   font-size (UI 字号 = rem zoom) and
+│   │                      #   --lum-code-size. node-testable.
 │   ├── persist.ts         # loadState/saveState — cross-restart UI state in
 │   │                      #   localStorage ("lumina-code:ui-state": open session,
 │   │                      #   model, agent, directory). Never throws.
@@ -184,6 +192,16 @@ src/
 │   │                      #   to resolve appThemeFor's input.
 │   ├── useIsWayland.ts    # cached invoke("is_wayland")
 │   ├── useAlwaysOnTop.ts  # per-window pin (no-op on Wayland)
+│   ├── useWindowOutline.ts # Linux window-outline toggle (App's inset
+│   │                      #   box-shadow edge for DEs without compositor
+│   │                      #   shadows): module store + own localStorage
+│   │                      #   key, default on; the settings row is
+│   │                      #   Linux-only but App gates on isLinux() too.
+│   ├── useTypography.ts   # Custom fonts/sizes (useThemePreference
+│   │                      #   pattern): applies lib/typography.ts's
+│   │                      #   overrides on load + change. Load-order note:
+│   │                      #   main.tsx imports main.css BEFORE the App
+│   │                      #   tree so the @theme stacks exist at init.
 │   ├── useDisabledModels.ts # Models switched OFF in the model settings
 │   │                      #   (hidden from the picker — the server has no
 │   │                      #   per-model enable API, so this is client-side
@@ -263,7 +281,9 @@ src/
     │   │                  #   session moves forward (answers go to the reply endpoints).
     │   │                  #   Shared chrome in RequestCardChrome.tsx; answer rules in
     │   │                  #   formLogic.ts (pure, node-testable).
-    │   ├── RequestCardChrome.tsx # Card + CardButton shared by the request kinds
+    │   ├── RequestCardChrome.tsx # Card + CardButton + MONO_STYLE (mono
+    │   │                  #   family + settings-driven --lum-code-size)
+    │   │                  #   shared by the request kinds and tool cards.
     │   └── formLogic.ts   # Pure form-answer rules: fieldVisible (`when`
     │                      #   conditions), normalize (per-type values).
     ├── composer/          # The prompt composer
@@ -297,8 +317,13 @@ src/
     │                      #   time (mount doubles as the pane's open →
     │                      #   ModelSettings loads/resets on mount). App owns
     │                      #   {open, tab} so entry points deep-link a tab.
-    ├── GeneralSettings.tsx # Language + appearance rows; both act instantly
-    │                      #   through module stores (i18n, useThemePreference).
+    ├── GeneralSettings.tsx # Language + appearance rows, the Linux-only
+    │                      #   window-outline Switch, and a Fonts section
+    │                      #   (AboutSettings-style header; one control per
+    │                      #   row — family input / size stepper — plus
+    │                      #   reset); everything acts instantly through
+    │                      #   module stores (i18n, useThemePreference,
+    │                      #   useWindowOutline, useTypography).
     ├── ModelSettings.tsx # Formerly composer/ModelConfigModal: searchable
     │                      #   integration list, API-key connect, browser-OAuth
     │                      #   flow with attempt polling, credential
@@ -311,6 +336,9 @@ src/
     │                      #   the connection's server version + package.json).
     ├── SettingRow.tsx    # Settings row primitive (ported from
     │                      #   lumina-terminal, reduced to control/info).
+    ├── Switch.tsx        # The settings pill switch (extracted from
+    │                      #   ModelSettings when General needed one too).
+    ├── TextInput.tsx     # The settings boxed text input (same extraction).
     └── modelConfig.ts    # Pure model-config logic: integration search,
                           #   custom-provider config merge/remove/read-back,
                           #   global-config-target discovery. node-testable.

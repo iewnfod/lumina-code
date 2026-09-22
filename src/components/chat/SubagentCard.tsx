@@ -7,8 +7,7 @@ import {useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 import Markdown from "./Markdown.tsx";
 import {errorText} from "./toolMeta.ts";
-
-const MONO = "var(--font-mono, ui-monospace, monospace)";
+import {MONO_STYLE} from "./RequestCardChrome.tsx";
 
 /** The subagent spawn tool — "subagent" today, "task" on older servers. */
 export function isSubagentTool(name: string): boolean {
@@ -80,9 +79,9 @@ const SubagentCard = memo(function SubagentCard({
         >
             {status === "error" ? (
                 <div
-                    className="ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2 text-sm whitespace-pre-wrap break-words max-h-64 overflow-y-auto"
+                    className="ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2 whitespace-pre-wrap break-words max-h-64 overflow-y-auto"
                     style={{
-                        fontFamily: MONO,
+                        ...MONO_STYLE,
                         background: colors.recessedBg,
                         border: `1px solid ${colors.glassBorder}`,
                         color: "#f87171",

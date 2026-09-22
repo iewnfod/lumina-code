@@ -9,7 +9,7 @@ import type {
     FormRequest,
 } from "../../opencode/types.ts";
 import {fieldVisible, normalize} from "./formLogic.ts";
-import {Card, CardButton, MONO} from "./RequestCardChrome.tsx";
+import {Card, CardButton, MONO_STYLE} from "./RequestCardChrome.tsx";
 
 /** Chrome-less answer inputs (custom text + plain text/number): no fill,
  *  no border, no focus ring — exactly the composer's editable. The hover
@@ -327,7 +327,7 @@ export const QuestionCard = memo(function QuestionCard({
                     ))}
                 </div>
             ) : field.type === "external" ? (
-                <span className="text-xs break-all" style={{fontFamily: MONO, opacity: 0.75}}>
+                <span className="break-all" style={{...MONO_STYLE, opacity: 0.75}}>
                     {field.url}
                 </span>
             ) : (

@@ -17,6 +17,8 @@ import {useI18n} from "../../hooks/i18n.tsx";
 import {disabledModelKey, setModelDisabled, useDisabledModels} from "../../hooks/useDisabledModels.ts";
 import Button from "../ui/Button.tsx";
 import IconButton from "../ui/IconButton.tsx";
+import Switch from "./Switch.tsx";
+import TextInput from "./TextInput.tsx";
 import {
     customProviderDefs,
     filterIntegrations,
@@ -909,42 +911,6 @@ function ModelToggleRow({model, colors}: {model: OpencodeModel; colors: SurfaceC
     );
 }
 
-/** A small pill switch — the model rows' enable/disable control. */
-function Switch({checked, colors, label, onChange}: {
-    checked: boolean;
-    colors: SurfaceColors;
-    label: string;
-    onChange: (checked: boolean) => void;
-}) {
-    return (
-        <button
-            type="button"
-            role="switch"
-            aria-checked={checked}
-            aria-label={label}
-            title={label}
-            onClick={() => onChange(!checked)}
-            className="relative shrink-0 w-8 h-[18px] rounded-full cursor-pointer transition-colors duration-[var(--duration-fast)]"
-            style={{
-                background: checked ? colors.accentOverlay : colors.activeOverlay,
-                border: `1px solid ${colors.glassBorder}`,
-            }}
-        >
-            <motion.span
-                initial={false}
-                animate={{left: checked ? 15 : 3}}
-                transition={{type: "spring", stiffness: 500, damping: 35}}
-                className="absolute top-[2px] w-3 h-3 rounded-full"
-                style={{
-                    background: checked
-                        ? (colors.dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.65)")
-                        : colors.inactiveText,
-                }}
-            />
-        </button>
-    );
-}
-
 /** A labeled form field. Div-based (not <label>) so the row can contain
  *  buttons without label-activation side effects. */
 function Field({label, colors, children}: {label: string; colors: SurfaceColors; children: React.ReactNode}) {
@@ -953,44 +919,5 @@ function Field({label, colors, children}: {label: string; colors: SurfaceColors;
             <span className="text-xs font-medium" style={{color: colors.inactiveText}}>{label}</span>
             {children}
         </div>
-    );
-}
-
-/** The modal's boxed text input — recessed surface, hairline border,
- * brand focus ring (runtime-derived from the chrome's colors). */
-function TextInput({
-    colors,
-    value,
-    placeholder,
-    type = "text",
-    disabled = false,
-    mono = false,
-    onChange,
-    onKeyDown,
-}: {
-    colors: SurfaceColors;
-    value: string;
-    placeholder?: string;
-    type?: "text" | "password";
-    disabled?: boolean;
-    mono?: boolean;
-    onChange: (text: string) => void;
-    onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-}) {
-    return (
-        <input
-            type={type}
-            value={value}
-            placeholder={placeholder}
-            disabled={disabled}
-            onChange={(e) => onChange(e.currentTarget.value)}
-            onKeyDown={onKeyDown}
-            className={`h-7 w-full px-2 rounded-[var(--radius-sm)] text-xs outline-none placeholder:opacity-40 focus:ring-1 focus:ring-[var(--lum-input-ring)] disabled:opacity-50 disabled:cursor-not-allowed ${mono ? "font-mono" : ""}`}
-            style={{
-                background: colors.recessedBg,
-                border: `1px solid ${colors.glassBorder}`,
-                "--lum-input-ring": colors.focusRing,
-            } as React.CSSProperties}
-        />
     );
 }

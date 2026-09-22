@@ -102,6 +102,16 @@
     --color-elevated: oklch(21.03% 0.0059 285.89);
 }
 
+/* Mono text size — the code-font half of the typography settings
+ * (hooks/useTypography.ts overrides this inline on <html>; the default
+ * matches the old text-xs-based sizing). Declared as a plain :root var
+ * rather than an @theme token: it generates no utilities and Tailwind
+ * only emits @theme entries it can see being used. Consumed by the mono
+ * surfaces: .lum-md code below and the chat cards' MONO spans. */
+:root {
+    --lum-code-size: 12px;
+}
+
 #root {
     margin: 0;
     padding: 0;
@@ -258,7 +268,7 @@ body {
 }
 .lum-md code {
     font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.85em;
+    font-size: var(--lum-code-size);
     background: rgba(128, 128, 128, 0.1);
     padding: 0.15em 0.4em;
     border-radius: var(--radius-xs);
@@ -273,7 +283,7 @@ body {
 .lum-md pre code {
     background: transparent;
     padding: 0;
-    font-size: 0.85em;
+    font-size: var(--lum-code-size);
 }
 .lum-md blockquote {
     border-left: 2px solid rgba(128, 128, 128, 0.4);

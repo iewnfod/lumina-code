@@ -3,7 +3,7 @@ import {ShieldAlert} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {PermissionDecision, PermissionRequest} from "../../opencode/types.ts";
-import {Card, CardButton, MONO} from "./RequestCardChrome.tsx";
+import {Card, CardButton, MONO_STYLE} from "./RequestCardChrome.tsx";
 
 /** Human phrase per permission action (observed set on server v2.0.11);
  *  unknown actions fall back to a capitalized raw name. */
@@ -43,10 +43,10 @@ export const PermissionCard = memo(function PermissionCard({
             {request.resources.length > 0 && (
                 <div
                     className="flex flex-col gap-0.5 pl-6 max-h-32 overflow-y-auto"
-                    style={{fontFamily: MONO}}
+                    style={MONO_STYLE}
                 >
                     {request.resources.map((r, i) => (
-                        <span key={i} className="text-xs opacity-70 break-all">{r}</span>
+                        <span key={i} className="opacity-70 break-all">{r}</span>
                     ))}
                 </div>
             )}
