@@ -245,6 +245,9 @@ src/
     │   ├── IconButton.tsx # THE chrome button — never hand-roll <button> hover swaps
     │   ├── Button.tsx     # THE labeled button (primary/ghost) — shared by request
     │   │                  #   cards (re-exported as CardButton) and modals
+    │   ├── Hint.tsx       # THE hover hint — HeroUI tooltip wrapper (the only
+    │   │                  #   replacement for native `title` attributes; falsy
+    │   │                  #   label renders the child untouched)
     │   ├── Modal.tsx      # Portal-rendered modal chrome (fadeIn backdrop +
     │   │                  #   scaleIn panel, Escape/backdrop close)
     │   ├── MaskedSurface.tsx # SVG rounded-rect clip exposing the glass chrome corners

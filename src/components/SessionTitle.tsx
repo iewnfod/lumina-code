@@ -93,7 +93,7 @@ export default function SessionTitle({text, className, style}: {
             </Tooltip.Trigger>
             {overflowing && (
                 <Tooltip.Content>
-                    <p className="text-xs max-w-64 break-words">{text}</p>
+                    <p className="text-xs px-2 max-w-64 break-words">{text}</p>
                 </Tooltip.Content>
             )}
         </Tooltip>

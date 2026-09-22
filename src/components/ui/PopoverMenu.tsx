@@ -20,7 +20,6 @@ export default function PopoverMenu({
     align = "start",
     direction = "up",
     panelClassName = "",
-    title,
     disabled = false,
 }: {
     /** Renders the visible trigger; `toggle` opens/closes the panel. */
@@ -33,7 +32,6 @@ export default function PopoverMenu({
      *  consumers open up; title-bar menus open down. */
     direction?: "up" | "down";
     panelClassName?: string;
-    title?: string;
     disabled?: boolean;
 }) {
     const [open, setOpen] = useState(false);
@@ -74,7 +72,7 @@ export default function PopoverMenu({
     } as const;
 
     return (
-        <div ref={rootRef} className="relative" title={title}>
+        <div ref={rootRef} className="relative">
             {trigger({open, toggle})}
             <AnimatePresence>
                 {open && (

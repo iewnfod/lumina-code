@@ -7,6 +7,7 @@ import {folderLabel} from "../lib/path.ts";
 import {useI18n} from "../hooks/i18n.tsx";
 import {relativeAge, type SessionInfo} from "./sessionGrouping.ts";
 import SessionTitle from "./SessionTitle.tsx";
+import Hint from "./ui/Hint.tsx";
 
 /** Sessions shown per folder before the "Show more" expander. */
 export const MAX_VISIBLE_SESSIONS = 5;
@@ -68,24 +69,28 @@ export default function SessionFolder({
             <div
                 className="group/folder w-full flex items-center gap-1 px-3 pt-2.5 pb-1 text-[11px] font-medium uppercase tracking-wider cursor-pointer transition-opacity duration-[var(--duration-fast)] ease-[var(--ease-glass)] hover:opacity-70"
                 style={{color: colors.inactiveText}}
-                title={directory || undefined}
                 onClick={() => onToggleFolder(directory)}
             >
-                <span className="truncate flex-1 text-left">
-                    {directory ? folderLabel(directory) : t["Other Sessions"]}
-                </span>
-                <button
-                    type="button"
-                    className="shrink-0 flex items-center p-0.5 rounded-[var(--radius-xs)] opacity-0 group-hover/folder:opacity-100 hover:bg-[var(--lum-folder-new-hover)] transition-opacity duration-[var(--duration-fast)] cursor-pointer"
-                    style={{"--lum-folder-new-hover": colors.hoverOverlay} as CSSProperties}
-                    title={t["New Session"]}
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onNewInFolder(directory || undefined);
-                    }}
-                >
-                    <Plus size={12} />
-                </button>
+                {/* The header shows only the directory's last segment — the
+                 * hint carries the full path. */}
+                <Hint label={directory || undefined} className="min-w-0 flex-1">
+                    <span className="block truncate text-left">
+                        {directory ? folderLabel(directory) : t["Other Sessions"]}
+                    </span>
+                </Hint>
+                <Hint label={t["New Session"]}>
+                    <button
+                        type="button"
+                        className="shrink-0 flex items-center p-0.5 rounded-[var(--radius-xs)] opacity-0 group-hover/folder:opacity-100 hover:bg-[var(--lum-folder-new-hover)] transition-opacity duration-[var(--duration-fast)] cursor-pointer"
+                        style={{"--lum-folder-new-hover": colors.hoverOverlay} as CSSProperties}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onNewInFolder(directory || undefined);
+                        }}
+                    >
+                        <Plus size={12} />
+                    </button>
+                </Hint>
                 <motion.span
                     className="shrink-0 flex items-center"
                     animate={{rotate: collapsed ? 0 : 90}}
@@ -182,13 +187,14 @@ export default function SessionFolder({
                                                     />
                                                 </div>
                                                 {pendingCounts?.get(session.id) != null && (
-                                                    <span
-                                                        className="shrink-0 min-w-4 h-4 px-1 ml-1 rounded-full text-[10px] font-semibold leading-4 text-center select-none"
-                                                        style={{backgroundColor: "#f59e0b", color: "#fff"}}
-                                                        title={t["Permission request"]}
-                                                    >
-                                                        {pendingCounts.get(session.id)}
-                                                    </span>
+                                                    <Hint label={t["Permission request"]} className="shrink-0 ml-1">
+                                                        <span
+                                                            className="min-w-4 h-4 px-1 rounded-full text-[10px] font-semibold leading-4 text-center select-none"
+                                                            style={{backgroundColor: "#f59e0b", color: "#fff"}}
+                                                        >
+                                                            {pendingCounts.get(session.id)}
+                                                        </span>
+                                                    </Hint>
                                                 )}
                                                 {/* Age and the delete button share one fixed-width
                                                     slot; hover cross-fades between them so the
@@ -198,25 +204,25 @@ export default function SessionFolder({
                                                         <span
                                                             className="absolute inset-0 flex items-center justify-end text-[11px] tabular-nums transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
                                                             style={{color: colors.inactiveText}}
-                                                            title={new Date(session.updatedAt).toLocaleString()}
                                                         >
                                                             {relativeAge(session.updatedAt, now)}
                                                         </span>
                                                     )}
-                                                    <button
-                                                        className="lum-session-close absolute inset-0 flex items-center justify-center cursor-pointer opacity-0 rounded-[var(--radius-xs)] transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100 hover:bg-[var(--lum-session-active)]"
-                                                        title={t["Delete session"]}
-                                                        style={{
-                                                            "--lum-session-active": colors.activeOverlay,
-                                                            color: isActive ? foregroundColor : colors.inactiveText,
-                                                        } as CSSProperties}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            onClose(session.id);
-                                                        }}
-                                                    >
-                                                        <X size={12} />
-                                                    </button>
+                                                    <Hint label={t["Delete session"]} className="absolute inset-0">
+                                                        <button
+                                                            className="lum-session-close w-full h-full flex items-center justify-center cursor-pointer opacity-0 rounded-[var(--radius-xs)] transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100 hover:bg-[var(--lum-session-active)]"
+                                                            style={{
+                                                                "--lum-session-active": colors.activeOverlay,
+                                                                color: isActive ? foregroundColor : colors.inactiveText,
+                                                            } as CSSProperties}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                onClose(session.id);
+                                                            }}
+                                                        >
+                                                            <X size={12} />
+                                                        </button>
+                                                    </Hint>
                                                 </div>
                                             </motion.div>
                                         </motion.div>

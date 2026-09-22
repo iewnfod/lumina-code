@@ -17,6 +17,7 @@ import {useI18n} from "../../hooks/i18n.tsx";
 import {disabledModelKey, setModelDisabled, useDisabledModels} from "../../hooks/useDisabledModels.ts";
 import Button from "../ui/Button.tsx";
 import IconButton from "../ui/IconButton.tsx";
+import Hint from "../ui/Hint.tsx";
 import Switch from "./Switch.tsx";
 import TextInput from "./TextInput.tsx";
 import {
@@ -213,16 +214,17 @@ export default function ModelSettings({
              * modal's title slot used to carry. */}
             {inDetail && selected ? (
                 <div className="flex items-center gap-1.5 px-4 pt-3 shrink-0 min-w-0">
-                    <IconButton
-                        size={22}
-                        hoverOverlay={colors.hoverOverlay}
-                        activeOverlay={colors.activeOverlay}
-                        aria-label={t["Back"]}
-                        title={t["Back"]}
-                        onClick={backToProviders}
-                    >
-                        <ArrowLeft size={15}/>
-                    </IconButton>
+                    <Hint label={t["Back"]}>
+                        <IconButton
+                            size={22}
+                            hoverOverlay={colors.hoverOverlay}
+                            activeOverlay={colors.activeOverlay}
+                            aria-label={t["Back"]}
+                            onClick={backToProviders}
+                        >
+                            <ArrowLeft size={15}/>
+                        </IconButton>
+                    </Hint>
                     <span className="truncate text-sm font-semibold leading-normal">{selected.name}</span>
                 </div>
             ) : (
@@ -439,7 +441,6 @@ export default function ModelSettings({
                                         }}
                                         {...whileHoverTap}
                                         className="min-w-0 flex-1 text-left cursor-pointer"
-                                        title={def.baseURL}
                                     >
                                         <div className="text-xs truncate leading-normal">{def.name}</div>
                                         <div className="text-[10px] truncate leading-normal" style={{color: colors.inactiveText}}>
@@ -857,17 +858,18 @@ function CustomProviderForm({
                                 placeholder={t["Model name"]}
                                 onChange={(name) => setModel(index, {name})}
                             />
-                            <motion.button
-                                type="button"
-                                title={t["Remove"]}
-                                disabled={draft.models.length <= 1}
-                                onClick={() => setDraft((prev) => ({...prev, models: prev.models.filter((_, i) => i !== index)}))}
-                                {...whileHoverTap}
-                                className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-[var(--radius-sm)] cursor-pointer transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-model-remove)] disabled:opacity-30 disabled:cursor-not-allowed"
-                                style={{"--lum-model-remove": colors.hoverOverlay} as React.CSSProperties}
-                            >
-                                <Trash2 size={13}/>
-                            </motion.button>
+                            <Hint label={t["Remove"]} className="shrink-0">
+                                <motion.button
+                                    type="button"
+                                    disabled={draft.models.length <= 1}
+                                    onClick={() => setDraft((prev) => ({...prev, models: prev.models.filter((_, i) => i !== index)}))}
+                                    {...whileHoverTap}
+                                    className="inline-flex items-center justify-center w-7 h-7 rounded-[var(--radius-sm)] cursor-pointer transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-model-remove)] disabled:opacity-30 disabled:cursor-not-allowed"
+                                    style={{"--lum-model-remove": colors.hoverOverlay} as React.CSSProperties}
+                                >
+                                    <Trash2 size={13}/>
+                                </motion.button>
+                            </Hint>
                         </div>
                     ))}
                     <div>

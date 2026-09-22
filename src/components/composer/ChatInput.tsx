@@ -22,6 +22,7 @@ import ComposerToolbar from "./ComposerToolbar.tsx";
 import {readAttachment} from "./composerAttachments.ts";
 import {FileMentionNode} from "./FileMentionNode.tsx";
 import {CommandMentionNode} from "./CommandMentionNode.tsx";
+import Hint from "../ui/Hint.tsx";
 
 /**
  * The prompt composer shell: staged attachments (chips above the editor),
@@ -191,7 +192,6 @@ const ChatInput = memo(function ChatInput({
                     {attachments.map((a) => (
                         <span
                             key={a.id}
-                            title={a.name}
                             className="inline-flex items-center gap-1.5 h-7 pl-1.5 pr-1 rounded-[var(--radius-sm)] max-w-64"
                             style={{background: colors.activeOverlay}}
                         >
@@ -201,15 +201,16 @@ const ChatInput = memo(function ChatInput({
                                 <img src={fileIconUrl(a.name)} alt="" className="w-4 h-4 shrink-0"/>
                             )}
                             <span className="text-xs truncate">{a.name}</span>
-                            <button
-                                type="button"
-                                title={t["Remove attachment"]}
-                                onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
-                                className="inline-flex items-center justify-center w-5 h-5 rounded-[var(--radius-xs)] cursor-pointer hover:bg-[var(--lum-chip-hover)] transition-colors duration-[var(--duration-fast)]"
-                                style={{"--lum-chip-hover": colors.hoverOverlay} as React.CSSProperties}
-                            >
-                                <X size={11}/>
-                            </button>
+                            <Hint label={t["Remove attachment"]}>
+                                <button
+                                    type="button"
+                                    onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
+                                    className="inline-flex items-center justify-center w-5 h-5 rounded-[var(--radius-xs)] cursor-pointer hover:bg-[var(--lum-chip-hover)] transition-colors duration-[var(--duration-fast)]"
+                                    style={{"--lum-chip-hover": colors.hoverOverlay} as React.CSSProperties}
+                                >
+                                    <X size={11}/>
+                                </button>
+                            </Hint>
                         </span>
                     ))}
                 </div>

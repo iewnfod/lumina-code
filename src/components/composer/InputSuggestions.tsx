@@ -62,7 +62,6 @@ export default function InputSuggestions({
                             key={key}
                             type="button"
                             data-index={i}
-                            title={item.kind === "command" ? item.command.description ?? item.command.name : item.file.absolute}
                             onMouseDown={(e) => {
                                 e.preventDefault(); // keep editor focus/caret
                                 onSelect(item);

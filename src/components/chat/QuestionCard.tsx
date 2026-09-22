@@ -83,7 +83,6 @@ function OptionRow({
     return (
         <button
             type="button"
-            title={option.description}
             onClick={onClick}
             className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)] cursor-pointer select-none text-left hover:bg-[var(--lum-option-row-hover)] transition-colors duration-[var(--duration-fast)]"
             style={{

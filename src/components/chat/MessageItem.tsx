@@ -20,6 +20,7 @@ import ThinkingBlock from "./ThinkingBlock.tsx";
 import ActivityGroup from "./ActivityGroup.tsx";
 import {useExpansion} from "./useExpansion.ts";
 import {effectiveTailPart, partKey, segmentContent, type ActivityPart} from "./messageParts.ts";
+import Hint from "../ui/Hint.tsx";
 
 /**
  * One transcript entry. User messages are right-aligned accent bubbles;
@@ -112,7 +113,6 @@ function UserBubble({message, colors}: {message: ChatUserMessage; colors: Surfac
                         return (
                             <span
                                 key={i}
-                                title={f.name}
                                 className="inline-flex items-center gap-1.5 h-7 pl-2.5 pr-2.5 rounded-[var(--radius-lg)] max-w-56"
                                 style={{background: "rgba(128,128,128,0.10)"}}
                             >
@@ -128,62 +128,71 @@ function UserBubble({message, colors}: {message: ChatUserMessage; colors: Surfac
                 </div>
             )}
             {message.text && (
-                <div
-                    className="max-w-[85%] rounded-[var(--radius-lg)] px-4 py-2.5 text-sm"
-                    style={{background: colors.accentOverlay}}
-                    title={message.command ? message.text : undefined}
-                >
-                    {/* The clamp + fade live on this inner wrapper, not the
-                        bubble: a mask would dissolve the bubble's own
-                        translucent fill and rounded corners with it. */}
+                // A slash-command submission hovers to reveal the expanded
+                // template (the wrapper carries the width cap while the
+                // Hint is mounted); plain prompts render the bare bubble.
+                <Hint label={message.command ? message.text : null} className={message.command ? "max-w-[85%]" : undefined}>
+                    {/* No w-full here: a plain prompt renders the bubble bare,
+                     * where it must shrink-wrap its text (w-full would pin it
+                     * to the cap); a command bubble fills its fit-content
+                     * wrapper either way. */}
                     <div
-                        ref={textRef}
-                        className={`whitespace-pre-wrap break-words${clamped ? " overflow-hidden lum-clamp-fade" : ""}`}
-                        style={clamped ? {maxHeight: USER_BUBBLE_MAX_PX} : undefined}
+                        className={`${message.command ? "" : "max-w-[85%]"} rounded-[var(--radius-lg)] px-4 py-2.5 text-sm`}
+                        style={{background: colors.accentOverlay}}
                     >
-                        {message.command ? (
-                            // A slash-command submission: the server stored the
-                            // EXPANDED template (message.text), but the bubble
-                            // shows the compact invocation — chip + arguments —
-                            // like the composer's inline command mention. Hover
-                            // reveals the expanded prompt.
-                            <>
-                                <span
-                                    className="inline-flex items-center gap-1 font-medium whitespace-nowrap"
-                                    style={{color: COMMAND_MENTION_COLOR}}
-                                >
-                                    <Terminal size={12} className="shrink-0"/>
-                                    /{message.command.name}
-                                </span>
-                                {message.command.arguments && (
-                                    <span> {message.command.arguments}</span>
-                                )}
-                            </>
-                        ) : message.text}
+                        {/* The clamp + fade live on this inner wrapper, not the
+                         * bubble: a mask would dissolve the bubble's own
+                         * translucent fill and rounded corners with it. */}
+                        <div
+                            ref={textRef}
+                            className={`whitespace-pre-wrap break-words${clamped ? " overflow-hidden lum-clamp-fade" : ""}`}
+                            style={clamped ? {maxHeight: USER_BUBBLE_MAX_PX} : undefined}
+                        >
+                            {message.command ? (
+                                // A slash-command submission: the server stored the
+                                // EXPANDED template (message.text), but the bubble
+                                // shows the compact invocation — chip + arguments —
+                                // like the composer's inline command mention. Hover
+                                // reveals the expanded prompt.
+                                <>
+                                    <span
+                                        className="inline-flex items-center gap-1 font-medium whitespace-nowrap"
+                                        style={{color: COMMAND_MENTION_COLOR}}
+                                    >
+                                        <Terminal size={12} className="shrink-0"/>
+                                        /{message.command.name}
+                                    </span>
+                                    {message.command.arguments && (
+                                        <span> {message.command.arguments}</span>
+                                    )}
+                                </>
+                            ) : message.text}
+                        </div>
                     </div>
-                </div>
+                </Hint>
             )}
             {/* Quiet actions row under the bubble: the copy affordance sits
                 beside the clamp expander (hover-revealed like the sidebar's
                 row actions; stays lit while the ✓ lingers so the
                 confirmation isn't hidden by the pointer leaving). Copies
                 the full prompt — for a slash-command submission that's the
-                expanded template, matching the bubble's hover title.
+                expanded template, matching the bubble's hover hint.
                 transform-gpu for the same WebKitGTK compositing reason as
                 RunFooter. */}
             {message.text && (
                 <div className="flex items-center gap-1 mt-1">
-                    <button
-                        type="button"
-                        onClick={() => void copy(message.text)}
-                        title={copied ? t["Copied"] : t["Copy"]}
-                        className={`inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none hover:bg-[var(--lum-bubble-copy-hover)] transition-[opacity,background-color] duration-[var(--duration-fast)] transform-gpu ${copied ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"}`}
-                        style={{"--lum-bubble-copy-hover": colors.hoverOverlay} as CSSProperties}
-                    >
-                        {copied
-                            ? <Check size={14} className="shrink-0"/>
-                            : <Copy size={14} className="shrink-0"/>}
-                    </button>
+                    <Hint label={copied ? t["Copied"] : t["Copy"]}>
+                        <button
+                            type="button"
+                            onClick={() => void copy(message.text)}
+                            className={`inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none hover:bg-[var(--lum-bubble-copy-hover)] transition-[opacity,background-color] duration-[var(--duration-fast)] transform-gpu ${copied ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"}`}
+                            style={{"--lum-bubble-copy-hover": colors.hoverOverlay} as CSSProperties}
+                        >
+                            {copied
+                                ? <Check size={14} className="shrink-0"/>
+                                : <Copy size={14} className="shrink-0"/>}
+                        </button>
+                    </Hint>
                     {clipped && (
                         <motion.button
                             type="button"

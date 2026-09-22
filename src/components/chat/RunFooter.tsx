@@ -5,6 +5,7 @@ import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useCopy} from "../../hooks/useCopy.ts";
 import {fadeIn} from "../../lib/motion.ts";
+import Hint from "../ui/Hint.tsx";
 
 /**
  * The quiet footer under a finished run: a copy affordance for the run's
@@ -31,26 +32,24 @@ export default function RunFooter({text, durationMs, colors}: {
             animate="show"
             className="flex items-center gap-2 -mt-1.5"
         >
-            <button
-                type="button"
-                onClick={() => void copy(text)}
-                title={copied ? t["Copied"] : t["Copy"]}
-                // transform-gpu: the hover fades opacity across the 1.0
-                // boundary, which on the WebKitGTK webview churns compositing
-                // layers under the transcript's mask — a permanent layer
-                // stops the stutter (same reasoning as FoldRow).
-                className="inline-flex items-center justify-center h-6 w-6 -ml-1 rounded-[var(--radius-xs)] cursor-pointer select-none opacity-50 hover:opacity-100 hover:bg-[var(--lum-run-hover)] transition-[opacity,background-color] duration-[var(--duration-fast)] transform-gpu"
-                style={{"--lum-run-hover": colors.hoverOverlay} as CSSProperties}
-            >
-                {copied
-                    ? <Check size={14} className="shrink-0"/>
-                    : <Copy size={14} className="shrink-0"/>}
-            </button>
-            {durationMs != null && (
-                <span
-                    className="inline-flex items-center gap-1 text-xs opacity-45 select-none"
-                    title={t["Task duration"]}
+            <Hint label={copied ? t["Copied"] : t["Copy"]} className="-ml-1">
+                <button
+                    type="button"
+                    onClick={() => void copy(text)}
+                    // transform-gpu: the hover fades opacity across the 1.0
+                    // boundary, which on the WebKitGTK webview churns compositing
+                    // layers under the transcript's mask — a permanent layer
+                    // stops the stutter (same reasoning as FoldRow).
+                    className="inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none opacity-50 hover:opacity-100 hover:bg-[var(--lum-run-hover)] transition-[opacity,background-color] duration-[var(--duration-fast)] transform-gpu"
+                    style={{"--lum-run-hover": colors.hoverOverlay} as CSSProperties}
                 >
+                    {copied
+                        ? <Check size={14} className="shrink-0"/>
+                        : <Copy size={14} className="shrink-0"/>}
+                </button>
+            </Hint>
+            {durationMs != null && (
+                <span className="inline-flex items-center gap-1 text-xs opacity-45 select-none">
                     <Clock size={12} className="shrink-0"/>
                     {/* -translate-y-[0.5px]: duration glyphs (digits + s/m/h) never
                         descend below baseline, so the em box's descender

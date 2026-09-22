@@ -8,6 +8,7 @@ import type {OpencodeProject} from "../../opencode/types.ts";
 import {folderLabel} from "../../lib/path.ts";
 import PopoverMenu, {MenuItem, MenuLabel} from "../ui/PopoverMenu.tsx";
 import ToolbarButton from "./ToolbarButton.tsx";
+import Hint from "../ui/Hint.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 
 /**
@@ -93,15 +94,19 @@ export default function DirectoryPicker({
         <PopoverMenu
             colors={colors}
             align="start"
-            title={directory ?? t["Default project directory"]}
             trigger={({open, toggle}) => (
-                <ToolbarButton
-                    icon={<Folder size={14}/>}
-                    label={directory ? folderLabel(directory) : t["Project"]}
-                    active={open}
-                    colors={colors}
-                    onClick={toggle}
-                />
+                // The trigger shows only the folder's last segment — the
+                // hint carries the full path (nothing to add for the
+                // default), idling while the menu is open.
+                <Hint label={open ? null : directory}>
+                    <ToolbarButton
+                        icon={<Folder size={14}/>}
+                        label={directory ? folderLabel(directory) : t["Project"]}
+                        active={open}
+                        colors={colors}
+                        onClick={toggle}
+                    />
+                </Hint>
             )}
         >
             {(close) => (
@@ -118,7 +123,7 @@ export default function DirectoryPicker({
                     </MenuItem>
                     {projects.length > 0 && <MenuLabel>{t["Recent Projects"]}</MenuLabel>}
                     {projects.map((p) => (
-                        <div key={p.id} title={p.canonical}>
+                        <div key={p.id}>
                             <MenuItem
                                 colors={colors}
                                 selected={directory === p.canonical}

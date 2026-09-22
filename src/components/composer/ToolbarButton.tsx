@@ -1,10 +1,11 @@
 import type {ReactNode} from "react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import Hint from "../ui/Hint.tsx";
 
 /**
  * One compact control in the composer's bottom toolbar: icon + optional
  * label. Ghost by default; carries an open/active state for popover
- * triggers.
+ * triggers. A `title` (icon-only buttons) shows as the app's hover hint.
  */
 export default function ToolbarButton({
     icon,
@@ -25,10 +26,9 @@ export default function ToolbarButton({
     onClick?: () => void;
     title?: string;
 }) {
-    return (
+    const button = (
         <button
             type="button"
-            title={title}
             disabled={disabled}
             onClick={onClick}
             className={`inline-flex items-center gap-1.5 h-7 px-2 rounded-[var(--radius-sm)] cursor-pointer select-none transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-toolbar-hover)] disabled:opacity-40 disabled:cursor-not-allowed ${
@@ -47,4 +47,5 @@ export default function ToolbarButton({
             {label != null && <span className="text-xs font-medium truncate leading-normal max-w-44 -translate-y-px">{label}</span>}
         </button>
     );
+    return title ? <Hint label={title}>{button}</Hint> : button;
 }

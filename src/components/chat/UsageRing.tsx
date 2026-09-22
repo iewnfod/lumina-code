@@ -3,6 +3,7 @@ import {visibleRed} from "../../lib/color.ts";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {SessionUsage} from "../../opencode/types.ts";
 import PopoverMenu, {MenuLabel} from "../ui/PopoverMenu.tsx";
+import Hint from "../ui/Hint.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {cacheHitRate, formatCost, formatTokens, ringFraction, totalTokens, type UsageTokens} from "./usageStats.ts";
 
@@ -53,25 +54,28 @@ export default function UsageRing({tokens, sessionUsage, contextLimit, colors}: 
             colors={colors}
             align="end"
             panelClassName="w-64"
-            title={t["Session usage"]}
             trigger={({open, toggle}) => (
-                <button
-                    type="button"
-                    onClick={toggle}
-                    aria-label={`${t["Session usage"]}: ${formatTokens(total)}${pct != null ? `, ${pct}%` : ""}`}
-                    aria-expanded={open}
-                    // Same affordances as ToolbarButton, minus the label:
-                    // ghost ring, hover + open states highlight the hit area.
-                    className={`inline-flex items-center justify-center h-7 w-7 rounded-[var(--radius-sm)] cursor-pointer select-none transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-usage-hover)] ${
-                        open ? "bg-[var(--lum-usage-active)]" : ""
-                    }`}
-                    style={{
-                        "--lum-usage-hover": colors.hoverOverlay,
-                        "--lum-usage-active": colors.activeOverlay,
-                    } as CSSProperties}
-                >
-                    <Ring fraction={fraction} arc={arc} track={colors.dark}/>
-                </button>
+                // Hint idles while the menu is open — both the tooltip and
+                // the panel sit above the trigger and would overlap.
+                <Hint label={open ? null : t["Session usage"]}>
+                    <button
+                        type="button"
+                        onClick={toggle}
+                        aria-label={`${t["Session usage"]}: ${formatTokens(total)}${pct != null ? `, ${pct}%` : ""}`}
+                        aria-expanded={open}
+                        // Same affordances as ToolbarButton, minus the label:
+                        // ghost ring, hover + open states highlight the hit area.
+                        className={`inline-flex items-center justify-center h-7 w-7 rounded-[var(--radius-sm)] cursor-pointer select-none transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-usage-hover)] ${
+                            open ? "bg-[var(--lum-usage-active)]" : ""
+                        }`}
+                        style={{
+                            "--lum-usage-hover": colors.hoverOverlay,
+                            "--lum-usage-active": colors.activeOverlay,
+                        } as CSSProperties}
+                    >
+                        <Ring fraction={fraction} arc={arc} track={colors.dark}/>
+                    </button>
+                </Hint>
             )}
         >
             {() => (

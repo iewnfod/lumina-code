@@ -162,7 +162,6 @@ export default function ComposerToolbar({
             <PopoverMenu
                 colors={colors}
                 align="start"
-                title={t["Mode"]}
                 trigger={({open, toggle}) => (
                     <ToolbarButton
                         icon={<Bot size={14}/>}
@@ -177,7 +176,7 @@ export default function ComposerToolbar({
                     <div className="w-52">
                         <MenuLabel>{t["Mode"]}</MenuLabel>
                         {agents.map((a) => (
-                            <div key={a.id} title={a.description}>
+                            <div key={a.id}>
                                 <MenuItem
                                     colors={colors}
                                     selected={a.id === agent}
@@ -221,7 +220,6 @@ export default function ComposerToolbar({
                 colors={colors}
                 align="end"
                 panelClassName="w-60"
-                title={t["Model"]}
                 trigger={({open, toggle}) => (
                     <ToolbarButton
                         icon={<Cpu size={14}/>}
@@ -287,7 +285,6 @@ export default function ComposerToolbar({
                 <PopoverMenu
                     colors={colors}
                     align="end"
-                    title={t["Thinking depth"]}
                     trigger={({open, toggle}) => (
                         <ToolbarButton
                             icon={<Brain size={14}/>}

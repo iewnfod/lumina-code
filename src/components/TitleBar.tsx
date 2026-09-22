@@ -1,6 +1,5 @@
 import type {CSSProperties} from "react";
 import {Pin, PinOff, Search, Settings} from "lucide-react";
-import {Tooltip} from "@heroui/react";
 import type {ChromeTheme} from "../lib/theme.ts";
 import {isMacOS} from "../lib/platform.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
@@ -11,6 +10,7 @@ import {useI18n} from "../hooks/i18n.tsx";
 import {glassSurface} from "../lib/glass.ts";
 import { info } from "@tauri-apps/plugin-log";
 import IconButton from "./ui/IconButton.tsx";
+import Hint from "./ui/Hint.tsx";
 import RollingTitle from "./ui/RollingTitle.tsx";
 import WindowControl from "./ui/WindowControls.tsx";
 import {CHROME_TITLE_BAR_HEIGHT} from "../constants.ts";
@@ -46,30 +46,23 @@ function PinButton({size, hoverOverlay, activeOverlay, fg, style}: PinButtonProp
         : pinned ? t["Unpin from Top"] : t["Pin on Top"];
 
     return (
-        <Tooltip delay={300} closeDelay={0}>
-            <Tooltip.Trigger>
-                {/* The button is wrapped so the tooltip still opens on hover
-                    when it is disabled — disabled buttons dispatch no pointer
-                    events of their own. */}
-                <span className="inline-flex">
-                    <IconButton
-                        size={size}
-                        isActive={pinned}
-                        hoverOverlay={hoverOverlay}
-                        activeOverlay={activeOverlay}
-                        style={{color: fg, ...style}}
-                        onClick={toggle}
-                        disabled={isWayland}
-                        aria-label={label}
-                    >
-                        {pinned ? <PinOff size={18} /> : <Pin size={18} />}
-                    </IconButton>
-                </span>
-            </Tooltip.Trigger>
-            <Tooltip.Content>
-                <p className="text-xs">{label}</p>
-            </Tooltip.Content>
-        </Tooltip>
+        <Hint label={label}>
+            {/* The button is wrapped so the tooltip still opens on hover
+             * when it is disabled — disabled buttons dispatch no pointer
+             * events of their own. */}
+            <IconButton
+                size={size}
+                isActive={pinned}
+                hoverOverlay={hoverOverlay}
+                activeOverlay={activeOverlay}
+                style={{color: fg, ...style}}
+                onClick={toggle}
+                disabled={isWayland}
+                aria-label={label}
+            >
+                {pinned ? <PinOff size={18} /> : <Pin size={18} />}
+            </IconButton>
+        </Hint>
     );
 }
 

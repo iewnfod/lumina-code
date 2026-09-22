@@ -179,7 +179,6 @@ export default function SessionBar(props: SessionBarProps) {
                         "--lum-new-session-hover": colors.hoverOverlay,
                         color: colors.inactiveText,
                     } as CSSProperties}
-                    title={t["New Session"]}
                     onClick={() => onNew()}
                 >
                     <Plus size={14}/>
