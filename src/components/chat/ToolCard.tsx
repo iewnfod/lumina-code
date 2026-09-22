@@ -97,7 +97,10 @@ function errorText(error: unknown): string | null {
     return s && s !== "[object Object]" ? s : null;
 }
 
-/** The "+N / −N" diff suffix for file-mutating tools. */
+/** The "+N / −N" diff suffix for file-mutating tools. Rendered through
+ *  FoldRow's accent slot — outside the row's dimmed region — so the
+ *  counts stay fully lit even while the rest of the row rests at half
+ *  opacity. */
 function DiffCounts({added, removed}: {added?: number; removed?: number}) {
     if (added == null && removed == null) return null;
     return (
@@ -114,8 +117,13 @@ function DiffCounts({added, removed}: {added?: number; removed?: number}) {
 
 /**
  * The row's detail line: the single most identifying input of the call —
- * the command for shells, the file path (+ added/removed lines for edits)
- * for file tools, the pattern for search, the URL for fetch…
+ * the command for shells, the file path for file tools, the pattern for
+ * search, the URL for fetch… Diff counts ride separately (toolAccent)
+ * so they can stay undimmed.
+ *
+ * Key spellings verified against the live server's stored parts: file
+ * tools send `filePath` (write/edit/read) or `path` (list/grep); the
+ * snake_case fallbacks stay for safety against server drift.
  */
 function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNode {
     const o = inputObject(part);
@@ -139,26 +147,13 @@ function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNo
         }
         case "edit":
         case "apply_patch":
-            return (
-                <>
-                    {file(inputStr(o, "file_path", "path"))}
-                    <DiffCounts
-                        added={lineCount(o.new_string)}
-                        removed={lineCount(o.old_string)}
-                    />
-                </>
-            );
+            return file(inputStr(o, "filePath", "file_path", "path"));
         case "write":
-            return (
-                <>
-                    {file(inputStr(o, "file_path", "path"))}
-                    <DiffCounts added={lineCount(o.content)} />
-                </>
-            );
+            return file(inputStr(o, "filePath", "path", "file_path"));
         case "read":
-            return file(inputStr(o, "file_path", "path"));
+            return file(inputStr(o, "filePath", "file_path", "path"));
         case "list":
-            return file(inputStr(o, "path", "file_path"));
+            return file(inputStr(o, "path", "filePath", "file_path"));
         case "grep":
         case "glob":
             return path(inputStr(o, "pattern", "query"));
@@ -173,6 +168,29 @@ function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNo
                 {json.length > 120 ? json.slice(0, 117) + "…" : json}
             </span>;
         }
+    }
+}
+
+/** The row's undimmed accent: "+added −removed" line counts for
+ *  file-mutating tools (edit: new vs old string; write: whole content —
+ *  a new file has no removals). Counts show as soon as the input
+ *  arrives, while the tool is still running. */
+function toolAccent(part: AssistantToolPart): ReactNode {
+    const o = inputObject(part);
+    if (!o) return null;
+    switch (part.name) {
+        case "edit":
+        case "apply_patch":
+            return (
+                <DiffCounts
+                    added={lineCount(inputStr(o, "newString", "new_string"))}
+                    removed={lineCount(inputStr(o, "oldString", "old_string"))}
+                />
+            );
+        case "write":
+            return <DiffCounts added={lineCount(inputStr(o, "content"))} />;
+        default:
+            return null;
     }
 }
 
@@ -229,6 +247,7 @@ const ToolCard = memo(function ToolCard({
             icon={icon}
             title={title}
             detail={toolDetail(part, directory)}
+            accent={toolAccent(part)}
             expanded={expanded}
             onToggle={toggle}
         >

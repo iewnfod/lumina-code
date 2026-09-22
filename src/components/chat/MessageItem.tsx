@@ -64,41 +64,46 @@ function UserBubble({message, colors}: {message: ChatUserMessage; colors: Surfac
         // Extra vertical margin sets the turn apart from the tight
         // assistant flow around it (the column gap is only 12px).
         <motion.div
-            className="flex justify-end my-4"
+            className="flex flex-col items-end my-4"
             variants={fadeSlideUp}
             initial="hidden"
             animate="show"
         >
-            <div
-                className="max-w-[85%] rounded-[var(--radius-lg)] px-4 py-2.5 whitespace-pre-wrap break-words text-sm"
-                style={{background: colors.accentOverlay}}
-            >
-                {files.length > 0 && (
-                    <div className="flex flex-wrap justify-end gap-1.5 pb-2 mb-2 border-b border-white/10">
-                        {files.map((f, i) => {
-                            const src = typeof f.uri === "string" ? f.uri
-                                : f.data && f.mime ? `data:${f.mime};base64,${f.data}`
-                                : null;
-                            return (
-                                <span
-                                    key={i}
-                                    title={f.name}
-                                    className="inline-flex items-center gap-1.5 h-7 pl-1.5 pr-2.5 rounded-[var(--radius-sm)] max-w-56"
-                                    style={{background: "rgba(128,128,128,0.18)"}}
-                                >
-                                    {f.mime?.startsWith("image/") && src ? (
-                                        <img src={src} alt="" className="w-5 h-5 rounded-[var(--radius-xs)] object-cover shrink-0"/>
-                                    ) : (
-                                        <FileText size={13} className="shrink-0 opacity-60"/>
-                                    )}
-                                    <span className="text-xs truncate">{f.name ?? "file"}</span>
-                                </span>
-                            );
-                        })}
-                    </div>
-                )}
-                {message.text}
-            </div>
+            {/* Attachments float ABOVE the bubble, outside it — the prompt
+                text keeps a clean single-surface read and the files read as
+                accompanying material rather than bubble content. */}
+            {files.length > 0 && (
+                <div className="flex flex-wrap justify-end gap-1.5 mb-1.5 max-w-[85%]">
+                    {files.map((f, i) => {
+                        const src = typeof f.uri === "string" ? f.uri
+                            : f.data && f.mime ? `data:${f.mime};base64,${f.data}`
+                            : null;
+                        return (
+                            <span
+                                key={i}
+                                title={f.name}
+                                className="inline-flex items-center gap-1.5 h-7 pl-2.5 pr-2.5 rounded-[var(--radius-lg)] max-w-56"
+                                style={{background: "rgba(128,128,128,0.10)"}}
+                            >
+                                {f.mime?.startsWith("image/") && src ? (
+                                    <img src={src} alt="" className="w-5 h-5 rounded-[var(--radius-xs)] object-cover shrink-0"/>
+                                ) : (
+                                    <FileText size={13} className="shrink-0 opacity-60"/>
+                                )}
+                                <span className="text-xs truncate">{f.name ?? "file"}</span>
+                            </span>
+                        );
+                    })}
+                </div>
+            )}
+            {message.text && (
+                <div
+                    className="max-w-[85%] rounded-[var(--radius-lg)] px-4 py-2.5 whitespace-pre-wrap break-words text-sm"
+                    style={{background: colors.accentOverlay}}
+                >
+                    {message.text}
+                </div>
+            )}
         </motion.div>
     );
 }
