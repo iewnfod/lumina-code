@@ -17,7 +17,7 @@ import type {
     SessionModelRef,
 } from "../../opencode/types.ts";
 import {useSessionMessages} from "../../opencode/useSessionMessages.ts";
-import MessageItem, {ActivityGroup, effectiveTailPart, type ActivityPart} from "./MessageItem.tsx";
+import MessageItem, {ActivityGroup, effectiveTailPart, type ActivityEntry, type ActivityPart} from "./MessageItem.tsx";
 import ChatInput from "./ChatInput.tsx";
 import {PermissionCard, QuestionCard} from "./RequestCards.tsx";
 
@@ -294,35 +294,55 @@ const ChatView = memo(function ChatView({
                             {disabled ? "Waiting for OpenCode…" : "Send a message to start"}
                         </div>
                     )}
-                    {blockify(rendered).map((block) => {
-                        if (block.kind === "message") {
+                    {(() => {
+                        const blocks = blockify(rendered);
+                        return blocks.map((block) => {
+                            if (block.kind === "message") {
+                                return (
+                                    <MessageItem
+                                        key={block.message.id}
+                                        message={block.message}
+                                        colors={colors}
+                                        streaming={isStreaming(block.message)}
+                                        directory={directory}
+                                    />
+                                );
+                            }
+                            const entries: ActivityEntry[] = [];
+                            for (const m of block.messages) {
+                                m.content.forEach((part, i) => {
+                                    if (part.type !== "text") {
+                                        entries.push({part, key: `${m.id}:${i}`});
+                                    }
+                                });
+                            }
+                            // Live while the streaming message's effective
+                            // tail is a tool/thought inside this run.
+                            const streamingMsg = block.messages.find(isStreaming);
+                            const tail = streamingMsg ? effectiveTailPart(streamingMsg) : undefined;
+                            const livePart: ActivityPart | null =
+                                tail != null && tail.type !== "text" ? tail : null;
+                            // …and across step boundaries: the server opens a
+                            // NEW assistant message per model step, so between
+                            // one step's message completing and the next
+                            // step's first part nothing here is streaming —
+                            // but the run keeps growing at the transcript's
+                            // tail. Stay open for that whole span instead of
+                            // folding shut and popping back open per step.
+                            const runLive = busy && block === blocks[blocks.length - 1];
                             return (
-                                <MessageItem
-                                    key={block.message.id}
-                                    message={block.message}
+                                <ActivityGroup
+                                    key={block.messages[0].id}
+                                    stateKey={block.messages[0].id}
+                                    entries={entries}
                                     colors={colors}
-                                    streaming={isStreaming(block.message)}
+                                    livePart={livePart}
+                                    runLive={runLive}
+                                    directory={directory}
                                 />
                             );
-                        }
-                        const parts = block.messages.flatMap((m) =>
-                            m.content.filter((p): p is ActivityPart => p.type !== "text"),
-                        );
-                        // Live while the streaming message's effective tail
-                        // is a tool/thought inside this run.
-                        const streamingMsg = block.messages.find(isStreaming);
-                        const tail = streamingMsg ? effectiveTailPart(streamingMsg) : undefined;
-                        const livePart: ActivityPart | null =
-                            tail != null && tail.type !== "text" ? tail : null;
-                        return (
-                            <ActivityGroup
-                                key={block.messages[0].id}
-                                parts={parts}
-                                colors={colors}
-                                livePart={livePart}
-                            />
-                        );
-                    })}
+                        });
+                    })()}
                 </div>
             </div>
             <div className="shrink-0 max-w-3xl mx-auto w-full px-6 pb-4 flex flex-col gap-2">

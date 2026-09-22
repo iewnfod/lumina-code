@@ -17,6 +17,12 @@ import {durationBase, durationFast, easeGlass, easeSpring} from "../../lib/motio
  * The hover group lives on the button (not the wrapper) so nested FoldRows
  * inside expanded children don't light up together — hovering one row only
  * reveals its own chevron.
+ *
+ * The button carries `transform-gpu`: hover fades its opacity across the
+ * 1.0 boundary, which in the WebKitGTK webview repeatedly promotes and
+ * demotes a compositing layer per row — under the transcript's mask and
+ * the glass backdrop that shows up as flicker on fast pointer sweeps.
+ * A permanent layer stops the churn.
  */
 export default function FoldRow({
     icon,
@@ -37,7 +43,7 @@ export default function FoldRow({
         <div className="min-w-0 text-sm">
             <button
                 type="button"
-                className="group/row flex items-center gap-2 w-full text-left cursor-pointer py-0.5 rounded-[var(--radius-xs)] opacity-50 hover:opacity-100 transition-opacity duration-[var(--duration-fast)]"
+                className="group/row flex items-center gap-2 w-full text-left cursor-pointer py-0.5 rounded-[var(--radius-xs)] opacity-50 hover:opacity-100 transition-opacity duration-[var(--duration-fast)] transform-gpu"
                 onClick={onToggle}
             >
                 <span className="shrink-0 flex items-center">{icon}</span>

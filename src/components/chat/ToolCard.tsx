@@ -1,4 +1,4 @@
-import {memo, useEffect, useState, type ReactNode} from "react";
+import {memo, type ReactNode} from "react";
 import {
     AlertCircle,
     FilePen,
@@ -16,6 +16,7 @@ import {
 import type {AssistantToolPart} from "../../opencode/types.ts";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
+import {AUTO_EXPAND_MIN_DWELL_MS, useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 
 const MONO = "var(--font-mono, ui-monospace, monospace)";
@@ -66,6 +67,24 @@ function lineCount(v: unknown): number | undefined {
     return typeof v === "string" && v ? v.split("\n").length : undefined;
 }
 
+/** Display form of a file path: relative to the session's working
+ *  directory when the target lives inside the project, the absolute
+ *  path untouched when it doesn't. Non-absolute inputs (already-relative
+ *  paths, URLs, patterns) pass through unchanged. */
+function displayPath(p: string, directory?: string | null): string {
+    if (!directory) return p;
+    const absolute = p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p);
+    if (!absolute) return p;
+    const sep = directory.includes("\\") ? "\\" : "/";
+    const trim = (s: string) => (sep === "/" ? s.replace(/\/+$/, "") : s.replace(/\\+$/, ""));
+    // Trim trailing separators on both sides, keeping a bare "/" root intact.
+    const base = trim(directory) || (sep === "/" ? "/" : "");
+    const target = trim(p);
+    if (target === base) return ".";
+    const prefix = base.endsWith(sep) ? base : base + sep;
+    return target.startsWith(prefix) ? target.slice(prefix.length) : p;
+}
+
 /** Human text of a tool error payload — `{type, message}` objects carry
  *  the reason ("The user dismissed this question", …). */
 function errorText(error: unknown): string | null {
@@ -98,7 +117,7 @@ function DiffCounts({added, removed}: {added?: number; removed?: number}) {
  * the command for shells, the file path (+ added/removed lines for edits)
  * for file tools, the pattern for search, the URL for fetch…
  */
-function toolDetail(part: AssistantToolPart): ReactNode {
+function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNode {
     const o = inputObject(part);
     if (!o) {
         const raw = part.state.input;
@@ -109,6 +128,8 @@ function toolDetail(part: AssistantToolPart): ReactNode {
     const path = (s?: string) => (
         <span className="truncate min-w-0" style={{fontFamily: MONO}}>{s}</span>
     );
+    // File paths inside the project show relative to the session directory.
+    const file = (s?: string) => path(s == null ? undefined : displayPath(s, directory));
     switch (part.name) {
         case "bash":
         case "shell":
@@ -120,7 +141,7 @@ function toolDetail(part: AssistantToolPart): ReactNode {
         case "apply_patch":
             return (
                 <>
-                    {path(inputStr(o, "file_path", "path"))}
+                    {file(inputStr(o, "file_path", "path"))}
                     <DiffCounts
                         added={lineCount(o.new_string)}
                         removed={lineCount(o.old_string)}
@@ -130,12 +151,14 @@ function toolDetail(part: AssistantToolPart): ReactNode {
         case "write":
             return (
                 <>
-                    {path(inputStr(o, "file_path", "path"))}
+                    {file(inputStr(o, "file_path", "path"))}
                     <DiffCounts added={lineCount(o.content)} />
                 </>
             );
         case "read":
-            return path(inputStr(o, "file_path", "path"));
+            return file(inputStr(o, "file_path", "path"));
+        case "list":
+            return file(inputStr(o, "path", "file_path"));
         case "grep":
         case "glob":
             return path(inputStr(o, "pattern", "query"));
@@ -165,21 +188,27 @@ function toolDetail(part: AssistantToolPart): ReactNode {
 const ToolCard = memo(function ToolCard({
     part,
     colors,
+    directory,
 }: {
     part: AssistantToolPart;
     colors: SurfaceColors;
+    /** Session working directory — file paths inside it display relative. */
+    directory?: string | null;
 }) {
     const status = part.state.status;
-    const [expanded, setExpanded] = useState(false);
-    const [userToggled, setUserToggled] = useState(false);
+    // Auto-expands while running so live progress is visible, folds on
+    // completion to keep the transcript scannable (an explicit user
+    // toggle wins until the next lifecycle transition). The dwell keeps
+    // quick tools from flashing open→closed. State is keyed by the tool
+    // call's server id, so it survives ChatView's run regrouping.
+    const {expanded, toggle} = useExpansion(
+        part.id,
+        // Errors stay expanded — the failure reason must be visible.
+        status === "running" || status === "error",
+        AUTO_EXPAND_MIN_DWELL_MS,
+    );
     const {ref: outputScroll, onScroll: outputScrollHandler} =
         useFollowBottom<HTMLDivElement>(status === "running");
-
-    useEffect(() => {
-        if (userToggled) return;
-        // Errors stay expanded — the failure reason must be visible.
-        setExpanded(status === "running" || status === "error");
-    }, [status, userToggled]);
 
     const {title, icon: Icon} = metaFor(part.name);
     // Running tools breathe (opacity pulse) on their own icon — same live
@@ -201,12 +230,9 @@ const ToolCard = memo(function ToolCard({
         <FoldRow
             icon={icon}
             title={title}
-            detail={toolDetail(part)}
+            detail={toolDetail(part, directory)}
             expanded={expanded}
-            onToggle={() => {
-                setUserToggled(true);
-                setExpanded((v) => !v);
-            }}
+            onToggle={toggle}
         >
             {(output.length > 0 || status === "error") && (
                 <div

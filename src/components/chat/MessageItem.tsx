@@ -1,4 +1,4 @@
-import {memo, useEffect, useState} from "react";
+import {memo} from "react";
 import {motion} from "framer-motion";
 import {AlertCircle, Brain, FileText, Loader2, Wrench} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
@@ -16,6 +16,7 @@ import {fadeSlideUp} from "../../lib/motion.ts";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import Markdown from "./Markdown.tsx";
 import ToolCard, {toolDisplayName} from "./ToolCard.tsx";
+import {AUTO_EXPAND_MIN_DWELL_MS, useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 
 /**
@@ -30,17 +31,27 @@ const MessageItem = memo(function MessageItem({
     message,
     colors,
     streaming,
+    directory,
 }: {
     message: ChatMessage;
     colors: SurfaceColors;
     /** True while this assistant message is still being produced. */
     streaming: boolean;
+    /** Session working directory — file tool paths inside it display relative. */
+    directory?: string | null;
 }) {
     if (isUserMessage(message)) {
         return <UserBubble message={message} colors={colors} />;
     }
     if (isAssistantMessage(message)) {
-        return <AssistantBlock message={message} colors={colors} streaming={streaming} />;
+        return (
+            <AssistantBlock
+                message={message}
+                colors={colors}
+                streaming={streaming}
+                directory={directory}
+            />
+        );
     }
     return null;
 });
@@ -114,6 +125,19 @@ type Segment =
     | {kind: "text"; part: AssistantTextPart}
     | {kind: "activity"; parts: ActivityPart[]};
 
+/** Stable identity for an activity part: `${message.id}:${indexInMessage}`.
+ *  Parts are appended (never reordered) and streaming updates mutate part
+ *  objects in place, so both the index and the object identity hold for the
+ *  part's lifetime — the key survives ChatView's run regrouping, where the
+ *  same part moves between component subtrees and must keep its expansion
+ *  state. */
+function partKey(message: ChatAssistantMessage, part: ActivityPart): string {
+    return `${message.id}:${message.content.indexOf(part)}`;
+}
+
+/** One activity part of a folded run, paired with its stable key. */
+export type ActivityEntry = {part: ActivityPart; key: string};
+
 /**
  * Fold consecutive reasoning/tool parts into segments; text parts break the
  * runs. Runs of 2+ render as one ActivityGroup disclosure so a wall of tool
@@ -142,10 +166,12 @@ function AssistantBlock({
     message,
     colors,
     streaming,
+    directory,
 }: {
     message: ChatAssistantMessage;
     colors: SurfaceColors;
     streaming: boolean;
+    directory?: string | null;
 }) {
     // The part currently receiving frames (reasoning before the answer,
     // text after) drives the per-part live states.
@@ -184,9 +210,13 @@ function AssistantBlock({
                     return (
                         <motion.div key={i} variants={fadeSlideUp} initial="hidden" animate="show">
                             {part.type === "reasoning" ? (
-                                <ThinkingBlock part={part} live={reasoningLive && part === lastPart} />
+                                <ThinkingBlock
+                                    part={part}
+                                    stateKey={partKey(message, part)}
+                                    live={reasoningLive && part === lastPart}
+                                />
                             ) : (
-                                <ToolCard part={part} colors={colors} />
+                                <ToolCard part={part} colors={colors} directory={directory} />
                             )}
                         </motion.div>
                     );
@@ -194,9 +224,14 @@ function AssistantBlock({
                 return (
                     <motion.div key={i} variants={fadeSlideUp} initial="hidden" animate="show">
                         <ActivityGroup
-                            parts={segment.parts}
+                            stateKey={`${message.id}:seg:${i}`}
+                            entries={segment.parts.map((part) => ({
+                                part,
+                                key: partKey(message, part),
+                            }))}
                             colors={colors}
                             livePart={livePart}
+                            directory={directory}
                         />
                     </motion.div>
                 );
@@ -208,36 +243,45 @@ function AssistantBlock({
  * long agentic stretches read as a single collapsed summary line instead
  * of a wall of cards. Expanded while anything inside is streaming, folds
  * when the run finishes (an explicit user toggle wins, as elsewhere).
+ *
+ * `runLive` covers step boundaries: the server opens a NEW assistant
+ * message per model step, so between one step's message completing and
+ * the next step's message opening its first part, nothing in `parts` is
+ * streaming — but the run isn't over. While the session stays busy and
+ * this group is the transcript's tail, the fold stays open instead of
+ * flapping closed and right back open on every step transition.
  */
 export function ActivityGroup({
-    parts,
+    entries,
+    stateKey,
     colors,
     livePart,
+    runLive = false,
+    directory,
 }: {
-    parts: ActivityPart[];
+    entries: ActivityEntry[];
+    /** Stable identity of this group — persistence key for expansion. */
+    stateKey: string;
     colors: SurfaceColors;
     /** The message part currently streaming, if it lives in this group. */
     livePart: ActivityPart | null;
+    /** The run is still growing at the transcript's tail — stay expanded. */
+    runLive?: boolean;
+    /** Session working directory — file tool paths inside it display relative. */
+    directory?: string | null;
 }) {
-    const [expanded, setExpanded] = useState(false);
-    const [userToggled, setUserToggled] = useState(false);
-
-    const live = livePart != null && parts.includes(livePart);
+    const parts = entries.map((e) => e.part);
+    const live = runLive || (livePart != null && parts.includes(livePart));
     const running = parts.some((p) => p.type === "tool" && p.state.status === "running");
     const errored = parts.some((p) => p.type === "tool" && p.state.status === "error");
-    const toolCount = parts.filter((p) => p.type === "tool").length;
-    const thoughtCount = parts.length - toolCount;
-    useEffect(() => {
-        if (userToggled) return;
-        // Stay expanded while live AND when something failed — the error
-        // reason must stay visible instead of hiding in the fold.
-        setExpanded(live || errored);
-    }, [live, errored, userToggled]);
+    const {expanded, toggle} = useExpansion(stateKey, live || errored);
 
     // Cross-message groups can be briefly empty (steps just opened, no
     // parts yet) — render nothing rather than a blank disclosure line.
     if (parts.length === 0) return null;
 
+    const toolCount = parts.filter((p) => p.type === "tool").length;
+    const thoughtCount = parts.length - toolCount;
     const bits: string[] = [];
     if (toolCount > 0) bits.push(`${toolCount} tool call${toolCount > 1 ? "s" : ""}`);
     if (thoughtCount > 0) bits.push(`${thoughtCount} thought${thoughtCount > 1 ? "s" : ""}`);
@@ -259,20 +303,17 @@ export function ActivityGroup({
                 <span className="truncate">{names.join(" · ")}</span>
             ) : null}
             expanded={expanded}
-            onToggle={() => {
-                setUserToggled(true);
-                setExpanded((v) => !v);
-            }}
+            onToggle={toggle}
         >
             <div
                 className="flex flex-col gap-1.5 pt-1.5 pl-2.5 ml-1 border-l"
                 style={{borderColor: colors.glassBorder}}
             >
-                {parts.map((part, i) =>
+                {entries.map(({part, key}) =>
                     part.type === "reasoning" ? (
-                        <ThinkingBlock key={i} part={part} live={livePart === part} />
+                        <ThinkingBlock key={key} stateKey={key} part={part} live={livePart === part} />
                     ) : (
-                        <ToolCard key={part.id ?? i} part={part} colors={colors} />
+                        <ToolCard key={part.id ?? key} part={part} colors={colors} directory={directory} />
                     ),
                 )}
             </div>
@@ -285,15 +326,9 @@ export function ActivityGroup({
  * Expanded (live) while the thoughts stream in, auto-collapsed once the
  * model moves on to the answer — unless the reader toggled it themselves.
  */
-function ThinkingBlock({part, live}: {part: AssistantReasoningPart; live: boolean}) {
-    const [expanded, setExpanded] = useState(false);
-    const [userToggled, setUserToggled] = useState(false);
+function ThinkingBlock({part, stateKey, live}: {part: AssistantReasoningPart; stateKey: string; live: boolean}) {
+    const {expanded, toggle} = useExpansion(stateKey, live, AUTO_EXPAND_MIN_DWELL_MS);
     const {ref: thinkScroll, onScroll: thinkScrollHandler} = useFollowBottom<HTMLDivElement>(live);
-
-    useEffect(() => {
-        if (userToggled) return;
-        setExpanded(live);
-    }, [live, userToggled]);
 
     // Collapsed rows carry the thought's first line as a preview.
     const snippet = part.text.trim().split("\n")[0] ?? "";
@@ -306,10 +341,7 @@ function ThinkingBlock({part, live}: {part: AssistantReasoningPart; live: boolea
                 <span className="truncate">{snippet}</span>
             ) : null}
             expanded={expanded}
-            onToggle={() => {
-                setUserToggled(true);
-                setExpanded((v) => !v);
-            }}
+            onToggle={toggle}
         >
             <div
                 ref={thinkScroll}
