@@ -228,7 +228,7 @@ export function useSessionMessages(
                                 state: {status: "pending"},
                             } satisfies AssistantToolPart,
                         ];
-                    });
+                    }, true);
                     break;
                 }
                 case "session.tool.called": {
@@ -298,7 +298,7 @@ export function useSessionMessages(
                 ? {type: "text", text: ""}
                 : {type: "reasoning", text: ""};
             m.content = [...m.content, part];
-        });
+        }, true);
     }
 
     function appendStreamDelta(
@@ -316,7 +316,7 @@ export function useSessionMessages(
                     : {type: "reasoning", text: delta};
                 m.content = [...m.content, fresh];
             }
-        });
+        }, true);
     }
 
     function settleStreamPart(
@@ -328,7 +328,7 @@ export function useSessionMessages(
         mutateAssistant(messageId, (m) => {
             const part = nthPart(m, kind, ordinal);
             if (part) part.text = text;
-        });
+        }, true);
     }
 
     /** The nth part of a given kind (stream `ordinal`s are per-kind). */
@@ -350,8 +350,23 @@ export function useSessionMessages(
     // --- Immutable-state helpers. Each produces new arrays/objects so React
     //     re-renders while untouched messages keep their identity (memo). ---
 
-    function mutateAssistant(id: string, fn: (draft: ChatAssistantMessage) => void) {
+    function mutateAssistant(id: string, fn: (draft: ChatAssistantMessage) => void, ensure = false) {
         mutate((prev) => {
+            // Re-attach: a content event may reference a message whose
+            // step.started predated this mount or an event-stream gap
+            // (webview reload / reconnect while the run continued
+            // server-side) — create the shell on demand so streaming
+            // resumes instead of silently dropping the frames.
+            if (ensure && !prev.some((m) => isAssistantMessage(m) && m.id === id)) {
+                const draft: ChatAssistantMessage = {
+                    id,
+                    type: "assistant",
+                    content: [],
+                    time: {created: Date.now()},
+                };
+                fn(draft);
+                return [...prev, draft];
+            }
             let changed = false;
             const next = prev.map((m) => {
                 if (!isAssistantMessage(m) || m.id !== id) return m;
@@ -376,7 +391,7 @@ export function useSessionMessages(
                 fn(draft);
                 return draft;
             });
-        });
+        }, true);
     }
 
     // --- Actions ---

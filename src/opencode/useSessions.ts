@@ -19,7 +19,9 @@ function isRootSession(s: OpencodeSession): boolean {
  * seeded from `GET /api/session`, then live-patched from the event bus
  * (session.created / renamed / deleted), plus a running-state set driven by
  * execution.started/succeeded/failed so busy sessions can show an indicator
- * regardless of which one is open.
+ * regardless of which one is open. The busy set is seeded from
+ * `GET /api/session/active` on connect — runs already in flight when the
+ * frontend (re)attached never fired their started event here.
  */
 export function useSessions(
     api: OpencodeApi | null,
@@ -43,6 +45,12 @@ export function useSessions(
     const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
     const apiRef = useRef(api);
     apiRef.current = api;
+    // Executions that ended via an event since mount. The active-sessions
+    // seed races those events (snapshot taken while the run was still
+    // going, response applied after its end already arrived) — a stale
+    // busy id would block that session's composer forever, so the seed
+    // must not resurrect an id we watched end.
+    const endedIdsRef = useRef<Set<string>>(new Set());
 
     // Re-list helper: root sessions only, server order (most recently
     // updated first).
@@ -68,6 +76,23 @@ export function useSessions(
             info(`Loaded ${roots.length} OpenCode session(s) (${(list?.length ?? 0) - roots.length} subagent session(s) hidden)`).catch(() => {});
         }).catch((e) => {
             logError(`Failed to load sessions: ${e}`).catch(() => {});
+        });
+        // Re-attach: executions already in flight fired their
+        // execution.started before the (re)loaded frontend subscribed, so
+        // recover the busy set from the server's authoritative snapshot.
+        api.listActiveSessions().then((active) => {
+            if (cancelled) return;
+            const ids = Object.keys(active ?? {}).filter((id) => !endedIdsRef.current.has(id));
+            if (ids.length === 0) return;
+            info(`Resuming ${ids.length} in-flight session(s): ${ids.join(", ")}`).catch(() => {});
+            setBusyIds((prev) => {
+                if (ids.every((id) => prev.has(id))) return prev;
+                const next = new Set(prev);
+                for (const id of ids) next.add(id);
+                return next;
+            });
+        }).catch((e) => {
+            logError(`Failed to load running sessions: ${e}`).catch(() => {});
         });
         return () => {
             cancelled = true;
@@ -99,6 +124,9 @@ export function useSessions(
                 }
                 case "session.execution.started": {
                     const {sessionID} = event.data as {sessionID: string};
+                    // A new run supersedes any earlier end we recorded
+                    // (see endedIdsRef above).
+                    endedIdsRef.current.delete(sessionID);
                     setBusyIds((prev) => {
                         if (prev.has(sessionID)) return prev;
                         const next = new Set(prev);
@@ -113,6 +141,7 @@ export function useSessions(
                     // "interrupted": dismissed question / stop button /
                     // shutdown — the run is over either way.
                     const {sessionID} = event.data as {sessionID: string};
+                    endedIdsRef.current.add(sessionID);
                     setBusyIds((prev) => {
                         if (!prev.has(sessionID)) return prev;
                         const next = new Set(prev);

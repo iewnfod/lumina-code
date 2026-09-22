@@ -92,6 +92,16 @@ export class OpencodeApi {
         return this.request<OpencodeSession[]>("/api/session");
     }
 
+    /** Sessions with an execution in flight — a `{sessionID: {type:
+     *  "running"}}` map (empty when idle). Seeds busy state that predates
+     *  the event stream: a webview reload / dev rebuild while the server
+     *  kept executing misses `session.execution.started`, so the sidebar
+     *  dots and stop buttons would otherwise never come back. The map is
+     *  process-local — a server restart clears it (nothing is running). */
+    listActiveSessions(): Promise<Record<string, {type: string}>> {
+        return this.request<Record<string, {type: string}>>("/api/session/active");
+    }
+
     /** Creates a session. The working directory rides as `location.directory`
      *  in the body (v2.0.x OpenAPI): a flat `directory` field — or the
      *  `?directory=` query the newer SDK schema suggests — is silently
