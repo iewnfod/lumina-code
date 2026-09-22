@@ -2,7 +2,7 @@ import {useCallback, useEffect, useRef, useState} from "react";
 import {error as logError, info} from "@tauri-apps/plugin-log";
 import type {OpencodeApi} from "./api.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
-import type {OpencodeSession} from "./types.ts";
+import type {EventMap, OpencodeSession} from "./types.ts";
 
 /**
  * Only user-initiated sessions belong in the sidebar: OpenCode's subagents
@@ -19,7 +19,9 @@ function isRootSession(s: OpencodeSession): boolean {
  * seeded from `GET /api/session`, then live-patched from the event bus
  * (session.created / inbox.enqueued / renamed / deleted — the enqueued
  * signal re-lists so the list's `time.updated` ordering tracks each
- * session's last question, not its creation), plus a running-state set
+ * session's last question, not its creation — and session.usage.updated,
+ * which patches the cumulative cost/token totals the composer's usage
+ * ring reads), plus a running-state set
  * driven by
  * execution.started/succeeded/failed so busy sessions can show an indicator
  * regardless of which one is open. The busy set is seeded from
@@ -133,6 +135,20 @@ export function useSessions(
                 case "session.deleted": {
                     const {sessionID} = event.data as {sessionID: string};
                     setSessions((prev) => prev.filter((s) => s.id !== sessionID));
+                    break;
+                }
+                case "session.usage.updated": {
+                    // Cumulative totals (see SessionUsage) — patch straight
+                    // into the held session so the composer's usage ring
+                    // ticks up as steps complete.
+                    const d = event.data as EventMap["session.usage.updated"];
+                    const fields: Partial<OpencodeSession> = {};
+                    if (d.cost !== undefined) fields.cost = d.cost;
+                    if (d.tokens !== undefined) fields.tokens = d.tokens;
+                    if (fields.cost === undefined && fields.tokens === undefined) break;
+                    setSessions((prev) =>
+                        prev.map((s) => (s.id === d.sessionID ? {...s, ...fields} : s)),
+                    );
                     break;
                 }
                 case "session.execution.started": {

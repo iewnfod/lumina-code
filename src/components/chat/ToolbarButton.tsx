@@ -1,16 +1,14 @@
 import type {ReactNode} from "react";
-import {ChevronUp} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 
 /**
  * One compact control in the composer's bottom toolbar: icon + optional
- * label + optional "opens upward" chevron. Ghost by default; carries an
- * open/active state for popover triggers.
+ * label. Ghost by default; carries an open/active state for popover
+ * triggers.
  */
 export default function ToolbarButton({
     icon,
     label,
-    chevron = false,
     active = false,
     disabled = false,
     colors,
@@ -20,7 +18,6 @@ export default function ToolbarButton({
     icon: ReactNode;
     /** Trailing text label; omit for icon-only buttons. */
     label?: ReactNode;
-    chevron?: boolean;
     /** Highlight while its popover is open. */
     active?: boolean;
     disabled?: boolean;
@@ -48,7 +45,6 @@ export default function ToolbarButton({
              * below the flex centerline; nudge labels up to sit level with
              * the geometrically-centered icons. */}
             {label != null && <span className="text-xs font-medium truncate leading-normal max-w-44 -translate-y-px">{label}</span>}
-            {chevron && <ChevronUp size={12} className="shrink-0 opacity-60"/>}
         </button>
     );
 }

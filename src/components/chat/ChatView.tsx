@@ -1,4 +1,4 @@
-import {Fragment, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode} from "react";
+import {Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode} from "react";
 import {AnimatePresence, motion} from "framer-motion";
 import {fadeIn} from "../../lib/motion.ts";
 import {useSurfaceColors} from "../../hooks/surfaceColors.ts";
@@ -19,6 +19,8 @@ import type {
     SessionModelRef,
 } from "../../opencode/types.ts";
 import {useSessionMessages} from "../../opencode/useSessionMessages.ts";
+import type {SessionUsage} from "../../opencode/types.ts";
+import {lastContextMessage, type ContextUsage} from "./usageStats.ts";
 import MessageItem, {ActivityGroup, effectiveTailPart, type ActivityEntry, type ActivityPart} from "./MessageItem.tsx";
 import RunFooter from "./RunFooter.tsx";
 import {collectRunFooters} from "./runFooters.ts";
@@ -99,6 +101,7 @@ const ChatView = memo(function ChatView({
     onModelChange,
     directory,
     onDirectoryChange,
+    usage,
     pendingPermissions,
     pendingForms,
     onPermissionDecision,
@@ -122,6 +125,10 @@ const ChatView = memo(function ChatView({
     /** The session's working directory (null = server default). */
     directory: string | null;
     onDirectoryChange: (directory: string | null) => void;
+    /** The session's cumulative usage — tooltip reference lines for the
+     *  composer's context ring (which itself reads the transcript's last
+     *  measured step; null on the welcome screen). */
+    usage: SessionUsage | null;
     /** Pending server requests for THIS session (permission asks +
      *  question forms) — pinned above the composer until answered. */
     pendingPermissions: PermissionRequest[];
@@ -153,6 +160,17 @@ const ChatView = memo(function ChatView({
     // The project picker stays available until the conversation starts —
     // i.e. until the first message lands (not just on the welcome screen).
     const hasConversation = visible.length > 0;
+
+    // The ring's reading: the last assistant step that reported usage
+    // (official-client semantics — see lastContextMessage). Double memo so
+    // the packet's identity only changes when the owning message does:
+    // ChatView re-renders per streaming frame, and a fresh object here
+    // would drag the memoized composer (Lexical subtree) along 60×/s.
+    const usageMessage = useMemo(() => lastContextMessage(messages), [messages]);
+    const contextUsage = useMemo<ContextUsage | null>(
+        () => (usageMessage?.tokens ? {tokens: usageMessage.tokens, model: usageMessage.model} : null),
+        [usageMessage],
+    );
     const hiddenCount = Math.max(0, visible.length - renderLimit);
     const rendered = hiddenCount > 0 ? visible.slice(-renderLimit) : visible;
     const showTopSentinel = hiddenCount > 0 || hasMore;
@@ -238,6 +256,33 @@ const ChatView = memo(function ChatView({
             }
         }
     }, [messages, busy]);
+
+    // Re-pin on geometry changes that arrive AFTER the follow effect ran.
+    // The composer column is a flex SIBLING of the scroller (its height
+    // never enters scrollHeight, and scrollTop assignments clamp at
+    // scrollHeight - clientHeight — so "aim lower" is a no-op). But when
+    // the composer grows (context ring appearing, a permission card
+    // replacing the input, the editable expanding), the flex-1 scroller
+    // loses exactly that much height and a pin that was precise a moment
+    // ago is suddenly short. Content can also grow late from inside
+    // (images, code highlighting). ResizeObserver on both boxes re-fires
+    // the pin while the reader is parked at the bottom; the clamp makes
+    // it strictly additive — over-scroll is impossible, under-scroll
+    // self-heals. Skipped during our own smooth glide so small deltas
+    // keep gliding instead of snapping.
+    useEffect(() => {
+        const el = scrollRef.current;
+        const content = el?.firstElementChild;
+        if (!el || !content) return;
+        const observer = new ResizeObserver(() => {
+            if (!atBottomRef.current) return;
+            if (performance.now() < programmaticUntilRef.current) return;
+            el.scrollTop = el.scrollHeight;
+        });
+        observer.observe(el); // viewport side: composer/window resize
+        observer.observe(content); // content side: late growth
+        return () => observer.disconnect();
+    }, []);
 
     const handleScroll = () => {
         const el = scrollRef.current;
@@ -432,6 +477,8 @@ const ChatView = memo(function ChatView({
                         api={api}
                         directory={directory}
                         onDirectoryChange={onDirectoryChange}
+                        usage={usage}
+                        contextUsage={contextUsage}
                     />
                 )}
             </div>

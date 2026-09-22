@@ -102,7 +102,6 @@ export default function DirectoryPicker({
                 <ToolbarButton
                     icon={<Folder size={14}/>}
                     label={directory ? folderLabel(directory) : t["Project"]}
-                    chevron
                     active={open}
                     colors={colors}
                     onClick={toggle}

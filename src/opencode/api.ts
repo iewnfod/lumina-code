@@ -159,9 +159,16 @@ export class OpencodeApi {
         return this.request<OpencodeModel[]>("/api/model");
     }
 
-    /** User-defined slash commands (markdown templates). */
-    listCommands(): Promise<OpencodeCommand[]> {
-        return this.request<OpencodeCommand[]>("/api/command");
+    /** User-defined slash commands (markdown templates), scoped to a
+     *  location: project-local `.opencode/commands/` (and the built-ins,
+     *  which only register inside a project) appear when the directory is
+     *  passed as the bracket-form `location[directory]` query param — the
+     *  same form {@link findFiles} uses. Without it the server answers for
+     *  its default location (the server process's own cwd). */
+    listCommands(directory?: string | null): Promise<OpencodeCommand[]> {
+        if (!directory) return this.request<OpencodeCommand[]>("/api/command");
+        const params = new URLSearchParams({"location[directory]": directory});
+        return this.request<OpencodeCommand[]>(`/api/command?${params.toString()}`);
     }
 
     /** Server-side fuzzy file finder — ranked by the server (respects
@@ -188,11 +195,16 @@ export class OpencodeApi {
     }
 
     /** Execute a slash command inside a session (server expands the
-     *  template and runs it like a prompt). */
+     *  template and runs it like a prompt). Verified against server
+     *  v2.0.11: the body is `{name, text}` — `name` is the command and
+     *  `text` carries the arguments (the server substitutes them into
+     *  $ARGUMENTS, or appends them after the template when it has no
+     *  placeholder). The older `{command, arguments}` shape is rejected
+     *  with 400 "Missing key [\"name\"]". */
     runSessionCommand(sessionId: string, command: string, args: string): Promise<unknown> {
         return this.request(`/api/session/${encodeURIComponent(sessionId)}/command`, {
             method: "POST",
-            body: JSON.stringify({command, arguments: args}),
+            body: JSON.stringify({name: command, text: args}),
         });
     }
 

@@ -80,6 +80,17 @@ const enUs = {
     // --- Settings ---
     "Language": "Language",
     "Follow System": "Follow System",
+    // --- Session usage ring ---
+    "Session usage": "Session usage",
+    "Context": "Context",
+    "Input": "Input",
+    "Output": "Output",
+    "Reasoning": "Reasoning",
+    "Cache read": "Cache read",
+    "Cache write": "Cache write",
+    "Cache hit rate": "Cache hit rate",
+    "Session total": "Session total",
+    "Cost": "Cost",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;

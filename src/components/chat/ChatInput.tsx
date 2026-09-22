@@ -30,9 +30,19 @@ import {
 } from "lexical";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
-import type {ComposerAttachment, ComposerFileRef, OpencodeAgent, OpencodeCommand, OpencodeModel, SessionModelRef} from "../../opencode/types.ts";
+import type {
+    ComposerAttachment,
+    ComposerFileRef,
+    OpencodeAgent,
+    OpencodeCommand,
+    OpencodeModel,
+    SessionModelRef,
+    SessionUsage,
+} from "../../opencode/types.ts";
+import type {ContextUsage} from "./usageStats.ts";
 import PopoverMenu, {MenuItem, MenuLabel} from "../ui/PopoverMenu.tsx";
 import ToolbarButton from "./ToolbarButton.tsx";
+import UsageRing from "./UsageRing.tsx";
 import DirectoryPicker from "./DirectoryPicker.tsx";
 import InputSuggestions, {type SuggestionItem} from "./InputSuggestions.tsx";
 import {$createFileMentionNode, $isFileMentionNode, FileMentionNode} from "./FileMentionNode.tsx";
@@ -217,7 +227,8 @@ function $skipFileMention(editor: LexicalEditor, direction: -1 | 1): boolean {
  * The prompt composer: a Lexical rich-text editor (Enter sends,
  * Shift+Enter adds a newline; `@file` mentions render as colored inline
  * text with a file-type icon) over a bottom toolbar — attachments + mode
- * on the left; model, thinking depth and send on the right. Until the
+ * on the left; usage ring (once the session has worked), model, thinking
+ * depth and send on the right. Until the
  * conversation starts (on the welcome screen or in a freshly created
  * session) the left side also carries the project picker. Typing `/` or
  * `@` at word start opens an inline autocomplete (commands / workspace
@@ -252,6 +263,8 @@ const ChatInput = memo(function ChatInput({
     api,
     directory,
     onDirectoryChange,
+    usage = null,
+    contextUsage = null,
 }: {
     colors: SurfaceColors;
     /** No connection yet. */
@@ -273,31 +286,59 @@ const ChatInput = memo(function ChatInput({
     api: OpencodeApi | null;
     directory: string | null;
     onDirectoryChange: (directory: string | null) => void;
+    /** Session cumulative usage — tooltip reference lines only. */
+    usage?: SessionUsage | null;
+    /** The session's current context reading (last measured step). */
+    contextUsage?: ContextUsage | null;
 }) {
     const t = useI18n();
     const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
     const [commands, setCommands] = useState<OpencodeCommand[]>([]);
-    const commandsRef = useRef<{loaded: boolean; list: OpencodeCommand[]}>({loaded: false, list: []});
+    // The list last fetched, keyed by its directory — remounts for the
+    // same directory reuse it, a directory change re-queries.
+    const commandsRef = useRef<{directory: string | null; list: OpencodeCommand[]} | null>(null);
     const [canSend, setCanSend] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
     // Imperative handle into the editor (submit) — the send button lives
     // here in the toolbar, the editor state lives in ComposerCore.
     const composerApiRef = useRef<{submit: () => void} | null>(null);
 
-    // Slash commands are a small static list — load once per connection so
-    // both the autocomplete and submit-time parsing see them.
+    // Slash commands are a small list, but they are location-scoped
+    // (project-local .opencode/commands/ + built-ins only register inside
+    // a project) — fetch per directory so the autocomplete and
+    // submit-time parsing both see the directory's real command set.
+    // The server loads a never-seen location lazily: the FIRST response
+    // for a cold directory comes back empty and settles within a few
+    // seconds, so empty results are retried a bounded number of times
+    // and only non-empty lists short-circuit via the cache.
     useEffect(() => {
-        if (!api || commandsRef.current.loaded) return;
+        if (!api) return;
+        const cached = commandsRef.current;
+        if (cached && cached.directory === directory && cached.list.length > 0) {
+            setCommands(cached.list);
+            return;
+        }
         let cancelled = false;
-        api.listCommands().then((list) => {
-            if (cancelled) return;
-            commandsRef.current = {loaded: true, list: list ?? []};
-            setCommands(list ?? []);
-        }).catch(() => {});
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        let retries = 0;
+        const run = () => {
+            api.listCommands(directory).then((list) => {
+                if (cancelled) return;
+                const next = list ?? [];
+                commandsRef.current = {directory, list: next};
+                setCommands(next);
+                if (next.length === 0 && retries < 3) {
+                    retries += 1;
+                    timer = setTimeout(run, 1000 * retries);
+                }
+            }).catch(() => {});
+        };
+        run();
         return () => {
             cancelled = true;
+            if (timer !== null) clearTimeout(timer);
         };
-    }, [api]);
+    }, [api, directory]);
 
     const addFiles = useCallback(async (files: File[]) => {
         const staged = await Promise.all(files.map(readAttachment));
@@ -326,6 +367,14 @@ const ChatInput = memo(function ChatInput({
     const currentModel = model
         ? models.find((m) => m.providerID === model.providerID && m.modelID === model.id) ?? null
         : null;
+    // The context limit should come from the model that MEASURED the
+    // tokens — a mid-session model switch means the effective selection's
+    // limit may differ from the step that last touched the context.
+    const usageModelRef = contextUsage?.model ?? null;
+    const usageModel = usageModelRef
+        ? models.find((m) => m.providerID === usageModelRef.providerID && m.modelID === usageModelRef.id) ?? null
+        : null;
+    const usageContextLimit = usageModel?.limit?.context ?? currentModel?.limit?.context;
     const variants = currentModel?.variants ?? [];
     const currentVariant = model?.variant ?? variants[0]?.id;
     const agentName = agents.find((a) => a.id === agent)?.name ?? agent;
@@ -427,7 +476,6 @@ const ChatInput = memo(function ChatInput({
                         <ToolbarButton
                             icon={<Bot size={14}/>}
                             label={agentName}
-                            chevron
                             active={open}
                             colors={colors}
                             onClick={toggle}
@@ -465,6 +513,18 @@ const ChatInput = memo(function ChatInput({
 
                 <div className="flex-1"/>
 
+                {/* Session context ring — only once the conversation is real
+                 * (first message landed) AND a step has reported usage;
+                 * fresh sessions and the welcome screen show nothing. */}
+                {conversationStarted && (
+                    <UsageRing
+                        tokens={contextUsage?.tokens}
+                        sessionUsage={usage}
+                        contextLimit={usageContextLimit}
+                        colors={colors}
+                    />
+                )}
+
                 {/* Right: model, thinking depth, send/stop. */}
                 <PopoverMenu
                     colors={colors}
@@ -475,7 +535,6 @@ const ChatInput = memo(function ChatInput({
                         <ToolbarButton
                             icon={<Cpu size={14}/>}
                             label={currentModel?.name ?? model?.id ?? t["Model"]}
-                            chevron
                             active={open}
                             colors={colors}
                             onClick={toggle}
@@ -515,7 +574,6 @@ const ChatInput = memo(function ChatInput({
                             <ToolbarButton
                                 icon={<Brain size={14}/>}
                                 label={depthLabel(currentVariant)}
-                                chevron
                                 active={open}
                                 colors={colors}
                                 onClick={toggle}

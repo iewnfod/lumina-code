@@ -226,6 +226,18 @@ export function useSessionMessages(
                 await a.sendPrompt(sid, trimmed, promptFiles);
             }
         } catch (e) {
+            // A rejected slash command must not dead-end the message —
+            // the raw text still means something to the model. Retry
+            // once as a plain prompt; only when that also fails is the
+            // send considered lost.
+            if (command) {
+                try {
+                    await a.sendPrompt(sid, trimmed, promptFiles);
+                    return;
+                } catch {
+                    // fall through to the visible failure below
+                }
+            }
             logError(`Failed to send prompt: ${e}`).catch(() => {});
             // Drop the optimistic bubble so the failure is visible.
             const current = entries.get(sid);

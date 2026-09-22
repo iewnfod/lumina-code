@@ -119,6 +119,10 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
             return mutateAssistant(list, d.assistantMessageID, (m) => {
                 m.error = d.error;
                 m.time = {...(m.time ?? {}), completed: Date.now()};
+                // A failed step still burned what it burned — keep the
+                // usage the server managed to report.
+                if (d.cost !== undefined) m.cost = d.cost;
+                if (d.tokens !== undefined) m.tokens = d.tokens;
             });
         }
         case "session.step.ended": {
@@ -126,6 +130,8 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
             return mutateAssistant(list, d.assistantMessageID, (m) => {
                 m.finish = d.finish;
                 m.time = {...(m.time ?? {}), completed: Date.now()};
+                if (d.cost !== undefined) m.cost = d.cost;
+                if (d.tokens !== undefined) m.tokens = d.tokens;
             });
         }
         default:
@@ -340,6 +346,10 @@ function mergeAssistant(local: ChatAssistantMessage, page: ChatAssistantMessage)
         finish: local.finish ?? page.finish,
         error: local.error ?? page.error,
         time: {...page.time, completed: local.time?.completed ?? page.time?.completed},
+        // Same for usage: step.ended may have delivered tokens/cost after
+        // the snapshot was taken (the composer's usage ring reads these).
+        tokens: local.tokens ?? page.tokens,
+        cost: local.cost ?? page.cost,
     };
 }
 

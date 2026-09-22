@@ -25,7 +25,7 @@ import {OpencodeApi} from "./opencode/api.ts";
 import {useSessions} from "./opencode/useSessions.ts";
 import {useSessionRequests} from "./opencode/useSessionRequests.ts";
 import {useModelCatalog} from "./opencode/useModelCatalog.ts";
-import type {ComposerAttachment, ComposerFileRef, SessionModelRef} from "./opencode/types.ts";
+import type {ComposerAttachment, ComposerFileRef, SessionModelRef, SessionUsage} from "./opencode/types.ts";
 
 /**
  * Layout shell, ported from lumina-terminal's App.tsx: outer transparent
@@ -77,6 +77,11 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     const [activeId, setActiveId] = useState<string | null>(restored.sessionId);
     const busy = activeId !== null && busyIds.has(activeId);
     const activeSession = sessions.find((s) => s.id === activeId) ?? null;
+    // Cumulative usage of the open session (seeded from the session list,
+    // live-patched by session.usage.updated) — feeds the composer's ring.
+    const activeUsage: SessionUsage | null = activeSession
+        ? {tokens: activeSession.tokens, cost: activeSession.cost}
+        : null;
     const connected = connectionStatus.state === "connected";
 
     // --- Composer selections ---
@@ -202,9 +207,18 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
             ...files.map((f) => ({uri: f.uri, name: f.name})),
             ...fileRefs.map((r) => OpencodeApi.fileRefToPromptFile(r)),
         ];
-        const deliver = command
-            ? api.runSessionCommand(created.id, command.name, command.arguments)
-            : api.sendPrompt(created.id, text, promptFiles);
+        // A rejected slash command must not strand the freshly created
+        // session with nothing in it — deliver the raw text as a plain
+        // prompt so the model can interpret it instead.
+        const deliver = (async () => {
+            if (!command) return api.sendPrompt(created.id, text, promptFiles);
+            try {
+                await api.runSessionCommand(created.id, command.name, command.arguments);
+            } catch (e) {
+                error(`Command ${command.name} failed, sending as prompt: ${e}`).catch(() => {});
+                await api.sendPrompt(created.id, text, promptFiles);
+            }
+        })();
         await deliver.catch((e) => {
             error(`Failed to send prompt: ${e}`).catch(() => {});
         });
@@ -347,6 +361,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                             onModelChange={changeModel}
                                             directory={activeSession.directory ?? activeSession.location?.directory ?? null}
                                             onDirectoryChange={changeDirectory}
+                                            usage={activeUsage}
                                             pendingPermissions={pendingAllPermissions.filter((p) => p.sessionID === activeSession.id)}
                                             pendingForms={pendingAllForms.filter((f) => f.sessionID === activeSession.id)}
                                             onPermissionDecision={(request, decision) => void replyPermission(request, decision)}

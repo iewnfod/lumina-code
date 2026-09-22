@@ -82,6 +82,17 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     // --- Settings ---
     "Language": "语言",
     "Follow System": "跟随系统",
+    // --- Session usage ring ---
+    "Session usage": "会话用量",
+    "Context": "上下文",
+    "Input": "输入",
+    "Output": "输出",
+    "Reasoning": "思考",
+    "Cache read": "缓存读",
+    "Cache write": "缓存写",
+    "Cache hit rate": "缓存命中率",
+    "Session total": "会话累计",
+    "Cost": "费用",
 };
 
 export default zhCn;

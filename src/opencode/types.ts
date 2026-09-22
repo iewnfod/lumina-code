@@ -180,6 +180,16 @@ export interface OpencodeSession {
     };
 }
 
+/** Usage snapshot for one session — seeded from `GET /api/session`
+ *  (`OpencodeSession.tokens`/`cost`) and live-patched by the
+ *  `session.usage.updated` event, which carries the same cumulative
+ *  totals (verified against server v2.0.11: it reads the session's
+ *  stored aggregates and publishes them whole). */
+export interface SessionUsage {
+    tokens?: OpencodeSession["tokens"];
+    cost?: number;
+}
+
 /** One text piece of a tool result (`content: [{type:"text", text}]`). */
 export interface ToolContentPiece {
     type: string;
@@ -290,6 +300,10 @@ export interface EventMap {
         sessionID: string;
         assistantMessageID: string;
         finish?: string;
+        /** The step's own usage — patch onto the message (the official
+         *  client does the same; this is what its context meter reads). */
+        cost?: number;
+        tokens?: ChatAssistantMessage["tokens"];
     };
     "session.text.started": {sessionID: string; assistantMessageID: string; ordinal: number};
     "session.text.delta": {sessionID: string; assistantMessageID: string; ordinal: number; delta: string};

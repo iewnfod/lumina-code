@@ -151,6 +151,41 @@ test("seed merge prefers the more advanced tool state from either side", () => {
     assert.deepEqual(tool.state.content, [{type: "text", text: "ok"}]);
 });
 
+test("step.ended stamps the step's usage onto the message", () => {
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, ev("session.step.ended", {
+        assistantMessageID: MID,
+        finish: "stop",
+        cost: 0.42,
+        tokens: {input: 120_000, output: 800, reasoning: 0, cache: {read: 5_000, write: 1_000}},
+    }));
+    const m = asst(list);
+    assert.equal(m.finish, "stop");
+    assert.equal(m.cost, 0.42);
+    assert.equal(m.tokens?.input, 120_000);
+    assert.equal(m.tokens?.cache.write, 1_000);
+});
+
+test("seed merge keeps event-delivered usage over an older snapshot", () => {
+    // step.ended landed after the page snapshot was taken — the snapshot's
+    // missing tokens must not wipe what the event delivered (the usage
+    // ring reads them).
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, ev("session.step.ended", {
+        assistantMessageID: MID,
+        cost: 0.42,
+        tokens: {input: 120_000, output: 800, reasoning: 0, cache: {read: 5_000, write: 1_000}},
+    }));
+    const stale: MessagesPage = {
+        data: [{id: MID, type: "assistant", content: [{type: "reasoning", text: ""}]}],
+    };
+    const seeded = applySeedPage(list, stale);
+    assert.equal(asst(seeded.messages).tokens?.input, 120_000);
+    assert.equal(asst(seeded.messages).cost, 0.42);
+});
+
 test("applyOlderPage prepends unseen history and updates the cursor", () => {
     let list: ChatMessage[] = [];
     list = applyEvent(list, stepStarted());
