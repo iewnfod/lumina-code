@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
-import {errorText, inputStr, lineCount, toolDisplayName} from "./toolMeta.ts";
+import {errorText, inputStr, toolDisplayName} from "./toolMeta.ts";
 import enUs from "../../i18n/en-us.ts";
 
 test("toolDisplayName resolves known tools through the dictionary", () => {
@@ -24,10 +24,4 @@ test("errorText extracts object messages and plain strings", () => {
 test("inputStr picks the first non-empty string", () => {
     assert.equal(inputStr({filePath: "", file_path: "/a"}, "filePath", "file_path"), "/a");
     assert.equal(inputStr({count: 3}, "count"), undefined);
-});
-
-test("lineCount counts newline-separated lines", () => {
-    assert.equal(lineCount("a\nb\nc"), 3);
-    assert.equal(lineCount(""), undefined);
-    assert.equal(lineCount(5), undefined);
 });

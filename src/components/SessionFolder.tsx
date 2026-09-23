@@ -126,6 +126,7 @@ export default function SessionFolder({
                             <AnimatePresence initial={false}>
                                 {visibleSessions.map((session) => {
                                     const isActive = session.id === activeId;
+                                    const pendingCount = pendingCounts?.get(session.id);
                                     return (
                                         <motion.div
                                             key={session.id}
@@ -186,21 +187,27 @@ export default function SessionFolder({
                                                         }}
                                                     />
                                                 </div>
-                                                {pendingCounts?.get(session.id) != null && (
-                                                    <Hint label={t["Permission request"]} className="shrink-0 ml-1">
-                                                        <span
-                                                            className="min-w-4 h-4 px-1 rounded-full text-[10px] font-semibold leading-4 text-center select-none"
-                                                            style={{backgroundColor: "#f59e0b", color: "#fff"}}
-                                                        >
-                                                            {pendingCounts.get(session.id)}
-                                                        </span>
-                                                    </Hint>
-                                                )}
-                                                {/* Age and the delete button share one fixed-width
-                                                    slot; hover cross-fades between them so the
-                                                    title never shifts. */}
+                                                {/* Pending badge, age and the delete button
+                                                    share one fixed-width slot; hover cross-fades
+                                                    to the delete button so the title never shifts.
+                                                    A pending count (permissions + questions) takes
+                                                    the slot over from the age. */}
                                                 <div className="relative shrink-0 ml-1 w-5 h-4">
-                                                    {session.updatedAt != null && (
+                                                    {pendingCount != null && (
+                                                        <Hint label={t["Permission request"]} className="absolute inset-0">
+                                                            <span
+                                                                className="w-full h-full flex items-center justify-end transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
+                                                            >
+                                                                <span
+                                                                    className="min-w-4 h-4 px-1 rounded-full text-[10px] font-semibold leading-4 text-center select-none"
+                                                                    style={{backgroundColor: "#f59e0b", color: "#fff"}}
+                                                                >
+                                                                    {pendingCount}
+                                                                </span>
+                                                            </span>
+                                                        </Hint>
+                                                    )}
+                                                    {pendingCount == null && session.updatedAt != null && (
                                                         <span
                                                             className="absolute inset-0 flex items-center justify-end text-[11px] tabular-nums transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
                                                             style={{color: colors.inactiveText}}

@@ -227,8 +227,9 @@ src/
     ├── SessionTitle.tsx   # Single-line label: edge-fade truncation + a
     │                      #   hover-debounced HeroUI tooltip when overflowing.
     ├── SessionFolder.tsx  # One directory group: collapsible header (+/chevron),
-    │                      #   animated session rows (busy dot, pending badge,
-    │                      #   age/close slot), "Show more/less" expander.
+    │                      #   animated session rows (busy dot; pending badge,
+    │                      #   age and close button share one cross-fade slot),
+    │                      #   "Show more/less" expander.
     ├── sessionGrouping.ts # Pure sidebar mapping: SessionInfo view-model,
     │                      #   relativeAge, groupByDirectory. node-testable.
     ├── ChatPlaceholder.tsx # Welcome-screen logo + greeting
@@ -277,9 +278,15 @@ src/
     │   │                  #   effectiveTailPart, stable part keys.
     │   ├── ActivityGroup.tsx # Folded run of tool calls / thoughts
     │   ├── ThinkingBlock.tsx # Reasoning disclosure (live while streaming)
-    │   ├── ToolCard.tsx   # One tool call as a FoldRow (detail/accent lines)
+    │   ├── ToolCard.tsx   # One tool call as a FoldRow (detail/accent lines;
+    │   │                  #   file-mutating tools expand to a git-diff view)
     │   ├── toolMeta.ts    # Pure tool display table + input-shape helpers
     │   │                  #   (TOOL_META, toolDisplayName, errorText). node-testable.
+    │   ├── toolDiff.ts    # Pure git-diff-style line model for edit/apply_patch/
+    │   │                  #   write inputs (LCS line diff, patchText coloring,
+    │   │                  #   changed-line counts) — the server never stores the
+    │   │                  #   pre-edit file, so diffs derive from tool input alone.
+    │   │                  #   node-testable.
     │   ├── SubagentCard.tsx # Subagent tool renderer
     │   ├── RunFooter.tsx + runFooters.ts # Per-turn summary footer (pure collector in
     │   │                  #   runFooters.ts — node-testable)

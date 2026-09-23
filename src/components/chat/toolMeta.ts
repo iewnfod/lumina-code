@@ -77,11 +77,6 @@ export function inputStr(o: Record<string, unknown>, ...keys: string[]): string 
     return undefined;
 }
 
-/** Line count of a string value (undefined for anything else). */
-export function lineCount(v: unknown): number | undefined {
-    return typeof v === "string" && v ? v.split("\n").length : undefined;
-}
-
 /** Human text of a tool error payload — `{type, message}` objects carry
  *  the reason ("The user dismissed this question", …). */
 export function errorText(error: unknown): string | null {

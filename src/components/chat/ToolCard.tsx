@@ -1,4 +1,4 @@
-import {memo, type ReactNode} from "react";
+import {memo, type ReactNode, type RefObject} from "react";
 import {
     AlertCircle,
     Hourglass,
@@ -9,10 +9,44 @@ import {useI18n} from "../../hooks/i18n.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
-import {errorText, inputObject, inputStr, lineCount, metaFor} from "./toolMeta.ts";
+import {errorText, inputObject, inputStr, metaFor} from "./toolMeta.ts";
+import {diffCounts, toolDiffFor, type DiffLine} from "./toolDiff.ts";
 import {useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 import {MONO_STYLE} from "./RequestCardChrome.tsx";
+
+/** Diff red/green — the accent counts and the expanded diff view share
+ *  them. */
+const DIFF_ADD = "#22c55e";
+const DIFF_DEL = "#ef4444";
+const ERROR_TEXT = "#f87171";
+
+/** The shared expanded-body panel: recessed card chrome for tool output,
+ *  error notes and diff views alike. */
+function ToolBodyBox({colors, color, scrollRef, onScroll, tailFade, children}: {
+    colors: SurfaceColors;
+    color: string;
+    scrollRef?: RefObject<HTMLDivElement | null>;
+    onScroll?: () => void;
+    tailFade?: boolean;
+    children: ReactNode;
+}) {
+    return (
+        <div
+            ref={scrollRef}
+            onScroll={onScroll}
+            className={`ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2 whitespace-pre-wrap break-words max-h-64 overflow-y-auto${tailFade ? " lum-tail-fade" : ""}`}
+            style={{
+                ...MONO_STYLE,
+                background: colors.recessedBg,
+                border: `1px solid ${colors.glassBorder}`,
+                color,
+            }}
+        >
+            {children}
+        </div>
+    );
+}
 
 /** The "+N / −N" diff suffix for file-mutating tools. Rendered through
  *  FoldRow's accent slot — outside the row's dimmed region — so the
@@ -23,12 +57,33 @@ function DiffCounts({added, removed}: {added?: number; removed?: number}) {
     return (
         <span className="shrink-0 inline-flex items-center gap-1.5">
             {added != null && (
-                <span style={{color: "#22c55e"}}>+{added}</span>
+                <span style={{color: DIFF_ADD}}>+{added}</span>
             )}
             {removed != null && (
-                <span style={{color: "#ef4444"}}>−{removed}</span>
+                <span style={{color: DIFF_DEL}}>−{removed}</span>
             )}
         </span>
+    );
+}
+
+/** The expanded git-diff-style view of a file-mutating tool's change
+ *  (see toolDiff.ts): green + lines, red − lines, dim context. Static —
+ *  a diff is complete the moment its input arrives, so unlike streamed
+ *  output it needs no follow-bottom. */
+function DiffBody({lines, colors}: {lines: DiffLine[]; colors: SurfaceColors}) {
+    return (
+        <ToolBodyBox colors={colors} color={colors.inactiveText}>
+            {lines.map((line, i) => (
+                <div
+                    key={i}
+                    style={{
+                        color: line.kind === "add" ? DIFF_ADD : line.kind === "del" ? DIFF_DEL : colors.inactiveText,
+                    }}
+                >
+                    {line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}{line.text}
+                </div>
+            ))}
+        </ToolBodyBox>
     );
 }
 
@@ -121,27 +176,14 @@ function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNo
     }
 }
 
-/** The row's undimmed accent: "+added −removed" line counts for
- *  file-mutating tools (edit: new vs old string; write: whole content —
- *  a new file has no removals). Counts show as soon as the input
- *  arrives, while the tool is still running. */
-function toolAccent(part: AssistantToolPart): ReactNode {
-    const o = inputObject(part);
-    if (!o) return null;
-    switch (part.name) {
-        case "edit":
-        case "apply_patch":
-            return (
-                <DiffCounts
-                    added={lineCount(inputStr(o, "newString", "new_string"))}
-                    removed={lineCount(inputStr(o, "oldString", "old_string"))}
-                />
-            );
-        case "write":
-            return <DiffCounts added={lineCount(inputStr(o, "content"))} />;
-        default:
-            return null;
-    }
+/** The row's undimmed accent: "+added −removed" changed-line counts for
+ *  file-mutating tools — derived from the same diff the expanded body
+ *  shows, so the counts always match the view. They appear as soon as
+ *  the input arrives, while the tool is still running. */
+function toolAccent(diff: DiffLine[] | null): ReactNode {
+    if (!diff) return null;
+    const {added, removed} = diffCounts(diff);
+    return <DiffCounts added={added} removed={removed}/>;
 }
 
 /**
@@ -194,30 +236,41 @@ const ToolCard = memo(function ToolCard({
         .join("\n")
         .trimEnd();
 
+    // The git-diff-style view of the change, when the tool's stored
+    // input describes one (edit / apply_patch / write). Expanded, it
+    // REPLACES the raw output — "Edited src/foo.ts" noise nobody reads.
+    // A failed tool still shows its reason below the attempted diff.
+    const diff = toolDiffFor(part);
+
     return (
         <FoldRow
             icon={icon}
             title={title}
             detail={toolDetail(part, directory)}
-            accent={toolAccent(part)}
+            accent={toolAccent(diff)}
             active={status === "running"}
             expanded={expanded}
             onToggle={toggle}
         >
-            {(output.length > 0 || status === "error") && (
-                <div
-                    ref={outputScroll}
+            {diff != null ? (
+                <>
+                    <DiffBody lines={diff} colors={colors}/>
+                    {status === "error" && (
+                        <ToolBodyBox colors={colors} color={ERROR_TEXT}>
+                            {output || errorText(part.state.error) || t["Tool failed"]}
+                        </ToolBodyBox>
+                    )}
+                </>
+            ) : (output.length > 0 || status === "error") && (
+                <ToolBodyBox
+                    colors={colors}
+                    color={status === "error" ? ERROR_TEXT : colors.inactiveText}
+                    scrollRef={outputScroll}
                     onScroll={outputScrollHandler}
-                    className={`ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2 whitespace-pre-wrap break-words max-h-64 overflow-y-auto${tailScrolled ? " lum-tail-fade" : ""}`}
-                    style={{
-                        ...MONO_STYLE,
-                        background: colors.recessedBg,
-                        border: `1px solid ${colors.glassBorder}`,
-                        color: status === "error" ? "#f87171" : colors.inactiveText,
-                    }}
+                    tailFade={tailScrolled}
                 >
                     {output || errorText(part.state.error) || (status === "error" ? t["Tool failed"] : "")}
-                </div>
+                </ToolBodyBox>
             )}
         </FoldRow>
     );
