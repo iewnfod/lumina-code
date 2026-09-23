@@ -1,18 +1,22 @@
 import {type CSSProperties, useEffect, useRef, useState} from "react";
 import {Tooltip} from "@heroui/react";
 
-/** Edge-fade width for overflowing tab titles (px). */
+/** Edge-fade for overflowing tab titles: TITLE_FADE is the dissolve
+ * ramp's width, TITLE_FADE_MARGIN the fully-transparent gap kept before
+ * the right edge — the title vanishes that far short of the age/close
+ * slot instead of dissolving right against it (px). */
 const TITLE_FADE = 32;
+const TITLE_FADE_MARGIN = 12;
 
 /** Hover must rest this long before the tooltip opens (ms), counted
  *  fresh per row — a quick swipe across the list shouldn't pop it. */
 const TITLE_TOOLTIP_DELAY = 1000;
 
 /**
- * A single-line label that, when its text overflows, fades out at the
- * right edge (same dissolve as the transcript edges — no "…" ellipsis)
- * and shows the full title in a HeroUI tooltip once the pointer rests
- * on it. Labels that fit never wear a mask or a tooltip.
+ * A single-line label that, when its text overflows, fades out just
+ * short of the right edge (same dissolve as the transcript edges — no
+ * "…" ellipsis) and shows the full title in a HeroUI tooltip once the
+ * pointer rests on it. Labels that fit never wear a mask or a tooltip.
  *
  * The hover debounce is ours, not the library's: react-aria keeps a
  * global "warmed up" flag, so moving the pointer from one open tooltip
@@ -83,8 +87,8 @@ export default function SessionTitle({text, className, style}: {
                     style={{
                         ...style,
                         ...(overflowing ? {
-                            WebkitMaskImage: `linear-gradient(to right, black calc(100% - ${TITLE_FADE}px), transparent 100%)`,
-                            maskImage: `linear-gradient(to right, black calc(100% - ${TITLE_FADE}px), transparent 100%)`,
+                            WebkitMaskImage: `linear-gradient(to right, black calc(100% - ${TITLE_FADE + TITLE_FADE_MARGIN}px), transparent calc(100% - ${TITLE_FADE_MARGIN}px))`,
+                            maskImage: `linear-gradient(to right, black calc(100% - ${TITLE_FADE + TITLE_FADE_MARGIN}px), transparent calc(100% - ${TITLE_FADE_MARGIN}px))`,
                         } : {}),
                     }}
                 >

@@ -67,6 +67,7 @@ const enUs = {
     "Subagent": "Subagent",
     "Tool failed": "Tool failed",
     "Subagent failed": "Subagent failed",
+    "Request failed": "Request failed",
     "Thinking...": "Thinking...",
     "Thought process": "Thought process",
     "Working...": "Working...",
@@ -171,6 +172,20 @@ const enUs = {
     "Custom providers are stored in the global OpenCode config": "Custom providers are stored in the global OpenCode config",
     "Connect failed": "Connect failed",
     "Save failed": "Save failed",
+    // --- Session activity stats card ---
+    "Session activity": "Session activity",
+    "Changes": "Changes",
+    "Terminals": "Terminals",
+    "Subagents": "Subagents",
+    "Running": "Running",
+    "Finished": "Finished",
+    "Failed": "Failed",
+    "Files": "Files",
+    "No changes yet": "No changes yet",
+    "No messages yet": "No messages yet",
+    "No output": "No output",
+    "Output unavailable": "Output unavailable",
+    "Collapse": "Collapse",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;

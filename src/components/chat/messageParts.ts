@@ -4,7 +4,10 @@ import type {
     AssistantTextPart,
     AssistantToolPart,
     ChatAssistantMessage,
+    ChatMessage,
 } from "../../opencode/types.ts";
+import {isAssistantMessage} from "../../opencode/types.ts";
+import {errorText} from "./toolMeta.ts";
 
 /**
  * Content-part segmentation for assistant messages (pure) — shared by
@@ -46,6 +49,18 @@ export type Segment =
  *  state. */
 export function partKey(message: ChatAssistantMessage, part: ActivityPart): string {
     return `${message.id}:${message.content.indexOf(part)}`;
+}
+
+/** Human text of a step-level error (`session.step.failed` — provider
+ *  rate limits, transport faults, …), or null when the message carries
+ *  nothing to show. `aborted` steps stay quiet: they are user-initiated
+ *  interrupts (stop button, a dismissed question), not failures. An
+ *  error whose shape we can't read yields "" — the caller falls back to
+ *  a generic label so a failure is never silent. */
+export function visibleStepError(m: ChatMessage): string | null {
+    if (!isAssistantMessage(m) || m.error == null) return null;
+    if ((m.error as {type?: unknown}).type === "aborted") return null;
+    return errorText(m.error) ?? "";
 }
 
 /**

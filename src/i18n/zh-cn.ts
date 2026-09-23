@@ -69,6 +69,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Subagent": "子代理",
     "Tool failed": "工具执行失败",
     "Subagent failed": "子代理执行失败",
+    "Request failed": "请求失败",
     "Thinking...": "思考中...",
     "Thought process": "思考过程",
     "Working...": "进行中...",
@@ -173,6 +174,20 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Custom providers are stored in the global OpenCode config": "自定义供应商保存在 OpenCode 全局配置中",
     "Connect failed": "连接失败",
     "Save failed": "保存失败",
+    // --- Session activity stats card ---
+    "Session activity": "会话动态",
+    "Changes": "代码改动",
+    "Terminals": "后台终端",
+    "Subagents": "子代理",
+    "Running": "运行中",
+    "Finished": "已完成",
+    "Failed": "失败",
+    "Files": "个文件",
+    "No changes yet": "暂无改动",
+    "No messages yet": "暂无消息",
+    "No output": "暂无输出",
+    "Output unavailable": "输出不可用",
+    "Collapse": "收起",
 };
 
 export default zhCn;

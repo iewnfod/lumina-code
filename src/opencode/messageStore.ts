@@ -131,6 +131,10 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
             });
         case "session.step.failed": {
             const d = data as EventMap["session.step.failed"];
+            // ensure: a missed step.started (event-stream gap) must not
+            // swallow the failure — re-attach the shell so the error row
+            // has a message to render on (same rationale as the stream
+            // events' re-attach below).
             return mutateAssistant(list, d.assistantMessageID, (m) => {
                 m.error = d.error;
                 m.time = {...(m.time ?? {}), completed: Date.now()};
@@ -138,7 +142,7 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
                 // usage the server managed to report.
                 if (d.cost !== undefined) m.cost = d.cost;
                 if (d.tokens !== undefined) m.tokens = d.tokens;
-            });
+            }, true);
         }
         case "session.step.ended": {
             const d = data as EventMap["session.step.ended"];

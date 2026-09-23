@@ -19,12 +19,14 @@ import type {
     SessionModelRef,
 } from "../../opencode/types.ts";
 import {useSessionMessages} from "../../opencode/useSessionMessages.ts";
+import {useSessionActivity} from "../../opencode/useSessionActivity.ts";
 import type {SessionUsage} from "../../opencode/types.ts";
 import {lastContextMessage, type ContextUsage} from "./usageStats.ts";
 import TranscriptList from "./TranscriptList.tsx";
 import ChatInput from "../composer/ChatInput.tsx";
 import {PermissionCard} from "./PermissionCard.tsx";
 import {QuestionCard} from "./QuestionCard.tsx";
+import SessionStatsCard from "../stats/SessionStatsCard.tsx";
 
 /**
  * The conversation view for the active session: a transcript column (user
@@ -68,12 +70,16 @@ const ChatView = memo(function ChatView({
     onPermissionDecision,
     onFormReply,
     onFormCancel,
+    busyIds,
 }: {
     api: OpencodeApi | null;
     subscribe: (handler: OpencodeEventHandler) => () => void;
     sessionId: string;
     backgroundColor: string;
     busy: boolean;
+    /** Sessions with an execution in flight (ALL sessions — subagent
+     *  children included; the stats card reads their running state). */
+    busyIds: ReadonlySet<string>;
     /** No connection. */
     disabled: boolean;
     /** Composer catalog + effective selections (owned by App). */
@@ -107,6 +113,7 @@ const ChatView = memo(function ChatView({
     const colors = useSurfaceColors(backgroundColor);
     const {messages, hasMore, loadingOlder, loadOlder, send, interrupt} =
         useSessionMessages(api, subscribe, sessionId);
+    const activity = useSessionActivity(api, subscribe, sessionId, messages, busyIds, directory);
 
     const sentinelRef = useRef<HTMLDivElement>(null);
     const [renderLimit, setRenderLimit] = useState(RENDER_LIMIT);
@@ -185,7 +192,17 @@ const ChatView = memo(function ChatView({
     }, [loadEarlier, showTopSentinel, scrollRef]);
 
     return (
-        <div className="flex flex-col h-full w-full min-w-0">
+        <div className="relative flex flex-col h-full w-full min-w-0">
+            {/* Session-activity stats card — floats over the transcript's
+                right margin; expands in place into its detail panel. */}
+            <SessionStatsCard
+                api={api}
+                subscribe={subscribe}
+                activity={activity}
+                colors={colors}
+                directory={directory}
+                busyIds={busyIds}
+            />
             <div
                 ref={scrollRef}
                 onScroll={onScroll}

@@ -52,3 +52,17 @@ test("prose breaks the run; whitespace-only text still counts as activity", () =
 test("an empty list produces no blocks", () => {
     assert.deepEqual(blockify([]), []);
 });
+
+test("a failed step keeps its own message block instead of folding", () => {
+    // A quota/provider failure persists as content:[] + error — it must
+    // not be treated as foldable activity machinery (invisible) nor
+    // vanish: it renders its own error row via MessageItem.
+    const failed = assistant("a0");
+    failed.content = [];
+    (failed as ChatAssistantMessage).error = {type: "provider.rate-limit", message: "limit reached"};
+    const blocks = blockify([failed, assistant("a1"), user("u1")]);
+    assert.deepEqual(
+        blocks.map((b) => (b.kind === "activity" ? `activity(${b.messages.length})` : b.message.id)),
+        ["a0", "a1", "u1"],
+    );
+});

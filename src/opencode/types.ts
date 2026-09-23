@@ -257,6 +257,52 @@ export interface UserMessageFile {
     [key: string]: unknown;
 }
 
+// --- Session activity (stats card) — verified against server v2.0.11 ---
+//
+// `GET /api/session/{id}/diff` compares the snapshot trees recorded around
+// the session's model steps, so it is a REAL git diff of everything the
+// session changed — a run still in flight compares against the working
+// copy. Without anchors it diffs only the NEWEST turn; passing the first
+// and last user message ids as `from`/`to` spans the whole session.
+
+/** `GET /api/session/{id}/diff` entry — one changed file. */
+export interface SessionDiffEntry {
+    file: string;
+    /** Unified-diff patch text (hunk context = the server's default). */
+    patch: string;
+    additions: number;
+    deletions: number;
+    status: "added" | "deleted" | "modified" | string;
+}
+
+/** `GET /api/shell` entry — one shell command. The list endpoint returns
+ * RUNNING shells only (exited ones stay readable via get/output until the
+ * server evicts them); `metadata.sessionID` ties a shell to the session
+ * whose tool spawned it. Shells are location-scoped — pass the session's
+ * directory as `location[directory]` when it differs from the server cwd. */
+export interface ShellInfo {
+    id: string; // "sh_…"
+    status: "running" | "exited" | "timeout" | "killed" | string;
+    command: string;
+    cwd: string;
+    shell: string;
+    /** File capturing the combined stdout+stderr. */
+    file: string;
+    pid?: number;
+    exit?: number;
+    metadata?: Record<string, unknown>;
+    time?: {started?: number; completed?: number};
+}
+
+/** `GET /api/shell/{id}/output` — one page of the file-backed output;
+ * `cursor` walks forward and equals `size` once caught up. */
+export interface ShellOutput {
+    output: string;
+    cursor: number;
+    size: number;
+    truncated: boolean;
+}
+
 export interface OpencodeSession {
     id: string;
     /** Auto-generated until the server retitles (session.renamed). */
@@ -361,8 +407,11 @@ export interface ChatAssistantMessage {
 /** Turn separator emitted between assistant turns ("idle"/…). Not rendered. */
 export interface ChatMarkerMessage {
     id: string;
-    type: string; // "idle" | "system" | "synthetic" | …
+    type: string; // "idle" | "system" | "synthetic" | "shell" | …
     time?: {created?: number};
+    /** Present on shell-tool notifications: `{source: "shell", shellID,
+     *  state, exit?}` marks the background command's completion. */
+    metadata?: Record<string, unknown>;
     [key: string]: unknown;
 }
 
@@ -480,4 +529,10 @@ export interface EventMap {
     /** A config document changed and was hot-reloaded (providers, models,
      *  agents…). Payload is EMPTY — re-fetch whatever reads config. */
     "config.updated": Record<string, never>;
+    /** A shell command spawned (GLOBAL event — no sessionID envelope;
+     * `info.metadata.sessionID` ties it to its session). */
+    "shell.created": {info: ShellInfo};
+    /** A shell command reached a terminal status (GLOBAL; carries the id
+     * only — consumers match it against the shells they know). */
+    "shell.exited": {id: string; exit?: number; status: string};
 }

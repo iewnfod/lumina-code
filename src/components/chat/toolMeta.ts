@@ -15,6 +15,9 @@ import {
 import type {AssistantToolPart} from "../../opencode/types.ts";
 import type {TranslationKey} from "../../hooks/i18n.tsx";
 
+/** Shared error accent for failed tools and failed model steps alike. */
+export const ERROR_TEXT = "#f87171";
+
 /**
  * Tool-call display metadata (pure) — the name→{title, icon} table and
  * the small input-shape helpers ToolCard's detail/accent lines read.

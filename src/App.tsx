@@ -221,6 +221,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                             sessionId={activeSession.id}
                                             backgroundColor={effectiveBg}
                                             busy={busy}
+                                            busyIds={busyIds}
                                             disabled={!connected}
                                             agents={agents}
                                             models={models}

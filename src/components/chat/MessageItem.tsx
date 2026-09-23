@@ -1,6 +1,6 @@
 import {memo, useEffect, useRef, useState, type CSSProperties} from "react";
 import {motion} from "framer-motion";
-import {Terminal, Check, Copy} from "lucide-react";
+import {Terminal, Check, Copy, AlertCircle} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {
@@ -19,7 +19,8 @@ import SubagentCard, {isSubagentTool} from "./SubagentCard.tsx";
 import ThinkingBlock from "./ThinkingBlock.tsx";
 import ActivityGroup from "./ActivityGroup.tsx";
 import {useExpansion} from "./useExpansion.ts";
-import {effectiveTailPart, partKey, segmentContent, type ActivityPart} from "./messageParts.ts";
+import {effectiveTailPart, partKey, segmentContent, visibleStepError, type ActivityPart} from "./messageParts.ts";
+import {ERROR_TEXT} from "./toolMeta.ts";
 import Hint from "../ui/Hint.tsx";
 
 /**
@@ -231,6 +232,7 @@ function AssistantBlock({
     directory?: string | null;
     enter: boolean;
 }) {
+    const t = useI18n();
     // The part currently receiving frames (reasoning before the answer,
     // text after) drives the per-part live states.
     const lastPart = effectiveTailPart(message);
@@ -239,6 +241,11 @@ function AssistantBlock({
     // card) expands live and folds when the run finishes.
     const livePart: ActivityPart | null =
         streaming && lastPart != null && lastPart.type !== "text" ? lastPart : null;
+    // A failed step (provider rate limit, transport fault, …) surfaces as
+    // its own error row — the step may carry no content at all, and
+    // without this the failed turn would vanish silently (the server
+    // persists it as content:[] + error).
+    const stepError = visibleStepError(message);
 
     return (
         <motion.div
@@ -296,6 +303,34 @@ function AssistantBlock({
                     </motion.div>
                 );
             })}
+            {stepError !== null && (
+                <motion.div variants={fadeSlideUp} initial={enter ? "hidden" : false} animate="show">
+                    <StepErrorRow text={stepError} fallback={t["Request failed"]} colors={colors}/>
+                </motion.div>
+            )}
         </motion.div>
+    );
+}
+
+/** A failed model step's error row (provider rate limit, transport
+ *  fault, …) — the server persists failed steps as content:[] + error,
+ *  so without this row the failed turn would render as nothing at all.
+ *  Same recessed chrome as tool output boxes, but proportional text:
+ *  provider messages are prose (often CJK), not code. */
+function StepErrorRow({text, fallback, colors}: {text: string; fallback: string; colors: SurfaceColors}) {
+    return (
+        <div
+            className="self-start rounded-[var(--radius-sm)] px-3 py-2 text-sm max-w-full whitespace-pre-wrap break-words"
+            style={{
+                background: colors.recessedBg,
+                border: `1px solid ${colors.glassBorder}`,
+                color: ERROR_TEXT,
+            }}
+        >
+            <span className="inline-flex items-start gap-2">
+                <AlertCircle size={15} className="shrink-0 mt-0.5"/>
+                <span>{text || fallback}</span>
+            </span>
+        </div>
     );
 }

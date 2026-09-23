@@ -9,17 +9,11 @@ import {useI18n} from "../../hooks/i18n.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
-import {errorText, inputObject, inputStr, metaFor} from "./toolMeta.ts";
-import {diffCounts, toolDiffFor, type DiffLine} from "./toolDiff.ts";
+import {errorText, inputObject, inputStr, metaFor, ERROR_TEXT} from "./toolMeta.ts";
+import {DIFF_ADD, DIFF_DEL, diffCounts, toolDiffFor, type DiffLine} from "./toolDiff.ts";
 import {useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 import {MONO_STYLE} from "./RequestCardChrome.tsx";
-
-/** Diff red/green — the accent counts and the expanded diff view share
- *  them. */
-const DIFF_ADD = "#22c55e";
-const DIFF_DEL = "#ef4444";
-const ERROR_TEXT = "#f87171";
 
 /** The shared expanded-body panel: recessed card chrome for tool output,
  *  error notes and diff views alike. */

@@ -23,6 +23,11 @@ export interface DiffLine {
 
 /** LCS table cell cap; beyond it the changed middle renders as a whole
  * removal + whole addition instead of an O(n·m) table. */
+/** Diff red/green — shared by every diff surface (tool cards, the stats
+ *  panel's file diff view); ToolCard's DiffCounts reads the same pair. */
+export const DIFF_ADD = "#22c55e";
+export const DIFF_DEL = "#ef4444";
+
 const MAX_LCS_CELLS = 1_000_000;
 
 /** Split into display lines, dropping the single empty segment a

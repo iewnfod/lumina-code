@@ -132,6 +132,22 @@ src/
 │   │                      #   bus-maintained; a pending ask blocks the session's
 │   │                      #   execution server-side. Global, not per-session, so sidebar
 │   │                      #   badges work for inactive sessions.
+│   ├── sessionActivity.ts # Pure stats-card derivations from a session's messages:
+│   │                      #   background shells (tool-part metadata.shellID — only
+│   │                      #   background results carry it) with their completion
+│   │                      #   notifications (marker messages with metadata.source ===
+│   │                      #   "shell"), subagent child sessions (part metadata.sessionID,
+│   │                      #   deduped — continuation reuses the child id), and the
+│   │                      #   file-mutation count signature. node-testable.
+│   ├── useSessionActivity.ts # Stats-card state: the whole-session git diff
+│   │                      #   (GET /api/session/{id}/diff anchored to the first/last
+│   │                      #   user message — no anchors would diff only the newest
+│   │                      #   turn; re-pulled debounced when the mutation signature
+│   │                      #   moves), the live running-shell set (listShells seed +
+│   │                      #   global shell.created/exited bus events) and subagent
+│   │                      #   running flags (the App busy set — children report
+│   │                      #   execution events too). Derived arrays are
+│   │                      #   identity-stable across streamed frames.
 │   └── useModelCatalog.ts # Providers/agents/models + server default, fetched per
 │                          #   connection AND re-fetched whenever the bus reports
 │                          #   credential.updated / config.updated (connecting a key
@@ -261,7 +277,10 @@ src/
     │   │                  #   IntersectionObserver on the top sentinel grows the window
     │   │                  #   (and fetches older pages) on scroll-up. Scrolling lives
     │   │                  #   in hooks/useTranscriptScroll.ts; block folding in
-    │   │                  #   transcript.ts; rendering in TranscriptList.tsx.
+    │   │                  #   transcript.ts; rendering in TranscriptList.tsx. Also
+    │   │                  #   owns useSessionActivity and floats stats/
+    │   │                  #   SessionStatsCard over the transcript (busyIds flow in
+    │   │                  #   from App for the subagent running flags).
     │   ├── transcript.ts  # Pure blockify(): folds runs of activity-only
     │   │                  #   assistant messages into TranscriptBlocks. node-testable.
     │   ├── TranscriptList.tsx # Renders the mounted slice as MessageItems /
@@ -313,6 +332,45 @@ src/
     │   │                  # shared by the request kinds and tool cards.
     │   └── formLogic.ts   # Pure form-answer rules: fieldVisible (`when`
     │                      #   conditions), normalize (per-type values).
+    │
+    ├── stats/            # The session-activity stats card (floats over the
+    │                      #   transcript's right margin; data from
+    │                      #   opencode/useSessionActivity, owned by ChatView)
+    │   ├── SessionStatsCard.tsx # The floating card: collapsed summary rows
+    │   │                  #   (+N −N lines, terminal/subagent counts — non-empty
+    │   │                  #   rows only) expanding into the detail panel via a
+    │   │                  #   SHARED-ELEMENT transition, all validated against a
+    │   │                  #   headless-browser repro (see git history): the box
+    │   │                  #   springs REAL style.width/height through a
+    │   │                  #   HAND-ROLLED integrator (imperative pin in the click
+    │   │                  #   → measure the incoming content → spring → release
+    │   │                  #   to auto; framer proved unreliable here — its values
+    │   │                  #   apply on animation frames and its auto-target
+    │   │                  #   handling pollutes measurements), the measure
+    │   │                  #   wrapper carries shrink-0 (a flex child squeezed by
+    │   │                  #   the pinned container corrupts every measurement),
+    │   │                  #   layoutId flights (±counts, file/terminal/subagent
+    │   │                  #   titles) fly only where reliable — rows ARM their
+    │   │                  #   layoutIds on pointer-down so mounting never pairs
+    │   │                  #   against stale registry boxes (phantom flights) —
+    │   │                  #   and everything else fades (FadeIn; expand waits
+    │   │                  #   150ms for the box, in-panel navigation is instant).
+    │   │                  #   Outside-click/Escape collapse (capture-phase).
+    │   ├── statsChrome.tsx # Shared section header + row/hover classes
+    │   │                  #   (the MenuItem pattern via a CSS var).
+    │   ├── ChangesSection.tsx # Whole-session git diff: file rows (icon +
+    │   │                  #   status chip + net counts) → FileDiffBody (server patch
+    │   │                  #   colored through toolDiff.ts's patchLines). FileTitle /
+    │   │                  #   file row & header layoutIds live here.
+    │   ├── TerminalsSection.tsx # Background-shell rows (running pulse / exit
+    │   │                  #   chip) → TerminalBody: cursor-paginated output polled
+    │   │                  #   every 2s while running, follow-bottom, 200k-char tail
+    │   │                  #   cap, falls back to the notification's embedded output
+    │   │                  #   once the process-local shell registry 404s.
+    │   └── SubagentsSection.tsx # Subagent rows (agent + task label + running
+    │                      #   state) → SubagentBody: read-only transcript reusing
+    │                      #   the module-level message store + TranscriptList, so
+    │                      #   background children stream in live.
     ├── composer/          # The prompt composer
         ├── ChatInput.tsx  # Composer shell: staged attachments (chips),
         │                  #   slash-command fetch (per-directory, retried),

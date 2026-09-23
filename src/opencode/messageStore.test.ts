@@ -117,6 +117,20 @@ test("content events without step.started re-attach the message shell", () => {
     assert.equal(reasoningText(list), "orphan");
 });
 
+test("step.failed without step.started still lands its error (event-stream gap)", () => {
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, ev("session.step.failed", {
+        assistantMessageID: MID,
+        error: {type: "provider.rate-limit", message: "已达到 5 小时的使用上限。"},
+    }));
+    const m = asst(list);
+    assert.deepEqual(
+        m.error,
+        {type: "provider.rate-limit", message: "已达到 5 小时的使用上限。"},
+    );
+    assert.ok(m.time?.completed != null, "the failed step counts as completed");
+});
+
 test("seed keeps a local optimistic user bubble the page doesn't know yet", () => {
     let list: ChatMessage[] = [
         {id: "local-123", type: "user", text: "hello"},

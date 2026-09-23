@@ -1,4 +1,5 @@
 import {isAssistantMessage, type ChatAssistantMessage, type ChatMessage} from "../../opencode/types.ts";
+import {visibleStepError} from "./messageParts.ts";
 
 /**
  * Transcript block mapping (pure) — how a session's message list folds
@@ -13,9 +14,10 @@ export type TranscriptBlock =
     | {kind: "activity"; messages: ChatAssistantMessage[]};
 
 /** An assistant message with no visible prose — pure tool/thought
- *  machinery, eligible for cross-message folding. */
+ *  machinery, eligible for cross-message folding. A failed step never
+ *  folds: its error row must render (messageParts.visibleStepError). */
 export function isActivityOnly(m: ChatMessage): m is ChatAssistantMessage {
-    return isAssistantMessage(m) && !m.content.some(
+    return isAssistantMessage(m) && visibleStepError(m) === null && !m.content.some(
         (p) => p.type === "text" && p.text.trim() !== "",
     );
 }

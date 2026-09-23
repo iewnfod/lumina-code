@@ -1,0 +1,8 @@
+data: {"id":"evt_0cd74aab00018gV9ueJLKIdlH3","type":"server.connected","data":{}}
+
+: heartbeat
+
+data: {"id":"evt_0cd74b283001OFnsGvj3AOjtQj","created":1790153372291,"type":"shell.created","location":{"directory":"/tmp/opencode-src"},"data":{"info":{"id":"sh_0cd74b281001KjlcNniQpk4eaO","status":"running","command":"echo ev-test && sleep 1","cwd":"/tmp/opencode-src","shell":"/bin/fish","file":"/home/muyunxi/.local/share/opencode/shell/fc8aa3e9169297e2aaa5d9f000d467b6db692037/sh_0cd74b281001KjlcNniQpk4eaO.out","metadata":{},"time":{"started":1790153372289}}}}
+
+data: {"id":"evt_0cd74b6c8001u1uTnjG83aF5u7","created":1790153373384,"type":"shell.exited","location":{"directory":"/tmp/opencode-src"},"data":{"id":"sh_0cd74b281001KjlcNniQpk4eaO","exit":0,"status":"exited"}}
+

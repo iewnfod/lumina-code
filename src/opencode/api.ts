@@ -15,7 +15,10 @@ import type {
     OpencodeSession,
     PermissionDecision,
     PermissionRequest,
+    SessionDiffEntry,
     SessionModelRef,
+    ShellInfo,
+    ShellOutput,
 } from "./types.ts";
 export type {Session} from "@opencode-ai/sdk/v2/client";
 export type {
@@ -30,6 +33,9 @@ export type {
     OpencodeProject,
     OpencodeProvider,
     OpencodeSession,
+    SessionDiffEntry,
+    ShellInfo,
+    ShellOutput,
 } from "./types.ts";
 
 /** The messages endpoint caps `limit` at 200 (400 above that). */
@@ -181,6 +187,84 @@ export class OpencodeApi {
             `/api/session/${encodeURIComponent(sessionId)}/interrupt`,
             {method: "POST"},
         ).then((r) => r?.interrupted ?? false);
+    }
+
+    // --- Session activity (stats card) — verified against server v2.0.11 ---
+    //
+    // The shells are location-scoped services: a session whose directory
+    // differs from the server's own cwd spawns its shells under THAT
+    // location, and the list/get/output routes only see them when the
+    // request carries the same `location[directory]` query.
+
+    /** Real git diff of everything a session changed (snapshot-based; a run
+     * in flight compares against the working copy). Without anchors it
+     * diffs the NEWEST turn only — pass the session's first/last user
+     * message ids to span the whole session. `context` defaults to 3:
+     * OMITTING it serves full-file patches (verified — one edit returned a
+     * 574-line patch), which is unreadable in a detail view. */
+    sessionDiff(
+        sessionId: string,
+        anchors?: {from?: string; to?: string; context?: number},
+    ): Promise<SessionDiffEntry[]> {
+        const params = new URLSearchParams();
+        if (anchors?.from) params.set("from", anchors.from);
+        if (anchors?.to) params.set("to", anchors.to);
+        params.set("context", String(anchors?.context ?? 3));
+        return this.request<SessionDiffEntry[]>(
+            `/api/session/${encodeURIComponent(sessionId)}/diff?${params.toString()}`,
+        );
+    }
+
+    /** RUNNING shell commands only (exited ones drop off the list; read
+     * those through {@link getShell}/{@link shellOutput} while the server
+     * still retains them). Filter by `metadata.sessionID` for one
+     * session's terminals. */
+    listShells(directory?: string | null): Promise<ShellInfo[]> {
+        const params = new URLSearchParams();
+        if (directory) params.set("location[directory]", directory);
+        const query = params.toString();
+        return this.requestRaw<{data?: ShellInfo[]}>(`/api/shell${query ? `?${query}` : ""}`)
+            .then((r) => r?.data ?? []);
+    }
+
+    /** One shell's current state (running or retained-exited). */
+    getShell(shellId: string, directory?: string | null): Promise<ShellInfo> {
+        const params = new URLSearchParams();
+        if (directory) params.set("location[directory]", directory);
+        const query = params.toString();
+        return this.requestRaw<{data?: ShellInfo}>(
+            `/api/shell/${encodeURIComponent(shellId)}${query ? `?${query}` : ""}`,
+        ).then((r) => {
+            if (!r?.data) throw new Error(`shell ${shellId} came back empty`);
+            return r.data;
+        });
+    }
+
+    /** One page of a shell's file-backed combined stdout+stderr. Page with
+     * the returned cursor; it equals `size` once fully caught up. */
+    shellOutput(
+        shellId: string,
+        opts?: {cursor?: number; limit?: number; directory?: string | null},
+    ): Promise<ShellOutput> {
+        const params = new URLSearchParams();
+        if (opts?.cursor !== undefined) params.set("cursor", String(opts.cursor));
+        if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+        if (opts?.directory) params.set("location[directory]", opts.directory);
+        const query = params.toString();
+        return this.requestRaw<{data?: ShellOutput}>(
+            `/api/shell/${encodeURIComponent(shellId)}/output${query ? `?${query}` : ""}`,
+        ).then((r) => r?.data ?? {output: "", cursor: 0, size: 0, truncated: false});
+    }
+
+    /** The session's FIRST user message id (the whole-session diff anchor)
+     * via `?order=asc&limit=1&type=user` — cheaper than walking pages. */
+    firstUserMessageId(sessionId: string): Promise<string | null> {
+        return this.requestRaw<MessagesPage>(
+            `/api/session/${encodeURIComponent(sessionId)}/message?order=asc&limit=1&type=user`,
+        ).then((page) => {
+            const first = (page?.data ?? [])[0];
+            return first && first.type === "user" ? first.id : null;
+        });
     }
 
     /** Available models (includes each model's thinking-depth variants). */
