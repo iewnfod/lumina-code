@@ -268,7 +268,7 @@ export default function ComposerCore({
             editor.registerCommand(
                 KEY_ENTER_COMMAND,
                 (payload: KeyboardEvent | null) => {
-                    if (!payload || payload.isComposing) return false;
+                    if (!payload || payload.isComposing || (isMacOS() && payload.keyCode === 229)) return false;
                     const live = openPopup();
                     if (live) {
                         payload.preventDefault();
