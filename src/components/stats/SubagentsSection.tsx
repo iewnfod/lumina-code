@@ -126,8 +126,10 @@ export const SubagentBody = memo(function SubagentBody({
     const visible = messages.filter((m) => m.type === "user" || m.type === "assistant");
     const busy = busyIds.has(sub.id);
     return (
-        <FadeIn delay={0.03} className="flex flex-col">
-            <BodyBox colors={colors} className="px-4 py-3">
+        // flex-1 + fill: the transcript surface stretches with the panel
+        // (maximized / long history); content height when small.
+        <FadeIn delay={0.03} className="flex flex-col flex-1 min-h-0">
+            <BodyBox colors={colors} fill className="px-4 py-3">
                 {visible.length === 0
                     ? <div className="text-xs opacity-40 select-none">{t["No messages yet"]}</div>
                     : <TranscriptList messages={visible} colors={colors} busy={busy} directory={directory}/>}

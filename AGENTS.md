@@ -225,6 +225,13 @@ src/
 │   │                      #   shadows): module store + own localStorage
 │   │                      #   key, default on; the settings row is
 │   │                      #   Linux-only but App gates on isLinux() too.
+│   ├── useStatsAutoCollapse.ts # Session-activity panel auto-collapse
+│   │                      #   (outside click / Escape) toggle: module
+│   │                      #   store + own localStorage key, default on;
+│   │                      #   off = the panel persists until collapsed
+│   │                      #   by its own button. Consumed by
+│   │                      #   SessionStatsCard; the Switch row is in
+│   │                      #   GeneralSettings.
 │   ├── useTypography.ts   # Custom fonts/sizes (useThemePreference
 │   │                      #   pattern): applies lib/typography.ts's
 │   │                      #   overrides on load + change. Load-order note:
@@ -363,13 +370,23 @@ src/
     │   │                  #   formLogic.ts (pure, node-testable).
     │   ├── RequestCardChrome.tsx # Card + CardButton + MONO_STYLE (mono
     │   │                  #   family + settings-driven --lum-code-size)
-    │   │                  # shared by the request kinds and tool cards.
+    │   │                  #   shared by the request kinds and tool cards;
+    │   │                  #   MONO_ROW_STYLE adds the 1px baseline
+    │   │                  #   correction for mono detail text inline in
+    │   │                  #   a sans FoldRow row (items-center centers
+    │   │                  #   line boxes, not baselines).
     │   └── formLogic.ts   # Pure form-answer rules: fieldVisible (`when`
     │                      #   conditions), normalize (per-type values).
     │
     ├── stats/            # The session-activity stats card (floats over the
     │                      #   transcript's right margin; data from
-    │                      #   opencode/useSessionActivity, owned by ChatView)
+    │                      #   opencode/useSessionActivity, owned by ChatView;
+    │                      #   expansion is TWO-STAGE — content height
+    │                      #   first (detail views cap at the container's
+    │                      #   full height, the overview at 75vh), and a
+    │                      #   header Maximize button pins the height;
+    │                      #   outside-click auto-collapse is the
+    │                      #   useStatsAutoCollapse setting)
     │   ├── SessionStatsCard.tsx # The floating card: collapsed summary rows
     │   │                  #   (+N −N lines, terminal/subagent counts — non-empty
     │   │                  #   rows only) expanding into the detail panel via a
@@ -406,7 +423,18 @@ src/
     │   │                  #   150ms for the box, in-panel navigation is instant).
     │   │                  #   Outside-click/Escape collapse (capture-phase).
     │   ├── statsChrome.tsx # Shared section header + row/hover classes
-    │   │                  #   (the MenuItem pattern via a CSS var).
+    │   │                  #   (the MenuItem pattern via a CSS var) and
+    │   │                  #   BodyBox, the drill-body surface (fill mode
+    │   │                  #   stretches with the panel instead of the
+    │   │                  #   55vh cap).
+    │   ├── statsLayout.ts # Pure docked-lane planning for the stats card's
+    │   │                  #   detail views: given the ChatView container
+    │   │                  #   width, dock (widen the panel + reserve a
+    │   │                  #   right lane so the conversation column
+    │   │                  #   re-centers beside it, panel elastically
+    │   │                  #   clamped so the column never drops below a
+    │   │                  #   readable floor) vs overlay (today's
+    │   │                  #   float-over). node-testable.
     │   ├── ChangesSection.tsx # Whole-session git diff: file rows (icon +
     │   │                  #   status chip + net counts) → FileDiffBody (server
     │   │                  #   patch through chat/DiffViewBody + toolDiff.ts's
@@ -452,13 +480,15 @@ src/
     │                      #   time (mount doubles as the pane's open →
     │                      #   ModelSettings loads/resets on mount). App owns
     │                      #   {open, tab} so entry points deep-link a tab.
-    ├── GeneralSettings.tsx # Language + appearance rows, the Linux-only
-    │                      #   window-outline Switch, and a Fonts section
+    ├── GeneralSettings.tsx # Language + appearance rows, the
+    │                      #   activity-panel auto-collapse Switch, the
+    │                      #   Linux-only window-outline Switch, and a Fonts section
     │                      #   (AboutSettings-style header; one control per
     │                      #   row — family input / size stepper — plus
     │                      #   reset); everything acts instantly through
     │                      #   module stores (i18n, useThemePreference,
-    │                      #   useWindowOutline, useTypography).
+    │                      #   useStatsAutoCollapse, useWindowOutline,
+    │                      #   useTypography).
     ├── ModelSettings.tsx # Formerly composer/ModelConfigModal: searchable
     │                      #   integration list, API-key connect, browser-OAuth
     │                      #   flow with attempt polling, credential

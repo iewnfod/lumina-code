@@ -88,6 +88,8 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Dark": "深色",
     "Window outline": "窗口描边",
     "Show a thin window edge when the desktop draws no shadow": "在无窗口阴影的桌面显示窗口边缘",
+    "Auto-collapse activity panel": "自动收起活动面板",
+    "Collapse the activity panel on outside clicks and Escape": "点击面板外部或按 Esc 时收起活动面板",
     "Interface font": "界面字体",
     "Interface font size": "界面字号",
     "Code font": "代码字体",
@@ -188,6 +190,8 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "No output": "暂无输出",
     "Output unavailable": "输出不可用",
     "Collapse": "收起",
+    "Maximize": "最大化",
+    "Restore": "还原",
 };
 
 export default zhCn;

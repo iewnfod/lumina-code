@@ -124,6 +124,7 @@ export function BodyBox({
     colors,
     className = "",
     mono = false,
+    fill = false,
     scrollRef,
     onScroll,
     children,
@@ -131,6 +132,11 @@ export function BodyBox({
     colors: SurfaceColors;
     className?: string;
     mono?: boolean;
+    /** Fill the wrapper's height instead of capping at 55vh — the drill
+     *  bodies stretch with the panel (maximized, or tall content up to
+     *  the panel's cap) and let this box's own overflow scroll. Degrades
+     *  to content height when the panel is content-sized. */
+    fill?: boolean;
     scrollRef?: RefObject<HTMLDivElement | null>;
     onScroll?: () => void;
     children: ReactNode;
@@ -139,7 +145,7 @@ export function BodyBox({
         <div
             ref={scrollRef}
             onScroll={onScroll}
-            className={`rounded-[var(--radius-sm)] max-h-[55vh] overflow-auto ${className}`}
+            className={`rounded-[var(--radius-sm)] ${fill ? "h-full" : "max-h-[55vh]"} overflow-auto ${className}`}
             style={{
                 ...(mono ? MONO_STYLE : null),
                 background: colors.recessedBg,

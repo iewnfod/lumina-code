@@ -100,8 +100,16 @@ export const TerminalsSection = memo(function TerminalsSection({
                         onClick={() => onOpenTerminal(shell)}
                         className="w-full flex flex-col gap-1.5 px-3 py-2.5 text-xs cursor-pointer rounded-[var(--radius-sm)] text-left transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-stats-hover)]"
                         style={{
-                            background: colors.recessedBg,
-                            border: `1px solid ${colors.glassBorder}`,
+                            // The HALF-strength overlay wash, NOT recessedBg:
+                            // the panel behind is --color-elevated while
+                            // SurfaceColors derive from the app bg, so the
+                            // solid recessed tone can land within a hair of
+                            // the panel (light mode ≈ white-on-white). The
+                            // translucent overlay composites over whatever
+                            // the panel really is, and staying a step below
+                            // activeOverlay keeps the quiet state chips
+                            // ("exit 0") readable on top of the row.
+                            background: colors.hoverOverlay,
                             "--lum-stats-hover": colors.hoverOverlay,
                         } as React.CSSProperties}
                     >
@@ -225,10 +233,14 @@ export const TerminalBody = memo(function TerminalBody({
     }, [api, shell.id, shell.running]);
 
     return (
-        <FadeIn delay={0.03} className="flex flex-col">
+        // flex-1 + fill: the output surface stretches with the panel
+        // (maximized / long output) — follow-bottom rides BodyBox's own
+        // scroll, unaffected by the taller viewport.
+        <FadeIn delay={0.03} className="flex flex-col flex-1 min-h-0">
             <BodyBox
                 colors={colors}
                 mono
+                fill
                 scrollRef={scrollRef}
                 onScroll={onScroll}
                 className={`px-3 py-2 whitespace-pre-wrap break-words${scrolled ? " lum-tail-fade" : ""}`}

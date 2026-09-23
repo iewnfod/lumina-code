@@ -14,7 +14,7 @@ import {DIFF_ADD, DIFF_DEL, diffCounts, toolDiffFor, toolHunksFor, type DiffLine
 import {useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 import DiffViewBody from "./DiffViewBody.tsx";
-import {MONO_STYLE} from "./RequestCardChrome.tsx";
+import {MONO_ROW_STYLE, MONO_STYLE} from "./RequestCardChrome.tsx";
 
 /** The shared expanded-body panel: recessed card chrome for tool output,
  *  error notes and diff views alike. */
@@ -93,27 +93,25 @@ function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNo
     if (!o) {
         const raw = part.state.input;
         return raw == null ? null : (
-            <span className="truncate" style={MONO_STYLE}>{String(raw)}</span>
+            <span className="truncate" style={MONO_ROW_STYLE}>{String(raw)}</span>
         );
     }
     const path = (s?: string) => (
-        <span className="truncate min-w-0" style={MONO_STYLE}>{s}</span>
+        <span className="truncate min-w-0" style={MONO_ROW_STYLE}>{s}</span>
     );
     // File paths inside the project show relative to the session directory,
     // prefixed with the path's file-type icon (Material Icon Theme — the
     // same set the composer's mentions use). FoldRow's detail slot already
     // provides the flex row + gap; the icon only needs its own shrink-0.
-    // The half-pixel lift is an optical correction, measured against the
-    // WebKitGTK raster: flex centers the icon on the text's metric line
-    // box, but Maple Mono's ink hugs a baseline that sits low in that box
-    // (ascent 12/descent 4 at 12px while the path glyphs span ~10.6 above
-    // and ~1 below), so the text reads ~0.5px high next to a box-centered
-    // icon. `relative` shifts painting without re-centering (a margin
-    // would be redistributed by items-center) and without transform's
-    // image resampling.
+    // Alignment: the icon stays box-centered — the same treatment as the
+    // row's leading tool icon — while the mono path carries
+    // MONO_ROW_STYLE's baseline correction, so text aligns with text and
+    // icons with icons. (A former -0.5px lift on this icon chased the
+    // uncorrected, high-reading text; with the text fixed it
+    // double-counted and was removed.)
     const file = (s?: string) => s == null ? undefined : (
         <>
-            <img src={fileIconUrl(s)} alt="" className="w-4 h-4 shrink-0 relative top-[-0.5px]"/>
+            <img src={fileIconUrl(s)} alt="" className="w-4 h-4 shrink-0"/>
             {path(displayPath(s, directory))}
         </>
     );
@@ -160,7 +158,7 @@ function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNo
         default: {
             const json = JSON.stringify(part.state.input);
             if (!json || json === "{}") return null;
-            return <span className="truncate" style={MONO_STYLE}>
+            return <span className="truncate" style={MONO_ROW_STYLE}>
                 {json.length > 120 ? json.slice(0, 117) + "…" : json}
             </span>;
         }

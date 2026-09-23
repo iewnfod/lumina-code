@@ -11,6 +11,23 @@ const MONO = "var(--font-mono, ui-monospace, monospace)";
  *  folded into this shared pair. */
 export const MONO_STYLE = {fontFamily: MONO, fontSize: "var(--lum-code-size)"} as const;
 
+/** Mono text inline in a sans row (FoldRow's detail slot): MONO_STYLE
+ *  plus a baseline optical correction. A flex `items-center` row centers
+ *  line boxes, not baselines — the mono span inherits the row's text-sm
+ *  line height, and Maple Mono splits its metrics shallower (ascent ~77%
+ *  of the content box) than the sans stacks (~80%), so its baseline sits
+ *  ~1px above the sans title's (measured in a headless-browser repro
+ *  against the installed fonts: 1.00px residual under both Noto Sans and
+ *  微软雅黑; prose never shows this because a shared line box aligns
+ *  mixed fonts by baseline). `relative` shifts painting without
+ *  re-centering the box (items-center redistributes margins) and without
+ *  transform's text re-rasterization. */
+export const MONO_ROW_STYLE = {
+    ...MONO_STYLE,
+    position: "relative",
+    top: "1px",
+} as const;
+
 // CardButton moved to ui/Button.tsx so non-request chrome (the model
 // config modal) can share it; re-exported here for the request cards.
 export {default as CardButton} from "../ui/Button.tsx";

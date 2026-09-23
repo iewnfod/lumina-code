@@ -1,14 +1,16 @@
 import {memo, useCallback, useEffect, useLayoutEffect, useRef, useState} from "react";
 import {AnimatePresence, motion} from "framer-motion";
-import {Bot, ChevronLeft, ChevronUp, Diff, SquareTerminal} from "lucide-react";
+import {Bot, ChevronLeft, ChevronUp, Diff, Maximize2, Minimize2, SquareTerminal} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {durationFast, springSoft, springSnappy} from "../../lib/motion.ts";
 import {arrivalDuration} from "../../lib/arrival.ts";
+import {useStatsAutoCollapse} from "../../hooks/useStatsAutoCollapse.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
 import type {SessionDiffEntry} from "../../opencode/types.ts";
 import type {SessionShellRef, SessionSubagentRef} from "../../opencode/sessionActivity.ts";
+import {planStatsLayout} from "./statsLayout.ts";
 import IconButton from "../ui/IconButton.tsx";
 import Hint from "../ui/Hint.tsx";
 import {ChangesSection, DiffCountsBadge, FileDiffBody, FileTitle} from "./ChangesSection.tsx";
@@ -54,6 +56,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
     colors,
     directory,
     busyIds,
+    onLaneChange,
 }: {
     api: OpencodeApi | null;
     subscribe: (handler: OpencodeEventHandler) => () => void;
@@ -68,9 +71,14 @@ const SessionStatsCard = memo(function SessionStatsCard({
     colors: SurfaceColors;
     directory: string | null;
     busyIds: ReadonlySet<string>;
+    /** Reports the right lane a docked detail view reserves (0 = none).
+     *  `animated` — view-driven changes transition; resize replans snap. */
+    onLaneChange: (lane: number, animated: boolean) => void;
 }) {
     const t = useI18n();
+    const autoCollapse = useStatsAutoCollapse();
     const [expanded, setExpanded] = useState(false);
+    const [maximized, setMaximized] = useState(false);
     const [view, setView] = useState<StatsView>({kind: "overview"});
     const rootRef = useRef<HTMLDivElement>(null);
     /** The natural-size content wrapper the next box size is measured on. */
@@ -88,6 +96,79 @@ const SessionStatsCard = memo(function SessionStatsCard({
     // exempt while the diff LOADS on a card that's already open for
     // terminals/subagents, so the file list doesn't pop in unannounced.
     const showChanges = diffTotals.files > 0 || (diffLoading && (shells.length > 0 || subagents.length > 0));
+
+    // --- Docked-lane planning -------------------------------------------------------
+    // In a DETAIL view (file/terminal/subagent) the panel widens and,
+    // when the conversation column can spare the width, DOCKS: ChatView
+    // reserves a right lane (padding-right on its root) so the column
+    // re-centers beside the panel instead of being covered. Below the
+    // crossover the card overlays exactly as before. Geometry and
+    // thresholds: statsLayout.ts (pure, tested).
+    const [container, setContainer] = useState({w: 0, h: 0});
+    const containerRef = useRef({w: 0, h: 0});
+    /** Whether the NEXT lane change animates: view-driven transitions
+     *  do; window-resize replans snap (animating every resize event
+     *  reads as rubber-banding). */
+    const laneAnimatedRef = useRef(true);
+    const detail = expanded && view.kind !== "overview";
+    // rem → px at plan time so user zoom (root font-size) scales the
+    // thresholds; a typography change mid-dock goes stale until the next
+    // resize/view event — acceptable.
+    const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const plan = planStatsLayout(container.w, remPx, detail);
+    const docked = plan.mode === "dock";
+    const lane = docked ? plan.laneWidth : 0;
+
+    // Height budgets: `availH` = the container minus the top-4/bottom-4
+    // insets, the most the panel may occupy. Two-stage expand — the panel
+    // opens at CONTENT height (detail views cap at availH so a long
+    // diff/terminal stretches as tall as it needs; the overview keeps the
+    // historical 75vh window cap), and a header Maximize button pins the
+    // height to availH regardless of content. Collapsing resets the
+    // maximize stage.
+    const availH = container.h > 0 ? Math.max(240, container.h - 32) : 0;
+    const fullHeight = expanded && maximized && availH > 0;
+    /** Detail views' content cap (availH); 0 = fall back to the 75vh class. */
+    const detailCap = detail && availH > 0 ? availH : 0;
+
+    // Container measurement feeding the plan (width) and the full-height
+    // target (height). The observer also fires when OUR OWN lane padding
+    // shrinks the content box; offsetWidth/offsetHeight (padding-box) are
+    // stable under that, so those fires no-op — without the guard the
+    // observer would feed back into the plan.
+    useEffect(() => {
+        const parent = rootRef.current?.parentElement;
+        if (!parent) return;
+        const ro = new ResizeObserver(() => {
+            const w = parent.offsetWidth;
+            const h = parent.offsetHeight;
+            const prev = containerRef.current;
+            if (w === prev.w && h === prev.h) return;
+            containerRef.current = {w, h};
+            // A resize-driven replan snaps: zero the box's size
+            // transition so the size change about to commit doesn't
+            // animate against a stale --lum-size-dur. animateSizeTo
+            // rewrites the var on the next view change.
+            laneAnimatedRef.current = false;
+            rootRef.current?.style.setProperty("--lum-size-dur", "0ms");
+            setContainer({w, h});
+        });
+        ro.observe(parent);
+        return () => ro.disconnect();
+    }, [visible]);
+
+    // Report the reserved lane to ChatView. Layout effect so the padding
+    // transition starts in the same paint as the card's box animation.
+    useLayoutEffect(() => {
+        onLaneChange(lane, laneAnimatedRef.current);
+    }, [lane, onLaneChange]);
+
+    // The card unmounting while docked (all activity evaporated
+    // mid-detail) must release the lane — the column would stay shifted
+    // with nothing occupying it.
+    const onLaneChangeRef = useRef(onLaneChange);
+    onLaneChangeRef.current = onLaneChange;
+    useEffect(() => () => onLaneChangeRef.current(0, true), []);
 
     // --- Box size machinery ---------------------------------------------------------
     // The box's REAL width/height animate as a CSS TRANSITION (the
@@ -237,6 +318,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
     }, []);
 
     const expand = useCallback(() => {
+        laneAnimatedRef.current = true;
         navKindRef.current = "expand";
         pinCurrentSize();
         setExpanded(true);
@@ -250,14 +332,27 @@ const SessionStatsCard = memo(function SessionStatsCard({
     }, [pinCurrentSize, activity]);
 
     const collapse = useCallback(() => {
+        laneAnimatedRef.current = true;
         pinCurrentSize();
         setExpanded(false);
         setView({kind: "overview"});
+        setMaximized(false);
         setNavTick((n) => n + 1);
         setFlightsArmed(false);
     }, [pinCurrentSize]);
 
+    /** Two-stage expand's second stage: toggle the panel between content
+     *  height and the container's full height. Content is unchanged —
+     *  only the box height animates (nav, not expand, pacing). */
+    const toggleMaximize = useCallback(() => {
+        navKindRef.current = "nav";
+        pinCurrentSize();
+        setMaximized((m) => !m);
+        setNavTick((n) => n + 1);
+    }, [pinCurrentSize]);
+
     const drill = useCallback((next: StatsView) => {
+        laneAnimatedRef.current = true;
         navKindRef.current = "nav";
         pinCurrentSize();
         setView(next);
@@ -266,6 +361,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
     }, [pinCurrentSize]);
 
     const back = useCallback(() => {
+        laneAnimatedRef.current = true;
         navKindRef.current = "nav";
         pinCurrentSize();
         setView({kind: "overview"});
@@ -274,9 +370,11 @@ const SessionStatsCard = memo(function SessionStatsCard({
     }, [pinCurrentSize]);
 
     // Outside pointer-down / Escape collapse the panel (PopoverMenu's
-    // capture-phase pattern).
+    // capture-phase pattern) — unless auto-collapse is off (General
+    // setting), which turns the panel into a persistent side pane that
+    // only its own collapse button closes.
     useEffect(() => {
-        if (!expanded) return;
+        if (!expanded || !autoCollapse) return;
         const onPointerDown = (e: PointerEvent) => {
             if (rootRef.current && !rootRef.current.contains(e.target as Node)) collapse();
         };
@@ -289,7 +387,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
             document.removeEventListener("pointerdown", onPointerDown, true);
             document.removeEventListener("keydown", onKeyDown, true);
         };
-    }, [expanded, collapse]);
+    }, [expanded, autoCollapse, collapse]);
 
     // After every navigation (each handler pins the box first), measure
     // the incoming content's natural size and spring the box to it. The
@@ -307,9 +405,16 @@ const SessionStatsCard = memo(function SessionStatsCard({
         const m = measureRef.current;
         if (!m) return;
         const r = m.getBoundingClientRect();
-        const maxH = Math.max(240, window.innerHeight * 0.75);
+        // Height cap for the measured content: maximized measures its
+        // inline height exactly; detail views cap at the container's full
+        // height; the overview keeps the 75vh window cap.
+        const maxH = fullHeight
+            ? Number.POSITIVE_INFINITY
+            : detailCap > 0
+                ? detailCap
+                : Math.max(240, window.innerHeight * 0.75);
         animateSizeTo({w: Math.ceil(r.width), h: Math.ceil(Math.min(r.height, maxH))});
-    }, [expanded, view.kind, navTick, animateSizeTo]);
+    }, [expanded, view.kind, navTick, fullHeight, animateSizeTo]);
 
     // Drill views resolve their entry LIVE (by id/path) so state updates
     // flow in — a terminal that exits while open must stop pulsing and
@@ -378,7 +483,8 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         measurement would read the squeezed box. */}
                     <div
                         ref={measureRef}
-                        className={`shrink-0 ${expanded ? "w-[min(26rem,calc(100vw-24rem))]" : "w-max"}`}
+                        className={`shrink-0 ${expanded && !docked ? "w-[min(26rem,calc(100vw-24rem))]" : "w-max"}`}
+                        style={docked ? {width: plan.panelWidth} : undefined}
                     >
                         <AnimatePresence mode="popLayout" initial={false}>
                             {!expanded ? (
@@ -434,7 +540,13 @@ const SessionStatsCard = memo(function SessionStatsCard({
                                     // fades itself (FadeIn); the panel's exit
                                     // still fades as a whole.
                                     exit={{opacity: 0, transition: {duration: durationFast}}}
-                                    className="max-h-[75vh] flex flex-col"
+                                    // Height mode: maximized pins the
+                                    // inline height to availH; a detail
+                                    // view caps its content there (grows
+                                    // with content, no empty floor); the
+                                    // overview keeps the 75vh class cap.
+                                    className={`${fullHeight || detailCap > 0 ? "" : "max-h-[75vh]"} flex flex-col`}
+                                    style={fullHeight ? {height: availH} : detailCap > 0 ? {maxHeight: detailCap} : undefined}
                                 >
                                     {/* Panel header: back (in a drill view), the
                                         title — the flying shared element in
@@ -482,6 +594,17 @@ const SessionStatsCard = memo(function SessionStatsCard({
                                                 <SubagentStateChip running={liveSub.running} colors={colors}/>
                                             </FadeIn>
                                         )}
+                                        <FadeIn delay={0.03} className="shrink-0">
+                                            <IconButton
+                                                size={24}
+                                                hoverOverlay={colors.hoverOverlay}
+                                                activeOverlay={colors.activeOverlay}
+                                                onClick={toggleMaximize}
+                                                aria-label={maximized ? t["Restore"] : t["Maximize"]}
+                                            >
+                                                {maximized ? <Minimize2 size={14}/> : <Maximize2 size={14}/>}
+                                            </IconButton>
+                                        </FadeIn>
                                         <FadeIn delay={contentFadeDelay} className="shrink-0">
                                             <IconButton
                                                 size={24}
@@ -502,7 +625,12 @@ const SessionStatsCard = memo(function SessionStatsCard({
                                         back-navigation flights (they started
                                         from the panel's top-left corner). */}
                                     <div
-                                        className="min-h-0 overflow-y-auto px-3 pb-3 flex flex-col gap-3"
+                                        // flex-1: the content area fills the
+                                        // panel's height (maximized / capped
+                                        // modes) instead of stranding content
+                                        // in the top half; no-op at content
+                                        // height.
+                                        className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-3"
                                         onPointerDown={() => setFlightsArmed(true)}
                                     >
                                         {view.kind === "overview" && (

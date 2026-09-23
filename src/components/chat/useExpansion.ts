@@ -49,6 +49,15 @@ export function useExpansion(
     const apply = (next: ExpansionState) => {
         store.set(key, next);
         setState(next);
+        // TEMP DIAGNOSTIC (scroll-repro harness) — remove before commit.
+        try {
+            (window as unknown as {__expansionLog?: {t: number; key: string; expanded: boolean}[]})
+                .__expansionLog ??= [];
+            (window as unknown as {__expansionLog: {t: number; key: string; expanded: boolean}[]})
+                .__expansionLog.push({t: Math.round(performance.now()), key, expanded: next.expanded});
+        } catch {
+            /* ignore */
+        }
     };
 
     useEffect(() => {

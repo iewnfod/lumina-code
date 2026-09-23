@@ -4,6 +4,7 @@ import type {CSSProperties} from "react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n, useLanguageChoice, setLanguage, type Language} from "../../hooks/i18n.tsx";
 import {setThemePreference, useThemePreference, type ThemePreference} from "../../hooks/useThemePreference.ts";
+import {setStatsAutoCollapse, useStatsAutoCollapse} from "../../hooks/useStatsAutoCollapse.ts";
 import {setWindowOutline, useWindowOutline} from "../../hooks/useWindowOutline.ts";
 import {setTypography, useTypography} from "../../hooks/useTypography.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
@@ -133,6 +134,7 @@ export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
     const language = useLanguageChoice();
     const theme = useThemePreference();
     const outline = useWindowOutline();
+    const autoCollapse = useStatsAutoCollapse();
     const typography = useTypography();
 
     // Language names stay in their own language regardless of the active
@@ -173,6 +175,23 @@ export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
                         setThemePreference(value as ThemePreference);
                     }}
                 />
+                {/* The session-activity panel's outside-click/Escape
+                    collapse. Off = a persistent side pane that only its
+                    own collapse button closes. */}
+                <SettingRow
+                    label={t["Auto-collapse activity panel"]}
+                    description={t["Collapse the activity panel on outside clicks and Escape"]}
+                >
+                    <Switch
+                        checked={autoCollapse}
+                        colors={colors}
+                        label={autoCollapse ? t["Enabled"] : t["Disabled"]}
+                        onChange={(next) => {
+                            info(`Stats auto-collapse set to ${next} from settings`).catch(() => {});
+                            setStatsAutoCollapse(next);
+                        }}
+                    />
+                </SettingRow>
                 {/* Linux-only: the outline exists to replace the compositor
                     shadow DEs like some wlroots setups don't draw — on
                     macOS/Windows it would be redundant chrome. App.tsx

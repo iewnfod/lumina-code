@@ -1,5 +1,6 @@
 import {memo, useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {AnimatePresence, motion} from "framer-motion";
+import {arrivalDuration} from "../../lib/arrival.ts";
 import {fadeIn} from "../../lib/motion.ts";
 import {useSurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useTranscriptScroll} from "../../hooks/useTranscriptScroll.ts";
@@ -115,6 +116,25 @@ const ChatView = memo(function ChatView({
         useSessionMessages(api, subscribe, sessionId);
     const activity = useSessionActivity(api, subscribe, sessionId, messages, busyIds, directory);
 
+    // --- Stats-card docked lane -----------------------------------------------------
+    // A docked detail view of the stats card reserves a right lane here:
+    // padding-right on the root makes the transcript + composer columns
+    // (both max-w-3xl mx-auto) re-center in the remaining space, while
+    // the card itself is absolutely positioned against the padding box
+    // and stays pinned at the window's right edge. View-driven lane
+    // changes ride the arrival curve like the card's box (distance-scaled
+    // duration); resize-driven replans snap. Geometry: stats/statsLayout.ts.
+    const [laneState, setLaneState] = useState({lane: 0, durMs: 0});
+    const handleLaneChange = useCallback((lane: number, animated: boolean) => {
+        setLaneState((prev) => {
+            if (prev.lane === lane) return prev;
+            const durMs = animated
+                ? Math.round(arrivalDuration(Math.abs(lane - prev.lane)) * 1000)
+                : 0;
+            return {lane, durMs};
+        });
+    }, []);
+
     const sentinelRef = useRef<HTMLDivElement>(null);
     const [renderLimit, setRenderLimit] = useState(RENDER_LIMIT);
     useEffect(() => {
@@ -192,9 +212,20 @@ const ChatView = memo(function ChatView({
     }, [loadEarlier, showTopSentinel, scrollRef]);
 
     return (
-        <div className="relative flex flex-col h-full w-full min-w-0">
+        <div
+            className="relative flex flex-col h-full w-full min-w-0 transition-[padding-right] duration-[var(--lum-lane-dur,0ms)] ease-[var(--ease-arrival)]"
+            style={
+                {
+                    paddingRight: laneState.lane,
+                    "--lum-lane-dur": `${laneState.durMs}ms`,
+                } as React.CSSProperties
+            }
+        >
             {/* Session-activity stats card — floats over the transcript's
-                right margin; expands in place into its detail panel. */}
+                right margin; expands in place into its detail panel. Detail
+                views DOCK: they reserve a right lane (the padding above) so
+                the conversation column re-centers beside the widened panel
+                when there's room, and only overlay when there isn't. */}
             <SessionStatsCard
                 api={api}
                 subscribe={subscribe}
@@ -202,6 +233,7 @@ const ChatView = memo(function ChatView({
                 colors={colors}
                 directory={directory}
                 busyIds={busyIds}
+                onLaneChange={handleLaneChange}
             />
             <div
                 ref={scrollRef}
