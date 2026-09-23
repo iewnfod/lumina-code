@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {diffCounts, diffLines, patchLines, toolDiffFor} from "./toolDiff.ts";
+import {diffCounts, diffLines, fragmentHunks, patchHunks, patchLines, toolDiffFor, toolHunksFor} from "./toolDiff.ts";
 import type {AssistantToolPart} from "../../opencode/types.ts";
 
 /**
@@ -144,4 +144,58 @@ test("diffCounts reports changed lines, omitting zero sides", () => {
     assert.deepEqual(diffCounts(diffLines("a\nb", "a\nc")), {added: 1, removed: 1});
     assert.deepEqual(diffCounts(diffLines("a", "a\nb")), {added: 1, removed: undefined});
     assert.deepEqual(diffCounts(diffLines("a\nb", "a")), {added: undefined, removed: 1});
+});
+
+test("patchHunks splits a real patch at @@ headers, re-attaching the file header", () => {
+    const patch = "--- a/foo.ts\n+++ b/foo.ts\n@@ -1,3 +1,3 @@\n keep\n-gone\n+new\n@@ -10,2 +10,2 @@\n x\n-y\n+z";
+    assert.deepEqual(patchHunks(patch), [
+        "--- a/foo.ts\n+++ b/foo.ts\n@@ -1,3 +1,3 @@\n keep\n-gone\n+new",
+        "--- a/foo.ts\n+++ b/foo.ts\n@@ -10,2 +10,2 @@\n x\n-y\n+z",
+    ]);
+});
+
+test("patchHunks on header-only or empty patches yields nothing", () => {
+    assert.deepEqual(patchHunks("--- a/foo.ts\n+++ b/foo.ts"), []);
+    assert.deepEqual(patchHunks(""), []);
+});
+
+test("patchHunks without file headers uses a minimal synthetic pair", () => {
+    assert.deepEqual(patchHunks("@@ -1,1 +1,1 @@\n x"), ["---\n+++\n@@ -1,1 +1,1 @@\n x"]);
+});
+
+test("fragmentHunks synthesizes one fragment-relative hunk", () => {
+    const lines = toolDiffFor(toolPart("edit", {oldString: "a\nb", newString: "a\nc"}))!;
+    assert.deepEqual(fragmentHunks(lines), ["---\n+++\n@@ -1,2 +1,2 @@\n a\n-b\n+c"]);
+    // a file name heads the synthetic header
+    assert.deepEqual(fragmentHunks(lines, "src/a.ts"), [
+        "--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,2 +1,2 @@\n a\n-b\n+c",
+    ]);
+});
+
+test("fragmentHunks headers follow git's zero-count convention", () => {
+    // write: pure addition — the old side is empty and starts at 0.
+    const added = toolDiffFor(toolPart("write", {content: "one\ntwo"}))!;
+    assert.equal(fragmentHunks(added)[0].split("\n")[2], "@@ -0,0 +1,2 @@");
+    // pure deletion — the new side is empty.
+    const removed = toolDiffFor(toolPart("edit", {oldString: "x", newString: ""}))!;
+    assert.equal(fragmentHunks(removed)[0].split("\n")[2], "@@ -1,1 +0,0 @@");
+});
+
+test("toolHunksFor keeps real hunks for patchText, synthesizes fragments", () => {
+    // apply_patch with patchText: real line numbers survive verbatim.
+    assert.deepEqual(toolHunksFor(toolPart("apply_patch", {patchText: "@@ -5,2 +5,2 @@\n a\n-b\n+c"})), [
+        "---\n+++\n@@ -5,2 +5,2 @@\n a\n-b\n+c",
+    ]);
+    // edit: fragment-relative hunk from the LCS diff, headed by the file path.
+    assert.deepEqual(toolHunksFor(toolPart("edit", {filePath: "/x/a.ts", oldString: "a", newString: "b"})), [
+        "--- a//x/a.ts\n+++ b//x/a.ts\n@@ -1,1 +1,1 @@\n-a\n+b",
+    ]);
+});
+
+test("toolHunksFor is null exactly where toolDiffFor is", () => {
+    assert.equal(toolHunksFor(toolPart("bash", {command: "ls"})), null);
+    assert.equal(toolHunksFor(toolPart("read", {filePath: "/x"})), null);
+    assert.equal(toolHunksFor(toolPart("write", {})), null);
+    // patchText whose lines carry no change is undiffable, same as toolDiffFor.
+    assert.equal(toolHunksFor(toolPart("apply_patch", {patchText: "@@ -1,1 +1,1 @@\n ctx"})), null);
 });

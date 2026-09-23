@@ -1,0 +1,122 @@
+/*
+ * git-diff-view integration (imported by DiffViewBody.tsx, right after
+ * the library's own stylesheet). The library ships its own chrome:
+ * per-theme palettes as CSS vars on .diff-style-root (scoped by
+ * [data-theme] on .diff-tailwindcss-wrapper) and an inline
+ * --diff-font-size-- on the same node. These overrides sit the view on
+ * Lumina's recessed glass surfaces instead: transparent rows, soft
+ * add/del washes, quiet gutters, and the settings-driven code size.
+ * The selectors below are one class heavier than the library's theme
+ * blocks so they win regardless of stylesheet order.
+ */
+
+.lum-diff-view {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: var(--lum-code-size);
+}
+
+.lum-diff-view .diff-tailwindcss-wrapper .diff-style-root {
+    /* The library writes 14px INLINE on this node, which beats any
+     * selector — !important is the only way through, tying the diff
+     * into the Fonts setting's Code size. */
+    --diff-font-size--: var(--lum-code-size) !important;
+
+    /* Rows transparent so the recessed box behind shows through. */
+    --diff-plain-content--: transparent;
+    --diff-plain-lineNumber--: transparent;
+    --diff-expand-content--: transparent;
+    --diff-empty-content--: transparent;
+    --diff-hunk-content--: transparent;
+    --diff-hunk-lineNumber--: transparent;
+
+    /* Washes instead of GitHub's saturated fills — soft enough to read
+     * on both light and dark surfaces. The add/del washes extend over
+     * the gutter (same value as the content) so each changed line
+     * reads as one continuous band across numbers + code. */
+    --diff-add-content--: rgba(46, 160, 67, 0.13);
+    --diff-del-content--: rgba(248, 81, 73, 0.13);
+    --diff-add-lineNumber--: rgba(46, 160, 67, 0.13);
+    --diff-del-lineNumber--: rgba(248, 81, 73, 0.13);
+
+    /* Quiet gutter text and hairline separators. */
+    --diff-plain-lineNumber-color--: rgba(128, 128, 128, 0.55);
+    --diff-expand-lineNumber-color--: rgba(128, 128, 128, 0.55);
+    --diff-hunk-content-color--: rgba(128, 128, 128, 0.8);
+    --diff-border--: rgba(128, 128, 128, 0.18);
+}
+
+/* The hljs theme pairs its colors with a solid background; on glass
+ * the recessed surface must show through instead. */
+.lum-diff-view .diff-tailwindcss-wrapper .diff-line-syntax-raw .hljs {
+    background: transparent;
+}
+
+/* Single gutter: only the NEW line numbers. Unified mode renders one
+ * td.diff-line-num holding [old-num][10px gap][new-num] spans — hide
+ * everything but the new-number span and let it take the full cell
+ * (the width itself is set by the narrow-gutter rule below). */
+.lum-diff-view .diff-line-num > div > span {
+    display: none;
+}
+
+.lum-diff-view .diff-line-num > div > span[data-line-new-num] {
+    display: inline-block;
+    width: 100%;
+}
+
+/* Narrow single-column gutter, shared by content lines AND hunk rows
+ * (both carry the same inline dual width + min-w-[100px] — override
+ * them together or the rows misalign). Width = the diff's max NEW line
+ * number digit count (DiffViewBody's --lum-diff-digits) × 1ch — exact
+ * per digit in a mono font — plus room for the 3px marker strip, a gap
+ * behind it, and the gap before the +/− sign; the lib's
+ * --diff-aside-width-- alternative is floored at 40px. */
+.lum-diff-view td.diff-line-num,
+.lum-diff-view td.diff-line-hunk-action {
+    padding-left: 8px;
+    padding-right: 6px;
+    width: calc(var(--lum-diff-digits, 3) * 1ch + 16px) !important;
+    max-width: calc(var(--lum-diff-digits, 3) * 1ch + 16px) !important;
+    min-width: calc(var(--lum-diff-digits, 3) * 1ch + 16px) !important;
+}
+
+/* The lib writes "Menlo, Consolas, monospace" INLINE on the table
+ * wrapper — beat it so the diff follows the app's mono stack (and the
+ * Fonts setting), which is also what makes the 1ch gutter math exact. */
+.lum-diff-view .diff-tailwindcss-wrapper .unified-diff-table-wrapper {
+    font-family: var(--font-mono, ui-monospace, monospace) !important;
+}
+
+/* Left marker strip — a 3px deep green/red bar at the very start of
+ * each changed line, ahead of the number and the wash. The lib marks
+ * the +/− operator span with data-operator (context rows lack it), so
+ * :has() keys the row's first cell off it; that cell is already
+ * position:sticky, which anchors the absolutely-positioned ::before.
+ * :has() needs WebKit 15.4+/GTK 2.38+; where unsupported the rule
+ * silently drops and only the wash remains. */
+.lum-diff-view tr:has([data-operator]) > td:first-child::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--lum-diff-mark);
+}
+
+.lum-diff-view tr:has([data-operator="+"]) > td:first-child::before {
+    --lum-diff-mark: rgba(46, 160, 67, 0.7);
+}
+
+.lum-diff-view tr:has([data-operator="-"]) > td:first-child::before {
+    --lum-diff-mark: rgba(248, 81, 73, 0.7);
+}
+
+/* The +/− sign itself reads deeper than the code text beside it. */
+.lum-diff-view .diff-line-content-operator[data-operator="+"] {
+    color: rgba(46, 160, 67, 0.85);
+}
+
+.lum-diff-view .diff-line-content-operator[data-operator="-"] {
+    color: rgba(248, 81, 73, 0.85);
+}

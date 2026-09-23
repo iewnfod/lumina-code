@@ -1,4 +1,4 @@
-import {memo, type ReactNode, type RefObject} from "react";
+import {memo, useMemo, type ReactNode, type RefObject} from "react";
 import {
     AlertCircle,
     Hourglass,
@@ -9,27 +9,31 @@ import {useI18n} from "../../hooks/i18n.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
-import {errorText, inputObject, inputStr, metaFor, ERROR_TEXT} from "./toolMeta.ts";
-import {DIFF_ADD, DIFF_DEL, diffCounts, toolDiffFor, type DiffLine} from "./toolDiff.ts";
+import {errorText, inputFilePath, inputObject, inputStr, metaFor, ERROR_TEXT} from "./toolMeta.ts";
+import {DIFF_ADD, DIFF_DEL, diffCounts, toolDiffFor, toolHunksFor, type DiffLine} from "./toolDiff.ts";
 import {useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
+import DiffViewBody from "./DiffViewBody.tsx";
 import {MONO_STYLE} from "./RequestCardChrome.tsx";
 
 /** The shared expanded-body panel: recessed card chrome for tool output,
  *  error notes and diff views alike. */
-function ToolBodyBox({colors, color, scrollRef, onScroll, tailFade, children}: {
+function ToolBodyBox({colors, color, scrollRef, onScroll, tailFade, wrap = true, children}: {
     colors: SurfaceColors;
     color: string;
     scrollRef?: RefObject<HTMLDivElement | null>;
     onScroll?: () => void;
     tailFade?: boolean;
+    /** Pre-wrap the plain-text surfaces (raw output, errors). The diff
+     *  view manages its own wrapping and must not inherit it. */
+    wrap?: boolean;
     children: ReactNode;
 }) {
     return (
         <div
             ref={scrollRef}
             onScroll={onScroll}
-            className={`ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2 whitespace-pre-wrap break-words max-h-64 overflow-y-auto${tailFade ? " lum-tail-fade" : ""}`}
+            className={`ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2 max-h-64 overflow-y-auto${wrap ? " whitespace-pre-wrap break-words" : ""}${tailFade ? " lum-tail-fade" : ""}`}
             style={{
                 ...MONO_STYLE,
                 background: colors.recessedBg,
@@ -60,23 +64,16 @@ function DiffCounts({added, removed}: {added?: number; removed?: number}) {
     );
 }
 
-/** The expanded git-diff-style view of a file-mutating tool's change
- *  (see toolDiff.ts): green + lines, red − lines, dim context. Static —
- *  a diff is complete the moment its input arrives, so unlike streamed
- *  output it needs no follow-bottom. */
-function DiffBody({lines, colors}: {lines: DiffLine[]; colors: SurfaceColors}) {
+/** The expanded diff view of a file-mutating tool's change, rendered
+ *  through git-diff-view (DiffViewBody): syntax-highlighted lines,
+ *  gutters, add/del washes. Real patches keep their real line numbers;
+ *  fragments are fragment-relative (see toolDiff.ts). Static — a diff
+ *  is complete the moment its input arrives, so unlike streamed output
+ *  it needs no follow-bottom. */
+function DiffBody({hunks, fileName, colors}: {hunks: string[]; fileName?: string; colors: SurfaceColors}) {
     return (
-        <ToolBodyBox colors={colors} color={colors.inactiveText}>
-            {lines.map((line, i) => (
-                <div
-                    key={i}
-                    style={{
-                        color: line.kind === "add" ? DIFF_ADD : line.kind === "del" ? DIFF_DEL : colors.inactiveText,
-                    }}
-                >
-                    {line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}{line.text}
-                </div>
-            ))}
+        <ToolBodyBox colors={colors} color={colors.inactiveText} wrap={false}>
+            <DiffViewBody hunks={hunks} fileName={fileName} colors={colors}/>
         </ToolBodyBox>
     );
 }
@@ -234,7 +231,12 @@ const ToolCard = memo(function ToolCard({
     // input describes one (edit / apply_patch / write). Expanded, it
     // REPLACES the raw output — "Edited src/foo.ts" noise nobody reads.
     // A failed tool still shows its reason below the attempted diff.
+    // `diff` feeds the accent counts; `hunks` (real patches keep real
+    // line numbers) feeds DiffViewBody — nullability is shared, and the
+    // useMemo keeps DiffView's internal DiffFile from rebuilding.
     const diff = toolDiffFor(part);
+    const hunks = useMemo(() => toolHunksFor(part), [part]);
+    const filePath = inputFilePath(part);
 
     return (
         <FoldRow
@@ -246,9 +248,9 @@ const ToolCard = memo(function ToolCard({
             expanded={expanded}
             onToggle={toggle}
         >
-            {diff != null ? (
+            {diff != null && hunks != null ? (
                 <>
-                    <DiffBody lines={diff} colors={colors}/>
+                    <DiffBody hunks={hunks} fileName={filePath} colors={colors}/>
                     {status === "error" && (
                         <ToolBodyBox colors={colors} color={ERROR_TEXT}>
                             {output || errorText(part.state.error) || t["Tool failed"]}

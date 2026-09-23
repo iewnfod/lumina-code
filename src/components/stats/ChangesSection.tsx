@@ -1,4 +1,4 @@
-import {memo} from "react";
+import {memo, useMemo} from "react";
 import {motion} from "framer-motion";
 import {Files} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
@@ -6,7 +6,8 @@ import {useI18n} from "../../hooks/i18n.tsx";
 import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
 import type {SessionDiffEntry} from "../../opencode/types.ts";
-import {DIFF_ADD, DIFF_DEL, patchLines} from "../chat/toolDiff.ts";
+import {DIFF_ADD, DIFF_DEL, patchHunks} from "../chat/toolDiff.ts";
+import DiffViewBody from "../chat/DiffViewBody.tsx";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
 import {BodyBox, FadeIn, RollingValue, statsRowClass, StatsSection} from "./statsChrome.tsx";
 
@@ -124,9 +125,10 @@ export const ChangesSection = memo(function ChangesSection({
     );
 });
 
-/** The open file's patch, colored like the tool cards' diff view
- *  (patchLines colors by the patch's own +/- prefixes); fades in under
- *  the header title that just flew into place. */
+/** The open file's patch, rendered through git-diff-view (DiffViewBody
+ *  — real line numbers from the patch's own hunks, syntax highlighting
+ *  keyed off the file name); fades in under the header title that just
+ *  flew into place. */
 export const FileDiffBody = memo(function FileDiffBody({
     entry,
     colors,
@@ -135,22 +137,13 @@ export const FileDiffBody = memo(function FileDiffBody({
     colors: SurfaceColors;
 }) {
     const t = useI18n();
-    const lines = patchLines(entry.patch);
+    const hunks = useMemo(() => patchHunks(entry.patch), [entry.patch]);
     return (
         <FadeIn delay={0.03} className="flex flex-col">
-            <BodyBox colors={colors} mono className="px-3 py-2 whitespace-pre-wrap break-words">
-                {lines.length === 0
-                    ? <span className="opacity-40">{t["No changes yet"]}</span>
-                    : lines.map((line, i) => (
-                        <div
-                            key={i}
-                            style={{
-                                color: line.kind === "add" ? DIFF_ADD : line.kind === "del" ? DIFF_DEL : colors.inactiveText,
-                            }}
-                        >
-                            {line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}{line.text}
-                        </div>
-                    ))}
+            <BodyBox colors={colors} className="px-3 py-2">
+                {hunks.length === 0
+                    ? <span className="opacity-40" style={MONO_STYLE}>{t["No changes yet"]}</span>
+                    : <DiffViewBody hunks={hunks} fileName={entry.file} colors={colors}/>}
             </BodyBox>
         </FadeIn>
     );

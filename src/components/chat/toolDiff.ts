@@ -109,6 +109,78 @@ export function patchLines(patchText: string): DiffLine[] {
     });
 }
 
+/** A real unified patch → hunk strings for git-diff-view's data mode.
+ *  Every `@@` header starts a hunk; following lines join it. The
+ *  parser REQUIRES a `---`/`+++` pair ahead of each hunk — a hunk
+ *  without one parses as an empty diff — so the patch's own file
+ *  headers are re-attached to EVERY hunk (a minimal synthetic pair
+ *  when the patch has none; the display file name travels separately
+ *  through the data prop). Header capture stops at the first `@@`, so
+ *  a deleted body line that happens to start with ---/+++ stays in the
+ *  body; anything else before the first hunk (diff --git, index, …)
+ *  is dropped. Real line numbers ride along inside the headers. */
+export function patchHunks(patchText: string): string[] {
+    const out: string[] = [];
+    let oldHeader: string | null = null;
+    let newHeader: string | null = null;
+    for (const raw of toLines(patchText)) {
+        if (raw.startsWith("@@")) {
+            const header = oldHeader != null || newHeader != null
+                ? `${oldHeader ?? "---"}\n${newHeader ?? "+++"}`
+                : "---\n+++";
+            out.push(`${header}\n${raw}`);
+        } else if (out.length > 0) {
+            out[out.length - 1] += "\n" + raw;
+        } else if (raw.startsWith("---")) {
+            oldHeader = raw;
+        } else if (raw.startsWith("+++")) {
+            newHeader = raw;
+        }
+    }
+    return out;
+}
+
+/** A fragment diff → one synthesized hunk. Line numbers are
+ *  fragment-relative (1-based): the tool input stores no position, and
+ *  zero-count sides follow git's convention (an empty side starts at
+ *  0). A `---`/`+++` pair heads the hunk (the parser needs one; the
+ *  file name in it is cosmetic — fileName may be undefined). */
+export function fragmentHunks(lines: DiffLine[], fileName?: string): string[] {
+    const oldCount = lines.filter((l) => l.kind !== "add").length;
+    const newCount = lines.filter((l) => l.kind !== "del").length;
+    const header = fileName ? `--- a/${fileName}\n+++ b/${fileName}` : "---\n+++";
+    const body = lines
+        .map((l) => (l.kind === "add" ? "+" : l.kind === "del" ? "-" : " ") + l.text)
+        .join("\n");
+    return [`${header}\n@@ -${oldCount ? 1 : 0},${oldCount} +${newCount ? 1 : 0},${newCount} @@\n${body}`];
+}
+
+/**
+ * The diff view's hunks for a tool part's stored input, or null when
+ * the tool doesn't mutate files or its input carries nothing diffable
+ * — null exactly where toolDiffFor is null, so the accent counts
+ * (toolDiffFor + diffCounts) and the rendered hunks always agree.
+ * Real patches (apply_patch's patchText) keep their real line numbers
+ * via patchHunks; fragments (edit's old/new pair, write's content)
+ * are synthesized through fragmentHunks.
+ */
+export function toolHunksFor(part: AssistantToolPart): string[] | null {
+    const lines = toolDiffFor(part);
+    if (!lines) return null;
+    const o = inputObject(part);
+    if (o && (part.name === "edit" || part.name === "apply_patch")) {
+        const patch = inputStr(o, "patchText", "patch_text");
+        if (patch) {
+            const hunks = patchHunks(patch);
+            if (hunks.length > 0) return hunks;
+        }
+    }
+    // The input's file path heads the synthesized header (cosmetic —
+    // language detection reads the data prop's fileName).
+    const file = o ? inputStr(o, "filePath", "file_path", "path") : undefined;
+    return fragmentHunks(lines, file);
+}
+
 function hasChanges(lines: DiffLine[]): boolean {
     return lines.some((line) => line.kind !== "same");
 }

@@ -299,12 +299,34 @@ src/
     │   ├── ThinkingBlock.tsx # Reasoning disclosure (live while streaming)
     │   ├── ToolCard.tsx   # One tool call as a FoldRow (detail/accent lines;
     │   │                  #   file-mutating tools expand to a git-diff view)
+    │   ├── DiffViewBody.tsx # Shared @git-diff-view/react wrapper (Unified
+    │   │                  #   mode, built-in lowlight highlighting keyed off
+    │   │                  #   the file name, wrap, theme from SurfaceColors)
+    │   │                  #   for BOTH diff surfaces: ToolCard's diff body
+    │   │                  #   and ChangesSection's FileDiffBody. Hunks are
+    │   │                  #   precomputed in toolDiff.ts and memoized by
+    │   │                  #   callers (DiffView rebuilds its DiffFile on data
+    │   │                  #   identity change). diffView.css scopes the
+    │   │                  #   overrides: transparent rows over the recessed
+    │   │                  #   glass, soft add/del washes, the settings
+    │   │                  #   code size (!important vs the lib's inline px),
+    │   │                  #   and a single narrow NEW-number gutter (the
+    │   │                  #   lib's dual old|new one collapsed to one
+    │   │                  #   column; content lines AND hunk rows must be
+    │   │                  #   overridden together or rows misalign).
     │   ├── toolMeta.ts    # Pure tool display table + input-shape helpers
-    │   │                  #   (TOOL_META, toolDisplayName, errorText). node-testable.
-    │   ├── toolDiff.ts    # Pure git-diff-style line model for edit/apply_patch/
-    │   │                  #   write inputs (LCS line diff, patchText coloring,
-    │   │                  #   changed-line counts) — the server never stores the
-    │   │                  #   pre-edit file, so diffs derive from tool input alone.
+    │   │                  #   (TOOL_META, toolDisplayName, errorText,
+    │   │                  #   inputFilePath for the diff's language
+    │   │                  #   detection). node-testable.
+    │   ├── toolDiff.ts    # Pure diff model for edit/apply_patch/write inputs
+    │   │                  #   (LCS line diff, patchText coloring, changed-line
+    │   │                  #   counts) PLUS the hunk sources git-diff-view
+    │   │                  #   renders: patchHunks (real patches keep real line
+    │   │                  #   numbers), fragmentHunks (fragment-relative
+    │   │                  #   synthesis), toolHunksFor (null exactly where
+    │   │                  #   toolDiffFor is, so counts and view agree) —
+    │   │                  #   the server never stores the pre-edit file, so
+    │   │                  #   diffs derive from tool input alone.
     │   │                  #   node-testable.
     │   ├── SubagentCard.tsx # Subagent tool renderer
     │   ├── RunFooter.tsx + runFooters.ts # Per-turn summary footer (pure collector in
@@ -359,8 +381,9 @@ src/
     │   ├── statsChrome.tsx # Shared section header + row/hover classes
     │   │                  #   (the MenuItem pattern via a CSS var).
     │   ├── ChangesSection.tsx # Whole-session git diff: file rows (icon +
-    │   │                  #   status chip + net counts) → FileDiffBody (server patch
-    │   │                  #   colored through toolDiff.ts's patchLines). FileTitle /
+    │   │                  #   status chip + net counts) → FileDiffBody (server
+    │   │                  #   patch through chat/DiffViewBody + toolDiff.ts's
+    │   │                  #   patchHunks — real line numbers). FileTitle /
     │   │                  #   file row & header layoutIds live here.
     │   ├── TerminalsSection.tsx # Background-shell rows (running pulse / exit
     │   │                  #   chip) → TerminalBody: cursor-paginated output polled

@@ -80,6 +80,14 @@ export function inputStr(o: Record<string, unknown>, ...keys: string[]): string 
     return undefined;
 }
 
+/** The input's file path when the tool names one (write/edit/read send
+ *  `filePath`, list/grep send `path`) — drives the diff view's language
+ *  detection. Undefined for tools without a file input. */
+export function inputFilePath(part: AssistantToolPart): string | undefined {
+    const o = inputObject(part);
+    return o ? inputStr(o, "filePath", "file_path", "path") : undefined;
+}
+
 /** Human text of a tool error payload — `{type, message}` objects carry
  *  the reason ("The user dismissed this question", …). */
 export function errorText(error: unknown): string | null {

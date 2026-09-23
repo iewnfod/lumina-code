@@ -118,7 +118,8 @@ export function FinishedTotal({finished, total}: {finished: number; total: numbe
 
 /** The recessed surface every drill body renders in (diff patch,
  *  terminal output, subagent transcript) — one shape instead of
- *  hand-rolled copies drifting apart. */
+ *  hand-rolled copies drifting apart. Long reading surfaces read best
+ *  as a quiet borderless wash inside the panel. */
 export function BodyBox({
     colors,
     className = "",
@@ -142,7 +143,6 @@ export function BodyBox({
             style={{
                 ...(mono ? MONO_STYLE : null),
                 background: colors.recessedBg,
-                border: `1px solid ${colors.glassBorder}`,
             }}
         >
             {children}
