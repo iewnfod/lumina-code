@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {diffCounts, diffLines, fragmentHunks, patchHunks, patchLines, toolDiffFor, toolHunksFor} from "./toolDiff.ts";
+import {applyPatchSections, diffCounts, diffLines, fragmentHunks, patchHunks, patchLines, toolDiffFor, toolHunksFor, toolPatchFiles} from "./toolDiff.ts";
 import type {AssistantToolPart} from "../../opencode/types.ts";
 
 /**
@@ -198,4 +198,88 @@ test("toolHunksFor is null exactly where toolDiffFor is", () => {
     assert.equal(toolHunksFor(toolPart("write", {})), null);
     // patchText whose lines carry no change is undiffable, same as toolDiffFor.
     assert.equal(toolHunksFor(toolPart("apply_patch", {patchText: "@@ -1,1 +1,1 @@\n ctx"})), null);
+});
+
+const ENVELOPE = [
+    "*** Begin Patch",
+    "*** Add File: docs/new.md",
+    "+Hello",
+    "+World",
+    "*** Update File: src/app.py",
+    "*** Move to: src/main.py",
+    "@@ def greet():",
+    "-print(\"Hi\")",
+    "+print(\"Hello, world!\")",
+    " context",
+    "*** Delete File: obsolete.txt",
+    "*** End Patch",
+].join("\n");
+
+test("applyPatchSections splits the envelope, tolerating a missing end marker", () => {
+    const sections = applyPatchSections(ENVELOPE)!;
+    assert.equal(sections.length, 3);
+    assert.deepEqual(sections[0], {status: "added", path: "docs/new.md", body: ["+Hello", "+World"]});
+    assert.equal(sections[1].status, "modified");
+    assert.equal(sections[1].path, "src/app.py");
+    assert.equal(sections[1].movePath, "src/main.py");
+    assert.deepEqual(sections[2], {status: "deleted", path: "obsolete.txt", body: []});
+    // A patch still streaming (no *** End Patch) parses what's there.
+    const streaming = applyPatchSections("*** Begin Patch\n*** Add File: a.txt\n+one");
+    assert.equal(streaming?.length, 1);
+    // Not an envelope (edit inputs, legacy unified patchTexts): null.
+    assert.equal(applyPatchSections("@@ -1,2 +1,2 @@\n a\n-b\n+c"), null);
+    assert.equal(applyPatchSections(""), null);
+});
+
+test("toolPatchFiles parses the envelope: per-file views, rename shows the target", () => {
+    const files = toolPatchFiles(toolPart("patch", {patchText: ENVELOPE}))!;
+    assert.equal(files.length, 3);
+    assert.equal(files[0].fileName, "docs/new.md");
+    assert.equal(files[0].status, "added");
+    assert.deepEqual(diffCounts(files[0].lines), {added: 2, removed: undefined});
+    // The rename's display path is the move target; @@ anchors drop.
+    assert.equal(files[1].fileName, "src/main.py");
+    assert.equal(kinds(files[1].lines), "del,add,same");
+    // Fragment-relative hunks (the envelope stores no line numbers).
+    assert.equal(files[0].hunks[0].split("\n")[2], "@@ -0,0 +1,2 @@");
+    // A delete section still renders (empty diff, status carries it).
+    assert.equal(files[2].status, "deleted");
+});
+
+test("toolPatchFiles prefers the server's metadata.files (real line numbers)", () => {
+    const part = toolPart("patch", {patchText: ENVELOPE});
+    part.state.metadata = {
+        files: [
+            {
+                file: "src/app.py",
+                status: "modified",
+                patch: "--- a/src/app.py\n+++ b/src/app.py\n@@ -3,1 +3,1 @@\n-print(\"Hi\")\n+print(\"Hello, world!\")",
+            },
+        ],
+    };
+    const files = toolPatchFiles(part)!;
+    assert.equal(files.length, 1);
+    assert.equal(files[0].status, "modified");
+    assert.equal(files[0].hunks[0].split("\n")[2], "@@ -3,1 +3,1 @@");
+    // Malformed metadata entries fall back to the envelope.
+    const bad = toolPart("patch", {patchText: ENVELOPE});
+    bad.state.metadata = {files: [{file: 42}]};
+    assert.equal(toolPatchFiles(bad)!.length, 3);
+});
+
+test("toolPatchFiles is null outside the patch family and for legacy unified patchTexts", () => {
+    assert.equal(toolPatchFiles(toolPart("edit", {oldString: "a", newString: "b"})), null);
+    assert.equal(toolPatchFiles(toolPart("write", {content: "x"})), null);
+    assert.equal(toolPatchFiles(toolPart("patch", {})), null);
+    // Legacy apply_patch spelling carrying a plain unified diff: not an
+    // envelope — the single-file flow in toolDiffFor/toolHunksFor owns it.
+    assert.equal(toolPatchFiles(toolPart("apply_patch", {patchText: "@@ -1,1 +1,1 @@\n-a\n+b"})), null);
+});
+
+test("toolDiffFor flattens patch-family lines for the accent counts", () => {
+    const lines = toolDiffFor(toolPart("patch", {patchText: ENVELOPE}))!;
+    // add-file: 2 adds; update: 1 del + 1 add; delete: nothing diffable.
+    assert.deepEqual(diffCounts(lines), {added: 3, removed: 1});
+    // Nothing changed (context-only body) → null, as with every tool.
+    assert.equal(toolDiffFor(toolPart("patch", {patchText: "*** Begin Patch\n*** Update File: a\n@@\n x\n*** End Patch"})), null);
 });

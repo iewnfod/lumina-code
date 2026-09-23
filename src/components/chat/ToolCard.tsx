@@ -1,16 +1,16 @@
-import {memo, useMemo, type ReactNode, type RefObject} from "react";
+import {memo, useMemo, Fragment, type ReactNode, type RefObject} from "react";
 import {
     AlertCircle,
     Hourglass,
 } from "lucide-react";
 import type {AssistantToolPart} from "../../opencode/types.ts";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
-import {useI18n} from "../../hooks/i18n.tsx";
+import {useI18n, type TranslationKey} from "../../hooks/i18n.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
 import {errorText, inputFilePath, inputObject, inputStr, metaFor, ERROR_TEXT} from "./toolMeta.ts";
-import {DIFF_ADD, DIFF_DEL, diffCounts, toolDiffFor, toolHunksFor, type DiffLine} from "./toolDiff.ts";
+import {DIFF_ADD, DIFF_DEL, diffCounts, toolDiffFor, toolHunksFor, toolPatchFiles, type DiffLine} from "./toolDiff.ts";
 import {useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 import DiffViewBody from "./DiffViewBody.tsx";
@@ -78,6 +78,16 @@ function DiffBody({hunks, fileName, colors}: {hunks: string[]; fileName?: string
     );
 }
 
+/** The default detail: the raw input JSON, truncated — the fallback for
+ *  tools without a known shape (MCP tools, malformed patch parts). */
+function rawJsonDetail(part: AssistantToolPart): ReactNode {
+    const json = JSON.stringify(part.state.input);
+    if (!json || json === "{}") return null;
+    return <span className="truncate" style={MONO_ROW_STYLE}>
+        {json.length > 120 ? json.slice(0, 117) + "…" : json}
+    </span>;
+}
+
 /**
  * The row's detail line: the single most identifying input of the call —
  * the command for shells, the file path for file tools, the pattern for
@@ -86,9 +96,16 @@ function DiffBody({hunks, fileName, colors}: {hunks: string[]; fileName?: string
  *
  * Key spellings verified against the live server's stored parts: file
  * tools send `filePath` (write/edit/read) or `path` (list/grep); the
- * snake_case fallbacks stay for safety against server drift.
+ * snake_case fallbacks stay for safety against server drift. The patch
+ * family carries no path key — files live inside the envelope/metadata,
+ * so the first touched file shows, with a "+n more" suffix when one
+ * call touched several.
  */
-function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNode {
+function toolDetail(
+    part: AssistantToolPart,
+    directory: string | null | undefined,
+    t: ReturnType<typeof useI18n>,
+): ReactNode {
     const o = inputObject(part);
     if (!o) {
         const raw = part.state.input;
@@ -124,7 +141,23 @@ function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNo
         }
         case "edit":
         case "apply_patch":
-            return file(inputStr(o, "filePath", "file_path", "path"));
+        case "patch": {
+            const direct = inputStr(o, "filePath", "file_path", "path");
+            if (direct) return file(direct);
+            const patchFiles = toolPatchFiles(part);
+            const first = patchFiles?.[0];
+            if (!first) return rawJsonDetail(part);
+            return (
+                <>
+                    {file(first.fileName)}
+                    {patchFiles != null && patchFiles.length > 1 && (
+                        <span className="shrink-0 opacity-60">
+                            {t["and {n} more"].replace("{n}", String(patchFiles.length - 1))}
+                        </span>
+                    )}
+                </>
+            );
+        }
         case "write":
             return file(inputStr(o, "filePath", "path", "file_path"));
         case "read":
@@ -156,11 +189,7 @@ function toolDetail(part: AssistantToolPart, directory?: string | null): ReactNo
             ) : null;
         }
         default: {
-            const json = JSON.stringify(part.state.input);
-            if (!json || json === "{}") return null;
-            return <span className="truncate" style={MONO_ROW_STYLE}>
-                {json.length > 120 ? json.slice(0, 117) + "…" : json}
-            </span>;
+            return rawJsonDetail(part);
         }
     }
 }
@@ -232,28 +261,64 @@ const ToolCard = memo(function ToolCard({
     // `diff` feeds the accent counts; `hunks` (real patches keep real
     // line numbers) feeds DiffViewBody — nullability is shared, and the
     // useMemo keeps DiffView's internal DiffFile from rebuilding.
+    // Patch-family calls (GPT models' editing tool) render through
+    // `patchFiles` instead: one call can touch several files, each with
+    // its own DiffBody (the flattened `diff` still drives the counts).
     const diff = toolDiffFor(part);
     const hunks = useMemo(() => toolHunksFor(part), [part]);
+    const patchFiles = useMemo(() => toolPatchFiles(part), [part]);
     const filePath = inputFilePath(part);
+
+    // The failed reason box, shared by every diffed branch below.
+    const failure = status === "error" ? (
+        <ToolBodyBox colors={colors} color={ERROR_TEXT}>
+            {output || errorText(part.state.error) || t["Tool failed"]}
+        </ToolBodyBox>
+    ) : null;
 
     return (
         <FoldRow
             icon={icon}
             title={title}
-            detail={toolDetail(part, directory)}
+            detail={toolDetail(part, directory, t)}
             accent={toolAccent(diff)}
             active={status === "running"}
             expanded={expanded}
             onToggle={toggle}
         >
-            {diff != null && hunks != null ? (
+            {patchFiles != null && patchFiles.length > 0 ? (
+                <>
+                    {patchFiles.map((f, i) => {
+                        const statusKey: TranslationKey =
+                            f.status === "added" ? "Added" : f.status === "deleted" ? "Deleted" : "Modified";
+                        const statusColor =
+                            f.status === "added" ? DIFF_ADD : f.status === "deleted" ? DIFF_DEL : undefined;
+                        return (
+                            <Fragment key={`${f.fileName}:${i}`}>
+                                {(patchFiles.length > 1 || f.status === "deleted") && (
+                                    <div
+                                        className="ml-5 mt-1 mb-0.5 flex items-center gap-1.5 min-w-0"
+                                        style={MONO_ROW_STYLE}
+                                    >
+                                        <img src={fileIconUrl(f.fileName)} alt="" className="w-4 h-4 shrink-0"/>
+                                        <span className="truncate opacity-80">
+                                            {displayPath(f.fileName, directory)}
+                                        </span>
+                                        <span className="shrink-0" style={statusColor ? {color: statusColor} : undefined}>
+                                            {t[statusKey]}
+                                        </span>
+                                    </div>
+                                )}
+                                <DiffBody hunks={f.hunks} fileName={f.fileName} colors={colors}/>
+                            </Fragment>
+                        );
+                    })}
+                    {failure}
+                </>
+            ) : diff != null && hunks != null ? (
                 <>
                     <DiffBody hunks={hunks} fileName={filePath} colors={colors}/>
-                    {status === "error" && (
-                        <ToolBodyBox colors={colors} color={ERROR_TEXT}>
-                            {output || errorText(part.state.error) || t["Tool failed"]}
-                        </ToolBodyBox>
-                    )}
+                    {failure}
                 </>
             ) : (output.length > 0 || status === "error") && (
                 <ToolBodyBox

@@ -137,6 +137,7 @@ test("fileMutationCount counts file-mutating tool parts of any status", () => {
     ];
     assert.equal(fileMutationCount([assistantMsg("m", parts)]), 2);
     assert.ok(isFileMutatingToolName("apply_patch"));
+    assert.ok(isFileMutatingToolName("patch"));
     assert.ok(!isFileMutatingToolName("grep"));
 });
 

@@ -6,7 +6,9 @@ import enUs from "../../i18n/en-us.ts";
 test("toolDisplayName resolves known tools through the dictionary", () => {
     assert.equal(toolDisplayName("bash", enUs), "Shell");
     assert.equal(toolDisplayName("apply_patch", enUs), "Edit");
+    assert.equal(toolDisplayName("patch", enUs), "Edit");
     assert.equal(toolDisplayName("question", enUs), "Question");
+
 });
 
 test("toolDisplayName capitalizes unknown tools untranslated", () => {

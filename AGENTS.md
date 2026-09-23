@@ -380,7 +380,8 @@ src/
     │   ├── toolMeta.ts    # Pure tool display table + input-shape helpers
     │   │                  #   (TOOL_META, toolDisplayName, errorText,
     │   │                  #   inputFilePath for the diff's language
-    │   │                  #   detection). node-testable.
+    │   │                  #   detection; patch shares edit's entry).
+    │   │                  #   node-testable.
     │   ├── toolDiff.ts    # Pure diff model for edit/apply_patch/write inputs
     │   │                  #   (LCS line diff, patchText coloring, changed-line
     │   │                  #   counts) PLUS the hunk sources git-diff-view
@@ -389,8 +390,20 @@ src/
     │   │                  #   synthesis), toolHunksFor (null exactly where
     │   │                  #   toolDiffFor is, so counts and view agree) —
     │   │                  #   the server never stores the pre-edit file, so
-    │   │                  #   diffs derive from tool input alone.
-    │   │                  #   node-testable.
+    │   │                  #   diffs derive from tool input alone. The PATCH
+    │   │                  #   FAMILY (name `patch` on server v2.0.x, renamed
+    │   │                  #   `apply_patch` upstream; GPT-family models ONLY —
+    │   │                  #   the server deletes edit/write for them, everyone
+    │   │                  #   else never sees it) is multi-file: one call mixes
+    │   │                  #   Add/Update(+Move)/Delete sections in an
+    │   │                  #   apply_patch envelope (*** Begin Patch …, hunks
+    │   │                  #   WITHOUT line numbers). toolPatchFiles builds
+    │   │                  #   per-file views — preferring the completed part's
+    │   │                  #   metadata.files (server-computed unified diffs
+    │   │                  #   with real line numbers), falling back to parsing
+    │   │                  #   the envelope (running tools); toolDiffFor
+    │   │                  #   flattens them for the accent counts and ToolCard
+    │   │                  #   stacks one DiffBody per file. node-testable.
     │   ├── SubagentCard.tsx # Subagent tool renderer
     │   ├── RunFooter.tsx + runFooters.ts # Per-turn summary footer (pure collector in
     │   │                  #   runFooters.ts — node-testable)

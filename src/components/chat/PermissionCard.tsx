@@ -11,7 +11,7 @@ function permissionPhrase(action: string, t: ReturnType<typeof useI18n>): string
     switch (action) {
         case "external_directory": return t["Access a folder outside the project"];
         case "bash": case "shell": return t["Run a shell command"];
-        case "edit": case "apply_patch": return t["Edit a file"];
+        case "edit": case "apply_patch": case "patch": return t["Edit a file"];
         case "write": return t["Write a file"];
         case "read": return t["Read files"];
         case "webfetch": return t["Fetch a web page"];

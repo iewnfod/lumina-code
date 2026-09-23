@@ -13,6 +13,16 @@ import {inputObject, inputStr} from "./toolMeta.ts";
  * write shows its whole content as added (there is no old text to
  * diff against); apply_patch colors its patchText by line prefix.
  *
+ * The patch family (`patch` on server v2.0.x — the ONLY editing tool
+ * GPT-family models get, the server deletes edit/write for them; renamed
+ * `apply_patch` upstream) is multi-file: one call mixes Add / Update
+ * (optionally Move to) / Delete sections in an apply_patch envelope
+ * (`*** Begin Patch … *** End Patch`, hunks anchored by `@@` WITHOUT
+ * line numbers). toolPatchFiles below turns a part into per-file views —
+ * preferring the server-computed unified diffs that ride the completed
+ * part's metadata.files (real line numbers and counts), falling back to
+ * parsing the envelope from the input (running tools, older parts).
+ *
  * Pure: no React — node-testable (toolDiff.test.ts).
  */
 
@@ -155,14 +165,147 @@ export function fragmentHunks(lines: DiffLine[], fileName?: string): string[] {
     return [`${header}\n@@ -${oldCount ? 1 : 0},${oldCount} +${newCount ? 1 : 0},${newCount} @@\n${body}`];
 }
 
+/** The patch tool family: `patch` on server v2.0.x, renamed
+ *  `apply_patch` on newer servers — same `{patchText}` envelope input,
+ *  and exclusive to GPT-family models (the server hooks session context
+ *  to swap edit/write out for them; every other model gets edit/write
+ *  and never sees this tool). */
+export function isPatchToolName(name: string): boolean {
+    return name === "patch" || name === "apply_patch";
+}
+
+/** One file a patch-tool call touched, with everything the diff surfaces
+ *  need: display path (the move target for renames), add/delete/modify
+ *  status, the line model (accent counts) and unified hunks
+ *  (DiffViewBody). */
+export interface PatchFileView {
+    fileName: string;
+    status: "added" | "deleted" | "modified";
+    lines: DiffLine[];
+    hunks: string[];
+}
+
+/** A file section of an apply_patch envelope. */
+interface PatchSection {
+    status: "added" | "deleted" | "modified";
+    path: string;
+    movePath?: string;
+    body: string[];
+}
+
+const ADD_HEADER = "*** Add File: ";
+const DELETE_HEADER = "*** Delete File: ";
+const UPDATE_HEADER = "*** Update File: ";
+const MOVE_HEADER = "*** Move to: ";
+
+/** Split an apply_patch envelope into its file sections, or null when
+ *  the text isn't one (edit/write inputs and the legacy unified-diff
+ *  spelling of apply_patch's patchText aren't envelopes). Tolerant of a
+ *  missing `*** End Patch` — a patch still streaming ends mid-body. */
+export function applyPatchSections(patchText: string): PatchSection[] | null {
+    const lines = toLines(patchText);
+    if (lines[0]?.trim() !== "*** Begin Patch") return null;
+    const sections: PatchSection[] = [];
+    let current: PatchSection | null = null;
+    for (const raw of lines.slice(1)) {
+        const line = raw.trimEnd();
+        if (line.trim() === "*** End Patch") break;
+        if (line.startsWith(ADD_HEADER)) {
+            current = {status: "added", path: line.slice(ADD_HEADER.length).trim(), body: []};
+            sections.push(current);
+        } else if (line.startsWith(DELETE_HEADER)) {
+            current = {status: "deleted", path: line.slice(DELETE_HEADER.length).trim(), body: []};
+            sections.push(current);
+        } else if (line.startsWith(UPDATE_HEADER)) {
+            current = {status: "modified", path: line.slice(UPDATE_HEADER.length).trim(), body: []};
+            sections.push(current);
+        } else if (current && line.startsWith(MOVE_HEADER)) {
+            current.movePath = line.slice(MOVE_HEADER.length).trim();
+        } else if (current && !line.startsWith("***")) {
+            current.body.push(raw);
+        }
+        // Unrecognized `***` lines (a malformed patch) drop rather than
+        // poison a section body.
+    }
+    return sections;
+}
+
+/** One envelope section's body → line model. `+`/`-` prefixes carry the
+ *  change kind, a single leading space is context, and `@@` anchors
+ *  (which carry NO line numbers in this format) are dropped. */
+function sectionLines(section: PatchSection): DiffLine[] {
+    const out: DiffLine[] = [];
+    for (const raw of section.body) {
+        if (raw.startsWith("@@")) continue;
+        if (raw.startsWith("+")) out.push({kind: "add", text: raw.slice(1)});
+        else if (raw.startsWith("-")) out.push({kind: "del", text: raw.slice(1)});
+        else out.push({kind: "same", text: raw.startsWith(" ") ? raw.slice(1) : raw});
+    }
+    return out;
+}
+
+/** metadata.files of a completed patch call (server v2.0.x): the server
+ *  pre-computes a real unified diff per touched file — real line
+ *  numbers, real status — strictly better than re-deriving from the
+ *  envelope. Null when absent or an unexpected shape. */
+function metadataPatchFiles(metadata: Record<string, unknown> | undefined): PatchFileView[] | null {
+    const files = metadata?.files;
+    if (!Array.isArray(files) || files.length === 0) return null;
+    const views: PatchFileView[] = [];
+    for (const f of files) {
+        if (f == null || typeof f !== "object") return null;
+        const o = f as Record<string, unknown>;
+        const file = typeof o.file === "string" && o.file ? o.file : undefined;
+        const patch = typeof o.patch === "string" && o.patch ? o.patch : undefined;
+        const status =
+            o.status === "added" || o.status === "deleted" || o.status === "modified" ? o.status : undefined;
+        if (!file || !patch || !status) return null;
+        const hunks = patchHunks(patch);
+        if (hunks.length === 0) return null;
+        views.push({fileName: file, status, lines: patchLines(patch), hunks});
+    }
+    return views.length > 0 ? views : null;
+}
+
 /**
- * The diff view's hunks for a tool part's stored input, or null when
- * the tool doesn't mutate files or its input carries nothing diffable
- * — null exactly where toolDiffFor is null, so the accent counts
- * (toolDiffFor + diffCounts) and the rendered hunks always agree.
- * Real patches (apply_patch's patchText) keep their real line numbers
- * via patchHunks; fragments (edit's old/new pair, write's content)
- * are synthesized through fragmentHunks.
+ * Per-file diff views for a patch-tool part (isPatchToolName), or null
+ * when it carries nothing renderable. The completed part's
+ * metadata.files wins (real line numbers — patchHunks); the parsed
+ * envelope from the input covers running tools and parts without
+ * metadata, with fragment-relative hunks (the envelope stores no line
+ * numbers). Legacy apply_patch parts whose patchText is a plain unified
+ * diff return null here — the single-file flow in toolDiffFor/
+ * toolHunksFor owns those.
+ */
+export function toolPatchFiles(part: AssistantToolPart): PatchFileView[] | null {
+    if (!isPatchToolName(part.name)) return null;
+    const fromMeta = metadataPatchFiles(part.state.metadata);
+    if (fromMeta) return fromMeta;
+    const o = inputObject(part);
+    const patchText = o ? inputStr(o, "patchText", "patch_text") : undefined;
+    if (patchText === undefined) return null;
+    const sections = applyPatchSections(patchText);
+    if (!sections) return null;
+    const views: PatchFileView[] = [];
+    for (const section of sections) {
+        const fileName = section.movePath ?? section.path;
+        const lines = sectionLines(section);
+        views.push({fileName, status: section.status, lines, hunks: fragmentHunks(lines, fileName)});
+    }
+    return views.length > 0 ? views : null;
+}
+
+/**
+ * The SINGLE-FILE diff view's hunks for a tool part's stored input, or
+ * null when the tool doesn't mutate files or its input carries nothing
+ * diffable. Null exactly where toolDiffFor is null for the single-file
+ * tools — the counts and rendered hunks always agree — EXCEPT the patch
+ * family (patch / envelope apply_patch), whose toolDiffFor serves the
+ * accent counts while rendering goes through toolPatchFiles' per-file
+ * hunks instead (one call can touch many files). Real patches
+ * (apply_patch's unified patchText) keep their real line numbers via
+ * patchHunks; fragments (edit's old/new pair, write's content) are
+ * synthesized through fragmentHunks.
  */
 export function toolHunksFor(part: AssistantToolPart): string[] | null {
     const lines = toolDiffFor(part);
@@ -189,10 +332,19 @@ function hasChanges(lines: DiffLine[]): boolean {
  * The diff view for a tool part's stored input, or null when the tool
  * doesn't mutate files or its input carries nothing diffable (older
  * parts, malformed input) — callers fall back to the raw output view.
+ *
+ * For the patch family the returned lines are all touched files
+ * FLATTENED — they feed the accent counts; the rendered body comes
+ * from toolPatchFiles' per-file views instead.
  */
 export function toolDiffFor(part: AssistantToolPart): DiffLine[] | null {
     const o = inputObject(part);
     if (!o) return null;
+    const patchFiles = toolPatchFiles(part);
+    if (patchFiles) {
+        const lines = patchFiles.flatMap((f) => f.lines);
+        return hasChanges(lines) ? lines : null;
+    }
     switch (part.name) {
         case "edit":
         case "apply_patch": {

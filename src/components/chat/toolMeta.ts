@@ -33,6 +33,7 @@ export const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon}
     power_shell: {title: "Shell", icon: SquareTerminal},
     edit: {title: "Edit", icon: FilePen},
     apply_patch: {title: "Edit", icon: FilePen},
+    patch: {title: "Edit", icon: FilePen},
     write: {title: "Write", icon: FilePlus},
     read: {title: "Read", icon: FolderOpen},
     grep: {title: "Grep", icon: Search},

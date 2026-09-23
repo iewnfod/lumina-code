@@ -344,6 +344,10 @@ export interface ToolState {
     status: "pending" | "running" | "completed" | "error";
     input?: unknown;
     content?: ToolContentPiece[];
+    /** Tool-result metadata: background shells carry `shellID`, subagents
+     *  `sessionID`, and a completed patch-family call `files` — the
+     *  server's per-file unified diffs (real line numbers, add/delete
+     *  status); see toolDiff.ts's toolPatchFiles. */
     metadata?: Record<string, unknown>;
     error?: unknown;
 }
