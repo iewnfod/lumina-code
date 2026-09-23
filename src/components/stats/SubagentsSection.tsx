@@ -32,7 +32,10 @@ export function SubagentTitle({sub, flight = true, className = ""}: {
 }) {
     const t = useI18n();
     return (
-        <motion.span layoutId={flight ? subagentTitleId(sub.id) : undefined} className={`flex items-center gap-2 min-w-0 ${className}`}>
+        <motion.span
+            layoutId={flight ? subagentTitleId(sub.id) : undefined}
+            className={`flex items-center gap-2 min-w-0 text-xs ${className}`}
+        >
             <Bot size={13} className="shrink-0 opacity-70"/>
             <span className="min-w-0 truncate text-left">
                 <span className="font-medium">

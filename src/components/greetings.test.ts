@@ -15,16 +15,17 @@ const at = (month: number, day: number, hour: number, minute = 0) =>
 
 test("crazy Thursday fires in the meal window for zh, not for en", () => {
     const thursdayLunch = at(8, 17, 12, 0);
-    // zh: gate passes (0 < 0.45), pick index 0 / 1.
+    // zh: gate passes (0 < 0.3); the pool holds a single text, so any
+    // index roll picks it.
     assert.equal(
         pickGreeting({now: thursdayLunch, language: "zh-cn", projectName: null, random: rng(0, 0)}),
-        "今天疯狂星期四，V我50，我告诉你 bug 在哪。",
+        "今天疯狂星期四，V我50，我告诉你 bug 在哪",
     );
     assert.equal(
         pickGreeting({now: thursdayLunch, language: "zh-cn", projectName: null, random: rng(0, 0.7)}),
-        "疯狂星期四，原味鸡两块九块九，代码错误九块九十九。",
+        "今天疯狂星期四，V我50，我告诉你 bug 在哪",
     );
-    // zh: gate fails (0.9 >= 0.45) → plain afternoon.
+    // zh: gate fails (0.9 >= 0.3) → plain afternoon.
     assert.equal(
         pickGreeting({now: thursdayLunch, language: "zh-cn", projectName: null, random: rng(0.9)}),
         "下午好呀，今天需要我帮忙做什么呀",
@@ -47,7 +48,7 @@ test("Oct 24 always wins, even against the weekend window and a maxed roll", () 
     const programmersDay = at(9, 24, 15, 0); // Saturday afternoon
     assert.equal(
         pickGreeting({now: programmersDay, language: "zh-cn", projectName: null, random: rng(0.99, 0.99)}),
-        "1024 程序员节快乐，愿你写的代码永无 bug。",
+        "1024 程序员节快乐，愿你写的代码永无 bug",
     );
     assert.equal(
         pickGreeting({now: programmersDay, language: "en-us", projectName: null, random: rng(0.99, 0.99)}),
@@ -59,7 +60,7 @@ test("late night fires and falls back to the plain night greeting", () => {
     const weeHours = at(8, 22, 3, 0); // Tuesday 03:00
     assert.equal(
         pickGreeting({now: weeHours, language: "zh-cn", projectName: null, random: rng(0, 0)}),
-        "这个点了还在写代码？bug 都替你困了。",
+        "这个点了还在写代码？bug 都替你困了...",
     );
     assert.equal(
         pickGreeting({now: weeHours, language: "en-us", projectName: null, random: rng(0, 0)}),
@@ -74,7 +75,7 @@ test("late night fires and falls back to the plain night greeting", () => {
 test("Friday afternoon warns about deploys; Friday morning does not", () => {
     assert.equal(
         pickGreeting({now: at(8, 18, 15, 0), language: "zh-cn", projectName: null, random: rng(0, 0)}),
-        "周五不宜部署，宜摸鱼。",
+        "周五不宜部署，宜摸鱼~",
     );
     assert.equal(
         pickGreeting({now: at(8, 18, 15, 0), language: "en-us", projectName: null, random: rng(0, 0)}),
@@ -89,7 +90,7 @@ test("Friday afternoon warns about deploys; Friday morning does not", () => {
 test("Monday morning fires", () => {
     assert.equal(
         pickGreeting({now: at(8, 21, 8, 0), language: "zh-cn", projectName: null, random: rng(0, 0)}),
-        "周一了，先把编译跑绿，再把人生跑绿。",
+        "周一了，先把编译跑绿，再把人生跑绿",
     );
 });
 

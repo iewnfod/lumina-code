@@ -152,11 +152,12 @@ export function BodyBox({
 
 /**
  * Entering content that has no shared element. The DELAY matters and
- * depends on what mounted it: a card EXPAND needs content to wait for the
- * box to grow (~0.15s); an in-panel navigation (drill/back) must NOT wait
- * — the old view is gone in 150ms and a delayed successor reads as a
- * blank flash. Flying (layoutId) elements must not sit inside one of
- * these — a parent's opacity would dim the flight.
+ * depends on what mounted it: a card EXPAND needs content to wait until
+ * the box has landed (~0.22s — starting the fade burst mid-flight
+ * congested the animation's tail); an in-panel navigation (drill/back)
+ * must NOT wait — the old view is gone in 150ms and a delayed successor
+ * reads as a blank flash. Flying (layoutId) elements must not sit inside
+ * one of these — a parent's opacity would dim the flight.
  */
 export function FadeIn({
     children,

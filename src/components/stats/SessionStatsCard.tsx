@@ -4,6 +4,7 @@ import {Bot, ChevronLeft, ChevronUp, Diff, SquareTerminal} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {durationFast, springSoft, springSnappy} from "../../lib/motion.ts";
+import {arrivalDuration} from "../../lib/arrival.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
 import type {SessionDiffEntry} from "../../opencode/types.ts";
@@ -27,8 +28,10 @@ type StatsView =
  * conversation surface — a SHARED-ELEMENT transition system, not a
  * content swap:
  *
- * - The BOX animates its REAL width/height (pin → measure the new
- *   content → spring between pixel sizes → release to auto). No
+ * - The BOX animates its REAL width/height as a CSS transition (pin →
+ *   measure the new content → write the target + a distance-scaled
+ *   --lum-size-dur → the engine eases between pixel sizes → release to
+ *   auto on transitionend). No
  *   transform ever scales the content, so nothing smears. The content
  *   column is anchored to the box's top-right corner, so it stays put in
  *   viewport space while the box grows around it.
@@ -87,34 +90,33 @@ const SessionStatsCard = memo(function SessionStatsCard({
     const showChanges = diffTotals.files > 0 || (diffLoading && (shells.length > 0 || subagents.length > 0));
 
     // --- Box size machinery ---------------------------------------------------------
-    // A hand-rolled spring drives the container's REAL style.width/height
-    // (validated against a browser repro): framer's animate proved
-    // unreliable for this — values apply on animation frames (so a pin
-    // set in the same tick as a content swap never reached the DOM and
-    // the animation's from-value became the NEW content's auto size),
-    // and its auto-target handling polluted measurements. Both problems
-    // compounded with the true root cause below.
-    // SLIGHTLY UNDERDAMPED + snap-finish (tuned by simulation): the
-    // spring races to ~97% in ~180ms, and the settle check lands it
-    // exactly from 3px out — an (over/under)damped tail otherwise decays
-    // exponentially, and those last pixels crawl for another 250ms,
-    // which reads as the animation being stuck.
-    const SPRING = {stiffness: 500, damping: 33, mass: 0.8} as const;
-    const sizeAnimRef = useRef<{
-        raf: number;
-        w: number;
-        h: number;
-        vw: number;
-        vh: number;
-        to: {w: number; h: number};
-        last: number;
-    } | null>(null);
+    // The box's REAL width/height animate as a CSS TRANSITION (the
+    // transition-[width,height] utilities below + the --ease-arrival
+    // token), with JS doing only what the engine can't: pin the
+    // pre-swap size imperatively (pinCurrentSize), measure the incoming
+    // content's natural size, write the target values plus the
+    // distance-scaled --lum-size-dur, and release the inline properties
+    // on transitionend so live content growth (a diff refresh adding
+    // rows, terminal output) resizes the card naturally — a timer
+    // fallback covers lost end events. Framer itself stays out of this:
+    // its animate proved unreliable for the pin (values apply on
+    // animation frames, so a pin set in the same tick as a content swap
+    // never reached the DOM) and its auto-target handling polluted
+    // measurements.
+    // WHY THE ENGINE AND NOT A JS LOOP (the rAF integrators that lived
+    // here before, spring then bezier): a JS loop competes for
+    // main-thread time with the content mounting INSIDE the growing box
+    // (framer fades, diff re-renders) — every starved frame was a
+    // visible skip, and elapsed-clock catch-up finished the motion in
+    // one jump. The engine interpolates during style resolution with
+    // zero per-frame JS, and interruptions are native: retargeting a
+    // transition starts from its CURRENT interpolated value, which is
+    // exactly what the pin froze.
+    const sizeAnimRef = useRef<{cleanup: () => void} | null>(null);
 
     const cancelSizeAnim = useCallback(() => {
-        if (sizeAnimRef.current) {
-            cancelAnimationFrame(sizeAnimRef.current.raf);
-            sizeAnimRef.current = null;
-        }
+        sizeAnimRef.current?.cleanup();
+        sizeAnimRef.current = null;
     }, []);
 
     /** Freeze the container at its CURRENT pixel size — imperative and
@@ -122,10 +124,11 @@ const SessionStatsCard = memo(function SessionStatsCard({
      *  the content. FRACTIONAL by design (getBoundingClientRect, not the
      *  integer offsetWidth): rounding the pin up/down fabricates a 1px
      *  delta against the ceil'd measurement target, and a fake width
-     *  spring on a width that never changed reads as horizontal jitter
-     *  under the right-anchored layout. React never removes these
-     *  properties (they're absent from the React style prop); the spring
-     *  overwrites and finally releases them. */
+     *  animation on a width that never changed reads as horizontal
+     *  jitter under the right-anchored layout. React never removes these
+     *  properties (they're absent from the React style prop); the
+     *  transition overwrites them and the arrival release finally
+     *  removes them. */
     const pinCurrentSize = useCallback(() => {
         const el = rootRef.current;
         if (!el) return;
@@ -135,61 +138,70 @@ const SessionStatsCard = memo(function SessionStatsCard({
         el.style.height = `${r.height}px`;
     }, [cancelSizeAnim]);
 
-    /** Spring the container's width/height to a target; on settle the
-     *  inline properties are released so live content growth (a diff
-     *  refresh adding rows, terminal output) resizes the card naturally.
-     *  Per axis, a target within 2px of the current size is ADOPTED as
-     *  the current value — animating a sub-2px delta is invisible at
-     *  best and jitter at worst. */
+    /** Ease the container's width/height to a target via its CSS
+     *  transition; on arrival the inline properties are released so
+     *  live content growth (a diff refresh adding rows, terminal
+     *  output) resizes the card naturally. Per axis, a target within
+     *  2px of the current size is ADOPTED as the current value —
+     *  animating a sub-2px delta is invisible at best and jitter at
+     *  worst; with both axes adopted there is nothing to animate and
+     *  the pin is released immediately. */
     const animateSizeTo = useCallback((to: {w: number; h: number}) => {
         const el = rootRef.current;
         if (!el) return;
         cancelSizeAnim();
         const r = el.getBoundingClientRect();
-        const anim = {
-            raf: 0,
-            w: r.width,
-            h: r.height,
-            vw: 0,
-            vh: 0,
-            to: {
-                w: Math.abs(r.width - to.w) < 2 ? r.width : to.w,
-                h: Math.abs(r.height - to.h) < 2 ? r.height : to.h,
+        const target = {
+            w: Math.abs(r.width - to.w) < 2 ? r.width : to.w,
+            h: Math.abs(r.height - to.h) < 2 ? r.height : to.h,
+        };
+        if (Math.abs(target.w - r.width) < 0.01 && Math.abs(target.h - r.height) < 0.01) {
+            el.style.removeProperty("width");
+            el.style.removeProperty("height");
+            return;
+        }
+        // arrivalDuration speaks SECONDS (lib/motion.ts convention); CSS
+        // durations speak milliseconds — convert (an ms/s slip in the old
+        // JS loop once jumped progress to 1 on the first frame and
+        // swallowed the whole animation).
+        const durMs = Math.round(
+            arrivalDuration(Math.max(Math.abs(target.w - r.width), Math.abs(target.h - r.height))) * 1000,
+        );
+        let done = false;
+        const onEnd = (e: TransitionEvent) => {
+            // Both axes share one duration, so either property's end
+            // releases the pair. Children's transitions bubble up to
+            // here — match the element and the animated properties.
+            if (e.target === el && (e.propertyName === "width" || e.propertyName === "height")) release();
+        };
+        const release = () => {
+            if (done) return;
+            done = true;
+            el.removeEventListener("transitionend", onEnd);
+            window.clearTimeout(timer);
+            el.style.removeProperty("width");
+            el.style.removeProperty("height");
+            sizeAnimRef.current = null;
+        };
+        el.addEventListener("transitionend", onEnd);
+        // Lost end events (a transition canceled before its first frame,
+        // an element shuffled out of the render tree) must not leave the
+        // box pinned forever: release on a timer too, just past the
+        // transition's own end.
+        const timer = window.setTimeout(release, durMs + 120);
+        // An interruption (a new pin mid-flight) detaches the listeners
+        // and leaves the inline sizes exactly where they are — the next
+        // animateSizeTo retargets the transition from the current
+        // interpolated value.
+        sizeAnimRef.current = {
+            cleanup: () => {
+                el.removeEventListener("transitionend", onEnd);
+                window.clearTimeout(timer);
             },
-            last: performance.now(),
         };
-        sizeAnimRef.current = anim;
-        const {stiffness: k, damping: c, mass: m} = SPRING;
-        const step = (now: number) => {
-            const cur = sizeAnimRef.current;
-            if (!cur) return;
-            const dt = Math.min(0.05, (now - cur.last) / 1000);
-            cur.last = now;
-            cur.vw += ((-k * (cur.w - cur.to.w) - c * cur.vw) / m) * dt;
-            cur.vh += ((-k * (cur.h - cur.to.h) - c * cur.vh) / m) * dt;
-            cur.w += cur.vw * dt;
-            cur.h += cur.vh * dt;
-            // Snap-finish: the spring's last pixels decay exponentially —
-            // waiting for sub-pixel accuracy lets the box visibly crawl.
-            // Within 5px at ≤250px/s the remaining gap closes in under
-            // five frames: land exactly (tuned by simulation — 217ms
-            // total, ~80ms of tail after the 90% mark, no overshoot).
-            const settled =
-                Math.abs(cur.w - cur.to.w) < 5 &&
-                Math.abs(cur.h - cur.to.h) < 5 &&
-                Math.abs(cur.vw) < 250 &&
-                Math.abs(cur.vh) < 250;
-            if (settled) {
-                el.style.removeProperty("width");
-                el.style.removeProperty("height");
-                sizeAnimRef.current = null;
-                return;
-            }
-            el.style.width = `${cur.w}px`;
-            el.style.height = `${cur.h}px`;
-            cur.raf = requestAnimationFrame(step);
-        };
-        anim.raf = requestAnimationFrame(step);
+        el.style.setProperty("--lum-size-dur", `${durMs}ms`);
+        el.style.width = `${target.w}px`;
+        el.style.height = `${target.h}px`;
     }, [cancelSizeAnim]);
 
     useEffect(() => cancelSizeAnim, [cancelSizeAnim]);
@@ -197,7 +209,11 @@ const SessionStatsCard = memo(function SessionStatsCard({
     // What mounted the current panel content. A card EXPAND wants new
     // content to wait while the box grows; an in-panel navigation (drill/
     // back) must swap near-instantly — the old view is gone in 150ms, and
-    // a delayed successor reads as a blank flash.
+    // a delayed successor reads as a blank flash. The expand delay sits
+    // PAST the box's landing (~160-260ms by distance): a burst of framer
+    // fade tweens starting mid-flight was congesting the tail — the
+    // slowest part of the curve, where the eye catches every dropped
+    // frame.
     const navKindRef = useRef<"expand" | "nav">("expand");
     /** Row flight layoutIds are ARMED on pointer-down: rows mount bare
      *  (mount-time pairing against framer's stale registry boxes is what
@@ -205,7 +221,20 @@ const SessionStatsCard = memo(function SessionStatsCard({
      *  the drill click unmounts them means their boxes are still stored
      *  for the header titles to fly from. */
     const [flightsArmed, setFlightsArmed] = useState(false);
-    const contentFadeDelay = navKindRef.current === "expand" ? 0.15 : 0;
+    const contentFadeDelay = navKindRef.current === "expand" ? 0.22 : 0;
+
+    // The expand-time diff re-fetch is deferred past the box's landing
+    // (arrivalDuration caps at 260ms): its response re-renders the whole
+    // panel, and that commit landing inside the animation window was the
+    // tail's biggest stutter source. 320ms is imperceptible for data
+    // freshness — the panel opens on the data it already has.
+    const refreshTimerRef = useRef<number | null>(null);
+    useEffect(() => {
+        const timer = refreshTimerRef;
+        return () => {
+            if (timer.current !== null) window.clearTimeout(timer.current);
+        };
+    }, []);
 
     const expand = useCallback(() => {
         navKindRef.current = "expand";
@@ -213,7 +242,11 @@ const SessionStatsCard = memo(function SessionStatsCard({
         setExpanded(true);
         setNavTick((n) => n + 1);
         setFlightsArmed(false);
-        activity.refreshDiff();
+        if (refreshTimerRef.current !== null) window.clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = window.setTimeout(() => {
+            refreshTimerRef.current = null;
+            activity.refreshDiff();
+        }, 320);
     }, [pinCurrentSize, activity]);
 
     const collapse = useCallback(() => {
@@ -297,13 +330,18 @@ const SessionStatsCard = memo(function SessionStatsCard({
     // The shadow animates BETWEEN states instead of living in the static
     // style: the collapsed pill only needs a whisper (a panel-scale
     // elevation shadow reads as a halo on something this small), while
-    // the expanded panel wants real elevation.
-    const shadowCollapsed = "0 1px 3px rgba(0,0,0,0.06)";
+    // the expanded panel wants real elevation. Both values are
+    // single-layer shadows with identical structure, so the CSS engine
+    // interpolates them natively — the transition on the root (same
+    // curve, same --lum-size-dur as the box) carries it, keeping framer
+    // JS out of the animation's per-frame path entirely.
     const surfaceStyle = {
         background: "var(--color-elevated)",
         border: `1px solid ${colors.glassBorder}`,
         color: colors.dark ? "rgba(255,255,255,0.88)" : "rgba(0,0,0,0.88)",
-    } as const;
+        boxShadow: "var(--lum-stats-shadow)",
+        "--lum-stats-shadow": expanded ? colors.elevationShadow : "0 1px 3px rgba(0,0,0,0.06)",
+    } as React.CSSProperties;
 
     /** "已完成 / 总数" — finished prominent, total dimmed behind the
      *  slash; each number rolls on change (see RollingValue). */
@@ -319,17 +357,20 @@ const SessionStatsCard = memo(function SessionStatsCard({
                 <motion.div
                     ref={rootRef}
                     initial={{opacity: 0, y: 8}}
-                    animate={{
-                        opacity: 1,
-                        y: 0,
-                        boxShadow: expanded ? colors.elevationShadow : shadowCollapsed,
-                    }}
+                    animate={{opacity: 1, y: 0}}
                     exit={{opacity: 0, y: 8, transition: {duration: durationFast}}}
                     transition={springSoft}
                     // Content anchored top-right: it holds still in
                     // viewport space while the box grows around it (no
                     // clip — flights cross the growing edge in the open).
-                    className="absolute right-4 top-4 z-30 rounded-[var(--radius-lg)] select-none flex justify-end items-start"
+                    // The width/height/box-shadow transition is the
+                    // box-size machinery's engine: --ease-arrival sets
+                    // the curve, --lum-size-dur (written per animation by
+                    // animateSizeTo) the distance-scaled duration. The
+                    // shadow rides along (single-layer values interpolate
+                    // natively) so framer JS stays out of the per-frame
+                    // path entirely.
+                    className="absolute right-4 top-4 z-30 rounded-[var(--radius-lg)] select-none flex justify-end items-start transition-[width,height,box-shadow] duration-[var(--lum-size-dur,200ms)] ease-[var(--ease-arrival)]"
                     style={surfaceStyle}
                 >
                     {/* shrink-0 is load-bearing: a flex child under the
@@ -441,7 +482,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
                                                 <SubagentStateChip running={liveSub.running} colors={colors}/>
                                             </FadeIn>
                                         )}
-                                        <FadeIn className="shrink-0">
+                                        <FadeIn delay={contentFadeDelay} className="shrink-0">
                                             <IconButton
                                                 size={24}
                                                 hoverOverlay={colors.hoverOverlay}

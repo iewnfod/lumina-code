@@ -68,6 +68,10 @@
     /* Motion — one spring curve, two durations. lib/motion.ts mirrors these. */
     --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
     --ease-glass: cubic-bezier(0.4, 0, 0.2, 1);
+    /* Box-size arrival (stats card grow/shrink) — the CSS-standard ease:
+     * soft launch, near-constant per-frame deceleration, exact landing.
+     * lib/arrival.ts documents why this curve and not a spring. */
+    --ease-arrival: cubic-bezier(0.25, 0.1, 0.25, 1);
     --duration-fast: 150ms;
     --duration-base: 250ms;
     --duration-slow: 400ms;

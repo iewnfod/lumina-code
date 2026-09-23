@@ -168,6 +168,18 @@ src/
 │   │                      #   backdrop-filter is written (Wayland fallback lives here)
 │   ├── color.ts           # color math (luminance, foreground, adjust)
 │   ├── motion.ts          # framer-motion presets (fadeIn, springSwap, …)
+│   ├── arrival.ts        # Arrival timing for box-size animations: the
+│   │                      #   distance-scaled duration (160-260ms) injected
+│   │                      #   per animation as --lum-size-dur. The CURVE is
+│   │                      #   the --ease-arrival token in main.css (CSS
+│   │                      #   standard ease). History: a JS rAF loop fought
+│   │                      #   the content mounting inside the growing box —
+│   │                      #   every starved frame was a visible skip — and a
+│   │                      #   spring charges ~84% then brakes into an
+│   │                      #   exponential tail the eye reads as a knee +
+│   │                      #   crawl; the engine-owned transition removed the
+│   │                      #   per-frame JS and made mid-flight retargeting
+│   │                      #   native. node-testable.
 │   ├── path.ts            # folderLabel (last path segment) + displayPath
 │   │                      #   (project-relative file paths) — shared by the
 │   │                      #   sidebar, directory picker and tool cards. node-testable.
@@ -363,12 +375,27 @@ src/
     │   │                  #   rows only) expanding into the detail panel via a
     │   │                  #   SHARED-ELEMENT transition, all validated against a
     │   │                  #   headless-browser repro (see git history): the box
-    │   │                  #   springs REAL style.width/height through a
-    │   │                  #   HAND-ROLLED integrator (imperative pin in the click
-    │   │                  #   → measure the incoming content → spring → release
-    │   │                  #   to auto; framer proved unreliable here — its values
-    │   │                  #   apply on animation frames and its auto-target
-    │   │                  #   handling pollutes measurements), the measure
+    │   │                  #   animates REAL style.width/height as a CSS
+    │   │                  #   TRANSITION (transition-[width,height] +
+    │   │                  #   --ease-arrival; JS only pins imperatively in
+    │   │                  #   the click, measures the incoming content,
+    │   │                  #   writes the target + the distance-scaled
+    │   │                  #   --lum-size-dur, and releases to auto on
+    │   │                  #   transitionend with a timer fallback — a JS
+    │   │                  #   rAF loop fought the content mounting inside
+    │   │                  #   the box, every starved frame a visible skip;
+    │   │                  #   framer proved unreliable here too — its
+    │   │                  #   values apply on animation frames and its
+    │   │                  #   auto-target handling pollutes measurements),
+    │   │                  #   and the tail window is kept EMPTY so the
+    │   │                  #   curve's slowest part never drops frames: the
+    │   │                  #   elevation shadow rides the same transition
+    │   │                  #   (single-layer values interpolate natively —
+    │   │                  #   no framer JS per frame), expand-content fades
+    │   │                  #   start past the landing (0.22s), and the
+    │   │                  #   expand-time refreshDiff is deferred 320ms so
+    │   │                  #   its panel re-render lands after the box. The
+    │   │                  #   measure
     │   │                  #   wrapper carries shrink-0 (a flex child squeezed by
     │   │                  #   the pinned container corrupts every measurement),
     │   │                  #   layoutId flights (±counts, file/terminal/subagent
