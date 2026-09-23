@@ -86,8 +86,10 @@ const enUs = {
     "Dark": "Dark",
     "Window outline": "Window outline",
     "Show a thin window edge when the desktop draws no shadow": "Show a thin window edge when the desktop draws no shadow",
-    "Auto-collapse activity panel": "Auto-collapse activity panel",
-    "Collapse the activity panel on outside clicks and Escape": "Collapse the activity panel on outside clicks and Escape",
+    "Activity panel": "Activity panel",
+    "Whether the activity panel collapses on outside clicks or stays open": "Whether the activity panel collapses on outside clicks or stays open",
+    "Auto collapse": "Auto collapse",
+    "Always open": "Always open",
     "Interface font": "Interface font",
     "Interface font size": "Interface font size",
     "Code font": "Code font",
@@ -188,8 +190,6 @@ const enUs = {
     "No output": "No output",
     "Output unavailable": "Output unavailable",
     "Collapse": "Collapse",
-    "Maximize": "Maximize",
-    "Restore": "Restore",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;

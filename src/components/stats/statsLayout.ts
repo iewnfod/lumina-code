@@ -1,19 +1,24 @@
 /**
- * Pure layout planning for the session-stats card's DOCKED detail mode.
+ * Pure layout planning for the session-stats card's DOCKED mode.
  *
- * In a detail view (file diff / terminal / subagent transcript) the panel
- * wants to be wider than the floating card. When the conversation column
- * can spare the width, the card DOCKS: it widens and reserves a right
- * lane (padding-right on ChatView's root) so the `max-w-3xl mx-auto`
- * column re-centers in the remaining space instead of being covered.
- * Below the crossover the card keeps the overlay behavior (float over
- * the column, exactly today's layout).
+ * Any EXPANDED panel (the overview list or a file/terminal/subagent
+ * detail) wants the conversation column out from under it. When the
+ * column can spare the width, the card DOCKS: it reserves a right lane
+ * (padding-right on ChatView's root) so the centered, width-capped
+ * column (chatColumn.ts) re-centers in the remaining space instead of
+ * being covered — the overview docks at its compact width, while detail
+ * views also WIDEN toward their 40rem cap. Below the crossover the card
+ * keeps the overlay behavior (float over the column, exactly today's
+ * layout).
  *
  * The panel is ELASTIC: it shrinks toward its minimum before giving up,
  * so the dock/overlay boundary is continuous rather than a jump — and
- * because the column is capped at max-w-3xl, wide windows dock with ZERO
- * text reflow (the column only re-centers; medium windows narrow it a
- * little, never below the readable floor).
+ * the column is width-capped (chatColumn.ts), never pushed wider by a
+ * dock: with spare width it only re-centers (zero reflow); tighter
+ * windows narrow it toward the readable floor. A wide-tier (64rem)
+ * column gives up more before reaching that floor — the tier itself
+ * stays put because ChatView measures border-box, stable under this
+ * lane's padding.
  *
  * All rem constants scale with the root font size (user zoom), so the
  * caller passes the current px-per-rem.
@@ -30,11 +35,16 @@ export interface StatsLanePlan {
 
 /** Preferred detail-panel width (the cap; the panel shrinks below it). */
 const PANEL_WIDE_REM = 40;
-/** Below this the card overlays instead of docking (today's width). */
+/** Minimum dock width — the overview's compact width and the detail
+ *  panel's shrink floor; below it the card overlays instead of docking. */
 const PANEL_MIN_REM = 26;
 /** The conversation column never narrows past this while docked. */
 const COLUMN_FLOOR_REM = 36;
-/** The column's own px-6 gutters (both sides). */
+/** The column's own side gutters while capped (both sides — chatColumn's
+ *  compact tier). Docking never coexists with the roomy uncapped
+ *  gutters: those live below the base cap, where the budget is already
+ *  overlay territory — and a lane that narrows the column below its cap
+ *  still reads as capped (border-box measurement). */
 const COLUMN_PAD_REM = 3;
 /** The card's right-4 offset (fixed px, not rem-scaled). */
 const CARD_RIGHT_PX = 16;
@@ -49,17 +59,21 @@ const OVERLAY: StatsLanePlan = {mode: "overlay", panelWidth: 0, laneWidth: 0};
  * @param containerWidth ChatView root width in px (border-box — stable
  *        under the lane's own padding-right).
  * @param remPx Current px-per-rem (root font size), for zoom scaling.
- * @param detail Whether a detail view is showing (expanded && not the
- *        overview list) — the only state that docks.
+ * @param expanded Whether the panel is open (overview or detail) — a
+ *        collapsed card never docks.
+ * @param detail Whether the open view is a detail (file/terminal/
+ *        subagent) — details widen toward their cap; the overview docks
+ *        at its compact width.
  */
-export function planStatsLayout(containerWidth: number, remPx: number, detail: boolean): StatsLanePlan {
-    if (!detail || remPx <= 0) return OVERLAY;
+export function planStatsLayout(containerWidth: number, remPx: number, expanded: boolean, detail: boolean): StatsLanePlan {
+    if (!expanded || remPx <= 0) return OVERLAY;
     // Width the conversation can spare: everything left after the column
     // keeps its floor + gutters, minus the card's right offset and gap.
     const budget =
         containerWidth - (COLUMN_FLOOR_REM + COLUMN_PAD_REM) * remPx - CARD_RIGHT_PX - LANE_GAP_PX;
     if (budget < PANEL_MIN_REM * remPx) return OVERLAY;
     // Elastic: take the full preferred width only when affordable.
-    const panelWidth = Math.floor(Math.min(budget, PANEL_WIDE_REM * remPx));
+    const preferred = (detail ? PANEL_WIDE_REM : PANEL_MIN_REM) * remPx;
+    const panelWidth = Math.floor(Math.min(budget, preferred));
     return {mode: "dock", panelWidth, laneWidth: panelWidth + CARD_RIGHT_PX + LANE_GAP_PX};
 }

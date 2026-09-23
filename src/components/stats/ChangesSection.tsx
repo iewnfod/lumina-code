@@ -139,9 +139,9 @@ export const FileDiffBody = memo(function FileDiffBody({
     const t = useI18n();
     const hunks = useMemo(() => patchHunks(entry.patch), [entry.patch]);
     return (
-        // flex-1 + fill: the diff surface stretches with the panel
-        // (maximized / tall content) and scrolls inside itself; content
-        // height when the panel is content-sized.
+        // flex-1 + fill: the diff surface stretches with the panel on tall
+        // content and scrolls inside itself; content height when the panel
+        // is content-sized.
         <FadeIn delay={0.03} className="flex flex-col flex-1 min-h-0">
             <BodyBox colors={colors} fill className="px-3 py-2">
                 {hunks.length === 0

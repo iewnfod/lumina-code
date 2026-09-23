@@ -47,8 +47,8 @@ export function StatsSection({
 
 /** The trailing affordance on drill-in rows (file → diff, terminal →
  *  output, subagent → transcript). */
-export function DrillChevron() {
-    return <ChevronRight size={13} className="shrink-0 opacity-35"/>;
+export function DrillChevron({className = ""}: {className?: string}) {
+    return <ChevronRight size={13} className={`shrink-0 opacity-35 ${className}`}/>;
 }
 
 /** One state chip for terminal/subagent rows and drill headers. Both
@@ -133,9 +133,9 @@ export function BodyBox({
     className?: string;
     mono?: boolean;
     /** Fill the wrapper's height instead of capping at 55vh — the drill
-     *  bodies stretch with the panel (maximized, or tall content up to
-     *  the panel's cap) and let this box's own overflow scroll. Degrades
-     *  to content height when the panel is content-sized. */
+     *  bodies stretch with the panel (tall content up to the panel's cap)
+     *  and let this box's own overflow scroll. Degrades to content height
+     *  when the panel is content-sized. */
     fill?: boolean;
     scrollRef?: RefObject<HTMLDivElement | null>;
     onScroll?: () => void;

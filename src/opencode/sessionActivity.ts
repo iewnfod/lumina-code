@@ -163,3 +163,20 @@ export function fileMutationCount(list: ChatMessage[]): number {
     }
     return count;
 }
+
+/** Change signature of a session's messages: the file-mutating tool count
+ * plus the last (server-confirmed) user message id. Its VALUE only moves
+ * when an edit landed or a prompt arrived — streamed text/reasoning
+ * frames never bump it — which is what gates the activity store's
+ * debounced diff re-pulls (backgrounded sessions included). */
+export function mutationSignature(list: readonly ChatMessage[]): string {
+    let lastUserId = "";
+    for (let i = list.length - 1; i >= 0; i--) {
+        const m = list[i];
+        if (m.type === "user" && !m.id.startsWith("local-")) {
+            lastUserId = m.id;
+            break;
+        }
+    }
+    return `${fileMutationCount(list as ChatMessage[])}:${lastUserId}`;
+}

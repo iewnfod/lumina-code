@@ -22,6 +22,7 @@ import type {
 import {useSessionMessages} from "../../opencode/useSessionMessages.ts";
 import {useSessionActivity} from "../../opencode/useSessionActivity.ts";
 import type {SessionUsage} from "../../opencode/types.ts";
+import {useChatColumnWidth} from "./useChatColumnWidth.ts";
 import {lastContextMessage, type ContextUsage} from "./usageStats.ts";
 import TranscriptList from "./TranscriptList.tsx";
 import ChatInput from "../composer/ChatInput.tsx";
@@ -116,14 +117,21 @@ const ChatView = memo(function ChatView({
         useSessionMessages(api, subscribe, sessionId);
     const activity = useSessionActivity(api, subscribe, sessionId, messages, busyIds, directory);
 
+    // Responsive conversation-column cap + side gutters: the root is
+    // measured (border-box — stable under the lane padding below) and the
+    // transcript + composer columns share the style. chatColumn.ts owns
+    // the tiers (wide cap + roomy-below-cap gutters).
+    const {ref: columnRef, style: columnStyle} = useChatColumnWidth();
+
     // --- Stats-card docked lane -----------------------------------------------------
-    // A docked detail view of the stats card reserves a right lane here:
-    // padding-right on the root makes the transcript + composer columns
-    // (both max-w-3xl mx-auto) re-center in the remaining space, while
-    // the card itself is absolutely positioned against the padding box
-    // and stays pinned at the window's right edge. View-driven lane
-    // changes ride the arrival curve like the card's box (distance-scaled
-    // duration); resize-driven replans snap. Geometry: stats/statsLayout.ts.
+    // An expanded stats card reserves a right lane here: padding-right on
+    // the root makes the transcript + composer columns (both centered at
+    // the column cap above) re-center in the remaining space, while the
+    // card itself is absolutely positioned against the padding box and
+    // stays pinned at the window's right edge. View-driven lane changes
+    // ride the arrival curve like the card's box (distance-scaled
+    // duration); resize-driven replans snap. Geometry:
+    // stats/statsLayout.ts.
     const [laneState, setLaneState] = useState({lane: 0, durMs: 0});
     const handleLaneChange = useCallback((lane: number, animated: boolean) => {
         setLaneState((prev) => {
@@ -213,6 +221,7 @@ const ChatView = memo(function ChatView({
 
     return (
         <div
+            ref={columnRef}
             className="relative flex flex-col h-full w-full min-w-0 transition-[padding-right] duration-[var(--lum-lane-dur,0ms)] ease-[var(--ease-arrival)]"
             style={
                 {
@@ -222,10 +231,10 @@ const ChatView = memo(function ChatView({
             }
         >
             {/* Session-activity stats card — floats over the transcript's
-                right margin; expands in place into its detail panel. Detail
-                views DOCK: they reserve a right lane (the padding above) so
-                the conversation column re-centers beside the widened panel
-                when there's room, and only overlay when there isn't. */}
+                right margin; expands in place into its panel. The expanded
+                panel DOCKS: it reserves a right lane (the padding above) so
+                the conversation column re-centers beside it when there's
+                room, and only overlays when there isn't. */}
             <SessionStatsCard
                 api={api}
                 subscribe={subscribe}
@@ -255,7 +264,7 @@ const ChatView = memo(function ChatView({
                         "linear-gradient(to bottom, transparent 0, rgba(0,0,0,0.65) 19px, black 51px, black calc(100% - 51px), rgba(0,0,0,0.65) calc(100% - 19px), transparent 100%)",
                 }}
             >
-                <div className="max-w-3xl mx-auto w-full flex flex-col gap-3 px-6 py-6">
+                <div className="mx-auto w-full flex flex-col gap-3 py-6" style={columnStyle}>
                     <AnimatePresence>
                         {showTopSentinel && (
                             <motion.div
@@ -285,7 +294,7 @@ const ChatView = memo(function ChatView({
                     />
                 </div>
             </div>
-            <div className="shrink-0 max-w-3xl mx-auto w-full px-6 pb-4 flex flex-col gap-2">
+            <div className="shrink-0 mx-auto w-full pb-4 flex flex-col gap-2" style={columnStyle}>
                 {/* Pinned server requests — while any is pending, the
                     session's execution waits server-side, so they stay
                     in the composer's place, never scrolled away. */}

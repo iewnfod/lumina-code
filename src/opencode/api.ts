@@ -240,6 +240,20 @@ export class OpencodeApi {
         });
     }
 
+    /** Terminate one shell command (DELETE /api/shell/{id} — server v2.0.x
+     * "shell.remove": kill the process and drop its retained output). The
+     * completion notification message and `shell.exited` bus event still
+     * fire, so message-derived state stays truthful. */
+    removeShell(shellId: string, directory?: string | null): Promise<void> {
+        const params = new URLSearchParams();
+        if (directory) params.set("location[directory]", directory);
+        const query = params.toString();
+        return this.request<void>(
+            `/api/shell/${encodeURIComponent(shellId)}${query ? `?${query}` : ""}`,
+            {method: "DELETE"},
+        );
+    }
+
     /** One page of a shell's file-backed combined stdout+stderr. Page with
      * the returned cursor; it equals `size` once fully caught up. */
     shellOutput(
@@ -264,6 +278,19 @@ export class OpencodeApi {
         ).then((page) => {
             const first = (page?.data ?? [])[0];
             return first && first.type === "user" ? first.id : null;
+        });
+    }
+
+    /** The session's LAST user message id (the diff's `to` anchor) via
+     * `?order=desc&limit=1&type=user` — verified against v2.0.11 to return
+     * exactly the newest user message. Used by the activity prefetch,
+     * before any messages are loaded locally. */
+    lastUserMessageId(sessionId: string): Promise<string | null> {
+        return this.requestRaw<MessagesPage>(
+            `/api/session/${encodeURIComponent(sessionId)}/message?order=desc&limit=1&type=user`,
+        ).then((page) => {
+            const last = (page?.data ?? [])[0];
+            return last && last.type === "user" ? last.id : null;
         });
     }
 

@@ -94,6 +94,19 @@ export function prepareCommandSubmission(
     return recordPendingCommand(sessionId, command);
 }
 
+/** Subscribe to tracked-session message changes (module-level). The
+ *  activity store watches these to keep backgrounded sessions' diffs
+ *  fresh without mounting their views. */
+export function subscribeSessionMessages(listener: (sessionId: string) => void): () => void {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+}
+
+/** A tracked session's current messages (undefined = never opened here). */
+export function peekSessionMessages(sessionId: string): readonly ChatMessage[] | undefined {
+    return entries.get(sessionId)?.messages;
+}
+
 export function useSessionMessages(
     api: OpencodeApi | null,
     subscribe: (handler: OpencodeEventHandler) => () => void,
@@ -103,6 +116,10 @@ export function useSessionMessages(
     /** Whether the server holds older pages than what's loaded. */
     hasMore: boolean;
     loadingOlder: boolean;
+    /** True until the newest-page seed has landed for this mount —
+     *  an empty list before that is a loading state, not "no
+     *  messages". */
+    seeding: boolean;
     loadOlder: () => void;
     send: (
         text: string,
@@ -112,9 +129,23 @@ export function useSessionMessages(
     ) => Promise<void>;
     interrupt: () => Promise<void>;
 } {
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    // Seeded from the store at FIRST RENDER (not first effect): a session
+    // switched back to paints its kept messages — in-flight content
+    // included — in the very commit that mounts the view, which is what
+    // lets the stats card know its activity is ready at mount too.
+    const [messages, setMessages] = useState<ChatMessage[]>(
+        () => (sessionId !== null ? entries.get(sessionId)?.messages ?? [] : []),
+    );
     const [hasMore, setHasMore] = useState(false);
     const [loadingOlder, setLoadingOlder] = useState(false);
+    // True until this mount's newest-page seed has landed (an
+    // already-seeded store entry settles immediately). Consumers that
+    // size themselves around the content (the stats card's subagent
+    // drill) wait on this instead of measuring an empty list.
+    const [seeding, setSeeding] = useState(() => {
+        const entry = sessionId !== null ? entries.get(sessionId) : undefined;
+        return entry ? !entry.seeded : true;
+    });
 
     const apiRef = useRef(api);
     apiRef.current = api;
@@ -135,10 +166,12 @@ export function useSessionMessages(
             if (!entry) {
                 setMessages([]);
                 setHasMore(false);
+                setSeeding(false);
                 return;
             }
             setMessages(entry.messages);
             setHasMore(entry.seeded && entry.cursor !== null);
+            setSeeding(!entry.seeded);
         });
     }
 
@@ -281,5 +314,5 @@ export function useSessionMessages(
         }
     }, []);
 
-    return {messages, hasMore, loadingOlder, loadOlder, send, interrupt};
+    return {messages, hasMore, loadingOlder, seeding, loadOlder, send, interrupt};
 }

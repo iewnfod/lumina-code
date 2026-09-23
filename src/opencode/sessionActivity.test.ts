@@ -6,6 +6,7 @@ import {
     collectSessionSubagents,
     fileMutationCount,
     isFileMutatingToolName,
+    mutationSignature,
 } from "./sessionActivity.ts";
 
 /** A shell tool part whose result moved the command to the background
@@ -137,4 +138,34 @@ test("fileMutationCount counts file-mutating tool parts of any status", () => {
     assert.equal(fileMutationCount([assistantMsg("m", parts)]), 2);
     assert.ok(isFileMutatingToolName("apply_patch"));
     assert.ok(!isFileMutatingToolName("grep"));
+});
+
+function userMsg(id: string): ChatMessage {
+    return {id, type: "user", text: "hi"};
+}
+
+test("mutationSignature keys on the last confirmed user message id", () => {
+    const list: ChatMessage[] = [
+        userMsg("msg_u1"),
+        assistantMsg("msg_a1", [{type: "tool", id: "t1", name: "edit", state: {status: "completed"}}]),
+        userMsg("msg_u2"),
+        assistantMsg("msg_a2", []),
+    ];
+    assert.equal(mutationSignature(list), "1:msg_u2");
+    // A newer prompt moves it even with no new edits.
+    assert.equal(mutationSignature([...list, userMsg("msg_u3")]), "1:msg_u3");
+});
+
+test("mutationSignature ignores optimistic local user messages and text frames", () => {
+    const list: ChatMessage[] = [
+        userMsg("msg_u1"),
+        {id: "local-1", type: "user", text: "still streaming"},
+        assistantMsg("msg_a1", [{type: "tool", id: "t1", name: "edit", state: {status: "running", input: {}}}]),
+    ];
+    // The running edit already counts (any status); the local bubble must
+    // not pose as the anchor.
+    assert.equal(mutationSignature(list), "1:msg_u1");
+    // A streamed text-only append keeps the signature identical.
+    const streamed: ChatMessage[] = [...list, {id: "msg_a2", type: "assistant", content: [{type: "text", text: "delta"}]}];
+    assert.equal(mutationSignature(streamed), mutationSignature(list));
 });

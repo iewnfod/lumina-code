@@ -1,12 +1,13 @@
 import {memo, useCallback, useEffect, useRef, useState} from "react";
 import {motion} from "framer-motion";
-import {SquareTerminal} from "lucide-react";
+import {Square, SquareTerminal} from "lucide-react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {SessionShellRef} from "../../opencode/sessionActivity.ts";
+import IconButton from "../ui/IconButton.tsx";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
 import {BodyBox, DrillChevron, FadeIn, FinishedTotal, StateChip, StatsSection} from "./statsChrome.tsx";
 
@@ -62,7 +63,8 @@ export function TerminalTitle({shell, flight = true, className = ""}: {
  * The background-terminals section: every shell the session moved off the
  * foreground, in spawn order, with its live state (server shell list +
  * bus events — see useSessionActivity). A row drills into the command's
- * output.
+ * output; a RUNNING row also offers a hover stop button in the chevron's
+ * slot (server-side kill — DELETE /api/shell/{id}).
  */
 export const TerminalsSection = memo(function TerminalsSection({
     shells,
@@ -70,6 +72,7 @@ export const TerminalsSection = memo(function TerminalsSection({
     fadeDelay = 0.15,
     flight = true,
     onOpenTerminal,
+    onStopShell,
 }: {
     shells: (SessionShellRef & {running: boolean})[];
     colors: SurfaceColors;
@@ -78,6 +81,8 @@ export const TerminalsSection = memo(function TerminalsSection({
     /** Whether rows carry their flight layoutIds (see FileTitle). */
     flight?: boolean;
     onOpenTerminal: (shell: SessionShellRef & {running: boolean}) => void;
+    /** Manual stop — running rows only (see useSessionActivity.stopShell). */
+    onStopShell: (shellId: string) => void;
 }) {
     const t = useI18n();
     const running = shells.filter((s) => s.running).length;
@@ -92,34 +97,67 @@ export const TerminalsSection = memo(function TerminalsSection({
                 </FadeIn>
             }
         >
-            <FadeIn delay={fadeDelay} className="flex flex-col gap-1.5">
+            {/* pt-1 widens this section's header→list gap beyond the
+                section chrome's gap-1 — the terminal cards are tall
+                two-line rows and sat flush under the title. */}
+            <FadeIn delay={fadeDelay} className="flex flex-col gap-1.5 pt-1">
                 {shells.map((shell) => (
-                    <button
-                        key={shell.id}
-                        type="button"
-                        onClick={() => onOpenTerminal(shell)}
-                        className="w-full flex flex-col gap-1.5 px-3 py-2.5 text-xs cursor-pointer rounded-[var(--radius-sm)] text-left transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-stats-hover)]"
-                        style={{
-                            // The HALF-strength overlay wash, NOT recessedBg:
-                            // the panel behind is --color-elevated while
-                            // SurfaceColors derive from the app bg, so the
-                            // solid recessed tone can land within a hair of
-                            // the panel (light mode ≈ white-on-white). The
-                            // translucent overlay composites over whatever
-                            // the panel really is, and staying a step below
-                            // activeOverlay keeps the quiet state chips
-                            // ("exit 0") readable on top of the row.
-                            background: colors.hoverOverlay,
-                            "--lum-stats-hover": colors.hoverOverlay,
-                        } as React.CSSProperties}
-                    >
-                        <TerminalTitle shell={shell} flight={flight}/>
-                        <span className="flex items-center gap-2 min-w-0">
-                            <ShellStateChip shell={shell} colors={colors}/>
-                            <span className="flex-1"/>
-                            <DrillChevron/>
-                        </span>
-                    </button>
+                    <div key={shell.id} className="group/term relative">
+                        <button
+                            type="button"
+                            onClick={() => onOpenTerminal(shell)}
+                            // group-hover (not plain hover): the stop button
+                            // is a SIBLING overlay, and the pointer over it
+                            // must not drop the row's hover wash.
+                            className="w-full flex flex-col gap-1.5 px-3 py-2.5 text-xs cursor-pointer rounded-[var(--radius-sm)] text-left transition-colors duration-[var(--duration-fast)] group-hover/term:bg-[var(--lum-stats-hover)]"
+                            style={{
+                                // The HALF-strength overlay wash, NOT recessedBg:
+                                // the panel behind is --color-elevated while
+                                // SurfaceColors derive from the app bg, so the
+                                // solid recessed tone can land within a hair of
+                                // the panel (light mode ≈ white-on-white). The
+                                // translucent overlay composites over whatever
+                                // the panel really is, and staying a step below
+                                // activeOverlay keeps the quiet state chips
+                                // ("exit 0") readable on top of the row.
+                                background: colors.hoverOverlay,
+                                "--lum-stats-hover": colors.hoverOverlay,
+                            } as React.CSSProperties}
+                        >
+                            <TerminalTitle shell={shell} flight={flight}/>
+                            <span className="flex items-center gap-2 min-w-0">
+                                <ShellStateChip shell={shell} colors={colors}/>
+                                <span className="flex-1"/>
+                                {/* A running row's chevron yields its slot to
+                                    the stop button on hover (cross-fade — the
+                                    sidebar's age/close slot pattern). */}
+                                <DrillChevron
+                                    className={
+                                        shell.running
+                                            ? "transition-opacity duration-[var(--duration-fast)] group-hover/term:opacity-0"
+                                            : ""
+                                    }
+                                />
+                            </span>
+                        </button>
+                        {shell.running && (
+                            <IconButton
+                                size={20}
+                                hoverOverlay={colors.hoverOverlay}
+                                activeOverlay={colors.activeOverlay}
+                                onClick={() => onStopShell(shell.id)}
+                                aria-label={t["Stop"]}
+                                // Sits OVER the hidden chevron's slot — a
+                                // sibling of the row button (never nested).
+                                // pointer-events-none keeps the invisible
+                                // button from swallowing clicks meant for the
+                                // drill-in.
+                                className="absolute right-2 bottom-[9px] opacity-0 pointer-events-none group-hover/term:opacity-100 group-hover/term:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto transition-opacity duration-[var(--duration-fast)]"
+                            >
+                                <Square size={11} className="fill-current" style={{color: "#ef4444"}}/>
+                            </IconButton>
+                        )}
+                    </div>
                 ))}
             </FadeIn>
         </StatsSection>
@@ -138,11 +176,15 @@ export const TerminalBody = memo(function TerminalBody({
     shell,
     colors,
     directory,
+    onSettled,
 }: {
     api: OpencodeApi | null;
     shell: SessionShellRef & {running: boolean};
     colors: SurfaceColors;
     directory: string | null;
+    /** Fires once the first output page (or its terminal failure) has
+     *  landed — releases the card's drill hold. See SessionStatsCard. */
+    onSettled: () => void;
 }) {
     const t = useI18n();
     const [text, setText] = useState<string | null>(null);
@@ -199,6 +241,16 @@ export const TerminalBody = memo(function TerminalBody({
         }
     };
 
+    // Settle report: `ready` flips exactly once per mount (text is null
+    // until the first pull resolves or the read fails terminally), so
+    // the effect fires a single time — later output growth (poll
+    // appends) keeps the card's documented natural resize.
+    const ready = failed || text !== null;
+    useEffect(() => {
+        if (ready) onSettled();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- fires on the flip only
+    }, [ready]);
+
     // The notification can land AFTER a 404 already failed the view —
     // apply the embedded output as soon as it exists.
     useEffect(() => {
@@ -233,9 +285,9 @@ export const TerminalBody = memo(function TerminalBody({
     }, [api, shell.id, shell.running]);
 
     return (
-        // flex-1 + fill: the output surface stretches with the panel
-        // (maximized / long output) — follow-bottom rides BodyBox's own
-        // scroll, unaffected by the taller viewport.
+        // flex-1 + fill: the output surface stretches with the panel on
+        // long output — follow-bottom rides BodyBox's own scroll,
+        // unaffected by the taller viewport.
         <FadeIn delay={0.03} className="flex flex-col flex-1 min-h-0">
             <BodyBox
                 colors={colors}

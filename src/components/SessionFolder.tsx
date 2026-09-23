@@ -32,6 +32,7 @@ export default function SessionFolder({
     colors,
     onSelect,
     onClose,
+    onSessionHover,
     onToggleFolder,
     onNewInFolder,
     onShowMore,
@@ -53,6 +54,8 @@ export default function SessionFolder({
     colors: SurfaceColors;
     onSelect: (id: string) => void;
     onClose: (id: string) => void;
+    /** Hover prefetch — warms a session's stats before it's opened. */
+    onSessionHover?: (id: string) => void;
     onToggleFolder: (directory: string) => void;
     /** New session pinned to this folder (header +). */
     onNewInFolder: (directory?: string) => void;
@@ -169,6 +172,7 @@ export default function SessionFolder({
                                                     "--lum-session-active": colors.accentOverlay,
                                                 } as CSSProperties}
                                                 onClick={() => onSelect(session.id)}
+                                                onPointerEnter={() => onSessionHover?.(session.id)}
                                             >
                                                 {/* Busy dot pins into the indent gutter left of
                                                     the row so session names stay aligned. */}

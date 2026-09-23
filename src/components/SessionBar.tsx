@@ -32,6 +32,8 @@ interface SessionBarProps {
     onClose: (id: string) => void;
     /** Create a session — in the given folder's directory, if any. */
     onNew: (directory?: string) => void;
+    /** Hover prefetch — warms a session's stats before it's opened. */
+    onSessionHover?: (id: string) => void;
     backgroundColor: string;
     foregroundColor: string;
     collapsed: boolean;
@@ -45,7 +47,7 @@ interface SessionBarProps {
 }
 
 export default function SessionBar(props: SessionBarProps) {
-    const {sessions, activeId, onSelect, onClose, onNew, backgroundColor, foregroundColor, collapsed, brandTitle, busyIds, pendingCounts} = props;
+    const {sessions, activeId, onSelect, onClose, onNew, onSessionHover, backgroundColor, foregroundColor, collapsed, brandTitle, busyIds, pendingCounts} = props;
     const t = useI18n();
 
     // Ticking "now" so relative ages stay fresh (minute resolution —
@@ -157,6 +159,7 @@ export default function SessionBar(props: SessionBarProps) {
                             colors={colors}
                             onSelect={onSelect}
                             onClose={onClose}
+                            onSessionHover={onSessionHover}
                             onToggleFolder={toggleFolder}
                             onNewInFolder={onNew}
                             onShowMore={showMore}

@@ -11,6 +11,7 @@ import type {
     SessionModelRef,
 } from "../opencode/types.ts";
 import {springSwap} from "../lib/motion.ts";
+import {useChatColumnWidth} from "./chat/useChatColumnWidth.ts";
 import ChatPlaceholder from "./ChatPlaceholder.tsx";
 import ChatInput from "./composer/ChatInput.tsx";
 
@@ -62,22 +63,30 @@ export default function WelcomeScreen({
     onOpenModelConfig: () => void;
 }) {
     const colors: SurfaceColors = useSurfaceColors(backgroundColor);
+    // Same responsive column cap + side gutters as ChatView, so the
+    // composer doesn't jump sideways when the first send swaps
+    // welcome → session — at every window width, not just capped ones.
+    const {ref: columnRef, style: columnStyle} = useChatColumnWidth();
 
     return (
         <motion.div
+            ref={columnRef}
             variants={springSwap}
             initial="hidden"
             animate="show"
             exit="exit"
             className="w-full h-full"
         >
-            <div className="flex flex-col h-full w-full items-center justify-center gap-6 p-6">
+            {/* No horizontal padding here — the composer column's shared
+                style owns the gutters, keeping it aligned with ChatView's
+                columns across the welcome → session swap. */}
+            <div className="flex flex-col h-full w-full items-center justify-center gap-6 py-6">
                 <ChatPlaceholder
                     foregroundColor={foregroundColor}
                     subtitle={subtitle}
                     directory={directory}
                 />
-                <div className="max-w-3xl mx-auto w-full px-6">
+                <div className="mx-auto w-full" style={columnStyle}>
                     <ChatInput
                         colors={colors}
                         disabled={disabled}

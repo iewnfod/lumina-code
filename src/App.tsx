@@ -25,6 +25,7 @@ import {useOpencode} from "./opencode/useOpencode.ts";
 import {useSessionFlow} from "./opencode/useSessionFlow.ts";
 import {useSessionRequests} from "./opencode/useSessionRequests.ts";
 import {useModelCatalog} from "./opencode/useModelCatalog.ts";
+import {prefetchSessionActivity} from "./opencode/useSessionActivity.ts";
 import type {SessionUsage} from "./opencode/types.ts";
 
 /**
@@ -122,6 +123,16 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
         updatedAt: s.time?.updated,
     }));
 
+    // Sidebar hover prefetch: warm a session's activity stats before it
+    // is opened, so even a first switch-in this app run paints the stats
+    // card from cache as part of the surface's initial layout (sessions
+    // already opened stay warm through the module-level activity store).
+    const hoverPrefetchSession = useCallback((id: string) => {
+        if (!api) return;
+        const directory = sessionInfos.find((s) => s.id === id)?.directory ?? null;
+        prefetchSessionActivity(api, subscribe, id, directory);
+    }, [api, subscribe, sessionInfos]);
+
     // The window is created hidden (tauri.conf.json `visible: false`) and
     // shown once the first paint is ready — same pattern as lumina-terminal.
     useEffect(() => {
@@ -164,6 +175,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                 onSelect={setActiveId}
                 onClose={deleteSession}
                 onNew={newSession}
+                onSessionHover={hoverPrefetchSession}
                 backgroundColor={effectiveBg}
                 foregroundColor={effectiveFg}
                 collapsed={false}

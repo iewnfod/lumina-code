@@ -118,7 +118,14 @@ src/
 │   │                      #   session, surviving ChatView unmounts AND webview reloads
 │   │                      #   — backgrounded sessions keep accumulating deltas; entries
 │   │                      #   drop on session.deleted). One global bus handler applies
-│   │                      #   events to every tracked session. Cursor-based loadOlder.
+│   │                      #   events to every tracked session. Cursor-based loadOlder;
+│   │                      #   `seeding` tells consumers (the stats card's subagent
+│   │                      #   drill) whether an empty list is still loading. The
+│   │                      #   messages state seeds from the store at FIRST RENDER
+│   │                      #   (not first effect) — a session switched back to paints
+│   │                      #   in the mounting commit. Exports
+│   │                      #   subscribeSessionMessages/peekSessionMessages for the
+│   │                      #   activity store's background freshness.
 │   │                      #   prepareCommandSubmission pre-creates the entry so a
 │   │                      #   first-send slash command keeps its enqueue frame.
 │   ├── useSessionFlow.ts  # App-level session flow: active session id + composer
@@ -138,16 +145,29 @@ src/
 │   │                      #   notifications (marker messages with metadata.source ===
 │   │                      #   "shell"), subagent child sessions (part metadata.sessionID,
 │   │                      #   deduped — continuation reuses the child id), and the
-│   │                      #   file-mutation count signature. node-testable.
-│   ├── useSessionActivity.ts # Stats-card state: the whole-session git diff
-│   │                      #   (GET /api/session/{id}/diff anchored to the first/last
-│   │                      #   user message — no anchors would diff only the newest
-│   │                      #   turn; re-pulled debounced when the mutation signature
-│   │                      #   moves), the live running-shell set (listShells seed +
-│   │                      #   global shell.created/exited bus events) and subagent
-│   │                      #   running flags (the App busy set — children report
-│   │                      #   execution events too). Derived arrays are
-│   │                      #   identity-stable across streamed frames.
+│   │                      #   mutation signature (file-mutation count + last confirmed
+│   │                      #   user message id — streamed frames never move it).
+│   │                      #   node-testable.
+│   ├── useSessionActivity.ts # Stats-card state over a MODULE-LEVEL store (one entry
+│   │                      #   per session, the useSessionMessages pattern): the
+│   │                      #   whole-session git diff (GET /api/session/{id}/diff
+│   │                      #   anchored to the first/last user message — no anchors
+│   │                      #   would diff only the newest turn), the live running-shell
+│   │                      #   set and subagent running flags (the App busy set). A
+│   │                      #   switch BACK paints the cached diff in the mounting
+│   │                      #   commit (SWR — activation revalidates behind it), so the
+│   │                      #   stats card mounts as part of the session surface's
+│   │                      #   initial layout instead of popping in late.
+│   │                      #   Backgrounded sessions stay fresh: the global shell
+│   │                      #   bus patches their running sets and a message-store
+│   │                      #   watcher re-pulls the diff (debounced) when the
+│   │                      #   mutation signature moves. The first-user anchor loads
+│   │                      #   once per session; the last-user anchor comes from the
+│   │                      #   tracked messages or one tiny desc request (prefetch).
+│   │                      #   prefetchSessionActivity (sidebar hover, wired in App)
+│   │                      #   warms never-opened sessions ahead of the click.
+│   │                      #   Derived arrays are identity-stable across streamed
+│   │                      #   frames.
 │   └── useModelCatalog.ts # Providers/agents/models + server default, fetched per
 │                          #   connection AND re-fetched whenever the bus reports
 │                          #   credential.updated / config.updated (connecting a key
@@ -225,13 +245,15 @@ src/
 │   │                      #   shadows): module store + own localStorage
 │   │                      #   key, default on; the settings row is
 │   │                      #   Linux-only but App gates on isLinux() too.
-│   ├── useStatsAutoCollapse.ts # Session-activity panel auto-collapse
-│   │                      #   (outside click / Escape) toggle: module
-│   │                      #   store + own localStorage key, default on;
-│   │                      #   off = the panel persists until collapsed
-│   │                      #   by its own button. Consumed by
-│   │                      #   SessionStatsCard; the Switch row is in
-│   │                      #   GeneralSettings.
+│   ├── useStatsPanelMode.ts # Session-activity panel expansion mode
+│   │                      #   ("auto" — mounts collapsed, outside click
+│   │                      #   / Escape collapse it; "always" — mounts
+│   │                      #   expanded and stays open; a manual collapse
+│   │                      #   lasts until the card remounts): module
+│   │                      #   store + own localStorage key (legacy
+│   │                      #   boolean "false" reads as "always").
+│   │                      #   Consumed by SessionStatsCard; the
+│   │                      #   segmented OptionRow is in GeneralSettings.
 │   ├── useTypography.ts   # Custom fonts/sizes (useThemePreference
 │   │                      #   pattern): applies lib/typography.ts's
 │   │                      #   overrides on load + change. Load-order note:
@@ -258,7 +280,10 @@ src/
     ├── SessionBar.tsx     # Left glass sidebar shell: brand row, folder
     │                      #   collapse/expand state, relative-age ticker,
     │                      #   bottom new-session button; groups render
-    │                      #   through SessionFolder.
+    │                      #   through SessionFolder. Session-row hover
+    │                      #   fires onSessionHover → App's
+    │                      #   prefetchSessionActivity (warms the stats
+    │                      #   card's data before the click).
     ├── SessionTitle.tsx   # Single-line label: edge-fade truncation + a
     │                      #   hover-debounced HeroUI tooltip when overflowing.
     ├── SessionFolder.tsx  # One directory group: collapsible header (+/chevron),
@@ -300,6 +325,25 @@ src/
     │   │                  #   owns useSessionActivity and floats stats/
     │   │                  #   SessionStatsCard over the transcript (busyIds flow in
     │   │                  #   from App for the subagent running flags).
+     │   ├── chatColumn.ts + useChatColumnWidth.ts # The conversation
+     │   │                  #   column's responsive width cap + side
+     │   │                  #   gutters: 48rem base cap, a 64rem wide
+     │   │                  #   tier once the content area affords the
+     │   │                  #   cap + 8rem margins per side; gutters are
+     │   │                  #   compact (1.5rem) while the column
+     │   │                  #   reaches its cap, roomy (3rem) below it —
+     │   │                  #   there the fixed gutters are the only
+     │   │                  #   edge breathing room (and they keep the
+     │   │                  #   composer aligned with the welcome
+     │   │                  #   screen's across the first-send swap).
+     │   │                  #   The hook measures the view root
+     │   │                  #   (border-box — stable under the stats
+     │   │                  #   lane's padding-right, so a docking panel
+     │   │                  #   never flaps the tier; the column narrows
+     │   │                  #   within its cap instead) and is shared
+     │   │                  #   by ChatView's transcript/composer columns
+     │   │                  #   and the welcome screen's composer. Cap +
+     │   │                  #   gutter math node-testable.
     │   ├── transcript.ts  # Pure blockify(): folds runs of activity-only
     │   │                  #   assistant messages into TranscriptBlocks. node-testable.
     │   ├── TranscriptList.tsx # Renders the mounted slice as MessageItems /
@@ -381,12 +425,10 @@ src/
     ├── stats/            # The session-activity stats card (floats over the
     │                      #   transcript's right margin; data from
     │                      #   opencode/useSessionActivity, owned by ChatView;
-    │                      #   expansion is TWO-STAGE — content height
-    │                      #   first (detail views cap at the container's
-    │                      #   full height, the overview at 75vh), and a
-    │                      #   header Maximize button pins the height;
-    │                      #   outside-click auto-collapse is the
-    │                      #   useStatsAutoCollapse setting)
+    │                      #   expansion is content-height (detail views cap
+    │                      #   at the container's full height, the overview
+    │                      #   at 75vh); outside-click/Escape collapse is the
+    │                      #   useStatsPanelMode "auto" mode)
     │   ├── SessionStatsCard.tsx # The floating card: collapsed summary rows
     │   │                  #   (+N −N lines, terminal/subagent counts — non-empty
     │   │                  #   rows only) expanding into the detail panel via a
@@ -398,7 +440,18 @@ src/
     │   │                  #   the click, measures the incoming content,
     │   │                  #   writes the target + the distance-scaled
     │   │                  #   --lum-size-dur, and releases to auto on
-    │   │                  #   transitionend with a timer fallback — a JS
+    │   │                  #   transitionend with a timer fallback. ASYNC
+    │   │                  #   drill views (terminal output, subagent
+    │   │                  #   transcript) HOLD the pinned pre-drill size
+    │   │                  #   until their onSettled fires (first page
+    │   │                  #   landed): measuring the loading shell targeted
+    │   │                  #   a stub — the box shrank to it, then SNAPPED to
+    │   │                  #   the real height at release (auto height never
+    │   │                  #   transitions), which read as a too-fast drill
+    │   │                  #   with a wrong target; during the hold the view
+    │   │                  #   also plans as the overview (width, lane, caps
+    │   │                  #   stay pre-drill) so everything morphs together
+    │   │                  #   on settle. History: a JS
     │   │                  #   rAF loop fought the content mounting inside
     │   │                  #   the box, every starved frame a visible skip;
     │   │                  #   framer proved unreliable here too — its
@@ -422,33 +475,65 @@ src/
     │   │                  #   and everything else fades (FadeIn; expand waits
     │   │                  #   150ms for the box, in-panel navigation is instant).
     │   │                  #   Outside-click/Escape collapse (capture-phase).
+    │   │                  #   A SEEDED mount (data already in the module
+    │   │                  #   stores at first render — a session switched
+    │   │                  #   back to, or hover-prefetched) is initial
+    │   │                  #   layout, not a late arrival: the card enters
+    │   │                  #   at its final state and rides the surface's
+    │   │                  #   swap animation like the transcript (no
+    │   │                  #   self-entrance, no content fade delay). The
+    │   │                  #   container is measured SYNCHRONOUSLY in a
+    │   │                  #   layout effect (pre-paint), so an
+    │   │                  #   already-expanded panel's docked lane is
+    │   │                  #   part of the FIRST PAINTED FRAME — the
+    │   │                  #   conversation column starts at its correct
+    │   │                  #   position (transitions never fire on an
+    │   │                  #   element's initial style; only a card
+    │   │                  #   appearing within an already-painted
+    │   │                  #   ChatView glides, like a manual expand).
+    │   │                  #   RO deliveries after the seed are resize
+    │   │                  #   replans and snap. Activity that first
+    │   │                  #   appears later still enters animated.
     │   ├── statsChrome.tsx # Shared section header + row/hover classes
     │   │                  #   (the MenuItem pattern via a CSS var) and
     │   │                  #   BodyBox, the drill-body surface (fill mode
     │   │                  #   stretches with the panel instead of the
     │   │                  #   55vh cap).
-    │   ├── statsLayout.ts # Pure docked-lane planning for the stats card's
-    │   │                  #   detail views: given the ChatView container
-    │   │                  #   width, dock (widen the panel + reserve a
-    │   │                  #   right lane so the conversation column
-    │   │                  #   re-centers beside it, panel elastically
-    │   │                  #   clamped so the column never drops below a
-    │   │                  #   readable floor) vs overlay (today's
-    │   │                  #   float-over). node-testable.
+    │   ├── statsLayout.ts # Pure docked-lane planning for the expanded
+    │   │                  #   stats card: given the ChatView container
+    │   │                  #   width, dock (reserve a right lane so the
+    │   │                  #   conversation column re-centers beside the
+    │   │                  #   panel — the overview at its compact width,
+    │   │                  #   detail views widening toward a 40rem cap,
+    │   │                  #   elastically clamped so the column never
+    │   │                  #   drops below a readable floor) vs overlay
+    │   │                  #   (the float-over below the crossover).
+    │   │                  #   node-testable.
     │   ├── ChangesSection.tsx # Whole-session git diff: file rows (icon +
     │   │                  #   status chip + net counts) → FileDiffBody (server
     │   │                  #   patch through chat/DiffViewBody + toolDiff.ts's
     │   │                  #   patchHunks — real line numbers). FileTitle /
     │   │                  #   file row & header layoutIds live here.
     │   ├── TerminalsSection.tsx # Background-shell rows (running pulse / exit
-    │   │                  #   chip) → TerminalBody: cursor-paginated output polled
+    │   │                  #   chip; a running row cross-fades its drill
+    │   │                  #   chevron into a hover STOP button — manual kill
+    │   │                  #   via DELETE /api/shell/{id}, optimistic in
+    │   │                  #   useSessionActivity.stopShell) → TerminalBody:
+    │   │                  #   cursor-paginated output polled
     │   │                  #   every 2s while running, follow-bottom, 200k-char tail
     │   │                  #   cap, falls back to the notification's embedded output
-    │   │                  #   once the process-local shell registry 404s.
+    │   │                  #   once the process-local shell registry 404s (a manual
+    │   │                  #   stop removes the retained output too, so the
+    │   │                  #   fallback is the normal path after one). Fires
+    │   │                  #   onSettled when the first page (or terminal
+    │   │                  #   failure) lands — releases the card's drill
+    │   │                  #   hold.
     │   └── SubagentsSection.tsx # Subagent rows (agent + task label + running
     │                      #   state) → SubagentBody: read-only transcript reusing
     │                      #   the module-level message store + TranscriptList, so
-    │                      #   background children stream in live.
+    │                      #   background children stream in live; fires onSettled
+    │                      #   when the seed page lands (useSessionMessages'
+    │                      #   `seeding`) — releases the card's drill hold.
     ├── composer/          # The prompt composer
         ├── ChatInput.tsx  # Composer shell: staged attachments (chips),
         │                  #   slash-command fetch (per-directory, retried),
@@ -481,13 +566,14 @@ src/
     │                      #   ModelSettings loads/resets on mount). App owns
     │                      #   {open, tab} so entry points deep-link a tab.
     ├── GeneralSettings.tsx # Language + appearance rows, the
-    │                      #   activity-panel auto-collapse Switch, the
+    │                      #   activity-panel mode OptionRow (auto
+    │                      #   collapse / always open), the
     │                      #   Linux-only window-outline Switch, and a Fonts section
     │                      #   (AboutSettings-style header; one control per
     │                      #   row — family input / size stepper — plus
     │                      #   reset); everything acts instantly through
     │                      #   module stores (i18n, useThemePreference,
-    │                      #   useStatsAutoCollapse, useWindowOutline,
+    │                      #   useStatsPanelMode, useWindowOutline,
     │                      #   useTypography).
     ├── ModelSettings.tsx # Formerly composer/ModelConfigModal: searchable
     │                      #   integration list, API-key connect, browser-OAuth

@@ -4,7 +4,7 @@ import type {CSSProperties} from "react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n, useLanguageChoice, setLanguage, type Language} from "../../hooks/i18n.tsx";
 import {setThemePreference, useThemePreference, type ThemePreference} from "../../hooks/useThemePreference.ts";
-import {setStatsAutoCollapse, useStatsAutoCollapse} from "../../hooks/useStatsAutoCollapse.ts";
+import {setStatsPanelMode, useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
 import {setWindowOutline, useWindowOutline} from "../../hooks/useWindowOutline.ts";
 import {setTypography, useTypography} from "../../hooks/useTypography.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
@@ -37,19 +37,21 @@ import TextInput from "./TextInput.tsx";
  *  in inactiveText) so settings controls and modal chrome read as one. */
 function OptionRow({
     label,
+    description,
     options,
     selected,
     onSelect,
     colors,
 }: {
     label: string;
+    description?: string;
     options: {value: string; text: string}[];
     selected: string | null;
     onSelect: (value: string) => void;
     colors: SurfaceColors;
 }) {
     return (
-        <SettingRow label={label}>
+        <SettingRow label={label} description={description}>
             <div className="flex items-center gap-1">
                 {options.map((option) => {
                     const active = option.value === selected;
@@ -134,7 +136,7 @@ export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
     const language = useLanguageChoice();
     const theme = useThemePreference();
     const outline = useWindowOutline();
-    const autoCollapse = useStatsAutoCollapse();
+    const panelMode = useStatsPanelMode();
     const typography = useTypography();
 
     // Language names stay in their own language regardless of the active
@@ -149,6 +151,10 @@ export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
         {value: "system", text: t["Follow System"]},
         {value: "light", text: t["Light"]},
         {value: "dark", text: t["Dark"]},
+    ];
+    const panelOptions = [
+        {value: "auto", text: t["Auto collapse"]},
+        {value: "always", text: t["Always open"]},
     ];
 
     return (
@@ -175,23 +181,21 @@ export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
                         setThemePreference(value as ThemePreference);
                     }}
                 />
-                {/* The session-activity panel's outside-click/Escape
-                    collapse. Off = a persistent side pane that only its
-                    own collapse button closes. */}
-                <SettingRow
-                    label={t["Auto-collapse activity panel"]}
-                    description={t["Collapse the activity panel on outside clicks and Escape"]}
-                >
-                    <Switch
-                        checked={autoCollapse}
-                        colors={colors}
-                        label={autoCollapse ? t["Enabled"] : t["Disabled"]}
-                        onChange={(next) => {
-                            info(`Stats auto-collapse set to ${next} from settings`).catch(() => {});
-                            setStatsAutoCollapse(next);
-                        }}
-                    />
-                </SettingRow>
+                {/* The session-activity panel's expansion mode: auto
+                    collapses on outside clicks/Escape; always mounts it
+                    expanded and keeps it open (a manual collapse lasts
+                    until the card remounts — a session switch). */}
+                <OptionRow
+                    label={t["Activity panel"]}
+                    description={t["Whether the activity panel collapses on outside clicks or stays open"]}
+                    options={panelOptions}
+                    selected={panelMode}
+                    colors={colors}
+                    onSelect={(value) => {
+                        info(`Stats panel mode set to ${value} from settings`).catch(() => {});
+                        setStatsPanelMode(value === "always" ? "always" : "auto");
+                    }}
+                />
                 {/* Linux-only: the outline exists to replace the compositor
                     shadow DEs like some wlroots setups don't draw — on
                     macOS/Windows it would be redundant chrome. App.tsx

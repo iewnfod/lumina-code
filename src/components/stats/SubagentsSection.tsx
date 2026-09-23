@@ -1,4 +1,4 @@
-import {memo} from "react";
+import {memo, useEffect} from "react";
 import {motion} from "framer-motion";
 import {Bot} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
@@ -113,6 +113,7 @@ export const SubagentBody = memo(function SubagentBody({
     colors,
     directory,
     busyIds,
+    onSettled,
 }: {
     api: OpencodeApi | null;
     subscribe: (handler: OpencodeEventHandler) => () => void;
@@ -120,14 +121,25 @@ export const SubagentBody = memo(function SubagentBody({
     colors: SurfaceColors;
     directory: string | null;
     busyIds: ReadonlySet<string>;
+    /** Fires once the transcript's first page has landed — releases
+     *  the card's drill hold. See SessionStatsCard. */
+    onSettled: () => void;
 }) {
     const t = useI18n();
-    const {messages} = useSessionMessages(api, subscribe, sub.id);
+    const {messages, seeding} = useSessionMessages(api, subscribe, sub.id);
     const visible = messages.filter((m) => m.type === "user" || m.type === "assistant");
     const busy = busyIds.has(sub.id);
+    // Settle report: fires when `seeding` flips false (an already-seeded
+    // store entry mounts settled, so an immediate re-drill measures its
+    // content in the same pre-paint pass). A session that never
+    // seeds keeps the hold — its empty box stays pre-drill sized.
+    useEffect(() => {
+        if (!seeding) onSettled();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- fires on the flip only
+    }, [seeding]);
     return (
         // flex-1 + fill: the transcript surface stretches with the panel
-        // (maximized / long history); content height when small.
+        // on long history; content height when small.
         <FadeIn delay={0.03} className="flex flex-col flex-1 min-h-0">
             <BodyBox colors={colors} fill className="px-4 py-3">
                 {visible.length === 0
