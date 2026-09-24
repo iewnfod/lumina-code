@@ -25,6 +25,7 @@ import {
 } from "lexical";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
+import {isMacOS} from "../../lib/platform.ts";
 import type {
     ComposerFileRef,
     OpencodeCommand,
