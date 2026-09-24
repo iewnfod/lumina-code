@@ -361,7 +361,10 @@ src/
     │   ├── ActivityGroup.tsx # Folded run of tool calls / thoughts
     │   ├── ThinkingBlock.tsx # Reasoning disclosure (live while streaming)
     │   ├── ToolCard.tsx   # One tool call as a FoldRow (detail/accent lines;
-    │   │                  #   file-mutating tools expand to a git-diff view)
+    │   │                  #   file-mutating tools expand to a git-diff view;
+    │   │                  #   failed calls show ONLY the error reason — no
+    │   │                  #   attempted diff, no accent counts — and fold
+    │   │                  #   themselves after ERROR_DISCLOSURE_MS)
     │   ├── DiffViewBody.tsx # Shared @git-diff-view/react wrapper (Unified
     │   │                  #   mode, built-in lowlight highlighting keyed off
     │   │                  #   the file name, wrap, theme from SurfaceColors)
@@ -421,6 +424,9 @@ src/
     │   │                  #   chunk exists, which is what per-chunk memoization
     │   │                  #   relies on. node-testable.
     │   ├── FoldRow.tsx + useExpansion.ts # Disclosure rows with anti-flash minimum open
+    │   │                  #   plus a timed self-collapse for terminal error
+    │   │                  #   disclosures (the failed-call reason shows itself,
+    │   │                  #   then folds like any successful row)
     │   ├── PermissionCard.tsx / QuestionCard.tsx # RequestCards — the ONLY way a blocked
     │   │                  #   session moves forward (answers go to the reply endpoints).
     │   │                  #   Shared chrome in RequestCardChrome.tsx; answer rules in

@@ -3,7 +3,7 @@ import {AlertCircle, Bot} from "lucide-react";
 import type {AssistantToolPart} from "../../opencode/types.ts";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
-import {useExpansion} from "./useExpansion.ts";
+import {useExpansion, ERROR_DISCLOSURE_MS} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 import Markdown from "./Markdown.tsx";
 import {errorText} from "./toolMeta.ts";
@@ -29,8 +29,9 @@ function inputStr(o: Record<string, unknown>, ...keys: string[]): string | undef
  * as markdown prose (that's what subagents answer with) in a recessed
  * panel — unlike ToolCard's mono output dump.
  *
- * Folded by default while the agent runs; only failures open themselves
- * so the reason stays visible. An explicit reader toggle always wins.
+ * Folded by default while the agent runs; a failure opens itself just
+ * long enough to show the reason, then folds back shut like any
+ * successful call. An explicit reader toggle always wins.
  *
  * Memoized — see MessageItem.
  */
@@ -43,7 +44,7 @@ const SubagentCard = memo(function SubagentCard({
 }) {
     const status = part.state.status;
     const t = useI18n();
-    const {expanded, toggle} = useExpansion(part.id, status === "error");
+    const {expanded, toggle} = useExpansion(part.id, status === "error", 0, ERROR_DISCLOSURE_MS);
 
     const input =
         part.state.input && typeof part.state.input === "object"

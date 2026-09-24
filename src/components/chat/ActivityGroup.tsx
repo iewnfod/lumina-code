@@ -46,7 +46,10 @@ export default function ActivityGroup({
     const live = runLive || (livePart != null && parts.includes(livePart));
     const running = parts.some((p) => p.type === "tool" && p.state.status === "running");
     const errored = parts.some((p) => p.type === "tool" && p.state.status === "error");
-    const {expanded, toggle} = useExpansion(stateKey, live || errored);
+    // Errored runs fold with the run like successful ones — the collapsed
+    // row keeps the red icon, and the failed call inside shows its reason
+    // on demand (it has already had its moment; see ToolCard).
+    const {expanded, toggle} = useExpansion(stateKey, live);
 
     // Cross-message groups can be briefly empty (steps just opened, no
     // parts yet) — render nothing rather than a blank disclosure line.

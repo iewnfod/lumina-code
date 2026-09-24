@@ -11,7 +11,7 @@ import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
 import {errorText, inputFilePath, inputObject, inputStr, metaFor, ERROR_TEXT} from "./toolMeta.ts";
 import {DIFF_ADD, DIFF_DEL, diffCounts, toolDiffFor, toolHunksFor, toolPatchFiles, type DiffLine} from "./toolDiff.ts";
-import {useExpansion} from "./useExpansion.ts";
+import {ERROR_DISCLOSURE_MS, useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 import DiffViewBody from "./DiffViewBody.tsx";
 import {MONO_ROW_STYLE, MONO_STYLE} from "./RequestCardChrome.tsx";
@@ -208,8 +208,9 @@ function toolAccent(diff: DiffLine[] | null): ReactNode {
  * One tool invocation as a FoldRow: tool icon (or status icon while
  * pending/running/failed) + title + input summary; the full output folds
  * out on click. Folded by default while running — a quiet status row, no
- * popping output; only errors open themselves so the failure reason stays
- * visible (an explicit user toggle always wins).
+ * popping output; a failed call opens itself just long enough to show its
+ * reason, then folds back shut like every successful call (an explicit
+ * user toggle always wins).
  *
  * Memoized — see MessageItem. Names, icons and input-shape helpers live
  * in toolMeta.ts; path display in lib/path.ts.
@@ -226,13 +227,15 @@ const ToolCard = memo(function ToolCard({
 }) {
     const status = part.state.status;
     // Folded by default — a running tool reads as a quiet pulsing row,
-    // its output doesn't pop open; only errors open themselves so the
-    // failure reason stays visible. An explicit user toggle wins. State
-    // is keyed by the tool call's server id, so it survives ChatView's
-    // run regrouping.
+    // its output doesn't pop open. A failure opens itself so the reason
+    // is seen, then auto-collapses after ERROR_DISCLOSURE_MS; an explicit
+    // user toggle wins. State is keyed by the tool call's server id, so
+    // it survives ChatView's run regrouping.
     const {expanded, toggle} = useExpansion(
         part.id,
         status === "error",
+        0,
+        ERROR_DISCLOSURE_MS,
     );
     const {ref: outputScroll, onScroll: outputScrollHandler, scrolled: tailScrolled} =
         useFollowBottom<HTMLDivElement>(status === "running");
@@ -257,7 +260,9 @@ const ToolCard = memo(function ToolCard({
     // The git-diff-style view of the change, when the tool's stored
     // input describes one (edit / apply_patch / write). Expanded, it
     // REPLACES the raw output — "Edited src/foo.ts" noise nobody reads.
-    // A failed tool still shows its reason below the attempted diff.
+    // FAILED calls skip it entirely: the change never happened, so its
+    // diff would only mislead — the error reason is the whole body, and
+    // the accent counts below stay hidden for the same reason.
     // `diff` feeds the accent counts; `hunks` (real patches keep real
     // line numbers) feeds DiffViewBody — nullability is shared, and the
     // useMemo keeps DiffView's internal DiffFile from rebuilding.
@@ -269,7 +274,7 @@ const ToolCard = memo(function ToolCard({
     const patchFiles = useMemo(() => toolPatchFiles(part), [part]);
     const filePath = inputFilePath(part);
 
-    // The failed reason box, shared by every diffed branch below.
+    // The failed reason box — a failed call's ONLY body.
     const failure = status === "error" ? (
         <ToolBodyBox colors={colors} color={ERROR_TEXT}>
             {output || errorText(part.state.error) || t["Tool failed"]}
@@ -281,54 +286,48 @@ const ToolCard = memo(function ToolCard({
             icon={icon}
             title={title}
             detail={toolDetail(part, directory, t)}
-            accent={toolAccent(diff)}
+            accent={status === "error" ? null : toolAccent(diff)}
             active={status === "running"}
             expanded={expanded}
             onToggle={toggle}
         >
-            {patchFiles != null && patchFiles.length > 0 ? (
-                <>
-                    {patchFiles.map((f, i) => {
-                        const statusKey: TranslationKey =
-                            f.status === "added" ? "Added" : f.status === "deleted" ? "Deleted" : "Modified";
-                        const statusColor =
-                            f.status === "added" ? DIFF_ADD : f.status === "deleted" ? DIFF_DEL : undefined;
-                        return (
-                            <Fragment key={`${f.fileName}:${i}`}>
-                                {(patchFiles.length > 1 || f.status === "deleted") && (
-                                    <div
-                                        className="ml-5 mt-1 mb-0.5 flex items-center gap-1.5 min-w-0"
-                                        style={MONO_ROW_STYLE}
-                                    >
-                                        <img src={fileIconUrl(f.fileName)} alt="" className="w-4 h-4 shrink-0"/>
-                                        <span className="truncate opacity-80">
-                                            {displayPath(f.fileName, directory)}
-                                        </span>
-                                        <span className="shrink-0" style={statusColor ? {color: statusColor} : undefined}>
-                                            {t[statusKey]}
-                                        </span>
-                                    </div>
-                                )}
-                                <DiffBody hunks={f.hunks} fileName={f.fileName} colors={colors}/>
-                            </Fragment>
-                        );
-                    })}
-                    {failure}
-                </>
+            {status === "error" ? failure : patchFiles != null && patchFiles.length > 0 ? (
+                patchFiles.map((f, i) => {
+                    const statusKey: TranslationKey =
+                        f.status === "added" ? "Added" : f.status === "deleted" ? "Deleted" : "Modified";
+                    const statusColor =
+                        f.status === "added" ? DIFF_ADD : f.status === "deleted" ? DIFF_DEL : undefined;
+                    return (
+                        <Fragment key={`${f.fileName}:${i}`}>
+                            {(patchFiles.length > 1 || f.status === "deleted") && (
+                                <div
+                                    className="ml-5 mt-1 mb-0.5 flex items-center gap-1.5 min-w-0"
+                                    style={MONO_ROW_STYLE}
+                                >
+                                    <img src={fileIconUrl(f.fileName)} alt="" className="w-4 h-4 shrink-0"/>
+                                    <span className="truncate opacity-80">
+                                        {displayPath(f.fileName, directory)}
+                                    </span>
+                                    <span className="shrink-0" style={statusColor ? {color: statusColor} : undefined}>
+                                        {t[statusKey]}
+                                    </span>
+                                </div>
+                            )}
+                            <DiffBody hunks={f.hunks} fileName={f.fileName} colors={colors}/>
+                        </Fragment>
+                    );
+                })
             ) : diff != null && hunks != null ? (
-                <>
-                    <DiffBody hunks={hunks} fileName={filePath} colors={colors}/>
-                    {failure}
-                </>
-            ) : (output.length > 0 || status === "error") && (
+                <DiffBody hunks={hunks} fileName={filePath} colors={colors}/>
+            ) : output.length > 0 && (
                 <ToolBodyBox
                     colors={colors}
-                    color={status === "error" ? ERROR_TEXT : colors.inactiveText}
+                    color={colors.inactiveText}
                     scrollRef={outputScroll}
                     onScroll={outputScrollHandler}
                     tailFade={tailScrolled}
                 >
-                    {output || errorText(part.state.error) || (status === "error" ? t["Tool failed"] : "")}
+                    {output}
                 </ToolBodyBox>
             )}
         </FoldRow>
