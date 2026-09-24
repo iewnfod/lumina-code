@@ -837,8 +837,9 @@ The app's animation system is the CSS utility classes in main.css; JS
 never runs per frame and never measures/pins/synchronizes layout.
 
 - **Entrances/exits are CSS keyframes**: `.lum-enter` (fade + rise),
-  `.lum-fade` (tall panes), `.lum-pop`/`.lum-pop-exit` (modals, menus),
-  `.lum-roll-in` (RollingTitle's drum). Exit animations that must keep
+  `.lum-fade` (tall panes), `.lum-pop`/`.lum-pop-exit` (modals, menus).
+  RollingTitle's drum is the framer exception below. Exit animations
+  that must keep
   the element mounted go through `useExitPresence` (mounted + closing) —
   the one small replacement for framer's AnimatePresence. List rows just
   unmount; only mounts animate.
@@ -864,8 +865,13 @@ never runs per frame and never measures/pins/synchronizes layout.
   surfaceSize props.
 - **framer-motion survives ONLY as the button hover/tap spring**
   (`whileHoverTap`/`springSnappy` in lib/motion.ts) — micro-interactions
-  on button primitives, nowhere else. Do not reintroduce AnimatePresence,
-  layoutId flights, or variant systems.
+  on button primitives, nowhere else — **plus ONE sanctioned exception**:
+  RollingTitle's drum roll (`titleRoll` + AnimatePresence
+  `mode="popLayout"`), because the effect needs the DEPARTING text pinned
+  at its measured spot while both spans turn as one cylinder — an
+  exiting-element pairing CSS keyframes can't express (a CSS port lost
+  the roll-out half and was reverted). Do not reintroduce AnimatePresence,
+  layoutId flights, or variant systems anywhere else.
 - **Hover washes are one class**: `.lum-wash` reading the provider-seeded
   `--lum-wash` var (App sets it from SurfaceColors); local overrides
   re-declare the var on the element. Never invent another per-site
