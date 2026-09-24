@@ -1,4 +1,5 @@
-import {useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useRef, useState} from "react";
+import type {ReactNode} from "react";
 import {getCurrentWindow} from "@tauri-apps/api/window";
 import {error} from "@tauri-apps/plugin-log";
 import TitleBar from "./components/TitleBar.tsx";
@@ -34,8 +35,8 @@ import type {SessionUsage} from "./opencode/types.ts";
  * TitleBar over a MaskedSurface content area that exposes the chrome glass
  * layer through its rounded corners. The content swaps between the active
  * session's conversation (ChatView) and the welcome screen; the entering
- * surface rises in via .lum-enter (the old one unmounts immediately, so
- * the two opaque surfaces never overlap).
+ * surface rises in via .lum-enter while the outgoing one is held under
+ * it for a plain crossfade (SurfaceSwap).
  *
  * All OpenCode wiring lives in hooks: the connection (useOpencode), the
  * session flow (useSessionFlow), pending requests (useSessionRequests) and
@@ -48,6 +49,62 @@ import type {SessionUsage} from "./opencode/types.ts";
  * ColorsProvider (hooks/colors.tsx) plus the --lum-wash CSS vars seeded
  * on the root.
  */
+
+/**
+ * The session ↔ welcome surface swap WITH an exit: the entering surface
+ * rises in via .lum-enter while the OUTGOING one is held (the exit
+ * engine's budget applies) under it, fading out in place. The held
+ * surface is a frozen ReactNode snapshot — its element keeps the props
+ * it was built with, so the old session's view renders untouched for
+ * the fade's duration.
+ *
+ * The held layer is absolutely positioned (out of flow) UNDER the
+ * entering surface (both positioned; DOM order paints the later one on
+ * top) and clipped by the canvas's rounded mask like anything else in
+ * it. Opacity-only on purpose: two glass surfaces translating against
+ * each other reads as smearing, a plain crossfade reads as a blink.
+ */
+function SurfaceSwap({surfaceKey, render}: {surfaceKey: string; render: (key: string) => ReactNode}) {
+    const [held, setHeld] = useState<{key: string; node: ReactNode} | null>(null);
+    const prevKeyRef = useRef(surfaceKey);
+    const prevNodeRef = useRef<ReactNode>(null);
+    const timerRef = useRef(0);
+
+    if (prevKeyRef.current !== surfaceKey) {
+        const prevKey = prevKeyRef.current;
+        const prevNode = prevNodeRef.current;
+        prevKeyRef.current = surfaceKey;
+        // Capture-and-clear during render (React's derived-state
+        // pattern): the previous surface's node is frozen for the hold.
+        prevNodeRef.current = null;
+        if (prevKey !== surfaceKey && prevNode !== null) {
+            setHeld({key: prevKey, node: prevNode});
+            window.clearTimeout(timerRef.current);
+            timerRef.current = window.setTimeout(() => setHeld(null), 150);
+        }
+    }
+    const node = render(surfaceKey);
+    prevNodeRef.current = node;
+
+    useEffect(() => () => window.clearTimeout(timerRef.current), []);
+
+    return (
+        <>
+            {held && (
+                <div
+                    key={`exit-${held.key}`}
+                    aria-hidden
+                    className="absolute inset-0 overflow-hidden lum-fade-exit pointer-events-none"
+                >
+                    {held.node}
+                </div>
+            )}
+            <div key={surfaceKey} className="relative h-full min-w-0 flex-1 lum-enter">
+                {node}
+            </div>
+        </>
+    );
+}
 
 function InnerApp({isMaximized}: {isMaximized: boolean}) {
     const t = useI18n();
@@ -246,59 +303,60 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                 the panel layer itself — the surface swap
                                 covers the transition. */}
                             <div className="lum-row relative flex h-full w-full">
-                                {/* Session ↔ welcome-screen swap: the entering
-                                    surface rises in via .lum-enter; the old
-                                    one unmounts immediately, so the two
-                                    opaque surfaces never overlap. */}
-                                {activeSession ? (
-                                    <div
-                                        key={`session-${activeSession.id}`}
-                                        className="lum-enter h-full min-w-0 flex-1"
-                                    >
-                                        <ChatView
-                                            api={api}
-                                            subscribe={subscribe}
-                                            sessionId={activeSession.id}
-                                            busy={busy}
-                                            disabled={!connected}
-                                            agents={agents}
-                                            models={models}
-                                            catalogOnly={catalogOnly}
-                                            agent={effectiveAgent}
-                                            model={effectiveModel}
-                                            onAgentChange={changeAgent}
-                                            onModelChange={changeModel}
-                                            directory={activeDirectory}
-                                            onDirectoryChange={changeDirectory}
-                                            onOpenModelConfig={openModelConfig}
-                                            usage={activeUsage}
-                                            pendingPermissions={pendingAllPermissions.filter((p) => p.sessionID === activeSession.id)}
-                                            pendingForms={pendingAllForms.filter((f) => f.sessionID === activeSession.id)}
-                                            onPermissionDecision={(request, decision) => void replyPermission(request, decision)}
-                                            onFormReply={(form, answer) => void replyForm(form, answer)}
-                                            onFormCancel={(form) => void cancelForm(form)}
-                                        />
-                                    </div>
-                                ) : (
-                                    <WelcomeScreen
-                                        key="welcome"
-                                        foregroundColor={effectiveFg}
-                                        subtitle={placeholderSubtitle ?? undefined}
-                                        disabled={!connected}
-                                        onSend={(text, files, fileRefs, command) => void sendFirst(text, files, fileRefs, command)}
-                                        agents={agents}
-                                        models={models}
-                                        catalogOnly={catalogOnly}
-                                        agent={effectiveAgent}
-                                        model={effectiveModel}
-                                        onAgentChange={changeAgent}
-                                        onModelChange={changeModel}
-                                        api={api}
-                                        directory={pendingDirectory}
-                                        onDirectoryChange={changeDirectory}
-                                        onOpenModelConfig={openModelConfig}
-                                    />
-                                )}
+                                {/* Session ↔ welcome-screen swap THROUGH
+                                    SurfaceSwap: the entering surface
+                                    rises in via .lum-enter while the
+                                    outgoing one is held underneath,
+                                    fading out in place (see
+                                    SurfaceSwap above). */}
+                                <SurfaceSwap
+                                    surfaceKey={activeSession ? `session-${activeSession.id}` : "welcome"}
+                                    render={(key) =>
+                                        key === "welcome" ? (
+                                            <WelcomeScreen
+                                                foregroundColor={effectiveFg}
+                                                subtitle={placeholderSubtitle ?? undefined}
+                                                disabled={!connected}
+                                                onSend={(text, files, fileRefs, command) => void sendFirst(text, files, fileRefs, command)}
+                                                agents={agents}
+                                                models={models}
+                                                catalogOnly={catalogOnly}
+                                                agent={effectiveAgent}
+                                                model={effectiveModel}
+                                                onAgentChange={changeAgent}
+                                                onModelChange={changeModel}
+                                                api={api}
+                                                directory={pendingDirectory}
+                                                onDirectoryChange={changeDirectory}
+                                                onOpenModelConfig={openModelConfig}
+                                            />
+                                        ) : (
+                                            <ChatView
+                                                api={api}
+                                                subscribe={subscribe}
+                                                sessionId={activeSession?.id ?? ""}
+                                                busy={busy}
+                                                disabled={!connected}
+                                                agents={agents}
+                                                models={models}
+                                                catalogOnly={catalogOnly}
+                                                agent={effectiveAgent}
+                                                model={effectiveModel}
+                                                onAgentChange={changeAgent}
+                                                onModelChange={changeModel}
+                                                directory={activeDirectory}
+                                                onDirectoryChange={changeDirectory}
+                                                onOpenModelConfig={openModelConfig}
+                                                usage={activeUsage}
+                                                pendingPermissions={pendingAllPermissions.filter((p) => p.sessionID === (activeSession?.id ?? ""))}
+                                                pendingForms={pendingAllForms.filter((f) => f.sessionID === (activeSession?.id ?? ""))}
+                                                onPermissionDecision={(request, decision) => void replyPermission(request, decision)}
+                                                onFormReply={(form, answer) => void replyForm(form, answer)}
+                                                onFormCancel={(form) => void cancelForm(form)}
+                                            />
+                                        )
+                                    }
+                                />
                                 {/* Workspace stats panel — shows the DIRECTORY's
                                     working-copy diff plus the ACTIVE session's
                                     terminals/subagents. Keyed by directory so

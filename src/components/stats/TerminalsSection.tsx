@@ -9,6 +9,7 @@ import type {SessionShellRef} from "../../opencode/sessionActivity.ts";
 import IconButton from "../ui/IconButton.tsx";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
 import {BodyBox, DrillChevron, FinishedTotal, StateChip, StatsSection} from "./statsChrome.tsx";
+import {ExitList} from "../ui/ExitPresence.tsx";
 
 /** Poll cadence for a running terminal's tail. */
 const OUTPUT_POLL_MS = 2000;
@@ -85,10 +86,18 @@ export const TerminalsSection = memo(function TerminalsSection({
                 two-line rows and sat flush under the title. Rows fade in
                 individually (.lum-enter) as they appear; they are
                 session-scoped inside the directory-keyed card, so a
-                same-directory switch swaps them in place. */}
+                same-directory switch swaps them in place. A row leaving
+                (session switch, shell eviction) collapses away in place
+                through the exit engine, budget-limited. */}
             <div className="flex flex-col gap-1.5 pt-1">
-                {shells.map((shell) => (
-                    <div key={shell.id} className="lum-enter group/term relative">
+                <ExitList
+                    items={shells}
+                    keyOf={(shell) => shell.id}
+                    exitMs={250}
+                    exit={{animation: "lum-row-exit"}}
+                >
+                    {(shell) => (
+                        <div className="lum-enter group/term relative">
                         <button
                             type="button"
                             onClick={() => onOpenTerminal(shell)}
@@ -144,7 +153,8 @@ export const TerminalsSection = memo(function TerminalsSection({
                             </IconButton>
                         )}
                     </div>
-                ))}
+                    )}
+                </ExitList>
             </div>
         </StatsSection>
     );

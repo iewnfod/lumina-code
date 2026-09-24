@@ -457,6 +457,35 @@ body {
 }
 
 /*
+ * List-row exit (the ExitList half of the exit engine,
+ * components/ui/ExitPresence.tsx): the row's height collapses through
+ * the same animated grid-template-rows idea as .lum-fold, but as a
+ * one-shot KEYFRAME on the way OUT — an exiting row's real height is
+ * whatever it currently is, and 1fr → 0fr interpolates it away while
+ * the siblings below slide up through normal flow. Rows animate their
+ * ENTRANCES themselves (.lum-enter on content); only leaving rows wear
+ * this wrapper class, so streaming lists don't animate per row.
+ */
+.lum-row-exit {
+    display: grid;
+    grid-template-rows: 1fr;
+    animation: lum-row-exit var(--duration-base) var(--ease-glass) both;
+    pointer-events: none;
+}
+
+.lum-row-exit > * {
+    overflow: hidden;
+    min-height: 0;
+}
+
+@keyframes lum-row-exit {
+    to {
+        grid-template-rows: 0fr;
+        opacity: 0;
+    }
+}
+
+/*
  * Disclosure fold: height animates between 0 and content height with
  * ZERO JS — the browser interpolates grid-template-rows (0fr → 1fr) and
  * computes the content height itself. The fold must have exactly ONE

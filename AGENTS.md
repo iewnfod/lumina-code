@@ -63,7 +63,10 @@ src/
 │                          #   title bar) + OpenCode wiring via hooks
 │                          #   (useOpencode, useSessionRequests, useModelCatalog,
 │                          #   useSessionFlow) and the session ↔ welcome-screen
-│                          #   swap. App() wraps InnerApp with
+│                          #   swap (SurfaceSwap, also defined here: the
+│                          #   entering surface rises in while the outgoing
+│                          #   one is held underneath, fading out in place).
+│                          #   App() wraps InnerApp with
 │                          #   useMaximized/usePaddingOffset/useDragRegionDoubleClick.
 │                          #   Also owns the conversation surface
 │                          #   geometry: the content is a FLEX ROW —
@@ -298,21 +301,25 @@ src/
 │   │                      #   model, agent, directory). Never throws.
 │   ├── clipboard.ts       # copyText — clipboard write with an execCommand
 │   │                      #   fallback for webviews lacking the async API
-│   └── dragRegionDoubleClick.ts # pure predicate behind the title-bar double-click
+│   ├── dragRegionDoubleClick.ts # pure predicate behind the title-bar double-click
+│   └── exitGate.ts     # Exit-engine logic (node-testable): the animation/
+│                        #   transition end-event matchers (target must BE
+│                        #   the host; bubbled child events never count),
+│                        #   the app-wide EXIT BUDGET ledger (caps
+│                        #   concurrent exit holds — bursts skip the
+│                        #   choreography instead of dropping frames), and
+│                        #   mergeExitOrder (a leaving list row collapses
+│                        #   IN PLACE, interleaved at its original
+│                        #   position between surviving neighbors).
 │
 ├── hooks/                 # React hooks (start with `use`; i18n.tsx provides JSX context)
 │   ├── i18n.tsx           # useI18n() → dictionary indexed by TranslationKey;
+│   │                      #   language = stored choice → system (zh*) → en-us
 │   ├── colors.tsx         # ColorsProvider + useColors() — the app-wide
 │   │                      #   SurfaceColors context (App derives the ONE
 │   │                      #   palette and provides it; components read
 │   │                      #   useColors() instead of threading a colors
 │   │                      #   prop through every level).
-│   ├── useExitPresence.ts # Keeps content mounted through a CSS exit
-│   │                      #   animation (the tiny AnimatePresence
-│   │                      #   replacement): `mounted` stays true for
-│   │                      #   durationMs after open flips false, with a
-│   │                      #   `closing` flag to apply the exit class.
-│   │                      #   language = stored choice → system (zh*) → en-us
 │   ├── maximized.ts       # useMaximized — computed ONCE in App, passed as prop
 │   ├── paddingOffset.ts   # usePaddingOffset(isMaximized) — from App, never from a child
 │   ├── surfaceColors.ts   # useSurfaceColors(bg) → derived border/overlay/accent colors
@@ -379,8 +386,9 @@ src/
     │                      #   hover-debounced HeroUI tooltip when overflowing.
     ├── SessionFolder.tsx  # One directory group: collapsible header (+/chevron),
     │                      #   animated session rows (busy dot; pending badge,
-    │                      #   age and close button share one cross-fade slot),
-    │                      #   "Show more/less" expander.
+    │                      #   age and close button share one cross-fade slot;
+    │                      #   deleted rows collapse in place via ExitList,
+    │                      #   budget-limited), "Show more/less" expander.
     ├── sessionGrouping.ts # Pure sidebar mapping: SessionInfo view-model,
     │                      #   relativeAge, groupByDirectory. node-testable.
     ├── ChatPlaceholder.tsx # Welcome-screen logo + greeting
@@ -400,6 +408,16 @@ src/
     │   ├── Hint.tsx       # THE hover hint — HeroUI tooltip wrapper (the only
     │   │                  #   replacement for native `title` attributes; falsy
     │   │                  #   label renders the child untouched)
+    │   ├── ExitPresence.tsx # THE exit engine (CSS animates; this decides
+    │   │                  #   when an exiting element may leave the DOM):
+    │   │                  #   ExitPresence holds the children mounted with
+    │   │                  #   `closing` until the exit animation/transition
+    │   │                  #   actually ENDS on the bound host element
+    │   │                  #   (matched by name+target; exitMs is the
+    │   │                  #   fallback timer), budget-limited; ExitList is
+    │   │                  #   the list form — rows leaving `items` collapse
+    │   │                  #   in place (.lum-row-exit grid-rows keyframes).
+    │   │                  #   Replaced the old useExitPresence timers.
     │   ├── Modal.tsx      # Portal-rendered modal chrome (fadeIn backdrop +
     │   │                  #   scaleIn panel, Escape/backdrop close)
     │   ├── MaskedSurface.tsx # SVG rounded-rect clip exposing the glass chrome corners
@@ -408,15 +426,25 @@ src/
     │   └── WindowControls.tsx # minimize/maximize/close cluster (non-macOS)
     ├── chat/              # The conversation surface
     │   ├── ChatView.tsx   # Transcript column + composer for the active session.
-    │   │                  #   Bounded DOM: only RENDER_LIMIT (60) newest entries mount;
-    │   │                  #   IntersectionObserver on the top sentinel grows the window
-    │   │                  #   (and fetches older pages) on scroll-up. Scrolling lives
-    │   │                  #   in hooks/useTranscriptScroll.ts; block folding in
-    │   │                  #   transcript.ts; rendering in TranscriptList.tsx. The
-    │   │                  #   stats panel is GONE from here (it is a flex
+    │   │                  #   Bounded DOM: only the newest RENDER_LIMIT (60)
+    │   │                  #   entries mount; an IntersectionObserver on the
+    │   │                  #   top sentinel grows the window (and fetches older
+    │   │                  #   pages) on scroll-up. Scrolling lives in
+    │   │                  #   hooks/useTranscriptScroll.ts; block folding in
+    │   │                  #   transcript.ts; rendering in TranscriptList.tsx.
+    │   │                  #   The stats panel is GONE from here (it is a flex
     │   │                  #   sibling of this view at App level); the
     │   │                  #   columns' responsive cap + gutters arrive
     │   │                  #   via the .lum-column container queries.
+    │   │                  #   VIRTUALIZATION LESSON: two broader schemes
+    │   │                  #   were tried on this transcript and reverted —
+    │   │                  #   a hand-rolled flow-windowed virtual list
+    │   │                  #   (spacer/anchor compensation fought the
+    │   │                  #   scroller) and content-visibility: auto
+    │   │                  #   (never-rendered rows materializing from the
+    │   │                  #   intrinsic-size estimate shifted the viewport
+    │   │                  #   on WebKitGTK). Don't re-add without a plan
+    │   │                  #   for those two failure modes.
     │   ├── transcript.ts  # Pure blockify(): folds runs of activity-only
     │   │                  #   assistant messages into TranscriptBlocks; a persisted
     │   │                  #   model-switched marker becomes its own model-change
@@ -552,7 +580,7 @@ src/
     │                      #   (+N −N lines, terminal/subagent counts)
     │                      #   expanding into the detail panel. ALL motion
     │                      #   is CSS (§3.7): the root wears .lum-enter /
-    │                      #   .lum-fade-exit (useExitPresence holds the
+    │                      #   .lum-fade-exit (the exit engine holds the
     │                      #   unmount), the WIDTH transitions between the
     │                      #   fixed overview/detail values while flex
     │                      #   reflows the conversation beside it frame by
@@ -837,23 +865,33 @@ The app's animation system is the CSS utility classes in main.css; JS
 never runs per frame and never measures/pins/synchronizes layout.
 
 - **Entrances/exits are CSS keyframes**: `.lum-enter` (fade + rise),
-  `.lum-fade` (tall panes), `.lum-pop`/`.lum-pop-exit` (modals, menus).
-  RollingTitle's drum is the framer exception below. Exit animations
-  that must keep
-  the element mounted go through `useExitPresence` (mounted + closing) —
-  the one small replacement for framer's AnimatePresence. List rows just
-  unmount; only mounts animate.
+  `.lum-fade` (tall panes), `.lum-pop`/`.lum-pop-exit` (modals, menus),
+  `.lum-row-exit` (list rows: grid-rows height collapse). RollingTitle's
+  drum is the framer exception below. Exit animations that must keep the
+  element mounted go through the EXIT ENGINE
+  (`components/ui/ExitPresence.tsx` — `ExitPresence` for single
+  surfaces, `ExitList` for rows): CSS animates, the engine removes the
+  element from the DOM when the exit animation/transition actually ends
+  (event-matched; a fallback timer guards canceled animations), under an
+  app-wide exit budget (lib/exitGate.ts) so bursts skip the
+  choreography instead of dropping frames — fold-body holds are
+  budget-EXEMPT (`budget={false}`: the container animates, the held
+  children cost nothing). The hold must START DURING RENDER (the
+  engine detects the present edge render-time) — starting it in a
+  post-commit effect leaves a one-frame hole where the element is
+  already gone.
 - **Height animations are the `.lum-fold` grid pattern**
   (`grid-template-rows: 0fr ↔ 1fr`, toggled via `data-open`): the
   browser interpolates the real content height. An element that MOUNTS
   already open renders instantly (no post-mount style change ⇒ no
   transition) — history never animates, live toggles always do.
   **Fold bodies mount CONDITIONALLY** — children render only while open,
-  held through the collapse transition by `useExitPresence` (~300ms),
-  then unmount. Fold bodies are the app's biggest subtrees (whole
-  git-diff views, terminal output); keeping them mounted while collapsed
-  once produced 20k+-node DOM trees and froze rendering. Never render a
-  fold's children unconditionally.
+  held through the collapse transition by `ExitPresence` (~300ms,
+  timer-driven: the grid transition's target is the fold container
+  above the held content), then unmount. Fold bodies are the app's
+  biggest subtrees (whole git-diff views, terminal output); keeping
+  them mounted while collapsed once produced 20k+-node DOM trees and
+  froze rendering. Never render a fold's children unconditionally.
 - **Animations that affect siblings ride real layout**: an in-flow box
   transitioning `width` (`.lum-stats`) reflows its flex siblings frame
   by frame; `position: absolute` floats out of flow instead of being

@@ -20,6 +20,7 @@ import {useSessionMessages} from "../../opencode/useSessionMessages.ts";
 import type {SessionUsage} from "../../opencode/types.ts";
 import {lastContextMessage, type ContextUsage} from "./usageStats.ts";
 import TranscriptList from "./TranscriptList.tsx";
+import {ExitList} from "../ui/ExitPresence.tsx";
 import ChatInput from "../composer/ChatInput.tsx";
 import {PermissionCard} from "./PermissionCard.tsx";
 import {QuestionCard} from "./QuestionCard.tsx";
@@ -32,7 +33,11 @@ import {QuestionCard} from "./QuestionCard.tsx";
  * - Only the newest RENDER_LIMIT messages mount; an IntersectionObserver on
  *   the top sentinel grows the window (and fetches older pages from the
  *   server via cursor) as the reader scrolls up. Scroll anchoring keeps the
- *   viewport steady while content is prepended above it.
+ *   viewport steady while content is prepended above it. (Two broader
+ *   virtualizations were tried and reverted: a hand-rolled virtual window
+ *   whose spacer/anchor compensation fought the scroller, and
+ *   content-visibility: auto whose estimate→real materialization shifted
+ *   the viewport on this WebKitGTK — see useTranscriptScroll.)
  * - The message state lives here (not in App), so streaming re-renders are
  *   confined to this subtree; rows are memoized and only the message being
  *   appended to re-renders.
@@ -221,6 +226,12 @@ const ChatView = memo(function ChatView({
                         "linear-gradient(to bottom, transparent 0, rgba(0,0,0,0.65) 19px, black 51px, black calc(100% - 51px), rgba(0,0,0,0.65) calc(100% - 19px), transparent 100%)",
                 }}
             >
+                {/* The transcript column. (content-visibility: auto was
+                    tried here and reverted: on this WebKitGTK the
+                    estimate→real materialization of never-rendered rows
+                    shifted the viewport while scrolling — see
+                    useTranscriptScroll's re-pin note for the sibling
+                    lesson.) */}
                 <div className="lum-column flex flex-col gap-3 py-6">
                     {showTopSentinel && (
                         <div
@@ -248,22 +259,35 @@ const ChatView = memo(function ChatView({
             <div className="lum-column shrink-0 pb-4 flex flex-col gap-2">
                 {/* Pinned server requests — while any is pending, the
                     session's execution waits server-side, so they stay
-                    in the composer's place, never scrolled away. */}
-                {pendingPermissions.map((request) => (
-                    <PermissionCard
-                        key={request.id}
-                        request={request}
-                        onDecision={onPermissionDecision}
-                    />
-                ))}
-                {pendingForms.map((form) => (
-                    <QuestionCard
-                        key={form.id}
-                        form={form}
-                        onReply={onFormReply}
-                        onCancel={onFormCancel}
-                    />
-                ))}
+                    in the composer's place, never scrolled away. Answered
+                    cards collapse away in place (the exit engine). */}
+                <ExitList
+                    items={pendingPermissions}
+                    keyOf={(request) => request.id}
+                    exitMs={250}
+                    exit={{animation: "lum-row-exit"}}
+                >
+                    {(request) => (
+                        <PermissionCard
+                            request={request}
+                            onDecision={onPermissionDecision}
+                        />
+                    )}
+                </ExitList>
+                <ExitList
+                    items={pendingForms}
+                    keyOf={(form) => form.id}
+                    exitMs={250}
+                    exit={{animation: "lum-row-exit"}}
+                >
+                    {(form) => (
+                        <QuestionCard
+                            form={form}
+                            onReply={onFormReply}
+                            onCancel={onFormCancel}
+                        />
+                    )}
+                </ExitList>
                 {/* While any request is pending, the composer hides —
                     the answer flow is the request card itself, not a
                     free-typed prompt. */}

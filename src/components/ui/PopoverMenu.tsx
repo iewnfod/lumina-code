@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState, type ReactNode} from "react";
 import {Check} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
-import {useExitPresence} from "../../hooks/useExitPresence.ts";
+import ExitPresence from "./ExitPresence.tsx";
 
 /**
  * The chrome's dropdown primitive: a trigger (render prop) plus a floating
@@ -34,8 +34,6 @@ export default function PopoverMenu({
     const colors = useColors();
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
-    // Holds the panel mounted through its .lum-pop-exit close fade.
-    const {mounted, closing} = useExitPresence(open);
 
     useEffect(() => {
         if (!open) return;
@@ -76,21 +74,26 @@ export default function PopoverMenu({
     return (
         <div ref={rootRef} className="relative">
             {trigger({open, toggle})}
-            {mounted && (
-                <div
-                    className={`absolute z-50 min-w-40 max-h-72 flex flex-col rounded-[var(--radius-md)] py-1 ${
-                        direction === "down" ? "top-full mt-1.5" : "bottom-full mb-1.5"
-                    } ${
-                        align === "start" ? "left-0" : "right-0"
-                    } ${closing ? "lum-pop-exit" : "lum-pop"} ${panelClassName}`}
-                    style={panelStyle}
-                >
-                    {/* The whole panel body scrolls as one list. */}
-                    <div className="min-h-0 overflow-y-auto">
-                        {children(() => setOpen(false))}
+            {/* Holds the panel mounted through its .lum-pop-exit close
+                animation (the exit engine removes it when it ends). */}
+            <ExitPresence present={open} exitMs={150} exit={{animation: "lum-pop-exit"}}>
+                {(closing, bind) => (
+                    <div
+                        {...bind}
+                        className={`absolute z-50 min-w-40 max-h-72 flex flex-col rounded-[var(--radius-md)] py-1 ${
+                            direction === "down" ? "top-full mt-1.5" : "bottom-full mb-1.5"
+                        } ${
+                            align === "start" ? "left-0" : "right-0"
+                        } ${closing ? "lum-pop-exit" : "lum-pop"} ${panelClassName}`}
+                        style={panelStyle}
+                    >
+                        {/* The whole panel body scrolls as one list. */}
+                        <div className="min-h-0 overflow-y-auto">
+                            {children(() => setOpen(false))}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
+            </ExitPresence>
         </div>
     );
 }

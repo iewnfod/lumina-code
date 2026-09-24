@@ -1,6 +1,6 @@
 import {type ReactNode} from "react";
 import {ChevronRight} from "lucide-react";
-import {useExitPresence} from "../../hooks/useExitPresence.ts";
+import ExitPresence from "../ui/ExitPresence.tsx";
 import RollingTitle from "../ui/RollingTitle.tsx";
 
 /**
@@ -60,14 +60,14 @@ export default function FoldRow({
     children?: ReactNode;
 }) {
     // Children mount ONLY while open — held through the collapse
-    // transition (useExitPresence), then unmounted. A collapsed row must
-    // NOT keep its body in the DOM: fold bodies are the big subtrees
-    // (whole git-diff views, terminal output, thought texts), and a
-    // transcript full of collapsed rows would otherwise mount all of
-    // them at once — tens of thousands of nodes (the regression that
-    // broke rendering). The fold animation still runs both ways: the
-    // grid rows shrink while the body is held, then it drops out.
-    const {mounted: bodyMounted} = useExitPresence(expanded, 300);
+    // transition (the exit engine), then unmounted when the grid-rows
+    // transition ends. A collapsed row must NOT keep its body in the
+    // DOM: fold bodies are the big subtrees (whole git-diff views,
+    // terminal output, thought texts), and a transcript full of
+    // collapsed rows would otherwise mount all of them at once — tens
+    // of thousands of nodes (the regression that broke rendering). The
+    // fold animation still runs both ways: the grid rows shrink while
+    // the body is held, then it drops out.
     return (
         <div className="min-w-0 text-sm">
             <button
@@ -111,9 +111,17 @@ export default function FoldRow({
             </button>
             {/* The fold body: children mount only while open (see the
                 presence note above) — the grid animation clips them in
-                and out; nothing collapsed stays in the DOM. */}
+                and out; nothing collapsed stays in the DOM. The hold is
+                timer-driven (exitMs ≈ the fold duration) and BUDGET-
+                EXEMPT: the .lum-fold container runs the transition, the
+                held children cost nothing to keep — they must never
+                crowd out real exits from the budget. */}
             <div className="lum-fold" data-open={expanded}>
-                <div>{bodyMounted ? children : null}</div>
+                <div>
+                    <ExitPresence present={expanded} exitMs={300} budget={false}>
+                        {() => children}
+                    </ExitPresence>
+                </div>
             </div>
         </div>
     );

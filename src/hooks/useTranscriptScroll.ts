@@ -96,6 +96,18 @@ export function useTranscriptScroll({
     // it strictly additive — over-scroll is impossible, under-scroll
     // self-heals. Skipped during our own smooth glide so small deltas
     // keep gliding instead of snapping.
+    //
+    // AND while the reader is mid-gesture: content-visibility materializes
+    // never-rendered rows as they approach the viewport (and the render
+    // window can shift on older builds), each materialization resizing
+    // the column a little. Re-pinning on those during the FIRST 80px of
+    // an upward scroll — while atBottomRef still says true — snapped the
+    // view back to the bottom on every step: a bounce loop that read as
+    // constant jitter (the re-pin is for content that grows while the
+    // reader is PARKED, not while they're actively leaving). The gesture
+    // timestamp below stands the re-pin down until the reader settles.
+    const lastGestureAtRef = useRef(0);
+    const lastScrollTopRef = useRef<number | null>(null);
     useEffect(() => {
         const el = scrollRef.current;
         const content = el?.firstElementChild;
@@ -103,12 +115,13 @@ export function useTranscriptScroll({
         const observer = new ResizeObserver(() => {
             if (!atBottomRef.current) return;
             if (performance.now() < programmaticUntilRef.current) return;
+            if (performance.now() - lastGestureAtRef.current < 300) return;
             el.scrollTop = el.scrollHeight;
         });
         observer.observe(el); // viewport side: composer/window resize
         observer.observe(content); // content side: late growth
         return () => observer.disconnect();
-    }, []);
+    }, [scrollRef]);
 
     const onScroll = useRef(() => {
         const el = scrollRef.current;
@@ -117,6 +130,22 @@ export function useTranscriptScroll({
         // the bottom" — without this guard, fast streaming content unpins
         // the view and the follow stops partway.
         if (performance.now() < programmaticUntilRef.current) return;
+        lastGestureAtRef.current = performance.now();
+        // An UPWARD user delta always unpins the follow — immediately,
+        // not after fighting the 80px stickiness zone. While a run
+        // streams, the follow effect fires per frame and yanks back to
+        // the bottom as long as atBottomRef says true; with trackpad
+        // smoothing (many small deltas) the reader could never cross
+        // 80px in one gesture and was trapped bouncing. Distance alone
+        // can't tell intent from noise; direction can: content growth
+        // under a pinned view doesn't move scrollTop (no event), so any
+        // real upward delta is the reader.
+        const goingUp = el.scrollTop < (lastScrollTopRef.current ?? el.scrollTop) - 1;
+        lastScrollTopRef.current = el.scrollTop;
+        if (goingUp) {
+            atBottomRef.current = false;
+            return;
+        }
         atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     }).current;
 
@@ -124,6 +153,7 @@ export function useTranscriptScroll({
     // the very next scroll event re-evaluates stickiness.
     const onWheel = useRef(() => {
         programmaticUntilRef.current = 0;
+        lastGestureAtRef.current = performance.now();
     }).current;
 
     // While the tab/webview is hidden the browser pauses rendering:

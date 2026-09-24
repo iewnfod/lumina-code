@@ -6,6 +6,7 @@ import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
 import {useSessionMessages} from "../../opencode/useSessionMessages.ts";
 import type {SessionSubagentRef} from "../../opencode/sessionActivity.ts";
 import TranscriptList from "../chat/TranscriptList.tsx";
+import {ExitList} from "../ui/ExitPresence.tsx";
 import {BodyBox, DrillChevron, FinishedTotal, statsRowClass, StateChip, StatsSection} from "./statsChrome.tsx";
 
 /** Running / finished chip (shared shape — see statsChrome). */
@@ -41,7 +42,8 @@ export function SubagentTitle({sub, className = ""}: {
  * sessions report execution events like any other). A row drills into
  * the child's transcript. Rows fade in individually (.lum-enter) as
  * they appear; they are session-scoped inside the directory-keyed card,
- * so a same-directory switch swaps them in place.
+ * so a same-directory switch swaps them in place (a leaving row
+ * collapses away in place through the exit engine).
  */
 export const SubagentsSection = memo(function SubagentsSection({
     subagents,
@@ -63,18 +65,24 @@ export const SubagentsSection = memo(function SubagentsSection({
             }
         >
             <div className="flex flex-col gap-1">
-                {subagents.map((sub) => (
-                    <button
-                        key={sub.id}
-                        type="button"
-                        onClick={() => onOpenSubagent(sub)}
-                        className={`lum-enter ${statsRowClass}`}
-                    >
-                        <SubagentTitle sub={sub} className="flex-1"/>
-                        <SubagentStateChip running={sub.running}/>
-                        <DrillChevron/>
-                    </button>
-                ))}
+                <ExitList
+                    items={subagents}
+                    keyOf={(sub) => sub.id}
+                    exitMs={250}
+                    exit={{animation: "lum-row-exit"}}
+                >
+                    {(sub) => (
+                        <button
+                            type="button"
+                            onClick={() => onOpenSubagent(sub)}
+                            className={`lum-enter ${statsRowClass}`}
+                        >
+                            <SubagentTitle sub={sub} className="flex-1"/>
+                            <SubagentStateChip running={sub.running}/>
+                            <DrillChevron/>
+                        </button>
+                    )}
+                </ExitList>
             </div>
         </StatsSection>
     );

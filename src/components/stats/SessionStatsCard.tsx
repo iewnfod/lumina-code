@@ -2,12 +2,12 @@ import {memo, useCallback, useEffect, useLayoutEffect, useRef, useState} from "r
 import {Bot, ChevronLeft, ChevronUp, Diff, Square, SquareTerminal} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
-import {useExitPresence} from "../../hooks/useExitPresence.ts";
 import {useStatsExpanded, useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import type {SessionShellRef, SessionSubagentRef} from "../../opencode/sessionActivity.ts";
+import ExitPresence from "../ui/ExitPresence.tsx";
 import IconButton from "../ui/IconButton.tsx";
 import Hint from "../ui/Hint.tsx";
 import {ChangesSection, DiffCountsBadge, FileDiffBody, FileTitle} from "./ChangesSection.tsx";
@@ -28,7 +28,7 @@ type StatsView =
  * container-query rule in main.css decides; no JS measurement anywhere).
  *
  * ALL motion is CSS: the card enters/exits with .lum-enter/.lum-fade-exit
- * (useExitPresence holds the exit), the panel's WIDTH transitions
+ * (the exit engine holds it), the panel's WIDTH transitions
  * between its fixed overview/detail values while flex reflows the
  * conversation beside it frame by frame, and height is simply content-
  * driven (capped by max-height) — the browser owns every number. There
@@ -163,8 +163,8 @@ const SessionStatsCard = memo(function SessionStatsCard({
             ? subagents.find((s) => s.id === view.sub.id) ?? view.sub
             : null;
 
-    // The card unmounts with a short fade (useExitPresence holds it).
-    const {mounted, closing} = useExitPresence(visible);
+    // The card unmounts with a short fade (the exit engine holds it
+    // until the fade actually ends).
 
     // The shadow interpolates between the collapsed pill's whisper and
     // the expanded panel's elevation — single-layer values, so the CSS
@@ -185,7 +185,13 @@ const SessionStatsCard = memo(function SessionStatsCard({
         </Hint>
     );
 
-    return mounted ? (
+    // The card unmounts with a short fade (the exit engine holds it
+    // until the fade actually ends). The root stays a REAL flex sibling
+    // while exiting, so the width fade reflows the conversation beside
+    // it — the same choreography as its entrances.
+    return (
+        <ExitPresence present={visible} exitMs={150} exit={{animation: "lum-fade-exit"}}>
+            {(closing, bind) => (
         <div
             ref={rootRef}
             // .lum-stats (main.css) owns position + width tiers via
@@ -196,6 +202,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
             data-detail={expanded && view.kind !== "overview"}
             className={`lum-stats shrink-0 self-start rounded-[var(--radius-lg)] select-none flex justify-end items-start ${closing ? "lum-fade-exit" : "lum-enter"}`}
             style={surfaceStyle}
+            {...bind}
         >
             {!expanded ? (
                 <button
@@ -358,7 +365,9 @@ const SessionStatsCard = memo(function SessionStatsCard({
                 </div>
             )}
         </div>
-    ) : null;
+            )}
+        </ExitPresence>
+    );
 });
 
 export default SessionStatsCard;
