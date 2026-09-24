@@ -2,7 +2,7 @@ import {useEffect, useState} from "react";
 import {Folder, FolderSearch, GitBranch} from "lucide-react";
 import {open as openDialog} from "@tauri-apps/plugin-dialog";
 import {warn} from "@tauri-apps/plugin-log";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {OpencodeProject} from "../../opencode/types.ts";
 import {folderLabel} from "../../lib/path.ts";
@@ -18,16 +18,15 @@ import {useI18n} from "../../hooks/i18n.tsx";
  */
 export default function DirectoryPicker({
     api,
-    colors,
     directory,
     onChange,
 }: {
     api: OpencodeApi | null;
-    colors: SurfaceColors;
     /** Absolute working directory for the next session; null = server default. */
     directory: string | null;
     onChange: (directory: string | null) => void;
 }) {
+    const colors = useColors();
     const t = useI18n();
     const [projects, setProjects] = useState<OpencodeProject[]>([]);
 
@@ -92,7 +91,6 @@ export default function DirectoryPicker({
 
     return (
         <PopoverMenu
-            colors={colors}
             align="start"
             trigger={({open, toggle}) => (
                 // The trigger shows only the folder's last segment — the
@@ -103,7 +101,6 @@ export default function DirectoryPicker({
                         icon={<Folder size={14}/>}
                         label={directory ? folderLabel(directory) : t["Project"]}
                         active={open}
-                        colors={colors}
                         onClick={toggle}
                     />
                 </Hint>
@@ -112,7 +109,6 @@ export default function DirectoryPicker({
             {(close) => (
                 <div className="w-64">
                     <MenuItem
-                        colors={colors}
                         selected={directory === null}
                         onClick={() => {
                             onChange(null);
@@ -125,7 +121,6 @@ export default function DirectoryPicker({
                     {projects.map((p) => (
                         <div key={p.id}>
                             <MenuItem
-                                colors={colors}
                                 selected={directory === p.canonical}
                                 onClick={() => {
                                     onChange(p.canonical);
@@ -141,7 +136,6 @@ export default function DirectoryPicker({
                     ))}
                     <div className="my-1 border-t" style={{borderColor: colors.glassBorder}}/>
                     <MenuItem
-                        colors={colors}
                         onClick={() => {
                             close();
                             void browse();

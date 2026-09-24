@@ -1,43 +1,35 @@
-import type {CSSProperties, ReactNode, RefObject} from "react";
-import {motion} from "framer-motion";
+import type {ReactNode, RefObject} from "react";
 import {ChevronRight} from "lucide-react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
-import {durationFast} from "../../lib/motion.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
 import RollingTitle from "../ui/RollingTitle.tsx";
+import type {CSSProperties} from "react";
 
 /** Shared row styling for the stats panel's clickable entries (the
- *  MenuItem pattern: quiet row + hover wash, driven by a CSS var so the
- *  runtime-derived hover overlay applies). */
+ *  MenuItem pattern: quiet row + hover wash via the provider-seeded
+ *  --lum-wash var). */
 export const statsRowClass =
-    "w-full flex items-center gap-2 px-2 py-1.5 text-xs cursor-pointer rounded-[var(--radius-sm)] transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-stats-hover)]";
+    "lum-wash w-full flex items-center gap-2 px-2 py-1.5 text-xs cursor-pointer rounded-[var(--radius-sm)]";
 
 /** One titled section of the expanded stats panel: icon + label + the
- *  section's summary slot, then its rows. The icon and label fade in
- *  (they're brand-new content, gated by `fadeDelay` — slow on a card
- *  expand, near-instant on in-panel navigation); the summary slot is
- *  caller-owned and NOT faded — the changes section parks its flying
- *  ±counts badge there. */
+ *  section's summary slot, then its rows. */
 export function StatsSection({
     icon,
     title,
     summary,
-    fadeDelay = 0.15,
     children,
 }: {
     icon: ReactNode;
     title: string;
     /** Right-aligned slot (counts, live chips…) — rendered as given. */
     summary?: ReactNode;
-    /** FadeIn delay for the header's own new content. */
-    fadeDelay?: number;
     children: ReactNode;
 }) {
     return (
         <section className="flex flex-col gap-1">
             <header className="flex items-center gap-2 px-2 select-none min-h-4">
-                <FadeIn delay={fadeDelay} className="shrink-0 opacity-70 inline-flex">{icon}</FadeIn>
-                <FadeIn delay={fadeDelay} className="text-[11px] font-medium uppercase tracking-wider opacity-55">{title}</FadeIn>
+                <span className="shrink-0 opacity-70 inline-flex">{icon}</span>
+                <span className="text-[11px] font-medium uppercase tracking-wider opacity-55">{title}</span>
                 <span className="flex-1"/>
                 {summary}
             </header>
@@ -60,7 +52,6 @@ export function StateChip({
     label,
     danger = false,
     mono = false,
-    colors,
 }: {
     running: boolean;
     label: string;
@@ -68,8 +59,8 @@ export function StateChip({
     danger?: boolean;
     /** Mono for data-ish labels ("exit 0"). */
     mono?: boolean;
-    colors: SurfaceColors;
 }) {
+    const colors = useColors();
     return (
         <span
             className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-[var(--radius-xs)] tabular-nums select-none"
@@ -122,7 +113,6 @@ export function FinishedTotal({finished, total}: {finished: number; total: numbe
  *  hand-rolled copies drifting apart. Long reading surfaces read best
  *  as a quiet borderless wash inside the panel. */
 export function BodyBox({
-    colors,
     className = "",
     mono = false,
     fill = false,
@@ -130,7 +120,6 @@ export function BodyBox({
     onScroll,
     children,
 }: {
-    colors: SurfaceColors;
     className?: string;
     mono?: boolean;
     /** Fill the wrapper's height instead of capping at 55vh — the drill
@@ -142,6 +131,7 @@ export function BodyBox({
     onScroll?: () => void;
     children: ReactNode;
 }) {
+    const colors = useColors();
     return (
         <div
             ref={scrollRef}
@@ -156,57 +146,3 @@ export function BodyBox({
         </div>
     );
 }
-
-/**
- * Entering content that has no shared element. The DELAY matters and
- * depends on what mounted it: a card EXPAND needs content to wait until
- * the box has landed (~0.22s — starting the fade burst mid-flight
- * congested the animation's tail); an in-panel navigation (drill/back)
- * must NOT wait — the old view is gone in 150ms and a delayed successor
- * reads as a blank flash. Flying (layoutId) elements must not sit inside
- * one of these — a parent's opacity would dim the flight.
- */
-export function FadeIn({
-    children,
-    className = "",
-    delay = 0.15,
-}: {
-    children: ReactNode;
-    className?: string;
-    /** Seconds before the fade starts — see the doc comment. */
-    delay?: number;
-}) {
-    return (
-        <motion.div
-            initial={{opacity: 0}}
-            animate={{opacity: 1}}
-            transition={{duration: 0.3, delay}}
-            className={className}
-        >
-            {children}
-        </motion.div>
-    );
-}
-
-/** Motion props for a stats ROW that is session-scoped inside the
- * directory-keyed card: a same-directory session switch keeps the card
- * mounted and swaps the row set in place, so rows need BOTH directions
- * animated (FadeIn only ever covered entrance). Enter mirrors FadeIn —
- * same 0.3s fade, same context-dependent delay — exit is the
- * chrome-standard fast fade. */
-export function statsRowPresence(delay = 0) {
-    return {
-        initial: {opacity: 0},
-        animate: {opacity: 1, transition: {duration: 0.3, delay}},
-        exit: {opacity: 0, transition: {duration: durationFast}},
-    };
-}
-
-/** Exit-only fade for a stats SECTION wrapper: entrance stays the
- * section's own FadeIn choreography (an enter fade on the wrapper would
- * compound opacities with it), so the wrapper animates only the leaving
- * direction — a section emptying out (or leaving with a session switch)
- * fades instead of snapping. */
-export const statsSectionExit = {
-    exit: {opacity: 0, transition: {duration: durationFast}},
-};

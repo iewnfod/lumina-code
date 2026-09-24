@@ -1,8 +1,7 @@
 import {useEffect, useRef, useState, type ReactNode} from "react";
-import {AnimatePresence, motion} from "framer-motion";
 import {Check} from "lucide-react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
-import {durationFast} from "../../lib/motion.ts";
+import {useColors} from "../../hooks/colors.tsx";
+import {useExitPresence} from "../../hooks/useExitPresence.ts";
 
 /**
  * The chrome's dropdown primitive: a trigger (render prop) plus a floating
@@ -16,7 +15,6 @@ import {durationFast} from "../../lib/motion.ts";
 export default function PopoverMenu({
     trigger,
     children,
-    colors,
     align = "start",
     direction = "up",
     panelClassName = "",
@@ -26,7 +24,6 @@ export default function PopoverMenu({
     trigger: (props: {open: boolean; toggle: () => void}) => ReactNode;
     /** Panel content; receives a `close` fn for item clicks. */
     children: (close: () => void) => ReactNode;
-    colors: SurfaceColors;
     align?: "start" | "end";
     /** Which way the panel opens relative to the trigger. Bottom-composer
      *  consumers open up; title-bar menus open down. */
@@ -34,8 +31,11 @@ export default function PopoverMenu({
     panelClassName?: string;
     disabled?: boolean;
 }) {
+    const colors = useColors();
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
+    // Holds the panel mounted through its .lum-pop-exit close fade.
+    const {mounted, closing} = useExitPresence(open);
 
     useEffect(() => {
         if (!open) return;
@@ -59,8 +59,10 @@ export default function PopoverMenu({
         if (!disabled) setOpen((v) => !v);
     };
 
-    // Slide in from the side the panel came from.
-    const rise = direction === "down" ? -6 : 6;
+    // Slide in from the side the panel came from — handled by the
+    // .lum-pop keyframes; direction only picks the placement classes.
+    // (The animation itself is direction-agnostic on purpose: one set of
+    // keyframes, both ways.)
 
     // Panel surface: the themed elevated token (light/dark aware) with the
     // chrome's elevation shadow and hairline border.
@@ -74,27 +76,21 @@ export default function PopoverMenu({
     return (
         <div ref={rootRef} className="relative">
             {trigger({open, toggle})}
-            <AnimatePresence>
-                {open && (
-                    <motion.div
-                        initial={{opacity: 0, y: rise, scale: 0.98}}
-                        animate={{opacity: 1, y: 0, scale: 1}}
-                        exit={{opacity: 0, y: rise, scale: 0.98, transition: {duration: durationFast}}}
-                        transition={{duration: durationFast, ease: [0.22, 1, 0.36, 1]}}
-                        className={`absolute z-50 min-w-40 max-h-72 flex flex-col rounded-[var(--radius-md)] py-1 ${
-                            direction === "down" ? "top-full mt-1.5" : "bottom-full mb-1.5"
-                        } ${
-                            align === "start" ? "left-0" : "right-0"
-                        } ${panelClassName}`}
-                        style={panelStyle}
-                    >
-                        {/* The whole panel body scrolls as one list. */}
-                        <div className="min-h-0 overflow-y-auto">
-                            {children(() => setOpen(false))}
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            {mounted && (
+                <div
+                    className={`absolute z-50 min-w-40 max-h-72 flex flex-col rounded-[var(--radius-md)] py-1 ${
+                        direction === "down" ? "top-full mt-1.5" : "bottom-full mb-1.5"
+                    } ${
+                        align === "start" ? "left-0" : "right-0"
+                    } ${closing ? "lum-pop-exit" : "lum-pop"} ${panelClassName}`}
+                    style={panelStyle}
+                >
+                    {/* The whole panel body scrolls as one list. */}
+                    <div className="min-h-0 overflow-y-auto">
+                        {children(() => setOpen(false))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -104,13 +100,12 @@ export function MenuItem({
     children,
     onClick,
     selected = false,
-    colors,
 }: {
     children: ReactNode;
     onClick: () => void;
     selected?: boolean;
-    colors: SurfaceColors;
 }) {
+    const colors = useColors();
     return (
         <button
             type="button"

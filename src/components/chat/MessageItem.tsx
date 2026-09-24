@@ -1,7 +1,7 @@
 import {memo, useEffect, useRef, useState, type CSSProperties} from "react";
 import {motion} from "framer-motion";
 import {Terminal, Check, Copy, AlertCircle} from "lucide-react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {
     ChatAssistantMessage,
@@ -9,7 +9,7 @@ import type {
     ChatUserMessage,
 } from "../../opencode/types.ts";
 import {isAssistantMessage, isUserMessage} from "../../opencode/types.ts";
-import {fadeSlideUp, whileHoverTap} from "../../lib/motion.ts";
+import {whileHoverTap} from "../../lib/motion.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
 import {useCopy} from "../../hooks/useCopy.ts";
 import {COMMAND_MENTION_COLOR} from "../composer/CommandMentionNode.tsx";
@@ -31,19 +31,17 @@ import Hint from "../ui/Hint.tsx";
  * Memoized: streaming updates clone only the message being appended to, so
  * the rest of a long transcript skips re-rendering entirely.
  *
- * `enter` gates the entrance animations (framer fadeSlideUp): only
- * content that appeared live at the transcript's tail animates in;
- * bulk-mounted history renders at its final state (see TranscriptList).
+ * `enter` gates the CSS entrance (.lum-enter): only content that appeared
+ * live at the transcript's tail animates in; bulk-mounted history renders
+ * at its final state (see TranscriptList).
  */
 const MessageItem = memo(function MessageItem({
     message,
-    colors,
     streaming,
     directory,
     enter,
 }: {
     message: ChatMessage;
-    colors: SurfaceColors;
     /** True while this assistant message is still being produced. */
     streaming: boolean;
     /** Session working directory — file tool paths inside it display relative. */
@@ -52,13 +50,12 @@ const MessageItem = memo(function MessageItem({
     enter: boolean;
 }) {
     if (isUserMessage(message)) {
-        return <UserBubble message={message} colors={colors} enter={enter} />;
+        return <UserBubble message={message} enter={enter} />;
     }
     if (isAssistantMessage(message)) {
         return (
             <AssistantBlock
                 message={message}
-                colors={colors}
                 streaming={streaming}
                 directory={directory}
                 enter={enter}
@@ -75,7 +72,8 @@ export default MessageItem;
  * "Show more" expander under the bubble. */
 const USER_BUBBLE_MAX_PX = 256;
 
-function UserBubble({message, colors, enter}: {message: ChatUserMessage; colors: SurfaceColors; enter: boolean}) {
+function UserBubble({message, enter}: {message: ChatUserMessage; enter: boolean}) {
+    const colors = useColors();
     const t = useI18n();
     const {copied, copy} = useCopy();
     const files = message.files ?? [];
@@ -104,11 +102,8 @@ function UserBubble({message, colors, enter}: {message: ChatUserMessage; colors:
         // (the column gap is only 12px); with text, the lower spacing is
         // carried by the quiet actions row under the bubble instead of raw
         // margin (files-only bubbles keep the full bottom margin).
-        <motion.div
-            className={`group/msg flex flex-col items-end mt-4 ${message.text ? "mb-1" : "mb-4"}`}
-            variants={fadeSlideUp}
-            initial={enter ? "hidden" : false}
-            animate="show"
+        <div
+            className={`group/msg flex flex-col items-end mt-4 ${message.text ? "mb-1" : "mb-4"}${enter ? " lum-enter" : ""}`}
         >
             {/* Attachments float ABOVE the bubble, outside it — the prompt
                 text keeps a clean single-surface read and the files read as
@@ -206,8 +201,8 @@ function UserBubble({message, colors, enter}: {message: ChatUserMessage; colors:
                         <motion.button
                             type="button"
                             {...whileHoverTap}
-                            className="px-2 py-1 text-[11px] cursor-pointer rounded-[var(--radius-sm)] hover:bg-[var(--lum-bubble-more-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
-                            style={{"--lum-bubble-more-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
+                            className="px-2 py-1 text-[11px] cursor-pointer rounded-[var(--radius-sm)] lum-wash"
+                            style={{"--lum-wash": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
                             onClick={toggle}
                         >
                             {expanded ? t["Show less"] : t["Show more"]}
@@ -215,19 +210,17 @@ function UserBubble({message, colors, enter}: {message: ChatUserMessage; colors:
                     )}
                 </div>
             )}
-        </motion.div>
+        </div>
     );
 }
 
 function AssistantBlock({
     message,
-    colors,
     streaming,
     directory,
     enter,
 }: {
     message: ChatAssistantMessage;
-    colors: SurfaceColors;
     streaming: boolean;
     directory?: string | null;
     enter: boolean;
@@ -248,24 +241,13 @@ function AssistantBlock({
     const stepError = visibleStepError(message);
 
     return (
-        <motion.div
-            className="flex flex-col gap-3 min-w-0"
-            variants={fadeSlideUp}
-            initial={enter ? "hidden" : false}
-            animate="show"
-        >
+        <div className={`flex flex-col gap-3 min-w-0${enter ? " lum-enter" : ""}`}>
             {segmentContent(message.content).map((segment, i) => {
                 if (segment.kind === "text") {
                     return (
-                        <motion.div
-                            key={i}
-                            className="min-w-0"
-                            variants={fadeSlideUp}
-                            initial={enter ? "hidden" : false}
-                            animate="show"
-                        >
+                        <div key={i} className={`min-w-0${enter ? " lum-enter" : ""}`}>
                             <Markdown live={streaming}>{segment.part.text}</Markdown>
-                        </motion.div>
+                        </div>
                     );
                 }
                 // A lone part keeps its dedicated affordance — no point
@@ -273,7 +255,7 @@ function AssistantBlock({
                 if (segment.parts.length === 1) {
                     const part = segment.parts[0];
                     return (
-                        <motion.div key={i} variants={fadeSlideUp} initial={enter ? "hidden" : false} animate="show">
+                        <div key={i} className={enter ? "lum-enter" : undefined}>
                             {part.type === "reasoning" ? (
                                 <ThinkingBlock
                                     part={part}
@@ -281,34 +263,33 @@ function AssistantBlock({
                                     live={reasoningLive && part === lastPart}
                                 />
                             ) : isSubagentTool(part.name) ? (
-                                <SubagentCard part={part} colors={colors} />
+                                <SubagentCard part={part} />
                             ) : (
-                                <ToolCard part={part} colors={colors} directory={directory} />
+                                <ToolCard part={part} directory={directory} />
                             )}
-                        </motion.div>
+                        </div>
                     );
                 }
                 return (
-                    <motion.div key={i} variants={fadeSlideUp} initial={enter ? "hidden" : false} animate="show">
+                    <div key={i} className={enter ? "lum-enter" : undefined}>
                         <ActivityGroup
                             stateKey={`${message.id}:seg:${i}`}
                             entries={segment.parts.map((part) => ({
                                 part,
                                 key: partKey(message, part),
                             }))}
-                            colors={colors}
                             livePart={livePart}
                             directory={directory}
                         />
-                    </motion.div>
+                    </div>
                 );
             })}
             {stepError !== null && (
-                <motion.div variants={fadeSlideUp} initial={enter ? "hidden" : false} animate="show">
-                    <StepErrorRow text={stepError} fallback={t["Request failed"]} colors={colors}/>
-                </motion.div>
+                <div className={enter ? "lum-enter" : undefined}>
+                    <StepErrorRow text={stepError} fallback={t["Request failed"]}/>
+                </div>
             )}
-        </motion.div>
+        </div>
     );
 }
 
@@ -317,7 +298,8 @@ function AssistantBlock({
  *  so without this row the failed turn would render as nothing at all.
  *  Same recessed chrome as tool output boxes, but proportional text:
  *  provider messages are prose (often CJK), not code. */
-function StepErrorRow({text, fallback, colors}: {text: string; fallback: string; colors: SurfaceColors}) {
+function StepErrorRow({text, fallback}: {text: string; fallback: string}) {
+    const colors = useColors();
     return (
         <div
             className="self-start rounded-[var(--radius-sm)] px-3 py-2 text-sm max-w-full whitespace-pre-wrap break-words"

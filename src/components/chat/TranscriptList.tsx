@@ -1,5 +1,4 @@
 import {Fragment, memo, useEffect, useRef, type ReactNode} from "react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {isAssistantMessage, type ChatMessage, type OpencodeModel} from "../../opencode/types.ts";
 import MessageItem from "./MessageItem.tsx";
 import ActivityGroup from "./ActivityGroup.tsx";
@@ -33,14 +32,12 @@ import {collectRunFooters} from "./runFooters.ts";
  */
 const TranscriptList = memo(function TranscriptList({
     messages,
-    colors,
     busy,
     directory,
     models,
 }: {
     /** The window of messages currently mounted (newest N). */
     messages: ChatMessage[];
-    colors: SurfaceColors;
     /** A run is in flight — the tail assistant message counts as streaming. */
     busy: boolean;
     /** Session working directory — file tool paths inside it display relative. */
@@ -110,7 +107,6 @@ const TranscriptList = memo(function TranscriptList({
                     element = (
                         <MessageItem
                             message={block.message}
-                            colors={colors}
                             streaming={isStreaming(block.message)}
                             directory={directory}
                             enter={enterIds.has(block.message.id)}
@@ -144,7 +140,6 @@ const TranscriptList = memo(function TranscriptList({
                         <ActivityGroup
                             stateKey={block.messages[0].id}
                             entries={entries}
-                            colors={colors}
                             livePart={livePart}
                             runLive={runLive}
                             directory={directory}
@@ -157,7 +152,6 @@ const TranscriptList = memo(function TranscriptList({
                             from={block.from}
                             to={block.to}
                             models={models}
-                            colors={colors}
                             enter={enterIds.has(block.id)}
                         />
                     );
@@ -179,7 +173,6 @@ const TranscriptList = memo(function TranscriptList({
                             <RunFooter
                                 text={run.text}
                                 durationMs={run.durationMs}
-                                colors={colors}
                                 enter={footerEnter}
                             />
                         )}

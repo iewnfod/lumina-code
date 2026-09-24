@@ -1,5 +1,5 @@
 import type {CSSProperties, KeyboardEvent} from "react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 
 /**
  * The settings modal's boxed text input — recessed surface, hairline
@@ -8,7 +8,6 @@ import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
  * inputs; shared by every settings pane.
  */
 export default function TextInput({
-    colors,
     value,
     placeholder,
     type = "text",
@@ -17,7 +16,6 @@ export default function TextInput({
     onChange,
     onKeyDown,
 }: {
-    colors: SurfaceColors;
     value: string;
     placeholder?: string;
     type?: "text" | "password";
@@ -26,6 +24,7 @@ export default function TextInput({
     onChange: (text: string) => void;
     onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
 }) {
+    const colors = useColors();
     return (
         <input
             type={type}

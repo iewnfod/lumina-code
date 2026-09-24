@@ -1,5 +1,5 @@
 import type {ReactNode} from "react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 
 /** Monospace stack used for mono surfaces (tool output, resource lists). */
 const MONO = "var(--font-mono, ui-monospace, monospace)";
@@ -37,7 +37,8 @@ export {default as CardButton} from "../ui/Button.tsx";
  *  family in its place. The card's hairline is the ONLY border: everything
  *  inside is chrome-less (washes, indents, dimming) so the card reads as
  *  one surface instead of a grid of nested boxes. */
-export function Card({colors, children}: {colors: SurfaceColors; children: ReactNode}) {
+export function Card({children}: {children: ReactNode}) {
+    const colors = useColors();
     return (
         <div
             className="rounded-[var(--radius-lg)] px-4 py-3 flex flex-col gap-3"

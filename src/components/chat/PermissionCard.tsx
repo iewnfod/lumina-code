@@ -1,6 +1,5 @@
 import {memo} from "react";
 import {ShieldAlert} from "lucide-react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {PermissionDecision, PermissionRequest} from "../../opencode/types.ts";
 import {Card, CardButton, MONO_STYLE} from "./RequestCardChrome.tsx";
@@ -26,16 +25,14 @@ function permissionPhrase(action: string, t: ReturnType<typeof useI18n>): string
  *  until it disappears. */
 export const PermissionCard = memo(function PermissionCard({
     request,
-    colors,
     onDecision,
 }: {
     request: PermissionRequest;
-    colors: SurfaceColors;
     onDecision: (request: PermissionRequest, decision: PermissionDecision) => void;
 }) {
     const t = useI18n();
     return (
-        <Card colors={colors}>
+        <Card>
             <div className="flex items-center gap-2 text-sm font-medium">
                 <ShieldAlert size={15} className="shrink-0" style={{color: "#f59e0b"}}/>
                 <span>{permissionPhrase(request.action, t)}</span>
@@ -51,9 +48,9 @@ export const PermissionCard = memo(function PermissionCard({
                 </div>
             )}
             <div className="flex items-center justify-end gap-2">
-                <CardButton label={t["Reject"]} colors={colors} onClick={() => onDecision(request, "reject")}/>
-                <CardButton label={t["Always allow"]} colors={colors} onClick={() => onDecision(request, "always")}/>
-                <CardButton label={t["Allow once"]} primary colors={colors} onClick={() => onDecision(request, "once")}/>
+                <CardButton label={t["Reject"]} onClick={() => onDecision(request, "reject")}/>
+                <CardButton label={t["Always allow"]} onClick={() => onDecision(request, "always")}/>
+                <CardButton label={t["Allow once"]} primary onClick={() => onDecision(request, "once")}/>
             </div>
         </Card>
     );

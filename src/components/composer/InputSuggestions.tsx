@@ -1,6 +1,6 @@
 import {useEffect, useRef} from "react";
 import {Terminal} from "lucide-react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeCommand} from "../../opencode/types.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
 import type {FileMentionData} from "./FileMentionNode.tsx";
@@ -18,13 +18,11 @@ export type SuggestionItem =
  * onMouseDown so clicking does not blur the textarea first.
  */
 export default function InputSuggestions({
-    colors,
     items,
     selected,
     emptyLabel,
     onSelect,
 }: {
-    colors: SurfaceColors;
     items: SuggestionItem[];
     /** Highlighted row index (owned by ChatInput, clamped there). */
     selected: number;
@@ -32,6 +30,7 @@ export default function InputSuggestions({
     emptyLabel: string;
     onSelect: (item: SuggestionItem) => void;
 }) {
+    const colors = useColors();
     const listRef = useRef<HTMLDivElement>(null);
 
     // Keep the keyboard-highlighted row visible while arrowing through.

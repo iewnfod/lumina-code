@@ -1,10 +1,6 @@
-import type {CSSProperties} from "react";
-import {motion} from "framer-motion";
 import {Check, Clock, Copy} from "lucide-react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useCopy} from "../../hooks/useCopy.ts";
-import {fadeIn} from "../../lib/motion.ts";
 import Hint from "../ui/Hint.tsx";
 
 /**
@@ -15,12 +11,11 @@ import Hint from "../ui/Hint.tsx";
  * Reads as metadata, not content: FoldRow's dimmed rest opacity, lit on
  * hover; the duration stays passive and never lights up.
  */
-export default function RunFooter({text, durationMs, colors, enter}: {
+export default function RunFooter({text, durationMs, enter}: {
     /** Copyable answer text (markdown source). */
     text: string;
     /** Wall-clock run duration, if start and completion are known. */
     durationMs: number | null;
-    colors: SurfaceColors;
     /** True when this footer appeared live (its run just finished while
      * the user watched). Footers bulk-mounted with session history render
      * without an entrance — see TranscriptList's gating. */
@@ -30,12 +25,7 @@ export default function RunFooter({text, durationMs, colors, enter}: {
     const {copied, copy} = useCopy();
 
     return (
-        <motion.div
-            variants={fadeIn}
-            initial={enter ? "hidden" : false}
-            animate="show"
-            className="flex items-center gap-2 -mt-1.5"
-        >
+        <div className={`flex items-center gap-2 -mt-1.5${enter ? " lum-enter" : ""}`}>
             <Hint label={copied ? t["Copied"] : t["Copy"]} className="-ml-1">
                 <button
                     type="button"
@@ -44,8 +34,7 @@ export default function RunFooter({text, durationMs, colors, enter}: {
                     // boundary, which on the WebKitGTK webview churns compositing
                     // layers under the transcript's mask — a permanent layer
                     // stops the stutter (same reasoning as FoldRow).
-                    className="inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none opacity-50 hover:opacity-100 hover:bg-[var(--lum-run-hover)] transition-[opacity,background-color] duration-[var(--duration-fast)] transform-gpu"
-                    style={{"--lum-run-hover": colors.hoverOverlay} as CSSProperties}
+                    className="inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none opacity-50 hover:opacity-100 lum-wash transition-opacity duration-[var(--duration-fast)] transform-gpu"
                 >
                     {copied
                         ? <Check size={14} className="shrink-0"/>
@@ -61,7 +50,7 @@ export default function RunFooter({text, durationMs, colors, enter}: {
 <span className="leading-none -translate-y-[0.5px]">{formatDuration(durationMs)}</span>
                 </span>
             )}
-        </motion.div>
+        </div>
     );
 }
 

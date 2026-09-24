@@ -1,11 +1,11 @@
 import {useCallback, useEffect, useMemo, useState} from "react";
-import {AnimatePresence, motion} from "framer-motion";
+import {motion} from "framer-motion";
 import {ArrowLeft, Globe, ScanEye, Search, Trash2} from "lucide-react";
 import {openPath, openUrl} from "@tauri-apps/plugin-opener";
 import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
-import {fadeIn, whileHoverTap} from "../../lib/motion.ts";
+import {whileHoverTap} from "../../lib/motion.ts";
 import type {
     IntegrationInfo,
     IntegrationKeyMethod,
@@ -65,11 +65,10 @@ const PROVIDER_ID_RE = /^[A-Za-z0-9._-]+$/;
  */
 export default function ModelSettings({
     api,
-    colors,
 }: {
     api: OpencodeApi | null;
-    colors: SurfaceColors;
 }) {
+    const colors = useColors();
     const t = useI18n();
     const [tab, setTab] = useState<"providers" | "custom" | "tools">("providers");
 
@@ -275,19 +274,13 @@ export default function ModelSettings({
 
             {/* Body — keyed by sub-tab + detail target so switching between
              * providers/custom (and opening/closing a provider detail)
-             * crossfades. Pure opacity (fadeIn): a pane this tall reads
-             * "floaty" when it travels, so the swap stays grounded.
-             * initial={false}: the outer pane swap already animates the
-             * pane's first mount. */}
-            <AnimatePresence mode="wait" initial={false}>
-                <motion.div
-                    key={`${tab}-${selectedId ?? "list"}`}
-                    variants={fadeIn}
-                    initial="hidden"
-                    animate="show"
-                    exit="exit"
-                    className="min-h-0 flex-1 flex flex-col"
-                >
+             * crossfades: the keyed pane fades in (.lum-fade); the old one
+             * unmounts immediately. Pure opacity: a pane this tall reads
+             * "floaty" when it travels, so the swap stays grounded. */}
+            <div
+                key={`${tab}-${selectedId ?? "list"}`}
+                className="lum-fade min-h-0 flex-1 flex flex-col"
+            >
                 {/* The provider list's search box stays PINNED above the
                  * scroll area (outside the scroll container) instead of
                  * scrolling away with the rows. */}
@@ -313,7 +306,7 @@ export default function ModelSettings({
                     selected ? (
                         <ProviderDetail
                             integration={selected}
-                            colors={colors}
+
                             oauth={oauth?.integrationId === selected.id ? oauth : null}
                             busy={busy}
                             api={api}
@@ -377,7 +370,7 @@ export default function ModelSettings({
                         <CustomProviderForm
                             def={editing}
                             isNew={editingNew}
-                            colors={colors}
+
                             onCancel={() => setEditing(null)}
                             onSave={(def) => {
                                 if (!api || !target) return;
@@ -419,7 +412,7 @@ export default function ModelSettings({
                             {target && (
                                 <Button
                                     label={t["Open config file"]}
-                                    colors={colors}
+
                                     onClick={() => {
                                         openPath(target.file).catch((e) => {
                                             logWarn(`Failed to open config file: ${e}`).catch(() => {});
@@ -462,7 +455,7 @@ export default function ModelSettings({
                                     </motion.button>
                                     <Button
                                         label={t["Remove"]}
-                                        colors={colors}
+
                                         disabled={busy}
                                         onClick={() => {
                                             if (!api || !target) return;
@@ -495,7 +488,7 @@ export default function ModelSettings({
                                 <Button
                                     label={t["Add custom provider"]}
                                     primary
-                                    colors={colors}
+
                                     disabled={busy}
                                     onClick={() => {
                                         setEditing({id: "", name: "", npm: DEFAULT_NPM, baseURL: "", models: [{id: "", name: ""}]});
@@ -511,7 +504,7 @@ export default function ModelSettings({
                 {tab === "tools" && (
                     <ToolsTab
                         api={api}
-                        colors={colors}
+
                         target={target}
                         rawConfig={rawConfig}
                         configError={configError}
@@ -521,8 +514,7 @@ export default function ModelSettings({
                     />
                 )}
                 </div>
-                </motion.div>
-            </AnimatePresence>
+                </div>
         </div>
     );
 }
@@ -537,7 +529,6 @@ export default function ModelSettings({
  */
 function ToolsTab({
     api,
-    colors,
     target,
     rawConfig,
     configError,
@@ -546,7 +537,6 @@ function ToolsTab({
     onSaved,
 }: {
     api: OpencodeApi | null;
-    colors: SurfaceColors;
     target: GlobalConfigTarget | null;
     rawConfig: string | null;
     configError: boolean;
@@ -554,6 +544,7 @@ function ToolsTab({
     onBusyChange: (busy: boolean) => void;
     onSaved: () => void;
 }) {
+    const colors = useColors();
     const t = useI18n();
     const [models, setModels] = useState<OpencodeModel[] | null>(null);
     const [modelsFailed, setModelsFailed] = useState(false);
@@ -721,7 +712,6 @@ function ToolsTab({
  *  buttons and the env-var hint. */
 function ProviderDetail({
     integration,
-    colors,
     oauth,
     busy,
     api,
@@ -732,7 +722,6 @@ function ProviderDetail({
     onBusyChange,
 }: {
     integration: IntegrationInfo;
-    colors: SurfaceColors;
     oauth: {method: IntegrationOAuthMethod; attempt: OAuthAttempt; status: string} | null;
     busy: boolean;
     api: OpencodeApi | null;
@@ -742,6 +731,7 @@ function ProviderDetail({
     onChanged: () => void;
     onBusyChange: (busy: boolean) => void;
 }) {
+    const colors = useColors();
     const t = useI18n();
     const keyMethod = integration.methods.find((m): m is IntegrationKeyMethod => m.type === "key") ?? null;
     const oauthMethods = integration.methods.filter((m): m is IntegrationOAuthMethod => m.type === "oauth");
@@ -818,7 +808,7 @@ function ProviderDetail({
                             ) : (
                                 <Button
                                     label={t["Activate"]}
-                                    colors={colors}
+
                                     disabled={busy}
                                     onClick={() => {
                                         if (!api) return;
@@ -838,7 +828,7 @@ function ProviderDetail({
                             )}
                             <Button
                                 label={t["Remove"]}
-                                colors={colors}
+
                                 disabled={busy}
                                 onClick={() => {
                                     if (!api) return;
@@ -877,7 +867,7 @@ function ProviderDetail({
                 <section className="flex flex-col gap-2">
                     <label className="text-xs font-medium">{keyMethod.label ?? t["API key"]}</label>
                     <TextInput
-                        colors={colors}
+
                         type="password"
                         value={key}
                         placeholder={t["Paste your API key"]}
@@ -887,9 +877,9 @@ function ProviderDetail({
                         }}
                     />
                     {(keyMethod.form ?? []).map((field) => (
-                        <Field key={field.key} label={`${field.title ?? field.key}${field.required ? " *" : ""}`} colors={colors}>
+                        <Field key={field.key} label={`${field.title ?? field.key}${field.required ? " *" : ""}`}>
                             <TextInput
-                                colors={colors}
+
                                 value={answers[field.key] ?? ""}
                                 placeholder={field.placeholder}
                                 onChange={(text) => setAnswers((prev) => ({...prev, [field.key]: text}))}
@@ -900,7 +890,7 @@ function ProviderDetail({
                         <Button
                             label={busy ? t["Connecting..."] : t["Connect"]}
                             primary
-                            colors={colors}
+
                             disabled={busy || key.trim() === ""}
                             onClick={connect}
                         />
@@ -930,20 +920,20 @@ function ProviderDetail({
                                 <div className="flex items-center gap-2">
                                     <Button
                                         label={t["Open in browser"]}
-                                        colors={colors}
+
                                         onClick={() => {
                                             openUrl(oauth.attempt.url).catch((e) => {
                                                 logWarn(`Failed to open OAuth URL: ${e}`).catch(() => {});
                                             });
                                         }}
                                     />
-                                    <Button label={t["Cancel login"]} colors={colors} onClick={onCancelOAuth}/>
+                                    <Button label={t["Cancel login"]} onClick={onCancelOAuth}/>
                                 </div>
                             ) : (
                                 <div>
                                     <Button
                                         label={t["Retry"]}
-                                        colors={colors}
+
                                         onClick={() => onStartOAuth(oauth.method)}
                                     />
                                 </div>
@@ -954,7 +944,7 @@ function ProviderDetail({
                             <div key={method.id}>
                                 <Button
                                     label={method.label}
-                                    colors={colors}
+
                                     disabled={busy}
                                     onClick={() => onStartOAuth(method)}
                                 />
@@ -989,7 +979,7 @@ function ProviderDetail({
                     </p>
                 )}
                 {models?.map((m) => (
-                    <ModelToggleRow key={m.modelID} model={m} colors={colors}/>
+                    <ModelToggleRow key={m.modelID} model={m}/>
                 ))}
             </section>
         </div>
@@ -1000,16 +990,15 @@ function ProviderDetail({
 function CustomProviderForm({
     def,
     isNew,
-    colors,
     onCancel,
     onSave,
 }: {
     def: CustomProviderDef;
     isNew: boolean;
-    colors: SurfaceColors;
     onCancel: () => void;
     onSave: (def: CustomProviderDef) => void;
 }) {
+    const colors = useColors();
     const t = useI18n();
     const [draft, setDraft] = useState<CustomProviderDef>(def);
 
@@ -1025,51 +1014,51 @@ function CustomProviderForm({
         <div className="flex flex-col gap-3">
             <span className="text-sm font-semibold">{isNew ? t["Add custom provider"] : t["Edit custom provider"]}</span>
 
-            <Field label={t["Provider ID"]} colors={colors}>
+            <Field label={t["Provider ID"]}>
                 <TextInput
-                    colors={colors}
+
                     value={draft.id}
                     disabled={!isNew}
                     placeholder="my-provider"
                     onChange={(id) => set({id})}
                 />
             </Field>
-            <Field label={t["Display name"]} colors={colors}>
+            <Field label={t["Display name"]}>
                 <TextInput
-                    colors={colors}
+
                     value={draft.name}
                     placeholder={draft.id || "My Provider"}
                     onChange={(name) => set({name})}
                 />
             </Field>
-            <Field label={t["Base URL"]} colors={colors}>
+            <Field label={t["Base URL"]}>
                 <TextInput
-                    colors={colors}
+
                     value={draft.baseURL}
                     placeholder="http://127.0.0.1:11434/v1"
                     onChange={(baseURL) => set({baseURL})}
                 />
             </Field>
-            <Field label={t["Package"]} colors={colors}>
+            <Field label={t["Package"]}>
                 <TextInput
-                    colors={colors}
+
                     value={draft.npm}
                     onChange={(npm) => set({npm})}
                 />
             </Field>
 
-            <Field label={t["Models"]} colors={colors}>
+            <Field label={t["Models"]}>
                 <div className="flex flex-col gap-1.5">
                     {draft.models.map((m, index) => (
                         <div key={index} className="flex items-center gap-1.5">
                             <TextInput
-                                colors={colors}
+
                                 value={m.id}
                                 placeholder={t["Model ID"]}
                                 onChange={(id) => setModel(index, {id})}
                             />
                             <TextInput
-                                colors={colors}
+
                                 value={m.name ?? ""}
                                 placeholder={t["Model name"]}
                                 onChange={(name) => setModel(index, {name})}
@@ -1091,7 +1080,7 @@ function CustomProviderForm({
                     <div>
                         <Button
                             label={t["Add model"]}
-                            colors={colors}
+
                             onClick={() => setDraft((prev) => ({...prev, models: [...prev.models, {id: "", name: ""}]}))}
                         />
                     </div>
@@ -1099,8 +1088,8 @@ function CustomProviderForm({
             </Field>
 
             <div className="flex items-center gap-2 pt-1">
-                <Button label={t["Save"]} primary colors={colors} onClick={() => onSave(draft)}/>
-                <Button label={t["Cancel"]} colors={colors} onClick={onCancel}/>
+                <Button label={t["Save"]} primary onClick={() => onSave(draft)}/>
+                <Button label={t["Cancel"]} onClick={onCancel}/>
             </div>
         </div>
     );
@@ -1109,7 +1098,8 @@ function CustomProviderForm({
 /** One model row of a provider detail: display name and the
  *  picker-visibility switch (subscribing to the store so rows stay in
  *  sync when the same model is toggled elsewhere). */
-function ModelToggleRow({model, colors}: {model: OpencodeModel; colors: SurfaceColors}) {
+function ModelToggleRow({model}: {model: OpencodeModel}) {
+    const colors = useColors();
     const t = useI18n();
     const disabledModels = useDisabledModels();
     const enabled = !disabledModels.has(disabledModelKey(model.providerID, model.modelID));
@@ -1121,7 +1111,7 @@ function ModelToggleRow({model, colors}: {model: OpencodeModel; colors: SurfaceC
             <span className="min-w-0 flex-1 truncate text-xs leading-normal">{model.name ?? model.modelID}</span>
             <Switch
                 checked={enabled}
-                colors={colors}
+
                 label={enabled ? t["Enabled"] : t["Disabled"]}
                 onChange={(next) => setModelDisabled(model.providerID, model.modelID, !next)}
             />
@@ -1131,7 +1121,8 @@ function ModelToggleRow({model, colors}: {model: OpencodeModel; colors: SurfaceC
 
 /** A labeled form field. Div-based (not <label>) so the row can contain
  *  buttons without label-activation side effects. */
-function Field({label, colors, children}: {label: string; colors: SurfaceColors; children: React.ReactNode}) {
+function Field({label, children}: {label: string; children: React.ReactNode}) {
+    const colors = useColors();
     return (
         <div className="flex flex-col gap-1">
             <span className="text-xs font-medium" style={{color: colors.inactiveText}}>{label}</span>

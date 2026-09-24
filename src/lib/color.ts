@@ -24,22 +24,3 @@ export function adjustColor(hex: string, amount: number): string {
     const b = Math.max(0, Math.min(255, parseInt(hex.substring(4, 6), 16) + amount));
     return `rgb(${r}, ${g}, ${b})`;
 }
-
-/**
- * Pick a red that stays visible against the effective background, for danger
- * indicators. Falls back to a sensible default if no theme reds are given.
- */
-export function visibleRed(
-    red: string | undefined,
-    brightRed: string | undefined,
-    bg: string | undefined,
-): string {
-    const fallback = "#ef4444";
-    const dark = bg ? isColorDark(bg) : true;
-    if (dark) {
-        // Dark background: the standard red reads well.
-        return red ?? brightRed ?? fallback;
-    }
-    // Light background: brightRed is usually more saturated/visible.
-    return brightRed ?? red ?? fallback;
-}

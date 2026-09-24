@@ -1,5 +1,5 @@
 import type {ReactNode} from "react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import Hint from "../ui/Hint.tsx";
 
 /**
@@ -12,7 +12,6 @@ export default function ToolbarButton({
     label,
     active = false,
     disabled = false,
-    colors,
     onClick,
     title,
 }: {
@@ -22,10 +21,10 @@ export default function ToolbarButton({
     /** Highlight while its popover is open. */
     active?: boolean;
     disabled?: boolean;
-    colors: SurfaceColors;
     onClick?: () => void;
     title?: string;
 }) {
+    const colors = useColors();
     const button = (
         <button
             type="button"

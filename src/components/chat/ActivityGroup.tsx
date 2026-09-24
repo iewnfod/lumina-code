@@ -1,5 +1,5 @@
 import {AlertCircle, Loader2, Wrench} from "lucide-react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {ActivityEntry, ActivityPart} from "./messageParts.ts";
 import ThinkingBlock from "./ThinkingBlock.tsx";
@@ -25,7 +25,6 @@ import {useExpansion} from "./useExpansion.ts";
 export default function ActivityGroup({
     entries,
     stateKey,
-    colors,
     livePart,
     runLive = false,
     directory,
@@ -33,7 +32,6 @@ export default function ActivityGroup({
     entries: ActivityEntry[];
     /** Stable identity of this group — persistence key for expansion. */
     stateKey: string;
-    colors: SurfaceColors;
     /** The message part currently streaming, if it lives in this group. */
     livePart: ActivityPart | null;
     /** The run is still growing at the transcript's tail — stay expanded. */
@@ -41,6 +39,7 @@ export default function ActivityGroup({
     /** Session working directory — file tool paths inside it display relative. */
     directory?: string | null;
 }) {
+    const colors = useColors();
     const parts = entries.map((e) => e.part);
     const t = useI18n();
     const live = runLive || (livePart != null && parts.includes(livePart));
@@ -89,9 +88,9 @@ export default function ActivityGroup({
                     part.type === "reasoning" ? (
                         <ThinkingBlock key={key} stateKey={key} part={part} live={livePart === part} />
                     ) : isSubagentTool(part.name) ? (
-                        <SubagentCard key={part.id ?? key} part={part} colors={colors} />
+                        <SubagentCard key={part.id ?? key} part={part} />
                     ) : (
-                        <ToolCard key={part.id ?? key} part={part} colors={colors} directory={directory} />
+                        <ToolCard key={part.id ?? key} part={part} directory={directory} />
                     ),
                 )}
             </div>

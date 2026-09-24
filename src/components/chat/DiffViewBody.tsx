@@ -1,7 +1,7 @@
 import {memo, useMemo} from "react";
 import {DiffView, DiffModeEnum} from "@git-diff-view/react";
 import type {CSSProperties} from "react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import "@git-diff-view/react/styles/diff-view.css";
 import "./diffView.css";
 
@@ -32,17 +32,16 @@ function gutterDigits(hunks: string[]): number {
  * rebuilds its internal DiffFile whenever the data prop's identity
  * changes, so callers must hand it a stable array.
  */
-export const DiffViewBody = memo(function DiffViewBody({
+const DiffViewBody = memo(function DiffViewBody({
     hunks,
     fileName,
-    colors,
 }: {
     /** Unified-diff hunk strings (each starting with its @@ header). */
     hunks: string[];
     /** File name — drives the highlighter's language detection. */
     fileName?: string | null;
-    colors: SurfaceColors;
 }) {
+    const colors = useColors();
     const digits = useMemo(() => gutterDigits(hunks), [hunks]);
     return (
         <div className="lum-diff-view" style={{"--lum-diff-digits": digits} as CSSProperties}>

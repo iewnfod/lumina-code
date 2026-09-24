@@ -1,5 +1,5 @@
 import {ArrowUp, Bot, Brain, Cpu, Paperclip, Settings2, Square} from "lucide-react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {
     OpencodeAgent,
@@ -39,7 +39,6 @@ function depthLabel(variant: string): string {
  * exists only to feed these controls.
  */
 export default function ComposerToolbar({
-    colors,
     disabled,
     busy,
     canSend,
@@ -61,7 +60,6 @@ export default function ComposerToolbar({
     usage = null,
     contextUsage = null,
 }: {
-    colors: SurfaceColors;
     /** No connection yet. */
     disabled: boolean;
     busy: boolean;
@@ -95,6 +93,7 @@ export default function ComposerToolbar({
     /** The session's current context reading (last measured step). */
     contextUsage?: ContextUsage | null;
 }) {
+    const colors = useColors();
     const t = useI18n();
 
     /** The picker's empty-state entry shows when the user has no model
@@ -154,20 +153,20 @@ export default function ComposerToolbar({
             {/* Left: attachments, mode, and (pre-session) directory. */}
             <ToolbarButton
                 icon={<Paperclip size={14}/>}
-                colors={colors}
+
                 title={t["Add attachment"]}
                 disabled={disabled}
                 onClick={onAttach}
             />
             <PopoverMenu
-                colors={colors}
+
                 align="start"
                 trigger={({open, toggle}) => (
                     <ToolbarButton
                         icon={<Bot size={14}/>}
                         label={agentName}
                         active={open}
-                        colors={colors}
+
                         onClick={toggle}
                     />
                 )}
@@ -178,7 +177,7 @@ export default function ComposerToolbar({
                         {agents.map((a) => (
                             <div key={a.id}>
                                 <MenuItem
-                                    colors={colors}
+
                                     selected={a.id === agent}
                                     onClick={() => {
                                         onAgentChange(a.id);
@@ -195,7 +194,7 @@ export default function ComposerToolbar({
             {!conversationStarted && (
                 <DirectoryPicker
                     api={api}
-                    colors={colors}
+
                     directory={directory}
                     onChange={onDirectoryChange}
                 />
@@ -211,13 +210,13 @@ export default function ComposerToolbar({
                     tokens={contextUsage?.tokens}
                     sessionUsage={usage}
                     contextLimit={usageContextLimit}
-                    colors={colors}
+
                 />
             )}
 
             {/* Right: model, thinking depth, send/stop. */}
             <PopoverMenu
-                colors={colors}
+
                 align="end"
                 panelClassName="w-60"
                 trigger={({open, toggle}) => (
@@ -225,7 +224,7 @@ export default function ComposerToolbar({
                         icon={<Cpu size={14}/>}
                         label={currentModel?.name ?? model?.id ?? t["Model"]}
                         active={open}
-                        colors={colors}
+
                         onClick={toggle}
                     />
                 )}
@@ -234,7 +233,7 @@ export default function ComposerToolbar({
                     <div>
                         {showEmptyEntry && (
                             <>
-                                <MenuItem colors={colors} onClick={() => openConfig(close)}>
+                                <MenuItem onClick={() => openConfig(close)}>
                                     <span className="inline-flex items-center gap-1.5">
                                         <Settings2 size={13} className="shrink-0 opacity-60"/>
                                         <span>{t["No models configured"]}</span>
@@ -251,7 +250,6 @@ export default function ComposerToolbar({
                                 {group.map((m) => (
                                     <MenuItem
                                         key={`${m.providerID}/${m.modelID}`}
-                                        colors={colors}
                                         selected={model != null &&
                                             m.providerID === model.providerID && m.modelID === model.id}
                                         onClick={() => {
@@ -270,7 +268,7 @@ export default function ComposerToolbar({
                         {api != null && (
                             <>
                                 <div className="my-1 border-t" style={{borderColor: colors.glassBorder}}/>
-                                <MenuItem colors={colors} onClick={() => openConfig(close)}>
+                                <MenuItem onClick={() => openConfig(close)}>
                                     <span className="inline-flex items-center gap-1.5">
                                         <Settings2 size={13} className="shrink-0 opacity-60"/>
                                         <span>{t["Configure models..."]}</span>
@@ -283,14 +281,13 @@ export default function ComposerToolbar({
             </PopoverMenu>
             {variants.length > 0 && currentVariant !== undefined && (
                 <PopoverMenu
-                    colors={colors}
+
                     align="end"
                     trigger={({open, toggle}) => (
                         <ToolbarButton
                             icon={<Brain size={14}/>}
                             label={depthLabel(currentVariant)}
                             active={open}
-                            colors={colors}
                             onClick={toggle}
                         />
                     )}
@@ -301,7 +298,7 @@ export default function ComposerToolbar({
                             {variants.map((v) => (
                                 <MenuItem
                                     key={v.id}
-                                    colors={colors}
+
                                     selected={v.id === currentVariant}
                                     onClick={() => {
                                         if (model) onModelChange({...model, variant: v.id});
@@ -318,14 +315,14 @@ export default function ComposerToolbar({
             {busy ? (
                 <ToolbarButton
                     icon={<Square size={14}/>}
-                    colors={colors}
+
                     title={t["Stop"]}
                     onClick={onInterrupt}
                 />
             ) : (
                 <ToolbarButton
                     icon={<ArrowUp size={14}/>}
-                    colors={colors}
+
                     title={t["Send"]}
                     disabled={disabled || !canSend}
                     onClick={onSend}

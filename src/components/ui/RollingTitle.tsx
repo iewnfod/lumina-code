@@ -1,26 +1,22 @@
 import {useEffect, useRef, useState, type CSSProperties} from "react";
-import {AnimatePresence, motion} from "framer-motion";
-import {durationTitleRoll, titleRoll} from "../../lib/motion.ts";
+import {durationTitleRoll} from "../../lib/motion.ts";
 
 /**
  * Text painted on a drum: when the text changes (tab switch, session
- * rename, a fold row swapping its live label for a summary), the old text
- * rolls up over the drum's top horizon while the new text rolls in from
- * beneath the bottom.
- *
- * `key={displayed}` makes AnimatePresence treat any change as an
- * exit/enter pair, and `popLayout` pins the departing span at its measured
- * spot so both texts occupy the same drum face while turning. The consumer
- * must wrap this in a positioned, edge-clipping container (`relative …
- * overflow-hidden`) so text vanishes over the horizon — see TitleBar's
- * drag strip and FoldRow's title slot.
+ * rename, a fold row swapping its live label for a summary), the new
+ * text rolls in from beneath the drum's bottom horizon (.lum-roll-in
+ * keyframes in main.css — CSS only, no framer). The departing text
+ * unmounts immediately; the consumer must wrap this in a positioned,
+ * edge-clipping container (`relative … overflow-hidden`) so text
+ * vanishes over the horizon — see TitleBar's drag strip and FoldRow's
+ * title slot.
  *
  * Rapid changes never overlap turns: while a roll is playing, the latest
  * incoming text waits in a single pending slot (later arrivals overwrite
- * it — intermediate states are skipped, not replayed), and the drum starts
- * turning toward it only once the current turn finishes. A turn in flight
- * is never interrupted, so a fast stream of titles reads as one calm drum
- * catching up instead of a flicker of half-finished turns.
+ * it — intermediate states are skipped, not replayed), and the drum
+ * starts turning toward it only once the current turn finishes. A fast
+ * stream of titles reads as one calm drum catching up instead of a
+ * flicker of half-finished turns.
  */
 export default function RollingTitle({text, className, style}: {
     text?: string | null;
@@ -34,8 +30,8 @@ export default function RollingTitle({text, className, style}: {
     // Latest text waiting for the current turn to finish. A ref, not
     // state: it never renders, it only has to survive to the timer.
     const pendingRef = useRef<string | null | undefined>(undefined);
-    // A turn is playing. Enter and exit share one duration, so the drum is
-    // busy for exactly durationTitleRoll after each key swap.
+    // A turn is playing. The enter animation runs for exactly
+    // durationTitleRoll after each key swap.
     const busyRef = useRef(false);
     const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -70,21 +66,11 @@ export default function RollingTitle({text, className, style}: {
     // A pending roll scheduled right before unmount must not fire.
     useEffect(() => () => clearTimeout(timerRef.current), []);
 
-    return (
-        <AnimatePresence initial={false} mode="popLayout">
-            {displayed && (
-                <motion.span
-                    key={displayed}
-                    variants={titleRoll}
-                    initial="hidden"
-                    animate="show"
-                    exit="exit"
-                    className={className}
-                    style={{...style, transformPerspective: 220}}
-                >
-                    {displayed}
-                </motion.span>
-            )}
-        </AnimatePresence>
-    );
+    return displayed ? (
+        // key={displayed}: any change remounts the span, replaying the
+        // .lum-roll-in enter animation for the incoming text.
+        <span key={displayed} className={`lum-roll-in ${className ?? ""}`} style={style}>
+            {displayed}
+        </span>
+    ) : null;
 }

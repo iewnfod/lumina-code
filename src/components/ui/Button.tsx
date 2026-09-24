@@ -1,5 +1,5 @@
 import {motion} from "framer-motion";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import {whileHoverTap} from "../../lib/motion.ts";
 
 /**
@@ -13,17 +13,16 @@ export default function Button({
     label,
     primary = false,
     disabled = false,
-    colors,
     onClick,
     type = "button",
 }: {
     label: string;
     primary?: boolean;
     disabled?: boolean;
-    colors: SurfaceColors;
     onClick: () => void;
     type?: "button" | "submit";
 }) {
+    const colors = useColors();
     return (
         <motion.button
             type={type}

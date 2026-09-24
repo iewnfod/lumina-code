@@ -1,8 +1,9 @@
 import {type CSSProperties} from "react";
-import {motion, AnimatePresence} from "framer-motion";
+import {motion} from "framer-motion";
 import {ChevronRight, Plus, X} from "lucide-react";
-import type {SurfaceColors} from "../hooks/surfaceColors.ts";
-import {durationBase, durationFast, easeGlass, easeSpring, springSnappy, springSoft, whileHoverTap} from "../lib/motion.ts";
+import {useColors} from "../hooks/colors.tsx";
+import {whileHoverTap} from "../lib/motion.ts";
+import {useExitPresence} from "../hooks/useExitPresence.ts";
 import {folderLabel} from "../lib/path.ts";
 import {useI18n} from "../hooks/i18n.tsx";
 import {relativeAge, type SessionInfo} from "./sessionGrouping.ts";
@@ -14,10 +15,16 @@ export const MAX_VISIBLE_SESSIONS = 5;
 
 /**
  * One folder group in the sidebar: collapsible header (label + per-folder
- * new-session button + disclosure chevron), the animated session list,
- * and the "Show more / Show less" expander. The parent (SessionBar) owns
- * which folders are collapsed and how far each is expanded; this
- * component renders the state it's handed.
+ * new-session button + disclosure chevron), the session list, and the
+ * "Show more / Show less" expander. The parent (SessionBar) owns which
+ * folders are collapsed and how far each is expanded; this component
+ * renders the state it's handed.
+ *
+ * Motion is CSS: the folder body folds through .lum-fold (grid rows —
+ * the browser animates the real height), the chevron rotates via a
+ * transition, rows appear with .lum-enter and unmount without exit
+ * choreography. The header's chevron and the buttons keep framer only
+ * for the shared hover/tap spring.
  */
 export default function SessionFolder({
     directory,
@@ -29,7 +36,6 @@ export default function SessionFolder({
     collapsed,
     now,
     foregroundColor,
-    colors,
     onSelect,
     onClose,
     onSessionHover,
@@ -51,7 +57,6 @@ export default function SessionFolder({
     /** Ticking "now" for relative ages (owned by SessionBar). */
     now: number;
     foregroundColor: string;
-    colors: SurfaceColors;
     onSelect: (id: string) => void;
     onClose: (id: string) => void;
     /** Hover prefetch — warms a session's stats before it's opened. */
@@ -64,8 +69,13 @@ export default function SessionFolder({
     /** Collapse back to the initial cap ("Show less"). */
     onShowLess: (directory: string) => void;
 }) {
+    const colors = useColors();
     const t = useI18n();
     const visibleCount = visibleSessions.length;
+    // The folder body's rows mount only while the folder is open (held
+    // through the collapse transition) — a collapsed folder keeps NO
+    // rows in the DOM, so the sidebar's node count tracks what's visible.
+    const {mounted: bodyMounted} = useExitPresence(!collapsed, 300);
 
     return (
         <div>
@@ -84,8 +94,8 @@ export default function SessionFolder({
                 <Hint label={t["New Session"]}>
                     <button
                         type="button"
-                        className="shrink-0 flex items-center p-0.5 rounded-[var(--radius-xs)] opacity-0 group-hover/folder:opacity-100 hover:bg-[var(--lum-folder-new-hover)] transition-opacity duration-[var(--duration-fast)] cursor-pointer"
-                        style={{"--lum-folder-new-hover": colors.hoverOverlay} as CSSProperties}
+                        className="shrink-0 flex items-center p-0.5 rounded-[var(--radius-xs)] opacity-0 lum-wash transition-opacity duration-[var(--duration-fast)] cursor-pointer group-hover/folder:opacity-100"
+                        style={{"--lum-wash": colors.hoverOverlay} as CSSProperties}
                         onClick={(e) => {
                             e.stopPropagation();
                             onNewInFolder(directory || undefined);
@@ -94,196 +104,150 @@ export default function SessionFolder({
                         <Plus size={12} />
                     </button>
                 </Hint>
-                <motion.span
-                    className="shrink-0 flex items-center"
-                    animate={{rotate: collapsed ? 0 : 90}}
-                    transition={springSnappy}
+                <span
+                    className={`shrink-0 flex items-center transition-rotate duration-[var(--duration-base)] ease-[var(--ease-spring)] ${collapsed ? "" : "rotate-90"}`}
                 >
                     <ChevronRight size={12} />
-                </motion.span>
+                </span>
             </div>
-            <AnimatePresence initial={false}>
-                {!collapsed && (
-                    <motion.div
-                        key="folder-body"
-                        initial={{height: 0, opacity: 0}}
-                        animate={{
-                            height: "auto",
-                            opacity: 1,
-                            transition: {height: {duration: durationBase, ease: easeSpring}, opacity: {duration: durationBase, ease: easeGlass, delay: 0.05}},
-                        }}
-                        exit={{
-                            height: 0,
-                            opacity: 0,
-                            transition: {height: {duration: durationBase, ease: easeGlass}, opacity: {duration: durationFast, ease: easeGlass}},
-                        }}
-                        className="overflow-hidden -mx-1.5"
-                    >
-                        {/* Breathing room inside the animated clip: horizontal
-                            padding (with the matching negative margin above)
-                            keeps row hover-scale from being cut off at the
-                            sides, bottom padding gives entering rows' y-offset
-                            room — all on an inner layer so collapsing to
-                            height 0 clips it away too. */}
-                        <div className="px-1.5 pt-0.5 pb-2">
-                            <AnimatePresence initial={false}>
-                                {visibleSessions.map((session) => {
-                                    const isActive = session.id === activeId;
-                                    const pendingCount = pendingCounts?.get(session.id);
-                                    return (
-                                        <motion.div
-                                            key={session.id}
-                                            initial={{
-                                                opacity: 0,
-                                                height: 0,
-                                                marginTop: 0,
-                                                marginBottom: 0,
+            {/* The folder body folds via .lum-fold (grid rows) and its
+                rows mount only while open (held through the collapse
+                transition — see useExitPresence above): collapsed
+                folders keep NO rows in the DOM. */}
+            <div className="lum-fold -mx-1.5" data-open={!collapsed}>
+                {/* Breathing room inside the animated clip: horizontal
+                    padding (with the matching negative margin above) keeps
+                    row hover washes from being cut off at the sides, bottom
+                    padding gives entering rows' rise room — all on an inner
+                    layer so collapsing to 0fr clips it away too. */}
+                <div className="px-1.5 pt-0.5 pb-2">
+                    {bodyMounted ? (<>
+                    {visibleSessions.map((session) => {
+                        const isActive = session.id === activeId;
+                        const pendingCount = pendingCounts?.get(session.id);
+                        return (
+                            <div
+                                key={session.id}
+                                className="lum-enter relative my-0.5 -mx-1.5 px-1.5 cursor-pointer"
+                            >
+                                <div
+                                    className={`group relative flex flex-row items-center justify-between pl-7 pr-3 py-2 rounded-[var(--radius-sm)] lum-wash ${isActive ? "bg-[var(--lum-wash-accent)]" : ""}`}
+                                    style={{
+                                        // The active row washes with the accent; a
+                                        // plain row with the default hover wash.
+                                        "--lum-wash": isActive ? colors.accentOverlay : colors.hoverOverlay,
+                                    } as CSSProperties}
+                                    onClick={() => onSelect(session.id)}
+                                    onPointerEnter={() => onSessionHover?.(session.id)}
+                                >
+                                    {/* Busy dot pins into the indent gutter left of
+                                        the row so session names stay aligned. */}
+                                    {busyIds?.has(session.id) && (
+                                        <span
+                                            className="absolute left-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full animate-pulse pointer-events-none"
+                                            style={{backgroundColor: "var(--color-brand-lavender)"}}
+                                        />
+                                    )}
+                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <SessionTitle
+                                            text={session.name}
+                                            className="text-sm leading-tight"
+                                            style={{
+                                                color: isActive ? foregroundColor : colors.inactiveText,
                                             }}
-                                            animate={{
-                                                opacity: 1,
-                                                height: "auto",
-                                                marginTop: 2,
-                                                marginBottom: 2,
-                                                transition: {height: {duration: durationBase, ease: easeSpring}, opacity: {duration: durationBase, ease: easeGlass, delay: 0.05}},
-                                            }}
-                                            // Enter and exit both animate height so bulk
-                                            // reveals ("Show more") and collapses ("Show
-                                            // less") read as the list growing/shrinking
-                                            // in place — no y-drift, no height snap.
-                                            exit={{
-                                                opacity: 0,
-                                                height: 0,
-                                                marginTop: 0,
-                                                marginBottom: 0,
-                                                transition: {height: {duration: durationBase, ease: easeGlass}, opacity: {duration: durationFast, ease: easeGlass}},
-                                            }}
-                                            className="relative my-0.5 overflow-hidden -mx-1.5 px-1.5 cursor-pointer"
-                                        >
-                                            {/* Inner motion layer carries the spring scale
-                                                animation and the layout slide used when the
-                                                list reorders (a session closing). */}
-                                            <motion.div
-                                                {...whileHoverTap}
-                                                layout="position"
-                                                transition={springSoft}
-                                                className={`lum-session-row group relative flex flex-row items-center justify-between pl-7 pr-3 py-2 rounded-[var(--radius-sm)] transition-colors duration-[var(--duration-base)] ease-[var(--duration-glass)] hover:bg-[var(--lum-session-hover)] ${isActive ? "bg-[var(--lum-session-active)]" : ""}`}
-                                                style={{
-                                                    "--lum-session-hover": isActive ? colors.accentOverlay : colors.hoverOverlay,
-                                                    "--lum-session-active": colors.accentOverlay,
-                                                } as CSSProperties}
-                                                onClick={() => onSelect(session.id)}
-                                                onPointerEnter={() => onSessionHover?.(session.id)}
-                                            >
-                                                {/* Busy dot pins into the indent gutter left of
-                                                    the row so session names stay aligned. */}
-                                                {busyIds?.has(session.id) && (
-                                                    <span
-                                                        className="absolute left-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full animate-pulse pointer-events-none"
-                                                        style={{backgroundColor: "var(--color-brand-lavender)"}}
-                                                    />
-                                                )}
-                                                <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                    <SessionTitle
-                                                        text={session.name}
-                                                        className="text-sm leading-tight"
-                                                        style={{
-                                                            color: isActive ? foregroundColor : colors.inactiveText,
-                                                        }}
-                                                    />
-                                                </div>
-                                                {/* Pending badge, age and the delete button
-                                                    share one fixed-width slot; hover cross-fades
-                                                    to the delete button so the title never shifts.
-                                                    A pending count (permissions + questions) takes
-                                                    the slot over from the age. */}
-                                                <div className="relative shrink-0 ml-1 w-5 h-4">
-                                                    {pendingCount != null && (
-                                                        <Hint label={t["Permission request"]} className="absolute inset-0">
-                                                            <span
-                                                                className="w-full h-full flex items-center justify-end transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
-                                                            >
-                                                                <span
-                                                                    className="min-w-4 h-4 px-1 rounded-full text-[10px] font-semibold leading-4 text-center select-none"
-                                                                    style={{backgroundColor: "#f59e0b", color: "#fff"}}
-                                                                >
-                                                                    {pendingCount}
-                                                                </span>
-                                                            </span>
-                                                        </Hint>
-                                                    )}
-                                                    {pendingCount == null && session.updatedAt != null && (
-                                                        <span
-                                                            className="absolute inset-0 flex items-center justify-end text-[11px] tabular-nums transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
-                                                            style={{color: colors.inactiveText}}
-                                                        >
-                                                            {relativeAge(session.updatedAt, now)}
-                                                        </span>
-                                                    )}
-                                                    <Hint label={t["Delete session"]} className="absolute inset-0">
-                                                        <button
-                                                            className="lum-session-close w-full h-full flex items-center justify-center cursor-pointer opacity-0 rounded-[var(--radius-xs)] transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100 hover:bg-[var(--lum-session-active)]"
-                                                            style={{
-                                                                "--lum-session-active": colors.activeOverlay,
-                                                                color: isActive ? foregroundColor : colors.inactiveText,
-                                                            } as CSSProperties}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                onClose(session.id);
-                                                            }}
-                                                        >
-                                                            <X size={12} />
-                                                        </button>
-                                                    </Hint>
-                                                </div>
-                                            </motion.div>
-                                        </motion.div>
-                                    );
-                                })}
-                            </AnimatePresence>
-                            {/* Expanded: split into two halves — left keeps
-                                revealing batches of 5, right collapses back
-                                to the initial cap. Fully expanded → collapse
-                                only. */}
-                            {sessions.length > MAX_VISIBLE_SESSIONS && (
-                                visibleCount > MAX_VISIBLE_SESSIONS ? (
-                                    <div className="flex flex-row w-full gap-1">
-                                        {visibleCount < sessions.length && (
-                                            <motion.button
-                                                type="button"
-                                                {...whileHoverTap}
-                                                className="flex-1 min-w-0 flex items-center justify-center px-2 py-1.5 text-[11px] cursor-pointer rounded-[var(--radius-sm)] hover:bg-[var(--lum-folder-more-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
-                                                style={{"--lum-folder-more-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
-                                                onClick={() => onShowMore(directory, visibleCount)}
-                                            >
-                                                {`${t["Show more"]} (${sessions.length - visibleCount})`}
-                                            </motion.button>
-                                        )}
-                                        <motion.button
-                                            type="button"
-                                            {...whileHoverTap}
-                                            className="flex-1 min-w-0 flex items-center justify-center px-2 py-1.5 text-[11px] cursor-pointer rounded-[var(--radius-sm)] hover:bg-[var(--lum-folder-more-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
-                                            style={{"--lum-folder-more-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
-                                            onClick={() => onShowLess(directory)}
-                                        >
-                                            {t["Show less"]}
-                                        </motion.button>
+                                        />
                                     </div>
-                                ) : (
+                                    {/* Pending badge, age and the delete button
+                                        share one fixed-width slot; hover cross-fades
+                                        to the delete button so the title never shifts.
+                                        A pending count (permissions + questions) takes
+                                        the slot over from the age. */}
+                                    <div className="relative shrink-0 ml-1 w-5 h-4">
+                                        {pendingCount != null && (
+                                            <Hint label={t["Permission request"]} className="absolute inset-0">
+                                                <span
+                                                    className="w-full h-full flex items-center justify-end transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
+                                                >
+                                                    <span
+                                                        className="min-w-4 h-4 px-1 rounded-full text-[10px] font-semibold leading-4 text-center select-none"
+                                                        style={{backgroundColor: "#f59e0b", color: "#fff"}}
+                                                    >
+                                                        {pendingCount}
+                                                    </span>
+                                                </span>
+                                            </Hint>
+                                        )}
+                                        {pendingCount == null && session.updatedAt != null && (
+                                            <span
+                                                className="absolute inset-0 flex items-center justify-end text-[11px] tabular-nums transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
+                                                style={{color: colors.inactiveText}}
+                                            >
+                                                {relativeAge(session.updatedAt, now)}
+                                            </span>
+                                        )}
+                                        <Hint label={t["Delete session"]} className="absolute inset-0">
+                                            <button
+                                                className="w-full h-full flex items-center justify-center cursor-pointer opacity-0 rounded-[var(--radius-xs)] lum-wash transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100"
+                                                style={{
+                                                    "--lum-wash": colors.activeOverlay,
+                                                    color: isActive ? foregroundColor : colors.inactiveText,
+                                                } as CSSProperties}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onClose(session.id);
+                                                }}
+                                            >
+                                                <X size={12} />
+                                            </button>
+                                        </Hint>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                    {/* Expanded: split into two halves — left keeps
+                        revealing batches of 5, right collapses back
+                        to the initial cap. Fully expanded → collapse
+                        only. */}
+                    {sessions.length > MAX_VISIBLE_SESSIONS && (
+                        visibleCount > MAX_VISIBLE_SESSIONS ? (
+                            <div className="flex flex-row w-full gap-1">
+                                {visibleCount < sessions.length && (
                                     <motion.button
                                         type="button"
                                         {...whileHoverTap}
-                                        className="w-full flex items-center px-7 py-1.5 text-[11px] cursor-pointer rounded-[var(--radius-sm)] hover:bg-[var(--lum-folder-more-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
-                                        style={{"--lum-folder-more-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
+                                        className="flex-1 min-w-0 flex items-center justify-center px-2 py-1.5 text-[11px] cursor-pointer rounded-[var(--radius-sm)] lum-wash"
+                                        style={{color: colors.inactiveText} as CSSProperties}
                                         onClick={() => onShowMore(directory, visibleCount)}
                                     >
                                         {`${t["Show more"]} (${sessions.length - visibleCount})`}
                                     </motion.button>
-                                )
-                            )}
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                                )}
+                                <motion.button
+                                    type="button"
+                                    {...whileHoverTap}
+                                    className="flex-1 min-w-0 flex items-center justify-center px-2 py-1.5 text-[11px] cursor-pointer rounded-[var(--radius-sm)] lum-wash"
+                                    style={{color: colors.inactiveText} as CSSProperties}
+                                    onClick={() => onShowLess(directory)}
+                                >
+                                    {t["Show less"]}
+                                </motion.button>
+                            </div>
+                        ) : (
+                            <motion.button
+                                type="button"
+                                {...whileHoverTap}
+                                className="w-full flex items-center px-7 py-1.5 text-[11px] cursor-pointer rounded-[var(--radius-sm)] lum-wash"
+                                style={{color: colors.inactiveText} as CSSProperties}
+                                onClick={() => onShowMore(directory, visibleCount)}
+                            >
+                                {`${t["Show more"]} (${sessions.length - visibleCount})`}
+                            </motion.button>
+                        )
+                    )}
+                    </>) : null}
+                </div>
+            </div>
         </div>
     );
 }

@@ -65,13 +65,11 @@
     --radius-lg: 14px;
     --radius-xl: 20px;
 
-    /* Motion — one spring curve, two durations. lib/motion.ts mirrors these. */
+    /* Motion — one spring curve, two durations. lib/motion.ts mirrors the
+     * numbers its button springs need; ALL other animation is the CSS
+     * utility classes below (.lum-enter, .lum-fold, .lum-pop…). */
     --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
     --ease-glass: cubic-bezier(0.4, 0, 0.2, 1);
-    /* Box-size arrival (stats card grow/shrink) — the CSS-standard ease:
-     * soft launch, near-constant per-frame deceleration, exact landing.
-     * lib/arrival.ts documents why this curve and not a spring. */
-    --ease-arrival: cubic-bezier(0.25, 0.1, 0.25, 1);
     --duration-fast: 150ms;
     --duration-base: 250ms;
     --duration-slow: 400ms;
@@ -376,5 +374,227 @@ body {
     }
     to {
         opacity: 1;
+    }
+}
+
+/*
+ * =====================================================================
+ * CSS motion utilities — the app's animation system (see AGENTS.md §3).
+ *
+ * Rules of the road:
+ * - Entrance/micro animations are CSS keyframes on mount; nothing runs
+ *   JS per frame. framer-motion survives ONLY as the hover/tap spring
+ *   on button primitives (lib/motion.ts's whileHoverTap).
+ * - Animations that affect surrounding layout ride real layout: flex
+ *   reflow does the choreography (width transitions on in-flow boxes,
+ *   grid-row folds for height). No measuring, no pinning, no sync.
+ * - A container-mounted element at its FINAL state never animates
+ *   (CSS transitions need a post-mount style change), which is exactly
+ *   the wanted "history renders instantly, live changes animate" rule
+ *   for free.
+ * =====================================================================
+ */
+
+/* Entrance: fade + small rise. Runs once, on genuine mount. */
+.lum-enter {
+    animation: lum-enter var(--duration-base) var(--ease-glass) both;
+}
+
+@keyframes lum-enter {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* Fade-only entrance for tall surfaces (settings panes): a full-height
+ * pane reads "floaty" when it travels, so it only dissolves in. */
+.lum-fade {
+    animation: lum-appear var(--duration-fast) var(--ease-glass) both;
+}
+
+/* Popover/modal entrance and the paired exit (applied by
+ * hooks/useExitPresence while it holds the element mounted). */
+.lum-pop {
+    animation: lum-pop var(--duration-base) var(--ease-spring) both;
+}
+
+@keyframes lum-pop {
+    from {
+        opacity: 0;
+        transform: translateY(6px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.lum-pop-exit {
+    animation: lum-pop-exit var(--duration-fast) var(--ease-glass) both;
+}
+
+@keyframes lum-pop-exit {
+    to {
+        opacity: 0;
+        transform: translateY(4px) scale(0.98);
+    }
+}
+
+/* Plain fade exit for surfaced cards (also driven by useExitPresence). */
+.lum-fade-exit {
+    animation: lum-fade-exit var(--duration-fast) var(--ease-glass) both;
+}
+
+@keyframes lum-fade-exit {
+    to {
+        opacity: 0;
+    }
+}
+
+/*
+ * Disclosure fold: height animates between 0 and content height with
+ * ZERO JS — the browser interpolates grid-template-rows (0fr → 1fr) and
+ * computes the content height itself. The fold must have exactly ONE
+ * child element (the clip layer). Toggling `data-open` after mount
+ * animates; an element MOUNTED already open renders instantly (no
+ * post-mount style change ⇒ no transition) — bulk-mounted history never
+ * animates, live expansion always does.
+ */
+.lum-fold {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition:
+        grid-template-rows var(--duration-base) var(--ease-spring),
+        opacity var(--duration-base) var(--ease-glass);
+}
+
+.lum-fold[data-open="true"] {
+    grid-template-rows: 1fr;
+    opacity: 1;
+}
+
+.lum-fold > * {
+    overflow: hidden;
+    min-height: 0;
+}
+
+/* Rolling text enter (ui/RollingTitle's CSS half): the new text rolls
+ * in from beneath the drum's bottom horizon. The consumer wraps it in a
+ * positioned, edge-clipping container. */
+.lum-roll-in {
+    animation: lum-roll-in 0.35s var(--ease-spring) both;
+}
+
+@keyframes lum-roll-in {
+    from {
+        opacity: 0;
+        transform: translateY(80%) rotateX(-50deg);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/*
+ * Unified hover wash. The provider (App) seeds `--lum-wash` (and the
+ * active/accent variants) from SurfaceColors on the app root, so a
+ * hoverable row is just `className="lum-wash"` — no per-site CSS var,
+ * no hand-rolled transition. Local overrides win by re-declaring the
+ * var on the element (e.g. an active row washing with the accent).
+ */
+.lum-wash {
+    transition: background-color var(--duration-fast) var(--ease-glass);
+}
+
+.lum-wash:hover {
+    background: var(--lum-wash, rgba(128, 128, 128, 0.08));
+}
+
+/*
+ * =====================================================================
+ * Conversation row layout — container queries instead of JS measurement.
+ *
+ * `.lum-row` (App's flex row: conversation + stats panel) is the size
+ * container; everything that used to be measured in JS (ResizeObserver →
+ * surfaceSize → statsLayout/chatColumn math) is now the browser's own
+ * query against this row. Window resize, sidebar toggle and maximize all
+ * just resize the container; tiers re-resolve natively.
+ * =====================================================================
+ */
+.lum-row {
+    container-type: size;
+}
+
+/* The conversation column's responsive cap + gutters (chatColumn's
+ * tiers): base cap 48rem with roomy 3rem gutters below it (the gutters
+ * are the only edge breathing room when the column spans full width);
+ * compact gutters once the cap is reachable; the 64rem wide cap once
+ * the row affords it plus 8rem margins per side. rem thresholds scale
+ * with the user's typography zoom, as the JS math did. */
+.lum-column {
+    width: 100%;
+    max-width: 48rem;
+    margin-inline: auto;
+    padding-inline: 3rem;
+}
+
+@container (min-width: 48rem) {
+    .lum-column {
+        padding-inline: 1.5rem;
+    }
+}
+
+@container (min-width: 80rem) {
+    .lum-column {
+        max-width: 64rem;
+    }
+}
+
+/*
+ * The stats panel's position rule (statsLayout's successor). A
+ * COLLAPSED pill always floats (absolute, out of the row — the
+ * conversation keeps full width). An EXPANDED panel floats on narrow
+ * rows and becomes a REAL flex sibling once the row fits the widest
+ * panel (40rem) beside the conversation's readable floor (36rem + 3rem
+ * gutters): in flow, flex pushes the conversation left and the panel's
+ * own width transition (26rem ↔ 40rem between overview and detail)
+ * reflows it frame by frame — the browser does the choreography.
+ */
+.lum-stats {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    z-index: 30;
+    transition:
+        width var(--duration-base) var(--ease-spring),
+        box-shadow var(--duration-base) var(--ease-glass);
+}
+
+.lum-stats[data-expanded="true"] {
+    width: 26rem;
+    max-width: max(18rem, calc(100cqw - 16rem));
+}
+
+.lum-stats[data-expanded="true"][data-detail="true"] {
+    width: 40rem;
+}
+
+@container (min-width: calc(79rem + 16px)) {
+    .lum-stats[data-expanded="true"] {
+        position: static;
+        width: 26rem;
+        max-width: none;
+        margin: 1rem 1rem 1rem 0;
+    }
+
+    .lum-stats[data-expanded="true"][data-detail="true"] {
+        width: 40rem;
     }
 }

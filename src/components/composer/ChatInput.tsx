@@ -2,7 +2,7 @@ import {memo, useCallback, useEffect, useRef, useState} from "react";
 import {X} from "lucide-react";
 import {LexicalComposer} from "@lexical/react/LexicalComposer";
 import {error} from "@tauri-apps/plugin-log";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {
     ComposerAttachment,
@@ -45,7 +45,6 @@ import Hint from "../ui/Hint.tsx";
  * skips re-rendering while tokens stream.
  */
 const ChatInput = memo(function ChatInput({
-    colors,
     disabled,
     busy,
     onSend,
@@ -65,7 +64,6 @@ const ChatInput = memo(function ChatInput({
     usage = null,
     contextUsage = null,
 }: {
-    colors: SurfaceColors;
     /** No connection yet. */
     disabled: boolean;
     busy: boolean;
@@ -95,6 +93,7 @@ const ChatInput = memo(function ChatInput({
     /** The session's current context reading (last measured step). */
     contextUsage?: ContextUsage | null;
 }) {
+    const colors = useColors();
     const t = useI18n();
     const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
     const [commands, setCommands] = useState<OpencodeCommand[]>([]);
@@ -218,7 +217,6 @@ const ChatInput = memo(function ChatInput({
 
             <LexicalComposer initialConfig={initialConfig}>
                 <ComposerCore
-                    colors={colors}
                     disabled={disabled}
                     busy={busy}
                     api={api}
@@ -235,7 +233,6 @@ const ChatInput = memo(function ChatInput({
             </LexicalComposer>
 
             <ComposerToolbar
-                colors={colors}
                 disabled={disabled}
                 busy={busy}
                 canSend={canSend}

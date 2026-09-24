@@ -1,7 +1,5 @@
 import {memo, useMemo} from "react";
-import {motion} from "framer-motion";
 import {Files} from "lucide-react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
@@ -9,13 +7,7 @@ import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import {DIFF_ADD, DIFF_DEL, patchHunks} from "../chat/toolDiff.ts";
 import DiffViewBody from "../chat/DiffViewBody.tsx";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
-import {BodyBox, FadeIn, RollingValue, statsRowClass, StatsSection} from "./statsChrome.tsx";
-
-/** layoutId of one file's title, shared between its row and the detail
- *  header. */
-export function fileTitleId(file: string): string {
-    return `stats-file-${file}`;
-}
+import {BodyBox, RollingValue, statsRowClass, StatsSection} from "./statsChrome.tsx";
 
 /** "+N −N" badge — the collapsed summary, the panel header and file rows.
  *  Each number rolls to its new value (see RollingValue). */
@@ -33,32 +25,25 @@ export function DiffCountsBadge({added, removed}: {added?: number; removed?: num
     );
 }
 
-/**
- * The file's icon+path as ONE shared element: it flies from its row to
- * the panel header when the file opens (framer layoutId), which is what
- * makes the drill transition read as navigation instead of replacement.
- */
-export function FileTitle({entry, directory, flight = true, className = ""}: {
+/** The file's icon+path label, shared between its row and the detail
+ *  header (same rendering, so the drill reads as the same thing moving). */
+export function FileTitle({entry, directory, className = ""}: {
     entry: WorkspaceDiffEntry;
     directory: string | null;
-    /** When false the element joins the tree WITHOUT its layoutId —
-     *  mounting rows must never pair against stale registry boxes
-     *  (phantom flights); see SessionStatsCard's arming logic. */
-    flight?: boolean;
     className?: string;
 }) {
     return (
-        <motion.span layoutId={flight ? fileTitleId(entry.file) : undefined} className={`flex items-center gap-2 min-w-0 ${className}`}>
+        <span className={`flex items-center gap-2 min-w-0 ${className}`}>
             <img src={fileIconUrl(entry.file)} alt="" className="w-4 h-4 shrink-0"/>
             <span className="min-w-0 truncate text-left" style={MONO_STYLE}>
                 {displayPath(entry.file, directory)}
             </span>
-        </motion.span>
+        </span>
     );
 }
 
 /**
- * The changes section: the session's whole-history git diff (server
+ * The changes section: the workspace's whole-history git diff (server
  * truth — see useSessionActivity). One row per file with its net line
  * counts; a row drills into the file's patch.
  */
@@ -66,22 +51,13 @@ export const ChangesSection = memo(function ChangesSection({
     diff,
     loading,
     totals,
-    colors,
     directory,
-    fadeDelay = 0.15,
-    flight = true,
     onOpenFile,
 }: {
     diff: WorkspaceDiffEntry[] | null;
     loading: boolean;
     totals: {added: number; removed: number; files: number};
-    colors: SurfaceColors;
     directory: string | null;
-    /** FadeIn delay for non-shared entering content (see FadeIn). */
-    fadeDelay?: number;
-    /** Whether rows carry their flight layoutIds (armed by the card on
-     *  pointer-down, so a drill-in unmount stores their boxes). */
-    flight?: boolean;
     onOpenFile: (file: WorkspaceDiffEntry) => void;
 }) {
     const t = useI18n();
@@ -94,14 +70,9 @@ export const ChangesSection = memo(function ChangesSection({
         <StatsSection
             icon={<Files size={13}/>}
             title={t["Changes"]}
-            fadeDelay={fadeDelay}
-            summary={
-                <FadeIn delay={fadeDelay} className="shrink-0">
-                    <DiffCountsBadge added={totals.added} removed={totals.removed}/>
-                </FadeIn>
-            }
+            summary={<DiffCountsBadge added={totals.added} removed={totals.removed}/>}
         >
-            <FadeIn delay={fadeDelay} className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1">
                 {summary && (
                     <div className="px-2 pb-1 text-[10px] opacity-50 tabular-nums select-none">{summary}</div>
                 )}
@@ -114,27 +85,23 @@ export const ChangesSection = memo(function ChangesSection({
                         type="button"
                         onClick={() => onOpenFile(entry)}
                         className={statsRowClass}
-                        style={{"--lum-stats-hover": colors.hoverOverlay} as React.CSSProperties}
                     >
-                        <FileTitle entry={entry} directory={directory} flight={flight} className="flex-1"/>
+                        <FileTitle entry={entry} directory={directory} className="flex-1"/>
                         <DiffCountsBadge added={entry.additions} removed={entry.deletions}/>
                     </button>
                 ))}
-            </FadeIn>
+            </div>
         </StatsSection>
     );
 });
 
 /** The open file's patch, rendered through git-diff-view (DiffViewBody
  *  — real line numbers from the patch's own hunks, syntax highlighting
- *  keyed off the file name); fades in under the header title that just
- *  flew into place. */
+ *  keyed off the file name). */
 export const FileDiffBody = memo(function FileDiffBody({
     entry,
-    colors,
 }: {
     entry: WorkspaceDiffEntry;
-    colors: SurfaceColors;
 }) {
     const t = useI18n();
     const hunks = useMemo(() => patchHunks(entry.patch), [entry.patch]);
@@ -142,12 +109,12 @@ export const FileDiffBody = memo(function FileDiffBody({
         // flex-1 + fill: the diff surface stretches with the panel on tall
         // content and scrolls inside itself; content height when the panel
         // is content-sized.
-        <FadeIn delay={0.03} className="flex flex-col flex-1 min-h-0">
-            <BodyBox colors={colors} fill className="px-3 py-2">
+        <div className="lum-enter flex flex-col flex-1 min-h-0">
+            <BodyBox fill className="px-3 py-2">
                 {hunks.length === 0
                     ? <span className="opacity-40" style={MONO_STYLE}>{t["No changes yet"]}</span>
-                    : <DiffViewBody hunks={hunks} fileName={entry.file} colors={colors}/>}
+                    : <DiffViewBody hunks={hunks} fileName={entry.file}/>}
             </BodyBox>
-        </FadeIn>
+        </div>
     );
 });

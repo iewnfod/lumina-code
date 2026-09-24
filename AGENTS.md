@@ -75,18 +75,18 @@ src/
 │                          #   cross-directory switches remount it,
 │                          #   the surface swap covering the
 │                          #   transition; never on the welcome
-│                          #   screen). The panel is position:
-│                          #   absolute when floating / out of flow
-│                          #   empty, in normal flow (fixed width)
-│                          #   when wide — flex pushes the
-│                          #   conversation left with NO lane
-│                          #   bookkeeping. App measures the ROW
-│                          #   (layout effect + RO, session-
-│                          #   independent) and derives both the
-│                          #   panel's flow/float input and the
-│                          #   conversation column's responsive cap +
-│                          #   gutters (chatColumn.ts), passed down
-│                          #   as a shared columnStyle prop.
+│                          #   screen). App measures NOTHING:
+│                          #   the row (.lum-row) is a CSS size
+│                          #   CONTAINER — the column's width cap +
+│                          #   gutters (.lum-column) and the stats
+│                          #   panel's flow/float (.lum-stats) are
+│                          #   container queries in main.css, and
+│                          #   flex pushes the conversation left as
+│                          #   the panel's width transitions. App
+│                          #   also derives the ONE SurfaceColors
+│                          #   palette (useSurfaceColors) and provides
+│                          #   it via ColorsProvider (hooks/colors.tsx)
+│                          #   + the --lum-wash hover vars on the root.
 ├── main.tsx               # ReactDOM entry (React.StrictMode) + attachConsole
 ├── constants.ts           # CHROME_TITLE_BAR_HEIGHT
 ├── i18n/                  # en-us.ts (source of truth: keys ARE the English
@@ -269,19 +269,11 @@ src/
 │   ├── glass.ts           # glassSurface / windowOutline — the ONLY place
 │   │                      #   backdrop-filter is written (Wayland fallback lives here)
 │   ├── color.ts           # color math (luminance, foreground, adjust)
-│   ├── motion.ts          # framer-motion presets (fadeIn, springSwap, …)
-│   ├── arrival.ts        # Arrival timing for box-size animations: the
-│   │                      #   distance-scaled duration (160-260ms) injected
-│   │                      #   per animation as --lum-size-dur. The CURVE is
-│   │                      #   the --ease-arrival token in main.css (CSS
-│   │                      #   standard ease). History: a JS rAF loop fought
-│   │                      #   the content mounting inside the growing box —
-│   │                      #   every starved frame was a visible skip — and a
-│   │                      #   spring charges ~84% then brakes into an
-│   │                      #   exponential tail the eye reads as a knee +
-│   │                      #   crawl; the engine-owned transition removed the
-│   │                      #   per-frame JS and made mid-flight retargeting
-│   │                      #   native. node-testable.
+│   ├── motion.ts          # The framer-motion RESIDUE: only the button
+│   │                      #   hover/tap spring (whileHoverTap +
+│   │                      #   springSnappy) and RollingTitle's timer
+│   │                      #   constant survive — every other animation
+│   │                      #   is the CSS utilities in main.css (§3.7).
 │   ├── path.ts            # folderLabel (last path segment) + displayPath
 │   │                      #   (project-relative file paths) — shared by the
 │   │                      #   sidebar, directory picker and tool cards. node-testable.
@@ -310,6 +302,16 @@ src/
 │
 ├── hooks/                 # React hooks (start with `use`; i18n.tsx provides JSX context)
 │   ├── i18n.tsx           # useI18n() → dictionary indexed by TranslationKey;
+│   ├── colors.tsx         # ColorsProvider + useColors() — the app-wide
+│   │                      #   SurfaceColors context (App derives the ONE
+│   │                      #   palette and provides it; components read
+│   │                      #   useColors() instead of threading a colors
+│   │                      #   prop through every level).
+│   ├── useExitPresence.ts # Keeps content mounted through a CSS exit
+│   │                      #   animation (the tiny AnimatePresence
+│   │                      #   replacement): `mounted` stays true for
+│   │                      #   durationMs after open flips false, with a
+│   │                      #   `closing` flag to apply the exit class.
 │   │                      #   language = stored choice → system (zh*) → en-us
 │   ├── maximized.ts       # useMaximized — computed ONCE in App, passed as prop
 │   ├── paddingOffset.ts   # usePaddingOffset(isMaximized) — from App, never from a child
@@ -414,26 +416,7 @@ src/
     │   │                  #   stats panel is GONE from here (it is a flex
     │   │                  #   sibling of this view at App level); the
     │   │                  #   columns' responsive cap + gutters arrive
-    │   │                  #   as App's columnStyle prop.
-     │   ├── chatColumn.ts # The conversation column's responsive width
-     │   │                  #   cap + side gutters: 48rem base cap, a
-     │   │                  #   64rem wide tier once the content area
-     │   │                  #   affords the cap + 8rem margins per
-     │   │                  #   side; gutters are compact (1.5rem)
-     │   │                  #   while the column reaches its cap,
-     │   │                  #   roomy (3rem) below it — there the fixed
-     │   │                  #   gutters are the only edge breathing
-     │   │                  #   room (and they keep the composer
-     │   │                  #   aligned with the welcome screen's
-     │   │                  #   across the first-send swap). App
-     │   │                  #   measures the conversation SURFACE (the
-     │   │                  #   flex row beside the sidebar — not the
-     │   │                  #   conversation's own flex-1 box), so the
-     │   │                  #   tier stays put while a stats panel
-     │   │                  #   expands in flow beside the column, and
-     │   │                  #   derives the style prop ChatView and the
-     │   │                  #   welcome screen share. Cap + gutter math
-     │   │                  #   node-testable.
+    │   │                  #   via the .lum-column container queries.
     │   ├── transcript.ts  # Pure blockify(): folds runs of activity-only
     │   │                  #   assistant messages into TranscriptBlocks; a persisted
     │   │                  #   model-switched marker becomes its own model-change
@@ -452,7 +435,7 @@ src/
     │   │                  #   fallback; absent catalog in subagent transcripts).
     │   ├── MessageItem.tsx # One message: user bubble or assistant document
     │   │                  #   (segmented via messageParts.ts); `enter` prop =
-    │   │                  #   animate this message's framer entrances or not.
+    │   │                  #   apply this message's .lum-enter CSS entrance or not.
     │   ├── messageParts.ts # Pure part segmentation: segmentContent,
     │   │                  #   effectiveTailPart, stable part keys.
     │   ├── ActivityGroup.tsx # Folded run of tool calls / thoughts
@@ -562,120 +545,36 @@ src/
     │                      #   useStatsPanelMode "auto" mode)
     │   ├── WorkspaceStatsCard.tsx # The card's data owner: owns the two
     │                      #   scope hooks (workspace diff by directory,
-    │                      #   session terminals/subagents) + surface
-    │                      #   colors, then renders SessionStatsCard.
-    │   ├── SessionStatsCard.tsx # The card (presentation +
-    │                      #   local navigation only): collapsed summary rows
-    │   │                  #   (+N −N lines, terminal/subagent counts — presence-
-    │   │                  #   animated rows via popLayout: the pill never
-    │   │                  #   scrolls, and old rows must pop out of the
-    │   │                  #   stack while fading (a same-directory session
-    │   │                  #   swap, first activity arriving)
-    │   │                  #   rows only) expanding into the detail panel via a
-    │   │                  #   SHARED-ELEMENT transition, all validated against a
-    │   │                  #   headless-browser repro (see git history): the box
-    │   │                  #   animates REAL style.width/height as a CSS
-    │   │                  #   TRANSITION (transition-[width,height] +
-    │   │                  #   --ease-arrival; JS only pins imperatively in
-    │   │                  #   the click, measures the incoming content,
-    │   │                  #   writes the target + the distance-scaled
-    │   │                  #   --lum-size-dur, and releases to auto on
-    │   │                  #   transitionend with a timer fallback. ASYNC
-    │   │                  #   drill views (terminal output, subagent
-    │   │                  #   transcript) HOLD the pinned pre-drill size
-    │   │                  #   until their onSettled fires (first page
-    │   │                  #   landed): measuring the loading shell targeted
-    │   │                  #   a stub — the box shrank to it, then SNAPPED to
-    │   │                  #   the real height at release (auto height never
-    │   │                  #   transitions), which read as a too-fast drill
-    │   │                  #   with a wrong target; during the hold the view
-    │   │                  #   also plans as the overview (width, lane, caps
-    │   │                  #   stay pre-drill) so everything morphs together
-    │   │                  #   on settle. History: a JS
-    │   │                  #   rAF loop fought the content mounting inside
-    │   │                  #   the box, every starved frame a visible skip;
-    │   │                  #   framer proved unreliable here too — its
-    │   │                  #   values apply on animation frames and its
-    │   │                  #   auto-target handling pollutes measurements),
-    │   │                  #   and the tail window is kept EMPTY so the
-    │   │                  #   curve's slowest part never drops frames: the
-    │   │                  #   elevation shadow rides the same transition
-    │   │                  #   (single-layer values interpolate natively —
-    │   │                  #   no framer JS per frame), expand-content fades
-    │   │                  #   start past the landing (0.22s), and the
-    │   │                  #   expand-time refreshDiff is deferred 320ms so
-    │   │                  #   its panel re-render lands after the box. The
-    │   │                  #   measure
-    │   │                  #   wrapper carries shrink-0 (a flex child squeezed by
-    │   │                  #   the pinned container corrupts every measurement),
-    │   │                  #   layoutId flights (±counts, file/terminal/subagent
-    │   │                  #   titles) fly only where reliable — rows ARM their
-    │   │                  #   layoutIds on pointer-down so mounting never pairs
-    │   │                  #   against stale registry boxes (phantom flights) —
-    │   │                  #   and everything else fades (FadeIn; expand waits
-    │   │                  #   150ms for the box, in-panel navigation is instant).
-    │   │                  #   Outside-click/Escape collapse (capture-phase).
-    │   │                  #   A SEEDED mount (data already in the module
-    │   │                  #   stores at first render — a session switched
-    │   │                  #   back to, or hover-prefetched) is initial
-    │   │                  #   layout, not a late arrival: the card enters
-    │   │                  #   at its final state and rides the surface's
-    │   │                  #   swap animation like the transcript (sections
-    │   │                  #   skip their staggered fades; the card box
-    │   │                  #   itself still enters animated — it only ever
-    │   │                  #   mounts as a real arrival outside the swap).
-    │   │                  #   The conversation surface's size arrives
-    │   │                  #   PRE-MEASURED from App (surfaceSize prop,
-    │   │                  #   seeded in App's own layout effect), so a
-    │   │                  #   seeded card that mounts already expanded
-    │   │                  #   sits in flow at its planned width in the
-    │   │                  #   FIRST COMMIT — the conversation column
-    │   │                  #   starts at its correct width beside it,
-    │   │                  #   pure flex layout, no transition tricks
-    │   │                  #   (only a panel appearing within an
-    │   │                  #   already-laid-out conversation reflows it,
-    │   │                  #   riding the box's own width transition,
-    │   │                  #   like a manual expand — statsLayout.ts).
-    │   │                  #   Activity that
-    │   │                  #   first appears later still enters animated. A
-    │   │                  #   same-directory session switch KEEPS the card
-    │   │                  #   mounted but RESETS any open drill view to the
-    │   │                  #   overview (the drill pointed at the previous
-    │   │                  #   session's row — the inherited-content bug
-    │   │                  #   class), morphing like back(); the overview's
-    │   │                  #   sections sit in exit-only presence wrappers
-    │   │                  #   (entrance stays each section's own FadeIn — a
-    │   │                  #   wrapper enter fade would compound opacities),
-    │   │                  #   so a section emptying out or leaving with a
-    │   │                  #   session switch fades instead of snapping.
-    │   ├── statsChrome.tsx # Shared section header + row/hover classes
-    │   │                  #   (the MenuItem pattern via a CSS var),
-    │   │                  #   statsRowPresence/statsSectionExit (the
-    │   │                  #   enter/exit fades for session-scoped rows and
-    │   │                  #   section wrappers that swap in place inside
-    │   │                  #   the directory-keyed card), and
-    │   │                  #   BodyBox, the drill-body surface (fill mode
-    │   │                  #   stretches with the panel instead of the
-    │   │                  #   55vh cap).
-    │   ├── statsLayout.ts # Pure position planning for the stats
-    │   │                  #   panel, ONE rule with three gates: a card
-    │   │                  #   showing nothing (no diff/terminals/
-    │   │                  #   subagents) or COLLAPSED floats —
-    │   │                  #   position: absolute, out of the row ⇒ the
-    │   │                  #   conversation keeps the full width, no
-    │   │                  #   exceptions; an EXPANDED panel reads the
-    │   │                  #   conversation surface's WIDTH
-    │   │                  #   (App-measured, beside the sidebar) — wide
-    │   │                  #   enough to fit the WIDEST panel (40rem
-    │   │                  #   detail) beside the column's readable
-    │   │                  #   floor → IN FLOW at a FIXED width (overview
-    │   │                  #   26rem, detail 40rem): a real flex sibling,
-    │   │                  #   flex pushes the conversation left and
-    │   │                  #   re-centers it as the panel's own width
-    │   │                  #   transitions — zero bookkeeping; anything
-    │   │                  #   narrower → FLOAT (cover, no push). The
-    │   │                  #   mode is a window-size property — drilling
-    │   │                  #   never flips it. node-testable.
+    │                      #   session terminals/subagents), then renders
+    │                      #   SessionStatsCard (colors via context).
+    │   ├── SessionStatsCard.tsx # The card (presentation + local
+    │                      #   navigation only): collapsed summary rows
+    │                      #   (+N −N lines, terminal/subagent counts)
+    │                      #   expanding into the detail panel. ALL motion
+    │                      #   is CSS (§3.7): the root wears .lum-enter /
+    │                      #   .lum-fade-exit (useExitPresence holds the
+    │                      #   unmount), the WIDTH transitions between the
+    │                      #   fixed overview/detail values while flex
+    │                      #   reflows the conversation beside it frame by
+    │                      #   frame, height is content-driven (capped by
+    │                      #   max-height) and content swaps fade via
+    │                      #   .lum-enter — no measuring, no pinning, no
+    │                      #   shared-element flights, no settle/arming
+    │                      #   protocol (the whole JS box machinery was
+    │                      #   deleted). Position comes from the .lum-stats
+    │                      #   container-query rule in main.css: collapsed
+    │                      #   pill floats; an expanded panel becomes a
+    │                      #   real flex sibling once the row fits the
+    │                      #   widest panel beside the column's floor.
+    │                      #   Kept: the useStatsExpanded module store,
+    │                      #   outside-click/Escape collapse, "always" mode,
+    │                      #   live drill-entry resolution, and the
+    │                      #   same-directory session-switch view reset.
+    │   ├── statsChrome.tsx # Shared stats-panel chrome: StatsSection
+    │                      #   header, DrillChevron, StateChip, RollingValue /
+    │                      #   FinishedTotal counters (RollingTitle drums),
+    │                      #   BodyBox (the drill-body surface), statsRowClass
+    │                      #   (the .lum-wash hover row).
     │   ├── ChangesSection.tsx # Whole-session git diff: file rows (icon +
     │   │                  #   status chip + net counts) → FileDiffBody (server
     │   │                  #   patch through chat/DiffViewBody + toolDiff.ts's
@@ -848,9 +747,11 @@ types (opencode/types.ts, i18n keys)  ←  opencode/ + lib/  ←  hooks/  ←  c
   authority (verified against the installed server).
 - **Platform checks** → `lib/platform.ts`. **Glass/backdrop-filter** →
   `lib/glass.ts` only (inline `backdrop-filter` breaks the Linux fallback).
-  **Motion presets** → `lib/motion.ts`. **Color math** → `lib/color.ts`.
-  **Surface colors** → `hooks/surfaceColors.ts` (or the `SurfaceColors`
-  prop it produces — don't hand-mix variants in components).
+  **Button springs** → `lib/motion.ts` (everything else is CSS, §3.7).
+  **Color math** → `lib/color.ts`.
+  **Surface colors** → `useColors()` (`hooks/colors.tsx` context; App is
+  the only `useSurfaceColors(bg)` derivation — don't hand-mix variants in
+  components).
   **File-type icons** → `lib/fileIcons.ts` (never hand-roll per-extension
   icon tables; regenerate assets via `pnpm gen:icons`).
 - **Chrome buttons** → `components/ui/IconButton.tsx`. **Dropdowns** →
@@ -929,6 +830,46 @@ need one, and extract anything that grows logic into the frontend's pure
 layer instead.
 
 ---
+
+### 3.7 Motion & layout — CSS first, browser owns the numbers
+
+The app's animation system is the CSS utility classes in main.css; JS
+never runs per frame and never measures/pins/synchronizes layout.
+
+- **Entrances/exits are CSS keyframes**: `.lum-enter` (fade + rise),
+  `.lum-fade` (tall panes), `.lum-pop`/`.lum-pop-exit` (modals, menus),
+  `.lum-roll-in` (RollingTitle's drum). Exit animations that must keep
+  the element mounted go through `useExitPresence` (mounted + closing) —
+  the one small replacement for framer's AnimatePresence. List rows just
+  unmount; only mounts animate.
+- **Height animations are the `.lum-fold` grid pattern**
+  (`grid-template-rows: 0fr ↔ 1fr`, toggled via `data-open`): the
+  browser interpolates the real content height. An element that MOUNTS
+  already open renders instantly (no post-mount style change ⇒ no
+  transition) — history never animates, live toggles always do.
+  **Fold bodies mount CONDITIONALLY** — children render only while open,
+  held through the collapse transition by `useExitPresence` (~300ms),
+  then unmount. Fold bodies are the app's biggest subtrees (whole
+  git-diff views, terminal output); keeping them mounted while collapsed
+  once produced 20k+-node DOM trees and froze rendering. Never render a
+  fold's children unconditionally.
+- **Animations that affect siblings ride real layout**: an in-flow box
+  transitioning `width` (`.lum-stats`) reflows its flex siblings frame
+  by frame; `position: absolute` floats out of flow instead of being
+  pushed. Never compensate with JS measurements.
+- **Responsive width logic is container queries**, not JS: App's
+  conversation row (`.lum-row`, `container-type: size`) is the query
+  context for the column cap/gutters (`.lum-column`) and the stats
+  panel's flow-vs-float (`.lum-stats`). No ResizeObserver, no
+  surfaceSize props.
+- **framer-motion survives ONLY as the button hover/tap spring**
+  (`whileHoverTap`/`springSnappy` in lib/motion.ts) — micro-interactions
+  on button primitives, nowhere else. Do not reintroduce AnimatePresence,
+  layoutId flights, or variant systems.
+- **Hover washes are one class**: `.lum-wash` reading the provider-seeded
+  `--lum-wash` var (App sets it from SurfaceColors); local overrides
+  re-declare the var on the element. Never invent another per-site
+  `--lum-*-hover` variable.
 
 ## 4. Rules for AI Contributors
 

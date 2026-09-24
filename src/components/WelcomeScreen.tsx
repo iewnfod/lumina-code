@@ -1,6 +1,3 @@
-import {motion} from "framer-motion";
-import type {SurfaceColors} from "../hooks/surfaceColors.ts";
-import {useSurfaceColors} from "../hooks/surfaceColors.ts";
 import type {OpencodeApi} from "../opencode/api.ts";
 import type {
     ComposerAttachment,
@@ -10,7 +7,6 @@ import type {
     PendingCommand,
     SessionModelRef,
 } from "../opencode/types.ts";
-import {springSwap} from "../lib/motion.ts";
 import ChatPlaceholder from "./ChatPlaceholder.tsx";
 import ChatInput from "./composer/ChatInput.tsx";
 
@@ -21,7 +17,6 @@ import ChatInput from "./composer/ChatInput.tsx";
  * is created server-side only when the first message is sent.
  */
 export default function WelcomeScreen({
-    backgroundColor,
     foregroundColor,
     subtitle,
     disabled,
@@ -37,10 +32,7 @@ export default function WelcomeScreen({
     directory,
     onDirectoryChange,
     onOpenModelConfig,
-    columnStyle,
 }: {
-    /** The chrome bg the composer's surface derives from. */
-    backgroundColor: string;
     foregroundColor: string;
     /** Status line under the greeting — connection state, when relevant. */
     subtitle?: string;
@@ -61,41 +53,27 @@ export default function WelcomeScreen({
     onDirectoryChange: (directory: string | null) => void;
     /** Opens the settings modal on its Model tab (model/provider config). */
     onOpenModelConfig: () => void;
-    /** The conversation column's responsive cap + gutters, derived by
-     *  App from the conversation surface's width (chatColumn.ts) — the
-     *  same style ChatView's columns use, so the composer doesn't jump
-     *  sideways when the first send swaps welcome → session. */
-    columnStyle: React.CSSProperties;
 }) {
-    const colors: SurfaceColors = useSurfaceColors(backgroundColor);
-
     return (
-        <motion.div
-            variants={springSwap}
-            initial="hidden"
-            animate="show"
-            exit="exit"
-            className="h-full min-w-0 flex-1"
-        >
+        <div className="lum-enter h-full min-w-0 flex-1">
             {/* No horizontal padding here — the composer column's shared
-                style owns the gutters, keeping it aligned with ChatView's
-                columns across the welcome → session swap. */}
+                .lum-column owns the gutters, keeping it aligned with
+                ChatView's columns across the welcome → session swap. */}
             <div className="flex flex-col h-full w-full items-center justify-center gap-6 py-6">
                 {/* Same responsive column box as the composer below, so the
                     greeting's wrap width tracks the window (wide tier lifts
                     the cap for long greetings; narrow windows keep the
                     roomy gutters as edge breathing room) and stays aligned
                     with the composer at every width. */}
-                <div className="mx-auto w-full" style={columnStyle}>
+                <div className="lum-column">
                     <ChatPlaceholder
                         foregroundColor={foregroundColor}
                         subtitle={subtitle}
                         directory={directory}
                     />
                 </div>
-                <div className="mx-auto w-full" style={columnStyle}>
+                <div className="lum-column">
                     <ChatInput
-                        colors={colors}
                         disabled={disabled}
                         busy={false}
                         onSend={onSend}
@@ -115,6 +93,6 @@ export default function WelcomeScreen({
                     />
                 </div>
             </div>
-        </motion.div>
+        </div>
     );
 }

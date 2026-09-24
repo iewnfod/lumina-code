@@ -1,9 +1,9 @@
-import {AnimatePresence, motion} from "framer-motion";
+import {motion} from "framer-motion";
 import {Cpu, Info, Settings as SettingsIcon} from "lucide-react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
-import {fadeSlideUp, whileHoverTap} from "../../lib/motion.ts";
+import {whileHoverTap} from "../../lib/motion.ts";
 import Modal from "../ui/Modal.tsx";
 import GeneralSettings from "./GeneralSettings.tsx";
 import ModelSettings from "./ModelSettings.tsx";
@@ -27,7 +27,6 @@ export default function SettingsModal({
     onTabChange,
     onClose,
     api,
-    colors,
     serverVersion,
 }: {
     open: boolean;
@@ -35,11 +34,11 @@ export default function SettingsModal({
     onTabChange: (tab: SettingsTab) => void;
     onClose: () => void;
     api: OpencodeApi | null;
-    colors: SurfaceColors;
     /** The connected OpenCode server's version; null while not connected
      *  (surfaced on the About pane). */
     serverVersion: string | null;
 }) {
+    const colors = useColors();
     const t = useI18n();
 
     const tabs: {id: SettingsTab; icon: typeof SettingsIcon; label: string}[] = [
@@ -49,7 +48,7 @@ export default function SettingsModal({
     ];
 
     return (
-        <Modal open={open} onClose={onClose} colors={colors} width={680} title={t["Settings"]}>
+        <Modal open={open} onClose={onClose} width={680} title={t["Settings"]}>
             <div className="flex flex-row h-[480px]">
                 {/* Tab rail */}
                 <div
@@ -84,25 +83,18 @@ export default function SettingsModal({
                     })}
                 </div>
 
-                {/* Active pane — one mounts at a time; switching runs the
-                 * fadeSlideUp swap (exit, then enter). initial={false} so
-                 * the modal's own scaleIn is the only entrance motion on
-                 * open; the pane swap plays on tab changes only. */}
+                {/* Active pane — one mounts at a time; switching fades the
+                 * keyed pane in (.lum-fade). The old pane unmounts
+                 * immediately; the modal's own pop covers the open. */}
                 <div className="flex-1 min-w-0 flex flex-col">
-                    <AnimatePresence mode="wait" initial={false}>
-                        <motion.div
-                            key={tab}
-                            variants={fadeSlideUp}
-                            initial="hidden"
-                            animate="show"
-                            exit="exit"
-                            className="flex-1 min-h-0 flex flex-col"
-                        >
-                            {tab === "general" && <GeneralSettings colors={colors}/>}
-                            {tab === "model" && <ModelSettings api={api} colors={colors}/>}
+                    <div
+                        key={tab}
+                        className="lum-fade flex-1 min-h-0 flex flex-col"
+                    >
+                            {tab === "general" && <GeneralSettings/>}
+                            {tab === "model" && <ModelSettings api={api}/>}
                             {tab === "about" && <AboutSettings serverVersion={serverVersion}/>}
-                        </motion.div>
-                    </AnimatePresence>
+                    </div>
                 </div>
             </div>
         </Modal>

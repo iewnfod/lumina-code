@@ -1,7 +1,6 @@
 import {type ReactNode} from "react";
-import {AnimatePresence, motion} from "framer-motion";
 import {ChevronRight} from "lucide-react";
-import {durationBase, durationFast, easeGlass, easeSpring} from "../../lib/motion.ts";
+import {useExitPresence} from "../../hooks/useExitPresence.ts";
 import RollingTitle from "../ui/RollingTitle.tsx";
 
 /**
@@ -14,6 +13,12 @@ import RollingTitle from "../ui/RollingTitle.tsx";
  * Callers size their icon (lucide `size={14}`) and may fold out arbitrary
  * content as children; the detail line truncates and the chevron sits
  * directly after the text.
+ *
+ * ALL motion is CSS: the chevron rotates via a transition, and the body
+ * folds through the .lum-fold grid-rows pattern (main.css) — the browser
+ * interpolates the content's real height, no JS. A row that MOUNTS
+ * already expanded (bulk-loaded history) renders instantly; a toggle
+ * after mount animates.
  *
  * The hover group lives on the button (not the wrapper) so nested FoldRows
  * inside expanded children don't light up together — hovering one row only
@@ -54,6 +59,15 @@ export default function FoldRow({
     active?: boolean;
     children?: ReactNode;
 }) {
+    // Children mount ONLY while open — held through the collapse
+    // transition (useExitPresence), then unmounted. A collapsed row must
+    // NOT keep its body in the DOM: fold bodies are the big subtrees
+    // (whole git-diff views, terminal output, thought texts), and a
+    // transcript full of collapsed rows would otherwise mount all of
+    // them at once — tens of thousands of nodes (the regression that
+    // broke rendering). The fold animation still runs both ways: the
+    // grid rows shrink while the body is held, then it drops out.
+    const {mounted: bodyMounted} = useExitPresence(expanded, 300);
     return (
         <div className="min-w-0 text-sm">
             <button
@@ -71,9 +85,8 @@ export default function FoldRow({
                         turn as the title bar's session title — so a live
                         label swapping to its summary ("Working..." → "3 tool
                         calls") turns instead of snapping. Node titles pass
-                        through untouched. The wrapper is the drum: it pins
-                        the departing span (popLayout) and clips it at the
-                        line's edges. */}
+                        through untouched. The wrapper is the drum: it clips
+                        the text at the line's edges. */}
                     {typeof title === "string" ? (
                         <span className="relative shrink-0 overflow-hidden">
                             <RollingTitle text={title} className="block"/>
@@ -90,35 +103,18 @@ export default function FoldRow({
                 {accent != null && (
                     <span className="shrink-0 flex items-center">{accent}</span>
                 )}
-                <motion.span
-                    className={`shrink-0 flex items-center transition-opacity duration-[var(--duration-fast)] ${expanded ? "opacity-60" : "opacity-0 group-hover/row:opacity-60"}`}
-                    animate={{rotate: expanded ? 90 : 0}}
-                    transition={{duration: durationFast, ease: easeSpring}}
+                <span
+                    className={`shrink-0 flex items-center transition-[opacity,rotate] duration-[var(--duration-fast)] ease-[var(--ease-spring)] ${expanded ? "opacity-60 rotate-90" : "opacity-0 group-hover/row:opacity-60"}`}
                 >
                     <ChevronRight size={14} />
-                </motion.span>
+                </span>
             </button>
-            <AnimatePresence initial={false}>
-                {expanded && (
-                    <motion.div
-                        key="body"
-                        initial={{height: 0, opacity: 0}}
-                        animate={{
-                            height: "auto",
-                            opacity: 1,
-                            transition: {height: {duration: durationBase, ease: easeSpring}, opacity: {duration: durationBase, ease: easeGlass, delay: 0.05}},
-                        }}
-                        exit={{
-                            height: 0,
-                            opacity: 0,
-                            transition: {height: {duration: durationBase, ease: easeGlass}, opacity: {duration: durationFast, ease: easeGlass}},
-                        }}
-                        className="overflow-hidden"
-                    >
-                        {children}
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            {/* The fold body: children mount only while open (see the
+                presence note above) — the grid animation clips them in
+                and out; nothing collapsed stays in the DOM. */}
+            <div className="lum-fold" data-open={expanded}>
+                <div>{bodyMounted ? children : null}</div>
+            </div>
         </div>
     );
 }

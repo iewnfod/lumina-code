@@ -4,7 +4,7 @@ import {
     Hourglass,
 } from "lucide-react";
 import type {AssistantToolPart} from "../../opencode/types.ts";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import {useI18n, type TranslationKey} from "../../hooks/i18n.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import {displayPath} from "../../lib/path.ts";
@@ -18,8 +18,7 @@ import {MONO_ROW_STYLE, MONO_STYLE} from "./RequestCardChrome.tsx";
 
 /** The shared expanded-body panel: recessed card chrome for tool output,
  *  error notes and diff views alike. */
-function ToolBodyBox({colors, color, scrollRef, onScroll, tailFade, wrap = true, children}: {
-    colors: SurfaceColors;
+function ToolBodyBox({color, scrollRef, onScroll, tailFade, wrap = true, children}: {
     color: string;
     scrollRef?: RefObject<HTMLDivElement | null>;
     onScroll?: () => void;
@@ -29,6 +28,7 @@ function ToolBodyBox({colors, color, scrollRef, onScroll, tailFade, wrap = true,
     wrap?: boolean;
     children: ReactNode;
 }) {
+    const colors = useColors();
     return (
         <div
             ref={scrollRef}
@@ -70,10 +70,11 @@ function DiffCounts({added, removed}: {added?: number; removed?: number}) {
  *  fragments are fragment-relative (see toolDiff.ts). Static — a diff
  *  is complete the moment its input arrives, so unlike streamed output
  *  it needs no follow-bottom. */
-function DiffBody({hunks, fileName, colors}: {hunks: string[]; fileName?: string; colors: SurfaceColors}) {
+function DiffBody({hunks, fileName}: {hunks: string[]; fileName?: string}) {
+    const colors = useColors();
     return (
-        <ToolBodyBox colors={colors} color={colors.inactiveText} wrap={false}>
-            <DiffViewBody hunks={hunks} fileName={fileName} colors={colors}/>
+        <ToolBodyBox color={colors.inactiveText} wrap={false}>
+            <DiffViewBody hunks={hunks} fileName={fileName}/>
         </ToolBodyBox>
     );
 }
@@ -217,14 +218,13 @@ function toolAccent(diff: DiffLine[] | null): ReactNode {
  */
 const ToolCard = memo(function ToolCard({
     part,
-    colors,
     directory,
 }: {
     part: AssistantToolPart;
-    colors: SurfaceColors;
     /** Session working directory — file paths inside it display relative. */
     directory?: string | null;
 }) {
+    const colors = useColors();
     const status = part.state.status;
     // Folded by default — a running tool reads as a quiet pulsing row,
     // its output doesn't pop open. A failure opens itself so the reason
@@ -276,7 +276,7 @@ const ToolCard = memo(function ToolCard({
 
     // The failed reason box — a failed call's ONLY body.
     const failure = status === "error" ? (
-        <ToolBodyBox colors={colors} color={ERROR_TEXT}>
+        <ToolBodyBox color={ERROR_TEXT}>
             {output || errorText(part.state.error) || t["Tool failed"]}
         </ToolBodyBox>
     ) : null;
@@ -313,15 +313,14 @@ const ToolCard = memo(function ToolCard({
                                     </span>
                                 </div>
                             )}
-                            <DiffBody hunks={f.hunks} fileName={f.fileName} colors={colors}/>
+                            <DiffBody hunks={f.hunks} fileName={f.fileName}/>
                         </Fragment>
                     );
                 })
             ) : diff != null && hunks != null ? (
-                <DiffBody hunks={hunks} fileName={filePath} colors={colors}/>
+                <DiffBody hunks={hunks} fileName={filePath}/>
             ) : output.length > 0 && (
                 <ToolBodyBox
-                    colors={colors}
                     color={colors.inactiveText}
                     scrollRef={outputScroll}
                     onScroll={outputScrollHandler}

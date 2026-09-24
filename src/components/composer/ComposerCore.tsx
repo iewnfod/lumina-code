@@ -23,7 +23,6 @@ import {
     mergeRegister,
     type EditorState,
 } from "lexical";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import {isMacOS} from "../../lib/platform.ts";
 import type {
@@ -56,7 +55,6 @@ const MAX_LINES = 5;
  * composerTriggers.ts.
  */
 export default function ComposerCore({
-    colors,
     disabled,
     busy,
     api,
@@ -68,7 +66,6 @@ export default function ComposerCore({
     onReady,
     onCanSendChange,
 }: {
-    colors: SurfaceColors;
     disabled: boolean;
     busy: boolean;
     api: OpencodeApi | null;
@@ -378,7 +375,6 @@ export default function ComposerCore({
         <div className="relative w-full">
             {suggest && (
                 <InputSuggestions
-                    colors={colors}
                     items={suggestItems}
                     selected={suggestSelected}
                     emptyLabel={suggest.kind === "command" ? t["No matching commands"] : t["No matching files"]}

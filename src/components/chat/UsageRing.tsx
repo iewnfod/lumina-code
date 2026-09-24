@@ -1,6 +1,5 @@
 import type {CSSProperties} from "react";
-import {visibleRed} from "../../lib/color.ts";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import type {SessionUsage} from "../../opencode/types.ts";
 import PopoverMenu, {MenuLabel} from "../ui/PopoverMenu.tsx";
 import Hint from "../ui/Hint.tsx";
@@ -27,15 +26,15 @@ const WARN_FRACTION = 0.85;
  * gates it further on `conversationStarted` (welcome screen and fresh
  * sessions show no ring).
  */
-export default function UsageRing({tokens, sessionUsage, contextLimit, colors}: {
+export default function UsageRing({tokens, sessionUsage, contextLimit}: {
     /** The last measured step's tokens; null/empty hides the ring. */
     tokens: UsageTokens | null | undefined;
     /** Session cumulative usage — reference rows in the dropdown. */
     sessionUsage: SessionUsage | null;
     /** Context limit of the model that produced the tokens. */
     contextLimit?: number;
-    colors: SurfaceColors;
 }) {
+    const colors = useColors();
     const t = useI18n();
     const total = totalTokens(tokens);
     if (total <= 0) return null;
@@ -44,14 +43,13 @@ export default function UsageRing({tokens, sessionUsage, contextLimit, colors}: 
     const pct = fraction == null ? null : Math.round(fraction * 100);
     const hit = cacheHitRate(tokens);
     const warn = (fraction ?? 0) >= WARN_FRACTION;
-    const arc = warn ? visibleRed(undefined, undefined, undefined) : colors.inactiveText;
+    const arc = warn ? "#ef4444" : colors.inactiveText;
     const sessionTotal = totalTokens(sessionUsage?.tokens);
     const cost = formatCost(sessionUsage?.cost);
     const num = (n: number) => n.toLocaleString();
 
     return (
         <PopoverMenu
-            colors={colors}
             align="end"
             panelClassName="w-64"
             trigger={({open, toggle}) => (
@@ -94,7 +92,7 @@ export default function UsageRing({tokens, sessionUsage, contextLimit, colors}: 
                     {hit != null && <Row label={t["Cache hit rate"]} value={`${Math.round(hit * 100)}%`}/>}
                     {(sessionTotal > 0 || cost != null) && (
                         <>
-                            <Divider colors={colors}/>
+                            <Divider/>
                             {sessionTotal > 0 && (
                                 // The aggregate grows with every step (each
                                 // input re-reads the context) — a reference
@@ -152,6 +150,7 @@ function Row({label, value}: {label: string; value: string}) {
     );
 }
 
-function Divider({colors}: {colors: SurfaceColors}) {
+function Divider() {
+    const colors = useColors();
     return <div className="my-1 h-px mx-1.5" style={{background: colors.glassBorder}}/>;
 }

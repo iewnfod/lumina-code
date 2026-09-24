@@ -1,24 +1,17 @@
-import type {Transition, Variants} from "framer-motion";
+import type {Transition} from "framer-motion";
 
 /**
- * Shared framer-motion presets. Concentrating motion curves here keeps every
- * chrome surface animated with the same rhythm — one spring, one set of
- * durations — instead of each component inventing its own easing. The numeric
- * timings mirror the `--duration-*` / `--ease-spring` tokens in main.css so
- * CSS and JS motion agree.
+ * The framer-motion residue. After the CSS-first motion refactor (see
+ * AGENTS.md §3.7) framer survives ONLY as the hover/tap spring on
+ * button primitives — everything else (entrances, folds, pops, rolls,
+ * panel sizes) is the CSS utility classes in main.css (.lum-enter,
+ * .lum-fold, .lum-pop, .lum-roll-in, container queries…).
  *
- * Ported as-is from lumina-terminal.
+ * The durations here are the JS-visible halves of the --duration-*
+ * tokens (timers in RollingTitle), mirrored numerically.
  */
 
-/** The one spring curve used for organic motion (sessions, panels). */
-export const springSoft: Transition = {
-    type: "spring",
-    stiffness: 380,
-    damping: 30,
-    mass: 0.8,
-};
-
-/** A slightly snappier spring for small interactive elements (buttons, rows). */
+/** The snappy spring for small interactive elements (buttons, rows). */
 export const springSnappy: Transition = {
     type: "spring",
     stiffness: 500,
@@ -26,93 +19,8 @@ export const springSnappy: Transition = {
     mass: 0.6,
 };
 
-/** Durations matching the CSS `--duration-*` tokens. */
-export const durationFast = 0.15;
-export const durationBase = 0.25;
-export const durationSlow = 0.4;
-
-/** One full drum turn. Enter and exit run it concurrently, so a swap is
- *  busy for exactly this long — the drum's update queue times off it. */
+/** One drum turn (seconds) — RollingTitle's pending-queue timer. */
 export const durationTitleRoll = 0.35;
-
-/** Easing matching `--ease-spring` (the JS-side mirror of the CSS curve). */
-export const easeSpring = [0.22, 1, 0.36, 1] as const;
-export const easeGlass = [0.4, 0, 0.2, 1] as const;
-
-/** Enter from below with a fade — panels, modals, dropdowns. */
-export const fadeSlideUp: Variants = {
-    hidden: {opacity: 0, y: 8},
-    show: {
-        opacity: 1,
-        y: 0,
-        transition: {duration: durationBase, ease: easeSpring},
-    },
-    exit: {
-        opacity: 0,
-        y: 8,
-        transition: {duration: durationFast, ease: easeGlass},
-    },
-};
-
-/** Spring-driven fade/slide — full-surface swaps (session ↔ welcome). */
-export const springSwap: Variants = {
-    hidden: {opacity: 0, y: 12},
-    show: {
-        opacity: 1,
-        y: 0,
-        transition: springSoft,
-    },
-    exit: {
-        opacity: 0,
-        y: -8,
-        transition: {duration: durationFast, ease: easeGlass},
-    },
-};
-
-/** Centered scale-in — modals, popovers. */
-export const scaleIn: Variants = {
-    hidden: {opacity: 0, scale: 0.96},
-    show: {
-        opacity: 1,
-        scale: 1,
-        transition: springSoft,
-    },
-    exit: {
-        opacity: 0,
-        scale: 0.96,
-        transition: {duration: durationFast, ease: easeGlass},
-    },
-};
-
-/** Pure opacity fade — backdrop, subtle swaps. */
-export const fadeIn: Variants = {
-    hidden: {opacity: 0},
-    show: {opacity: 1, transition: {duration: durationBase, ease: easeGlass}},
-    exit: {opacity: 0, transition: {duration: durationFast, ease: easeGlass}},
-};
-
-/** Drum-roll swap — rolling text (title bar session title, fold-row
- *  titles). The old title rolls up over the drum's top horizon while the
- *  new one rolls in from beneath the bottom. Enter and exit share
- *  identical timing so both spans turn as one rigid cylinder. Pair with
- *  `transformPerspective` in the element's style for the cylindrical depth
- *  cue, and a positioned, edge-clipping container (overflow-hidden) so
- *  text vanishes over the horizon instead of escaping. */
-export const titleRoll: Variants = {
-    hidden: {opacity: 0, y: "100%", rotateX: -60},
-    show: {
-        opacity: 1,
-        y: 0,
-        rotateX: 0,
-        transition: {duration: durationTitleRoll, ease: easeSpring},
-    },
-    exit: {
-        opacity: 0,
-        y: "-100%",
-        rotateX: 60,
-        transition: {duration: durationTitleRoll, ease: easeSpring},
-    },
-};
 
 /**
  * Hover/tap micro-interactions for an interactive element. Apply to a
@@ -123,15 +31,3 @@ export const whileHoverTap = {
     whileHover: {scale: 1.03, transition: springSnappy},
     whileTap: {scale: 0.97, transition: springSnappy},
 };
-
-/**
- * Container variant for staggered children. Pair with a child that declares
- * `variants={fadeSlideUp}` (or similar) — the container drives the stagger
- * delay, the child supplies the actual motion.
- */
-export const staggerContainer = (stagger = 0.04, delayChildren = 0): Variants => ({
-    hidden: {},
-    show: {
-        transition: {staggerChildren: stagger, delayChildren},
-    },
-});

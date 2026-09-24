@@ -1,6 +1,7 @@
 import {memo, useMemo, useState, type CSSProperties, type KeyboardEvent} from "react";
 import {Check, MessageCircleQuestion} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {
     FormAnswer,
@@ -34,12 +35,12 @@ function answerEnter(e: KeyboardEvent, commit: () => void) {
 
 /** The leading marker of an option row: the row number on
  *  single-selects, a checkbox on multiselects. */
-function RowMarker({kind, index, selected, colors}: {
+function RowMarker({kind, index, selected}: {
     kind: "number" | "checkbox";
     index: number;
     selected: boolean;
-    colors: SurfaceColors;
 }) {
+    const colors = useColors();
     if (kind === "number") {
         return (
             <span
@@ -70,16 +71,15 @@ function OptionRow({
     markerKind,
     index,
     selected,
-    colors,
     onClick,
 }: {
     option: FormFieldOption;
     markerKind: "number" | "checkbox";
     index: number;
     selected: boolean;
-    colors: SurfaceColors;
     onClick: () => void;
 }) {
+    const colors = useColors();
     return (
         <button
             type="button"
@@ -91,7 +91,7 @@ function OptionRow({
                 color: selected ? undefined : colors.inactiveText,
             } as CSSProperties}
         >
-            <RowMarker kind={markerKind} index={index} selected={selected} colors={colors}/>
+            <RowMarker kind={markerKind} index={index} selected={selected}/>
             <span className="shrink-0 text-xs font-medium">{option.label}</span>
             {option.description && (
                 <span className="flex-1 min-w-0 text-xs opacity-60 truncate leading-normal">
@@ -106,17 +106,16 @@ function OptionRow({
 function CustomTextInput({
     value,
     placeholder,
-    colors,
     onChange,
     onCommit,
 }: {
     value: string;
     placeholder: string;
-    colors: SurfaceColors;
     onChange: (text: string) => void;
     /** Enter (outside IME composition) fires this — see {@link answerEnter}. */
     onCommit: () => void;
 }) {
+    const colors = useColors();
     return (
         <input
             type="text"
@@ -139,15 +138,14 @@ function CustomTextInput({
  *  Memoized; local answer state resets with the form id. */
 export const QuestionCard = memo(function QuestionCard({
     form,
-    colors,
     onReply,
     onCancel,
 }: {
     form: FormRequest;
-    colors: SurfaceColors;
     onReply: (form: FormRequest, answer: FormAnswer) => void;
     onCancel: (form: FormRequest) => void;
 }) {
+    const colors = useColors();
     const t = useI18n();
     const [answer, setAnswer] = useState<FormAnswer>({});
     // Free-text on `custom` fields. The question tool sets custom on BOTH
@@ -259,7 +257,6 @@ export const QuestionCard = memo(function QuestionCard({
                             // unselected — the typed answer is what
                             // will be sent.
                             selected={customOf(field) === "" && answer[field.key] === o.value}
-                            colors={colors}
                             onClick={() => {
                                 // Picking a row replaces typed text.
                                 if (field.custom) {
@@ -273,7 +270,6 @@ export const QuestionCard = memo(function QuestionCard({
                         <CustomTextInput
                             value={customText[field.key] ?? ""}
                             placeholder={t["Type your answer..."]}
-                            colors={colors}
                             onChange={(text) =>
                                 setCustomText((prev) => ({...prev, [field.key]: text}))}
                             onCommit={commitPage}
@@ -292,7 +288,6 @@ export const QuestionCard = memo(function QuestionCard({
                                 markerKind="checkbox"
                                 index={i}
                                 selected={selected}
-                                colors={colors}
                                 onClick={() =>
                                     set(field.key, selected
                                         ? held.filter((v) => v !== o.value)
@@ -304,7 +299,6 @@ export const QuestionCard = memo(function QuestionCard({
                         <CustomTextInput
                             value={customText[field.key] ?? ""}
                             placeholder={t["Type your answer..."]}
-                            colors={colors}
                             onChange={(text) =>
                                 setCustomText((prev) => ({...prev, [field.key]: text}))}
                             onCommit={commitPage}
@@ -320,7 +314,6 @@ export const QuestionCard = memo(function QuestionCard({
                             markerKind="number"
                             index={i}
                             selected={answer[field.key] === v}
-                            colors={colors}
                             onClick={() => set(field.key, v)}
                         />
                     ))}
@@ -344,7 +337,7 @@ export const QuestionCard = memo(function QuestionCard({
     );
 
     return (
-        <Card colors={colors}>
+        <Card>
             <div className="flex items-center gap-2 text-sm font-medium">
                 <MessageCircleQuestion size={15} className="shrink-0" style={{color: "var(--color-brand-lavender)"}}/>
                 {header && <span>{header}</span>}
@@ -356,17 +349,16 @@ export const QuestionCard = memo(function QuestionCard({
             </div>
             {current != null && renderField(current)}
             <div className="flex items-center justify-between gap-2">
-                <CardButton label={t["Dismiss"]} colors={colors} onClick={() => onCancel(form)}/>
+                <CardButton label={t["Dismiss"]} onClick={() => onCancel(form)}/>
                 <div className="flex items-center gap-2">
                     {visible.length > 1 && index > 0 && (
-                        <CardButton label={t["Previous"]} colors={colors} onClick={() => setPage(index - 1)}/>
+                        <CardButton label={t["Previous"]} onClick={() => setPage(index - 1)}/>
                     )}
                     {visible.length > 1 && !isLast ? (
                         <CardButton
                             label={t["Next"]}
                             primary
                             disabled={current != null && isMissing(current)}
-                            colors={colors}
                             onClick={() => setPage(index + 1)}
                         />
                     ) : (
@@ -374,7 +366,6 @@ export const QuestionCard = memo(function QuestionCard({
                             label={t["Send answers"]}
                             primary
                             disabled={current != null && isMissing(current)}
-                            colors={colors}
                             onClick={submit}
                         />
                     )}

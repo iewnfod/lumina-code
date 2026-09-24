@@ -1,7 +1,7 @@
 import {info} from "@tauri-apps/plugin-log";
 import {motion} from "framer-motion";
 import type {CSSProperties} from "react";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import {useI18n, useLanguageChoice, setLanguage, type Language} from "../../hooks/i18n.tsx";
 import {setThemePreference, useThemePreference, type ThemePreference} from "../../hooks/useThemePreference.ts";
 import {setStatsPanelMode, useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
@@ -41,15 +41,14 @@ function OptionRow({
     options,
     selected,
     onSelect,
-    colors,
 }: {
     label: string;
     description?: string;
     options: {value: string; text: string}[];
     selected: string | null;
     onSelect: (value: string) => void;
-    colors: SurfaceColors;
 }) {
+    const colors = useColors();
     return (
         <SettingRow label={label} description={description}>
             <div className="flex items-center gap-1">
@@ -90,15 +89,14 @@ function SizeStepper({
     value,
     min,
     max,
-    colors,
     onChange,
 }: {
     value: number;
     min: number;
     max: number;
-    colors: SurfaceColors;
     onChange: (value: number) => void;
 }) {
+    const colors = useColors();
     const t = useI18n();
     const step = (delta: -1 | 1, glyph: string, hint: string, disabled: boolean) => (
         <motion.button
@@ -127,7 +125,7 @@ function SizeStepper({
     );
 }
 
-export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
+export default function GeneralSettings() {
     const t = useI18n();
     // Reactive read (NOT currentLanguage-style one-shot): the choice can
     // change while the resolved dictionary stays identical (explicit
@@ -164,7 +162,7 @@ export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
                     label={t["Language"]}
                     options={languageOptions}
                     selected={language ?? "system"}
-                    colors={colors}
+
                     onSelect={(value) => {
                         const lang: Language | null = value === "en-us" || value === "zh-cn" ? value : null;
                         info(`Language set to ${lang ?? "system"} from settings`).catch(() => {});
@@ -175,7 +173,7 @@ export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
                     label={t["Appearance"]}
                     options={themeOptions}
                     selected={theme}
-                    colors={colors}
+
                     onSelect={(value) => {
                         info(`Theme preference set to ${value} from settings`).catch(() => {});
                         setThemePreference(value as ThemePreference);
@@ -190,7 +188,7 @@ export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
                     description={t["Whether the workspace activity panel collapses on outside clicks or stays open"]}
                     options={panelOptions}
                     selected={panelMode}
-                    colors={colors}
+
                     onSelect={(value) => {
                         info(`Stats panel mode set to ${value} from settings`).catch(() => {});
                         setStatsPanelMode(value === "always" ? "always" : "auto");
@@ -207,7 +205,7 @@ export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
                     >
                         <Switch
                             checked={outline}
-                            colors={colors}
+
                             label={outline ? t["Enabled"] : t["Disabled"]}
                             onChange={(next) => {
                                 info(`Window outline set to ${next} from settings`).catch(() => {});
@@ -226,7 +224,7 @@ export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
                     <SettingRow label={t["Interface font"]}>
                         <div className="w-48">
                             <TextInput
-                                colors={colors}
+
                                 value={typography.sansFamily}
                                 placeholder={t["Default"]}
                                 onChange={(sansFamily) => setTypography({...typography, sansFamily})}
@@ -238,14 +236,14 @@ export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
                             value={typography.uiSizePx}
                             min={UI_SIZE_MIN}
                             max={UI_SIZE_MAX}
-                            colors={colors}
+
                             onChange={(uiSizePx) => setTypography({...typography, uiSizePx})}
                         />
                     </SettingRow>
                     <SettingRow label={t["Code font"]}>
                         <div className="w-48">
                             <TextInput
-                                colors={colors}
+
                                 value={typography.monoFamily}
                                 placeholder={t["Default"]}
                                 mono
@@ -258,7 +256,7 @@ export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
                             value={typography.codeSizePx}
                             min={CODE_SIZE_MIN}
                             max={CODE_SIZE_MAX}
-                            colors={colors}
+
                             onChange={(codeSizePx) => setTypography({...typography, codeSizePx})}
                         />
                     </SettingRow>
@@ -266,7 +264,7 @@ export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
                         <Button
                             label={t["Reset to default"]}
                             disabled={isDefaultTypography(typography)}
-                            colors={colors}
+
                             onClick={() => {
                                 info("Typography reset to defaults from settings").catch(() => {});
                                 setTypography({...DEFAULT_TYPOGRAPHY});

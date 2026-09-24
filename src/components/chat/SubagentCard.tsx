@@ -1,26 +1,18 @@
 import {memo} from "react";
 import {AlertCircle, Bot} from "lucide-react";
 import type {AssistantToolPart} from "../../opencode/types.ts";
-import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useExpansion, ERROR_DISCLOSURE_MS} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 import Markdown from "./Markdown.tsx";
-import {errorText} from "./toolMeta.ts";
+import {errorText, inputStr} from "./toolMeta.ts";
 import {MONO_STYLE} from "./RequestCardChrome.tsx";
 
-/** The subagent spawn tool — "subagent" today, "task" on older servers. */
-export function isSubagentTool(name: string): boolean {
-    return name === "subagent" || name === "task";
-}
-
-function inputStr(o: Record<string, unknown>, ...keys: string[]): string | undefined {
-    for (const key of keys) {
-        const v = o[key];
-        if (typeof v === "string" && v) return v;
-    }
-    return undefined;
-}
+/** The subagent spawn tool — one source of truth (sessionActivity's
+ *  predicate, re-exported under the UI-facing name MessageItem and
+ *  ActivityGroup import). */
+export {isSubagentToolName as isSubagentTool} from "../../opencode/sessionActivity.ts";
 
 /**
  * A subagent spawn — deliberately NOT a wrench tool call. The robot icon
@@ -37,11 +29,10 @@ function inputStr(o: Record<string, unknown>, ...keys: string[]): string | undef
  */
 const SubagentCard = memo(function SubagentCard({
     part,
-    colors,
 }: {
     part: AssistantToolPart;
-    colors: SurfaceColors;
 }) {
+    const colors = useColors();
     const status = part.state.status;
     const t = useI18n();
     const {expanded, toggle} = useExpansion(part.id, status === "error", 0, ERROR_DISCLOSURE_MS);

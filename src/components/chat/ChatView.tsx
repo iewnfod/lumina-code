@@ -1,7 +1,4 @@
 import {memo, useCallback, useEffect, useMemo, useRef, useState} from "react";
-import {AnimatePresence, motion} from "framer-motion";
-import {fadeIn} from "../../lib/motion.ts";
-import {useSurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useTranscriptScroll} from "../../hooks/useTranscriptScroll.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
@@ -50,7 +47,6 @@ const ChatView = memo(function ChatView({
     api,
     subscribe,
     sessionId,
-    backgroundColor,
     busy,
     disabled,
     agents,
@@ -64,7 +60,6 @@ const ChatView = memo(function ChatView({
     onDirectoryChange,
     onOpenModelConfig,
     usage,
-    columnStyle,
     pendingPermissions,
     pendingForms,
     onPermissionDecision,
@@ -74,7 +69,6 @@ const ChatView = memo(function ChatView({
     api: OpencodeApi | null;
     subscribe: (handler: OpencodeEventHandler) => () => void;
     sessionId: string;
-    backgroundColor: string;
     busy: boolean;
     /** No connection. */
     disabled: boolean;
@@ -97,12 +91,6 @@ const ChatView = memo(function ChatView({
      *  composer's context ring (which itself reads the transcript's last
      *  measured step; null on the welcome screen). */
     usage: SessionUsage | null;
-    /** The conversation column's responsive cap + gutters, derived by
-     *  App from the conversation SURFACE's width (chatColumn.ts) — the
-     *  row the stats panel docks into, so the tier stays put while the
-     *  panel expands and only the conversation narrows. Shared with the
-     *  welcome screen's composer so nothing jumps across their swap. */
-    columnStyle: React.CSSProperties;
     /** Pending server requests for THIS session (permission asks +
      *  question forms) — pinned above the composer until answered. */
     pendingPermissions: PermissionRequest[];
@@ -112,7 +100,6 @@ const ChatView = memo(function ChatView({
     onFormCancel: (form: FormRequest) => void;
 }) {
     const t = useI18n();
-    const colors = useSurfaceColors(backgroundColor);
     const {messages, hasMore, loadingOlder, loadOlder, send, interrupt} =
         useSessionMessages(api, subscribe, sessionId);
 
@@ -234,23 +221,17 @@ const ChatView = memo(function ChatView({
                         "linear-gradient(to bottom, transparent 0, rgba(0,0,0,0.65) 19px, black 51px, black calc(100% - 51px), rgba(0,0,0,0.65) calc(100% - 19px), transparent 100%)",
                 }}
             >
-                <div className="mx-auto w-full flex flex-col gap-3 py-6" style={columnStyle}>
-                    <AnimatePresence>
-                        {showTopSentinel && (
-                            <motion.div
-                                variants={fadeIn}
-                                initial="hidden"
-                                animate="show"
-                                exit="exit"
-                                ref={sentinelRef}
-                                className="flex justify-center py-2 select-none"
-                            >
-                                <span className="text-xs opacity-40">
-                                    {loadingOlder ? t["Loading earlier messages..."] : t["Scroll to load earlier messages"]}
-                                </span>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                <div className="lum-column flex flex-col gap-3 py-6">
+                    {showTopSentinel && (
+                        <div
+                            ref={sentinelRef}
+                            className="flex justify-center py-2 select-none"
+                        >
+                            <span className="text-xs opacity-40">
+                                {loadingOlder ? t["Loading earlier messages..."] : t["Scroll to load earlier messages"]}
+                            </span>
+                        </div>
+                    )}
                     {rendered.length === 0 && (
                         <div className="flex items-center justify-center h-full min-h-40 text-sm opacity-40 select-none">
                             {disabled ? t["Waiting for OpenCode..."] : t["Send a message to start"]}
@@ -258,14 +239,13 @@ const ChatView = memo(function ChatView({
                     )}
                     <TranscriptList
                         messages={rendered}
-                        colors={colors}
                         busy={busy}
                         directory={directory}
                         models={models}
                     />
                 </div>
             </div>
-            <div className="shrink-0 mx-auto w-full pb-4 flex flex-col gap-2" style={columnStyle}>
+            <div className="lum-column shrink-0 pb-4 flex flex-col gap-2">
                 {/* Pinned server requests — while any is pending, the
                     session's execution waits server-side, so they stay
                     in the composer's place, never scrolled away. */}
@@ -273,7 +253,6 @@ const ChatView = memo(function ChatView({
                     <PermissionCard
                         key={request.id}
                         request={request}
-                        colors={colors}
                         onDecision={onPermissionDecision}
                     />
                 ))}
@@ -281,7 +260,6 @@ const ChatView = memo(function ChatView({
                     <QuestionCard
                         key={form.id}
                         form={form}
-                        colors={colors}
                         onReply={onFormReply}
                         onCancel={onFormCancel}
                     />
@@ -291,7 +269,6 @@ const ChatView = memo(function ChatView({
                     free-typed prompt. */}
                 {pendingForms.length === 0 && pendingPermissions.length === 0 && (
                     <ChatInput
-                        colors={colors}
                         disabled={disabled}
                         busy={busy}
                         onSend={handleSend}

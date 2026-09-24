@@ -156,7 +156,6 @@ export default function SessionBar(props: SessionBarProps) {
                             collapsed={collapsedFolder}
                             now={now}
                             foregroundColor={foregroundColor}
-                            colors={colors}
                             onSelect={onSelect}
                             onClose={onClose}
                             onSessionHover={onSessionHover}
