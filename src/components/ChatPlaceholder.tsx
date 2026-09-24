@@ -55,7 +55,10 @@ export default function ChatPlaceholder({
                     WebkitMaskImage: "linear-gradient(to bottom, black 20%, transparent 60%)",
                 }}
             />
-            <motion.div variants={fadeSlideUp} className="flex flex-col items-center gap-1.5 max-w-md">
+            {/* No fixed max-width here — the welcome screen wraps this in
+                the shared column box (useChatColumnWidth), so the wrap
+                width responds to the window like the composer's does. */}
+            <motion.div variants={fadeSlideUp} className="flex flex-col items-center gap-1.5">
                 <h2 className="text-2xl font-normal" style={{color: foregroundColor}}>
                     {greeting}
                 </h2>

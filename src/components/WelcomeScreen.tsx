@@ -81,11 +81,18 @@ export default function WelcomeScreen({
                 style owns the gutters, keeping it aligned with ChatView's
                 columns across the welcome → session swap. */}
             <div className="flex flex-col h-full w-full items-center justify-center gap-6 py-6">
-                <ChatPlaceholder
-                    foregroundColor={foregroundColor}
-                    subtitle={subtitle}
-                    directory={directory}
-                />
+                {/* Same responsive column box as the composer below, so the
+                    greeting's wrap width tracks the window (wide tier lifts
+                    the cap for long greetings; narrow windows keep the
+                    roomy gutters as edge breathing room) and stays aligned
+                    with the composer at every width. */}
+                <div className="mx-auto w-full" style={columnStyle}>
+                    <ChatPlaceholder
+                        foregroundColor={foregroundColor}
+                        subtitle={subtitle}
+                        directory={directory}
+                    />
+                </div>
                 <div className="mx-auto w-full" style={columnStyle}>
                     <ChatInput
                         colors={colors}
