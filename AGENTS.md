@@ -152,7 +152,10 @@ src/
 │   │                      #   useSyncExternalStore binding for consumers that
 │   │                      #   outlive session switches (the stats card).
 │   │                      #   prepareCommandSubmission pre-creates the entry so a
-│   │                      #   first-send slash command keeps its enqueue frame.
+│   │                      #   first-send slash command keeps its enqueue frame;
+│   │                      #   a session.model.selected event re-pulls the newest
+│   │                      #   page — the model-switch marker it persists has no
+│   │                      #   message frame, so the divider lands live.
 │   ├── useSessionFlow.ts  # App-level session flow: active session id + composer
 │   │                      #   staging (pendingModel/pendingAgent/pendingDirectory
 │   │                      #   seeded from lib/persist.ts), changeModel/changeAgent/
@@ -388,14 +391,21 @@ src/
      │   │                  #   welcome screen share. Cap + gutter math
      │   │                  #   node-testable.
     │   ├── transcript.ts  # Pure blockify(): folds runs of activity-only
-    │   │                  #   assistant messages into TranscriptBlocks. node-testable.
+    │   │                  #   assistant messages into TranscriptBlocks; a persisted
+    │   │                  #   model-switched marker becomes its own model-change
+    │   │                  #   divider block (first selection / variant-only changes
+    │   │                  #   stay silent). node-testable.
     │   ├── TranscriptList.tsx # Renders the mounted slice as MessageItems /
-    │   │                  #   cross-message ActivityGroups + run footers. Owns
+    │   │                  #   cross-message ActivityGroups + model-switch dividers
+    │   │                  #   + run footers. Owns
     │   │                  #   entrance gating: only tail-appended content that
     │   │                  #   appeared live (new ids after the last known one,
     │   │                  #   freshly completed footers) animates in — history
     │   │                  #   bulk-mounted on open/scroll-up renders instantly
     │   │                  #   (concurrent-entrance bursts were the frame drops).
+    │   ├── ModelChangeDivider.tsx # The model-switched marker: a hairline broken by
+    │   │                  #   the `old → new` names (catalog-resolved, raw-id
+    │   │                  #   fallback; absent catalog in subagent transcripts).
     │   ├── MessageItem.tsx # One message: user bubble or assistant document
     │   │                  #   (segmented via messageParts.ts); `enter` prop =
     │   │                  #   animate this message's framer entrances or not.

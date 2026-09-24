@@ -1,4 +1,4 @@
-import {isAssistantMessage, type ChatAssistantMessage, type ChatMessage} from "../../opencode/types.ts";
+import {isAssistantMessage, isModelSwitched, type ChatAssistantMessage, type ChatMessage, type SessionModelRef} from "../../opencode/types.ts";
 import {visibleStepError} from "./messageParts.ts";
 
 /**
@@ -7,11 +7,14 @@ import {visibleStepError} from "./messageParts.ts";
  * node-testable independent of the scroll/render wiring.
  */
 
-/** Transcript display block: one message, or a run of consecutive
- *  activity-only assistant messages folded into a single disclosure. */
+/** Transcript display block: one message, a run of consecutive
+ *  activity-only assistant messages folded into a single disclosure, or
+ *  the divider for a persisted model-switch marker (`id` = the marker
+ *  message's id, the render/entrance key). */
 export type TranscriptBlock =
     | {kind: "message"; message: ChatMessage}
-    | {kind: "activity"; messages: ChatAssistantMessage[]};
+    | {kind: "activity"; messages: ChatAssistantMessage[]}
+    | {kind: "model-change"; id: string; from: SessionModelRef; to: SessionModelRef};
 
 /** An assistant message with no visible prose — pure tool/thought
  *  machinery, eligible for cross-message folding. A failed step never
@@ -27,6 +30,13 @@ export function isActivityOnly(m: ChatMessage): m is ChatAssistantMessage {
  * single-tool steps (edit → shell → grep → …) arrives as many consecutive
  * activity-only messages. Runs of 2+ fold into one ActivityGroup; a lone
  * one keeps MessageItem's rendering (its dedicated ToolCard / own grouping).
+ *
+ * A persisted `model-switched` marker sits exactly where the user picked
+ * another model, so it becomes its own divider block — and breaks an
+ * activity run in progress (the steps on either side ran on different
+ * models). The session's FIRST model selection (no `previous`) and
+ * variant-only changes (thinking depth) stay silent: there is no model
+ * change to announce.
  */
 export function blockify(list: ChatMessage[]): TranscriptBlock[] {
     const blocks: TranscriptBlock[] = [];
@@ -38,6 +48,13 @@ export function blockify(list: ChatMessage[]): TranscriptBlock[] {
         run = [];
     };
     for (const m of list) {
+        if (isModelSwitched(m)) {
+            if (m.previous && (m.previous.providerID !== m.model.providerID || m.previous.id !== m.model.id)) {
+                flush();
+                blocks.push({kind: "model-change", id: m.id, from: m.previous, to: m.model});
+            }
+            continue;
+        }
         if (isActivityOnly(m)) run.push(m);
         else {
             flush();

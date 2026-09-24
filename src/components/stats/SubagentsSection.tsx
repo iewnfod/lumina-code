@@ -134,7 +134,12 @@ export const SubagentBody = memo(function SubagentBody({
 }) {
     const t = useI18n();
     const {messages, seeding} = useSessionMessages(api, subscribe, sub.id);
-    const visible = messages.filter((m) => m.type === "user" || m.type === "assistant");
+    // Same transcript rules as ChatView: content plus the persisted
+    // model-switch markers (rendered as dividers; names fall back to raw
+    // ids here — no catalog in the stats card).
+    const visible = messages.filter(
+        (m) => m.type === "user" || m.type === "assistant" || m.type === "model-switched",
+    );
     const busy = busyIds.has(sub.id);
     // Settle report: fires when `seeding` flips false (an already-seeded
     // store entry mounts settled, so an immediate re-drill measures its

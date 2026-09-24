@@ -1,8 +1,9 @@
 import {Fragment, memo, useEffect, useRef, type ReactNode} from "react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
-import {isAssistantMessage, type ChatMessage} from "../../opencode/types.ts";
+import {isAssistantMessage, type ChatMessage, type OpencodeModel} from "../../opencode/types.ts";
 import MessageItem from "./MessageItem.tsx";
 import ActivityGroup from "./ActivityGroup.tsx";
+import ModelChangeDivider from "./ModelChangeDivider.tsx";
 import {effectiveTailPart, type ActivityEntry, type ActivityPart} from "./messageParts.ts";
 import {blockify} from "./transcript.ts";
 import RunFooter from "./RunFooter.tsx";
@@ -10,9 +11,9 @@ import {collectRunFooters} from "./runFooters.ts";
 
 /**
  * The transcript column's body: folds the rendered message list into
- * blocks (blockify), renders each as a MessageItem or a cross-message
- * ActivityGroup, and hangs the per-run summary footers under the block
- * whose last message finished a turn.
+ * blocks (blockify), renders each as a MessageItem, a cross-message
+ * ActivityGroup, or a model-switch divider, and hangs the per-run summary
+ * footers under the block whose last message finished a turn.
  *
  * Memoized on the rendered slice — ChatView recomputes the slice per
  * streaming frame, and this mapping only reruns when the slice (or one of
@@ -35,6 +36,7 @@ const TranscriptList = memo(function TranscriptList({
     colors,
     busy,
     directory,
+    models,
 }: {
     /** The window of messages currently mounted (newest N). */
     messages: ChatMessage[];
@@ -43,6 +45,9 @@ const TranscriptList = memo(function TranscriptList({
     busy: boolean;
     /** Session working directory — file tool paths inside it display relative. */
     directory?: string | null;
+    /** Model catalog for the switch divider's names (absent in subagent
+     *  transcripts — dividers then fall back to raw model ids). */
+    models?: OpencodeModel[];
 }) {
     // An assistant message still lacks its completion stamp while the
     // session is working — that's the streaming state (caret / thinking).
@@ -112,7 +117,7 @@ const TranscriptList = memo(function TranscriptList({
                         />
                     );
                     if (isAssistantMessage(block.message)) runEndId = block.message.id;
-                } else {
+                } else if (block.kind === "activity") {
                     const entries: ActivityEntry[] = [];
                     for (const m of block.messages) {
                         m.content.forEach((part, i) => {
@@ -146,13 +151,27 @@ const TranscriptList = memo(function TranscriptList({
                         />
                     );
                     runEndId = block.messages[block.messages.length - 1].id;
+                } else {
+                    element = (
+                        <ModelChangeDivider
+                            from={block.from}
+                            to={block.to}
+                            models={models}
+                            colors={colors}
+                            enter={enterIds.has(block.id)}
+                        />
+                    );
                 }
                 const run = runEndId !== null ? footers.get(runEndId) : undefined;
                 const footerEnter = runEndId !== null && footerEnterIds.has(runEndId);
                 // Key stays the block's FIRST message id — for a growing
                 // activity run the last id changes per step and would
-                // remount the whole block.
-                const key = block.kind === "message" ? block.message.id : block.messages[0].id;
+                // remount the whole block. A divider keys by its marker id.
+                const key = block.kind === "message"
+                    ? block.message.id
+                    : block.kind === "activity"
+                        ? block.messages[0].id
+                        : `model:${block.id}`;
                 return (
                     <Fragment key={key}>
                         {element}

@@ -9,6 +9,7 @@ import type {
     ChatUserMessage,
     ComposerAttachment,
     ComposerFileRef,
+    EventMap,
     PendingCommand,
 } from "./types.ts";
 
@@ -55,6 +56,25 @@ function entryOf(sessionId: string): SessionEntry {
 
 function notify(sessionId: string) {
     for (const listener of listeners) listener(sessionId);
+}
+
+/** Pull the newest server page and merge it into a session's store —
+ *  shared by the mount seed and the model-switch refresh. `entry.seq`
+ *  supersedes overlapping requests, so only the latest one applies. */
+function requestSeed(api: OpencodeApi, sessionId: string): void {
+    const entry = entryOf(sessionId);
+    const seq = ++entry.seq;
+    api.listMessagesPage(sessionId).then((page) => {
+        if (seq !== entry.seq) return; // superseded by a newer request
+        const merged = applySeedPage(entry.messages, page);
+        entry.messages = merged.messages;
+        entry.cursor = merged.cursor;
+        entry.seeded = true;
+        notify(sessionId);
+    }).catch((e) => {
+        if (seq !== entry.seq) return;
+        logError(`Failed to load messages for ${sessionId}: ${e}`).catch(() => {});
+    });
 }
 
 /** The single bus handler, installed once per app run (`subscribe` is
@@ -225,20 +245,23 @@ export function useSessionMessages(
     // store missed (e.g. across an event-stream gap) is adopted.
     useEffect(() => {
         if (!api || !sessionId) return;
-        const entry = entryOf(sessionId);
-        const seq = ++entry.seq;
-        api.listMessagesPage(sessionId).then((page) => {
-            if (seq !== entry.seq) return; // superseded by a newer request
-            const merged = applySeedPage(entry.messages, page);
-            entry.messages = merged.messages;
-            entry.cursor = merged.cursor;
-            entry.seeded = true;
-            notify(sessionId);
-        }).catch((e) => {
-            if (seq !== entry.seq) return;
-            logError(`Failed to load messages for ${sessionId}: ${e}`).catch(() => {});
-        });
+        requestSeed(api, sessionId);
     }, [api, sessionId]);
+
+    // A model switch persists a `model-switched` marker message and
+    // publishes `session.model.selected` WITHOUT a message frame; re-pull
+    // the newest page so the transcript's divider appears right away.
+    // The marker is committed before the event is published and the page
+    // carries its server id, so nothing client-side can duplicate it.
+    useEffect(() => {
+        if (!api || !sessionId) return;
+        return subscribe((event) => {
+            if (event.type !== "session.model.selected") return;
+            const data = event.data as EventMap["session.model.selected"] | null;
+            if (data?.sessionID !== sessionId) return;
+            requestSeed(api, sessionId);
+        });
+    }, [api, sessionId, subscribe]);
 
     /** Fetch the next-older page and prepend it (ascending order). */
     const loadOlder = useCallback(() => {

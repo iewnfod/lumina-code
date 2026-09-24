@@ -422,7 +422,27 @@ export interface ChatMarkerMessage {
     [key: string]: unknown;
 }
 
+/** The server's persisted model-switch marker (one per `POST
+ *  /api/session/{id}/model`, the switch's commit). The transcript renders
+ *  it as one divider between the old and new model; `previous` is absent
+ *  on the session's very first selection. Deliberately a type alias, not
+ *  an interface: aliases satisfy `ChatMarkerMessage`'s implicit index
+ *  signature, which is what the {@link isModelSwitched} predicate needs. */
+export type ChatModelSwitchedMessage = {
+    id: string;
+    type: "model-switched";
+    model: SessionModelRef;
+    previous?: SessionModelRef;
+    time?: {created?: number};
+};
+
 export type ChatMessage = ChatUserMessage | ChatAssistantMessage | ChatMarkerMessage;
+
+/** Narrow a marker message to the persisted model-switch shape (see
+ *  ChatModelSwitchedMessage). */
+export function isModelSwitched(m: ChatMessage): m is ChatModelSwitchedMessage {
+    return m.type === "model-switched";
+}
 
 export function isUserMessage(m: ChatMessage): m is ChatUserMessage {
     return m.type === "user";
@@ -439,6 +459,11 @@ export function isAssistantMessage(m: ChatMessage): m is ChatAssistantMessage {
 export interface EventMap {
     "session.created": {sessionID: string};
     "session.updated": {sessionID: string};
+    /** The session's model was switched. The switch's commit also persists
+     *  a `model-switched` marker message, but the event carries no message
+     *  frame — consumers re-pull the newest page to pick it up (see
+     *  useSessionMessages). `previous` is absent on the first selection. */
+    "session.model.selected": {sessionID: string; model: SessionModelRef; previous?: SessionModelRef};
     "session.deleted": {sessionID: string};
     "session.renamed": {sessionID: string; title: string};
     "session.inbox.enqueued": {

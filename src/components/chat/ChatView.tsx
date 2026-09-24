@@ -127,10 +127,16 @@ const ChatView = memo(function ChatView({
         expansionToken: renderLimit,
     });
 
-    const visible = messages.filter((m) => m.type === "user" || m.type === "assistant");
+    // The transcript renders user/assistant content plus the persisted
+    // `model-switched` markers (blockify turns usable ones into the
+    // mid-session model-change dividers; the rest are dropped there).
+    const visible = messages.filter(
+        (m) => m.type === "user" || m.type === "assistant" || m.type === "model-switched",
+    );
     // The project picker stays available until the conversation starts —
-    // i.e. until the first message lands (not just on the welcome screen).
-    const hasConversation = visible.length > 0;
+    // i.e. until the first message lands (not just on the welcome screen);
+    // a model-switch marker alone is not a conversation.
+    const hasConversation = messages.some((m) => m.type === "user" || m.type === "assistant");
 
     // The ring's reading: the last assistant step that reported usage
     // (official-client semantics — see lastContextMessage). Double memo so
@@ -242,6 +248,7 @@ const ChatView = memo(function ChatView({
                         colors={colors}
                         busy={busy}
                         directory={directory}
+                        models={models}
                     />
                 </div>
             </div>
