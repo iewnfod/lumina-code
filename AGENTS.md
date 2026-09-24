@@ -92,6 +92,30 @@ src/
 ├── i18n/                  # en-us.ts (source of truth: keys ARE the English
 │                          #   strings) + zh-cn.ts (partial OK; per-lookup fallback)
 │
+├── plugins/               # Plugin SOURCES shipped with the app (plain JS, no
+│   └── luminaTools.js     #   imports — a bare default export loads on server
+│                          #   v2.0.11). The custom-tools host: Model settings →
+│                          #   Tools writes it verbatim under the global config's
+│                          #   `plugins/lumina-tools/` and references it from
+│                          #   opencode.json's `plugins` array with per-tool
+│                          #   options; the server hot-reloads on config change.
+│                          #   TOOLS registry inside = one entry per tool
+│                          #   (enabled/agentId/tool). v2.0.11 facts encoded
+│                          #   here: plugin tools default to CODE MODE exposure
+│                          #   — `codemode: false` makes them NATIVE tools
+│                          #   (verified live; the code-mode path has a step
+│                          #   budget and degrades to hallucinated text when
+│                          #   exhausted); the agent transform has no add() —
+│                          #   restricted helper agents are defined in the
+│                          #   config's `agents` section (written by
+│                          #   toolPluginConfig.ts); the plugin ctx has no
+│                          #   session delete — helper sessions carry
+│                          #   metadata {source: "lumina-tools"} and the
+│                          #   frontend deletes them (useSessions.ts). First
+│                          #   resident: vision (识图) — a text-only model asks
+│                          #   a configured vision model about an image file
+│                          #   via a transient helper session (askModel).
+│
 ├── opencode/              # THE domain layer — everything talking to the server
 │   ├── api.ts             # OpencodeApi: hand-rolled typed REST client (fetch +
 │   │                      #   basic auth, `{"data": …}` envelope unwrap).
@@ -105,6 +129,22 @@ src/
 │   │                      #   filtered client-side); questions are forms on this
 │   │                      #   server generation; GET /api/session/active seeds busy
 │   │                      #   state predating the event stream.
+│   ├── configFiles.ts     # globalConfigTarget — where the global opencode.json
+│   │                      #   lives, derived from GET /api/config (pure; shared
+│   │                      #   by the settings config editor and the attachment
+│   │                      #   divert). node-testable via its consumers.
+│   ├── visionAttachments.ts # The vision tool's sending half (pure planning +
+│   │                      #   one api-bound writer): when the model a prompt is
+│   │                      #   bound for lacks image input (catalog
+│   │                      #   capabilities.input; unknown = keep inline, zero
+│   │                      #   regression), image attachments are NOT inlined as
+│   │                      #   prompt parts but written under the global
+│   │                      #   config's attachments/ (api.writeBinaryFile) and a
+│   │                      #   one-line note with the saved paths is appended to
+│   │                      #   the prompt — the model then calls the vision tool
+│   │                      #   on them. A failed write falls back to inline.
+│   │                      #   Wired into BOTH send paths (ChatView.handleSend,
+│   │                      #   useSessionFlow.sendFirst). node-testable.
 │   ├── eventStream.ts     # SSE transport: OpencodeEvent envelope +
 │   │                      #   streamServerEvents (fetch-based; the Authorization
 │   │                      #   header rules out native EventSource) with backoff
@@ -132,7 +172,12 @@ src/
 │   │                      #   events surface async exits as {state:"error"}.
 │   ├── useSessions.ts     # Sidebar list: seeded from GET /api/session, live-patched
 │   │                      #   from the bus; root sessions only (subagent children carry
-│   │                      #   parentID and would flood the list); busy set seeded from
+│   │                      #   parentID and would flood the list; the tools plugin's
+│   │                      #   helper sessions hide via their {source:
+│   │                      #   "lumina-tools"} metadata marker — and are DELETED
+│   │                      #   by this hook once their execution ends, plus a
+│   │                      #   one-per-connection sweep of leftovers, because
+│   │                      #   v2.0.11's plugin API has no session delete); busy set seeded from
 │   │                      #   GET /api/session/active (a stale busy id blocks the
 │   │                      #   composer forever — the seed must not resurrect ids watched
 │   │                      #   end); create/remove/patch (optimistic model/agent).
@@ -711,7 +756,13 @@ src/
     │                      #   (picker visibility via useDisabledModels);
     │                      #   custom OpenAI-compatible providers written to
     │                      #   the global opencode.json (server hot-reloads →
-    │                      #   config.updated event).
+    │                      #   config.updated event); THIRD tab Tools — the
+    │                      #   custom-tools surface (ToolsTab): configures
+    │                      #   Lumina Code's plugin tools, currently the
+    │                      #   vision model (picker over image-capable
+    │                      #   catalog models + Off), which writes the
+    │                      #   plugin file + merges its entry/agent into the
+    │                      #   global config via toolPluginConfig.ts.
     ├── AboutSettings.tsx # About pane: centered identity hero (icon +
     │                      #   name + app version via getVersion), the
     │                      #   OpenCode server version as a key/value line,
@@ -723,9 +774,18 @@ src/
     ├── Switch.tsx        # The settings pill switch (extracted from
     │                      #   ModelSettings when General needed one too).
     ├── TextInput.tsx     # The settings boxed text input (same extraction).
-    └── modelConfig.ts    # Pure model-config logic: integration search,
-                          #   custom-provider config merge/remove/read-back,
-                          #   global-config-target discovery. node-testable.
+    ├── modelConfig.ts    # Pure model-config logic: integration search,
+    │                      #   custom-provider config merge/remove/read-back
+    │                      #   (globalConfigTarget itself lives in
+    │                      #   opencode/configFiles.ts). node-testable.
+    └── toolPluginConfig.ts # Pure custom-tools config logic: the
+                           #   lumina-tools plugin entry upsert/remove/
+                           #   read-back in the global opencode.json's
+                           #   `plugins` array (per-tool options, foreign
+                           #   entries preserved) + the restricted helper
+                           #   agents in the config's `agents` section
+                           #   (v2.0.11 has no plugin-side agent add) +
+                           #   the vision-capable model filter. node-testable.
 ```
 
 ### Backend (`src-tauri/src/`)

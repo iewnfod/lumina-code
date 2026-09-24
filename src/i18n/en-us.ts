@@ -4,10 +4,6 @@
  * a key falls back to English instead of rendering nothing.
  */
 const enUs = {
-    "Command Palette": "Command Palette",
-    "Pin on Top": "Pin on Top",
-    "Unpin from Top": "Unpin from Top",
-    "Always on top is not supported on Wayland": "Always on top is not supported on Wayland",
     "New Session": "New Session",
     "Other Sessions": "Other Sessions",
     "Show more": "Show more",
@@ -194,6 +190,14 @@ const enUs = {
     "No output": "No output",
     "Output unavailable": "Output unavailable",
     "Collapse": "Collapse",
+    // --- Custom tools (Model settings → Tools) ---
+    "Tools": "Tools",
+    "Vision": "Vision",
+    "Vision model": "Vision model",
+    "Adds a vision tool that text-only models can call to see images": "Adds a vision tool that text-only models can call to see images",
+    "Off": "Off",
+    "No vision-capable models found": "No vision-capable models found",
+    "Custom tools are stored in the global OpenCode config": "Custom tools are stored in the global OpenCode config",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;

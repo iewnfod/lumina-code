@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useRef, useState} from "react";
-import {error as logError, info} from "@tauri-apps/plugin-log";
+import {error as logError, info, warn as logWarn} from "@tauri-apps/plugin-log";
 import type {OpencodeApi} from "./api.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {EventMap, OpencodeSession} from "./types.ts";
@@ -9,9 +9,13 @@ import type {EventMap, OpencodeSession} from "./types.ts";
  * (explore/review/…) spawn child sessions with `parentID` set, which would
  * otherwise flood the list with internal transcripts. The server's
  * `?roots=true` filter does not work on v2.0.x, so filter client-side.
+ * Transient helper sessions created by Lumina Code's tools plugin (the
+ * vision delegation) are filtered the same way — via their
+ * `{source: "lumina-tools"}` metadata marker (v2.0.11's public create API
+ * ignores `parentID`, so the marker is the only hiding mechanism).
  */
 function isRootSession(s: OpencodeSession): boolean {
-    return !s.parentID;
+    return !s.parentID && s.metadata?.["source"] !== "lumina-tools";
 }
 
 /**
@@ -56,6 +60,57 @@ export function useSessions(
     // busy id would block that session's composer forever, so the seed
     // must not resurrect an id we watched end.
     const endedIdsRef = useRef<Set<string>>(new Set());
+    // Transient helper sessions of Lumina Code's tools plugin (the vision
+    // delegation), tracked from every raw list so their execution-end
+    // events can schedule a delete (the plugin API has no session delete
+    // on v2.0.11). One startup sweep also collects leftovers from a
+    // crashed/quit run.
+    const toolSessionIdsRef = useRef<Set<string>>(new Set());
+    const toolSweepDoneRef = useRef(false);
+
+    /** Delete a helper session after `delayMs` — late enough that the
+     * tool's reply read (session.context inside the plugin) has long
+     * landed, since execution-end fires before the plugin finishes. */
+    const deleteToolSession = useCallback((id: string, delayMs: number) => {
+        window.setTimeout(() => {
+            const a = apiRef.current;
+            if (!a) return;
+            a.deleteSession(id).then(() => {
+                info(`Deleted tool-helper session ${id}`).catch(() => {});
+            }).catch((e) => {
+                logWarn(`Failed to delete tool-helper session ${id}: ${e}`).catch(() => {});
+            });
+        }, delayMs);
+    }, []);
+
+    /** Refresh the helper-session tracker (and, once per connection, the
+     * leftover sweep — a run interrupted by quitting Lumina Code leaves
+     * its helper sessions behind; they are idle by then). */
+    const trackToolSessions = useCallback((raw: OpencodeSession[]) => {
+        const marked = raw.filter(
+            (s) => !s.parentID && s.metadata?.["source"] === "lumina-tools",
+        );
+        toolSessionIdsRef.current = new Set(marked.map((s) => s.id));
+        if (marked.length === 0 || toolSweepDoneRef.current) return;
+        toolSweepDoneRef.current = true;
+        const a = apiRef.current;
+        if (!a) return;
+        a.listActiveSessions().then((active) => {
+            const busy = new Set(Object.keys(active ?? {}));
+            let swept = 0;
+            for (const s of marked) {
+                if (!busy.has(s.id)) {
+                    swept += 1;
+                    deleteToolSession(s.id, 0);
+                }
+            }
+            if (swept > 0) {
+                info(`Sweeping ${swept} leftover tool-helper session(s)`).catch(() => {});
+            }
+        }).catch((e) => {
+            logWarn(`Tool-helper sweep skipped (active-sessions read failed): ${e}`).catch(() => {});
+        });
+    }, [deleteToolSession]);
 
     // Re-list helper: root sessions only, server order (most recently
     // updated first).
@@ -64,10 +119,11 @@ export function useSessions(
         if (!a) return Promise.resolve();
         return a.listSessions().then((list) => {
             setSessions((list ?? []).filter(isRootSession));
+            trackToolSessions(list ?? []);
         }).catch((e) => {
             logError(`Failed to load sessions: ${e}`).catch(() => {});
         });
-    }, []);
+    }, [trackToolSessions]);
 
     // Seed once connected (api flips from null → client).
     useEffect(() => {
@@ -77,6 +133,7 @@ export function useSessions(
             if (cancelled) return;
             const roots = (list ?? []).filter(isRootSession);
             setSessions(roots);
+            trackToolSessions(list ?? []);
             setLoaded(true);
             info(`Loaded ${roots.length} OpenCode session(s) (${(list?.length ?? 0) - roots.length} subagent session(s) hidden)`).catch(() => {});
         }).catch((e) => {
@@ -171,6 +228,12 @@ export function useSessions(
                     // shutdown — the run is over either way.
                     const {sessionID} = event.data as {sessionID: string};
                     endedIdsRef.current.add(sessionID);
+                    // A tools-plugin helper session finished its one turn —
+                    // the owning tool reads its reply within milliseconds;
+                    // the delayed delete never races that read in practice.
+                    if (toolSessionIdsRef.current.has(sessionID)) {
+                        deleteToolSession(sessionID, 10_000);
+                    }
                     setBusyIds((prev) => {
                         if (!prev.has(sessionID)) return prev;
                         const next = new Set(prev);
@@ -181,7 +244,7 @@ export function useSessions(
                 }
             }
         });
-    }, [subscribe]);
+    }, [subscribe, deleteToolSession]);
 
     const create = useCallback(async (directory?: string) => {
         const a = apiRef.current;

@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useMemo, useState} from "react";
 import {AnimatePresence, motion} from "framer-motion";
-import {ArrowLeft, Globe, Search, Trash2} from "lucide-react";
+import {ArrowLeft, Globe, ScanEye, Search, Trash2} from "lucide-react";
 import {openPath, openUrl} from "@tauri-apps/plugin-opener";
 import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
@@ -31,6 +31,17 @@ import {
     type CustomProviderDef,
     type GlobalConfigTarget,
 } from "./modelConfig.ts";
+import {
+    freshConfigWithToolsPlugin,
+    luminaToolsPluginPath,
+    LUMINA_TOOLS_PLUGIN_DIR,
+    mergeLuminaToolsPlugin,
+    readLuminaToolsOptions,
+    visionCapableModels,
+} from "./toolPluginConfig.ts";
+// The plugin host shipped with the app — written verbatim under the
+// global config's `plugins/` when a tool is configured here (see ToolsTab).
+import luminaToolsPluginSource from "../../plugins/luminaTools.js?raw";
 
 /** Default package for custom providers — any OpenAI-compatible API. */
 const DEFAULT_NPM = "@ai-sdk/openai-compatible";
@@ -60,7 +71,7 @@ export default function ModelSettings({
     colors: SurfaceColors;
 }) {
     const t = useI18n();
-    const [tab, setTab] = useState<"providers" | "custom">("providers");
+    const [tab, setTab] = useState<"providers" | "custom" | "tools">("providers");
 
     // --- Providers tab ---
     const [integrations, setIntegrations] = useState<IntegrationInfo[] | null>(null);
@@ -229,7 +240,7 @@ export default function ModelSettings({
                 </div>
             ) : (
                 <div className="flex items-center gap-1 px-4 pt-3 shrink-0">
-                {(["providers", "custom"] as const).map((key) => (
+                {(["providers", "custom", "tools"] as const).map((key) => (
                     <motion.button
                         key={key}
                         type="button"
@@ -248,7 +259,7 @@ export default function ModelSettings({
                                 : {"--lum-tab-hover": colors.hoverOverlay, color: colors.inactiveText} as React.CSSProperties
                         }
                     >
-                        {key === "providers" ? t["Providers"] : t["Custom"]}
+                        {key === "providers" ? t["Providers"] : key === "custom" ? t["Custom"] : t["Tools"]}
                     </motion.button>
                 ))}
                 </div>
@@ -496,9 +507,212 @@ export default function ModelSettings({
                         </div>
                     )
                 )}
+
+                {tab === "tools" && (
+                    <ToolsTab
+                        api={api}
+                        colors={colors}
+                        target={target}
+                        rawConfig={rawConfig}
+                        configError={configError}
+                        onActionError={setActionError}
+                        onBusyChange={setBusy}
+                        onSaved={loadConfig}
+                    />
+                )}
                 </div>
                 </motion.div>
             </AnimatePresence>
+        </div>
+    );
+}
+
+/**
+ * The Tools tab — Lumina Code's custom tools (src/plugins/luminaTools.js):
+ * configuring a tool writes the plugin under the global config's
+ * `plugins/` and merges its entry (+ the tool's restricted helper agent)
+ * into the global opencode.json; the server hot-reloads both, so the
+ * tool appears for models without a restart. One section per tool —
+ * vision is the first resident.
+ */
+function ToolsTab({
+    api,
+    colors,
+    target,
+    rawConfig,
+    configError,
+    onActionError,
+    onBusyChange,
+    onSaved,
+}: {
+    api: OpencodeApi | null;
+    colors: SurfaceColors;
+    target: GlobalConfigTarget | null;
+    rawConfig: string | null;
+    configError: boolean;
+    onActionError: (message: string | null) => void;
+    onBusyChange: (busy: boolean) => void;
+    onSaved: () => void;
+}) {
+    const t = useI18n();
+    const [models, setModels] = useState<OpencodeModel[] | null>(null);
+    const [modelsFailed, setModelsFailed] = useState(false);
+    const [busy, setBusy] = useState(false);
+
+    useEffect(() => {
+        if (!api) return;
+        let cancelled = false;
+        api.listModels().then((list) => {
+            if (cancelled) return;
+            setModels(visionCapableModels(list ?? []));
+            setModelsFailed(false);
+        }).catch((e) => {
+            if (cancelled) return;
+            setModelsFailed(true);
+            logError(`Failed to list models for the tools tab: ${e}`).catch(() => {});
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [api]);
+
+    const pluginPath = target ? luminaToolsPluginPath(target.directory) : "";
+    const current = useMemo(
+        () => readLuminaToolsOptions(rawConfig ?? "", pluginPath)?.vision?.model ?? "",
+        [rawConfig, pluginPath],
+    );
+
+    /** Write the plugin file (only when it differs — the server's watcher
+     *  reloads on every write) and merge the config entry; a failure on
+     *  either write surfaces the error and changes nothing. */
+    const choose = (model: string) => {
+        if (!api || !target || busy) return;
+        if (rawConfig === null) {
+            onActionError(t["Failed to load config"]);
+            return;
+        }
+        const options = model ? {vision: {model}} : {};
+        const text = rawConfig === ""
+            ? freshConfigWithToolsPlugin(pluginPath, options)
+            : mergeLuminaToolsPlugin(rawConfig, pluginPath, options);
+        if (text === null) {
+            onActionError(t["The config file uses JSONC (comments) and cannot be edited here. Open it to edit manually."]);
+            return;
+        }
+        setBusy(true);
+        onBusyChange(true);
+        const pluginDir = `${target.directory.replace(/\/+$/, "")}/${LUMINA_TOOLS_PLUGIN_DIR}`;
+        // v2.0.11 quirk: fs/read on a directory that doesn't exist yet
+        // (first-ever save) returns 500, not 404 — treat ANY read failure
+        // as "not there" and let the authoritative write below run.
+        api.readTextFile(pluginDir, "index.js")
+            .catch(() => null)
+            .then((existing) =>
+                existing === luminaToolsPluginSource
+                    ? Promise.resolve()
+                    : api.writeTextFile(`${pluginDir}/index.js`, luminaToolsPluginSource),
+            )
+            .then(() => api.writeTextFile(target.file, text))
+            .then(() => {
+                logInfo(`Saved lumina-tools config (vision: ${model || "off"}) to ${target.file}`).catch(() => {});
+                onActionError(null);
+                onSaved();
+            })
+            .catch((e) => {
+                onActionError(`${t["Save failed"]}: ${e}`);
+                logError(`Failed to save custom-tools config: ${e}`).catch(() => {});
+            })
+            .finally(() => {
+                setBusy(false);
+                onBusyChange(false);
+            });
+    };
+
+    if (target?.jsonc) {
+        return (
+            <p className="text-xs leading-relaxed py-2" style={{color: colors.inactiveText}}>
+                {t["The config file uses JSONC (comments) and cannot be edited here. Open it to edit manually."]}
+            </p>
+        );
+    }
+    if (rawConfig === null) {
+        return (
+            <p className="text-xs py-4 text-center" style={{color: colors.inactiveText}}>
+                {configError ? t["Failed to load config"] : t["Loading..."]}
+            </p>
+        );
+    }
+
+    const row = (key: string, label: string, sub: string | undefined, selected: boolean, onClick: () => void) => (
+        <motion.button
+            key={key}
+            type="button"
+            disabled={busy}
+            onClick={onClick}
+            {...whileHoverTap}
+            className="flex items-center justify-between gap-2 w-full px-2.5 py-2 rounded-[var(--radius-sm)] text-left cursor-pointer transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-row-hover)] disabled:opacity-50"
+            style={{"--lum-row-hover": colors.hoverOverlay} as React.CSSProperties}
+        >
+            <span className="min-w-0 flex-1 truncate leading-normal text-xs">
+                {label}
+                {sub && (
+                    <span className="block text-[10px] truncate leading-normal" style={{color: colors.inactiveText}}>
+                        {sub}
+                    </span>
+                )}
+            </span>
+            {selected && (
+                <span
+                    className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-[var(--radius-xs)]"
+                    style={{
+                        background: colors.accentOverlay,
+                        color: colors.dark ? "rgba(255,255,255,0.75)" : "rgba(0,0,0,0.7)",
+                    }}
+                >
+                    {t["Enabled"]}
+                </span>
+            )}
+        </motion.button>
+    );
+
+    return (
+        <div className="flex flex-col gap-2">
+            <section className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-2 px-0.5">
+                    <ScanEye size={14} className="shrink-0 opacity-60"/>
+                    <span className="text-xs font-medium">{t["Vision model"]}</span>
+                </div>
+                <p className="text-[10px] leading-relaxed px-0.5" style={{color: colors.inactiveText}}>
+                    {t["Adds a vision tool that text-only models can call to see images"]}
+                </p>
+                {models === null && !modelsFailed && (
+                    <p className="text-xs py-1" style={{color: colors.inactiveText}}>{t["Loading..."]}</p>
+                )}
+                {modelsFailed && (
+                    <p className="text-xs py-1" style={{color: colors.inactiveText}}>{t["Failed to load models"]}</p>
+                )}
+                {models !== null && models.length === 0 && (
+                    <p className="text-xs py-1" style={{color: colors.inactiveText}}>
+                        {t["No vision-capable models found"]}
+                    </p>
+                )}
+                <div className="flex flex-col">
+                    {row("off", t["Off"], undefined, current === "", () => choose(""))}
+                    {models?.map((m) => {
+                        const key = `${m.providerID}/${m.modelID}`;
+                        return row(
+                            key,
+                            m.name ?? m.modelID,
+                            key,
+                            current === key,
+                            () => choose(key),
+                        );
+                    })}
+                </div>
+            </section>
+            <p className="text-[10px] pt-1" style={{color: colors.inactiveText}}>
+                {t["Custom tools are stored in the global OpenCode config"]}
+            </p>
         </div>
     );
 }

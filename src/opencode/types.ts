@@ -313,6 +313,12 @@ export interface OpencodeSession {
     projectID: string;
     /** Set on subagent-spawned child sessions; roots (user-initiated) have none. */
     parentID?: string;
+    /** Free-form markers. Lumina Code's tools plugin stamps
+     * `{source: "lumina-tools", tool: …}` on its transient helper
+     * sessions (the vision delegation) — the sidebar filters them out
+     * and useSessions deletes them once idle (the plugin API on v2.0.11
+     * has no session delete). */
+    metadata?: Record<string, unknown>;
     directory?: string;
     location?: {directory?: string; workspace?: string};
     agent?: string;

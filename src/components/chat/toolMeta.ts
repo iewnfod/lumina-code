@@ -6,6 +6,7 @@ import {
     Globe,
     ListTodo,
     MessageCircleQuestion,
+    ScanEye,
     Search,
     Sparkles,
     SquareTerminal,
@@ -47,6 +48,9 @@ export const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon}
     // generic wrench so its FoldRow reads as a question, not a tool call.
     question: {title: "Question", icon: MessageCircleQuestion},
     skill: {title: "Skill", icon: Sparkles},
+    // Lumina Code's tools plugin: image inspection via a vision-capable
+    // helper model (see src/plugins/luminaTools.js).
+    vision: {title: "Vision", icon: ScanEye},
 };
 
 /** Display title for a tool name (used by ActivityGroup's summary too).

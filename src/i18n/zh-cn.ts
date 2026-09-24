@@ -6,10 +6,6 @@ import type {TranslationKey} from "./en-us.ts";
  * without breaking the UI or the build.
  */
 const zhCn: Partial<Record<TranslationKey, string>> = {
-    "Command Palette": "命令面板",
-    "Pin on Top": "窗口置顶",
-    "Unpin from Top": "取消置顶",
-    "Always on top is not supported on Wayland": "Wayland 下不支持窗口置顶",
     "New Session": "新建会话",
     "Other Sessions": "其他会话",
     "Show more": "显示更多",
@@ -195,6 +191,14 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "No output": "暂无输出",
     "Output unavailable": "输出不可用",
     "Collapse": "收起",
+    // --- Custom tools (Model settings → Tools) ---
+    "Tools": "工具",
+    "Vision": "识图",
+    "Vision model": "识图模型",
+    "Adds a vision tool that text-only models can call to see images": "提供识图工具：纯文字模型可以调用它查看图片",
+    "Off": "关闭",
+    "No vision-capable models found": "没有支持图片输入的模型",
+    "Custom tools are stored in the global OpenCode config": "自定义工具保存在 OpenCode 全局配置中",
 };
 
 export default zhCn;

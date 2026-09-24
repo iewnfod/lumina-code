@@ -512,7 +512,9 @@ export class OpencodeApi {
      *  to the location — unlike fs/write). Returns null when the file
      *  doesn't exist (404); other failures throw. Callers MUST NOT treat
      *  a failed read as "absent" — rewriting on that assumption would
-     *  clobber a config we failed to read. */
+     *  clobber a config we failed to read. v2.0.11 quirk: a directory
+     *  that doesn't exist yet yields 500, NOT 404 (first-save flows must
+     *  catch and treat as absent themselves — see ToolsTab). */
     async readTextFile(directory: string, name: string): Promise<string | null> {
         const params = new URLSearchParams({"location[directory]": directory});
         try {
@@ -533,6 +535,18 @@ export class OpencodeApi {
             method: "POST",
             headers: {"Content-Type": "application/octet-stream"},
             body: content,
+        });
+    }
+
+    /** Binary twin of {@link writeTextFile} for raw bytes (image
+     * attachments diverted for the vision tool) — same octet-stream
+     * fs/write endpoint. */
+    writeBinaryFile(absolutePath: string, bytes: Uint8Array<ArrayBuffer>): Promise<void> {
+        const params = new URLSearchParams({path: absolutePath});
+        return this.request<void>(`/api/experimental/fs/write?${params.toString()}`, {
+            method: "POST",
+            headers: {"Content-Type": "application/octet-stream"},
+            body: new Blob([bytes]),
         });
     }
 }

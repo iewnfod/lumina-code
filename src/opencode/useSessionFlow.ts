@@ -4,6 +4,7 @@ import {loadState, saveState} from "../lib/persist.ts";
 import {OpencodeApi} from "./api.ts";
 import {prepareCommandSubmission} from "./useSessionMessages.ts";
 import {useSessions} from "./useSessions.ts";
+import {divertAttachmentsForSend, modelAcceptsImages} from "./visionAttachments.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {
     ComposerAttachment,
@@ -164,7 +165,9 @@ export function useSessionFlow(
 
     /** First send from the welcome screen: create the session (in the chosen
      *  directory), apply the staged model/agent, then deliver the prompt
-     *  (or run a slash command server-side). */
+     *  (or run a slash command server-side). Image attachments divert to
+     *  disk when the staged model is text-only (a vision-tool note is
+     *  appended), exactly like an in-session send. */
     const sendFirst = useCallback(async (
         text: string,
         files: ComposerAttachment[],
@@ -185,8 +188,14 @@ export function useSessionFlow(
             });
         }
         setActiveId(created.id);
+        const {inline, note} = await divertAttachmentsForSend({
+            api,
+            attachments: files,
+            acceptsImages: modelAcceptsImages(models, pendingModel),
+        });
+        const deliveredText = note ? `${text}\n\n${note}` : text;
         const promptFiles = [
-            ...files.map((f) => ({uri: f.uri, name: f.name})),
+            ...inline.map((f) => ({uri: f.uri, name: f.name})),
             ...fileRefs.map((r) => OpencodeApi.fileRefToPromptFile(r)),
         ];
         // Stamp the compact form BEFORE the request: the server enqueues
@@ -198,19 +207,19 @@ export function useSessionFlow(
         // session with nothing in it — deliver the raw text as a plain
         // prompt so the model can interpret it instead.
         const deliver = (async () => {
-            if (!command) return api.sendPrompt(created.id, text, promptFiles);
+            if (!command) return api.sendPrompt(created.id, deliveredText, promptFiles);
             try {
                 await api.runSessionCommand(created.id, command.name, command.arguments);
             } catch (e) {
                 error(`Command ${command.name} failed, sending as prompt: ${e}`).catch(() => {});
                 undoPending?.(); // the fallback is a plain prompt now
-                await api.sendPrompt(created.id, text, promptFiles);
+                await api.sendPrompt(created.id, deliveredText, promptFiles);
             }
         })();
         await deliver.catch((e) => {
             error(`Failed to send prompt: ${e}`).catch(() => {});
         });
-    }, [api, create, pendingAgent, pendingDirectory, pendingModel]);
+    }, [api, create, models, pendingAgent, pendingDirectory, pendingModel]);
 
     const deleteSession = useCallback((id: string) => {
         void remove(id);

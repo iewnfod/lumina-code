@@ -6,6 +6,7 @@ import {useTranscriptScroll} from "../../hooks/useTranscriptScroll.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
+import {divertAttachmentsForSend, modelAcceptsImages} from "../../opencode/visionAttachments.ts";
 import type {
     ComposerAttachment,
     ComposerFileRef,
@@ -163,8 +164,20 @@ const ChatView = memo(function ChatView({
             files: ComposerAttachment[],
             fileRefs: ComposerFileRef[],
             command: PendingCommand | null,
-        ) => void send(text, files, fileRefs, command),
-        [send],
+        ) => {
+            // Text-only model + image attachments: divert them to disk and
+            // append the vision-tool note instead of inlining (which the
+            // provider would drop or reject). Falls back to inline on any
+            // failure, so the message always goes out.
+            void divertAttachmentsForSend({
+                api,
+                attachments: files,
+                acceptsImages: modelAcceptsImages(models, model),
+            }).then(({inline, note}) => {
+                void send(note ? `${text}\n\n${note}` : text, inline, fileRefs, command);
+            });
+        },
+        [send, api, models, model],
     );
     const handleInterrupt = useCallback(() => void interrupt(), [interrupt]);
 

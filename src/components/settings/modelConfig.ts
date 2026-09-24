@@ -1,4 +1,5 @@
-import type {IntegrationInfo, OpencodeConfigEntry, OpencodeModel} from "../../opencode/types.ts";
+import type {IntegrationInfo, OpencodeModel} from "../../opencode/types.ts";
+import {globalConfigTarget, type GlobalConfigTarget} from "../../opencode/configFiles.ts";
 
 /**
  * Pure helpers for the model-configuration modal: integration search, and
@@ -8,6 +9,10 @@ import type {IntegrationInfo, OpencodeConfigEntry, OpencodeModel} from "../../op
  * global config — read (fs/read), merge here, write (fs/write); the server
  * hot-reloads the file within ~2s. node-testable.
  */
+
+export {globalConfigTarget, type GlobalConfigTarget};
+
+/** One model entry of a custom provider (`models: {"<id>": {name}}`). */
 
 /** One model entry of a custom provider (`models: {"<id>": {name}}`). */
 export interface CustomProviderModelDef {
@@ -27,27 +32,6 @@ export interface CustomProviderDef {
     npm: string;
     baseURL: string;
     models: CustomProviderModelDef[];
-}
-
-/** Where the global config lives, derived from `GET /api/config` (entries
- *  are ordered lowest → highest priority; the FIRST entry is always the
- *  global location). `jsonc` marks a document we must not machine-rewrite
- *  (comments would be destroyed). */
-export interface GlobalConfigTarget {
-    directory: string;
-    file: string;
-    jsonc: boolean;
-}
-
-export function globalConfigTarget(entries: OpencodeConfigEntry[]): GlobalConfigTarget | null {
-    const first = entries[0];
-    if (!first) return null;
-    if (first.type === "document") {
-        const dir = first.path.split("/").slice(0, -1).join("/");
-        return {directory: dir, file: first.path, jsonc: !first.path.endsWith(".json")};
-    }
-    const dir = first.path.replace(/\/+$/, "");
-    return {directory: dir, file: `${dir}/opencode.json`, jsonc: false};
 }
 
 /** Parse the raw config text into its root object; null when it isn't
