@@ -54,3 +54,35 @@ export function setStatsPanelMode(mode: StatsPanelMode): void {
     logInfo(`Stats panel mode set to ${mode}`).catch(() => {});
     for (const listener of listeners) listener();
 }
+
+// --- Manual expansion (survives the card's remounts) ----------------------
+// App keys the stats card by DIRECTORY, so every cross-directory session
+// switch remounts it — a component-local useState would reset the panel
+// to collapsed, and with it the in-flow panel (conversation pushed
+// left):
+// switching back to a session would lose the layout the user left. The
+// manual expansion is app-run state instead: module-level, in-memory (a
+// fresh run starts collapsed in "auto" mode). "always" mode still
+// force-expands on every card mount — a manual collapse there lasts
+// until the remount, per the mode's contract above.
+let expanded = false;
+const expandedListeners = new Set<() => void>();
+
+function subscribeExpanded(listener: () => void): () => void {
+    expandedListeners.add(listener);
+    return () => expandedListeners.delete(listener);
+}
+
+/** Set the panel's manual expansion. Never throws. */
+export function setStatsExpanded(next: boolean): void {
+    if (expanded === next) return;
+    expanded = next;
+    for (const listener of expandedListeners) listener();
+}
+
+/** The panel's manual expansion, shared across the card's remounts;
+ *  consumed by SessionStatsCard. */
+export function useStatsExpanded(): [boolean, (next: boolean) => void] {
+    const value = useSyncExternalStore(subscribeExpanded, () => expanded);
+    return [value, setStatsExpanded];
+}

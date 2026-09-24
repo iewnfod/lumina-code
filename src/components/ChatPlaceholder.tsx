@@ -56,8 +56,9 @@ export default function ChatPlaceholder({
                 }}
             />
             {/* No fixed max-width here — the welcome screen wraps this in
-                the shared column box (useChatColumnWidth), so the wrap
-                width responds to the window like the composer's does. */}
+                the shared column box (App's columnStyle from
+                chatColumn.ts), so the wrap width responds to the window
+                like the composer's does. */}
             <motion.div variants={fadeSlideUp} className="flex flex-col items-center gap-1.5">
                 <h2 className="text-2xl font-normal" style={{color: foregroundColor}}>
                     {greeting}

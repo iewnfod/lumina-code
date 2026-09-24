@@ -27,7 +27,7 @@ const WorkspaceStatsCard = memo(function WorkspaceStatsCard({
     backgroundColor,
     directory,
     busyIds,
-    onLaneChange,
+    surfaceSize,
 }: {
     api: OpencodeApi | null;
     subscribe: (handler: OpencodeEventHandler) => () => void;
@@ -39,9 +39,9 @@ const WorkspaceStatsCard = memo(function WorkspaceStatsCard({
     /** Sessions with an execution in flight (ALL sessions — subagent
      *  children included; the stats card reads their running state). */
     busyIds: ReadonlySet<string>;
-    /** Reports the right lane a docked panel reserves (0 = none).
-     *  `animated` — view-driven changes transition; resize replans snap. */
-    onLaneChange: (lane: number, animated: boolean) => void;
+    /** The conversation surface's measured size (App measures the flex
+     *  row — the one width signal for flow vs float). */
+    surfaceSize: {w: number; h: number};
 }) {
     const colors = useSurfaceColors(backgroundColor);
     const {diff, diffLoading, diffTotals, refreshDiff} = useWorkspaceDiff(api, subscribe, directory);
@@ -56,7 +56,7 @@ const WorkspaceStatsCard = memo(function WorkspaceStatsCard({
             colors={colors}
             directory={directory}
             busyIds={busyIds}
-            onLaneChange={onLaneChange}
+            surfaceSize={surfaceSize}
         />
     );
 });

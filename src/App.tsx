@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from "react";
 import {AnimatePresence, motion} from "framer-motion";
 import {getCurrentWindow} from "@tauri-apps/api/window";
 import {error} from "@tauri-apps/plugin-log";
@@ -18,9 +18,9 @@ import {useSystemTheme} from "./hooks/useSystemTheme.ts";
 import {useThemePreference} from "./hooks/useThemePreference.ts";
 import {useSurfaceColors} from "./hooks/surfaceColors.ts";
 import {useWindowOutline} from "./hooks/useWindowOutline.ts";
-import {arrivalDuration} from "./lib/arrival.ts";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {fadeIn, springSwap} from "./lib/motion.ts";
+import {chatColumnCapRem, chatColumnSidePadRem} from "./components/chat/chatColumn.ts";
 import {isLinux} from "./lib/platform.ts";
 import {appThemeFor} from "./lib/theme.ts";
 import {useOpencode} from "./opencode/useOpencode.ts";
@@ -125,26 +125,45 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     // The modal's surface derives from the same chrome bg as everything else.
     const settingsColors = useSurfaceColors(effectiveBg);
 
-    // --- Stats-card docked lane (App-owned) ------------------------------------------
-    // The workspace stats card floats over the conversation surface; its
-    // expanded panel reserves a right lane that ChatView applies as
-    // padding so the transcript + composer columns re-center beside the
-    // docked card. App owns the value because the card outlives ChatView's
-    // per-session remounts: a same-directory session switch must mount the
-    // new ChatView root with the lane as its INITIAL style (no flap), and
-    // view-driven lane changes ride the arrival curve (distance-scaled
-    // duration) while resize-driven replans snap. Geometry:
-    // stats/statsLayout.ts.
-    const [laneState, setLaneState] = useState({lane: 0, durMs: 0});
-    const handleLaneChange = useCallback((lane: number, animated: boolean) => {
-        setLaneState((prev) => {
-            if (prev.lane === lane) return prev;
-            const durMs = animated
-                ? Math.round(arrivalDuration(Math.abs(lane - prev.lane)) * 1000)
-                : 0;
-            return {lane, durMs};
-        });
+    // --- Conversation surface geometry (App-owned) -----------------------------------
+    // App measures the conversation SURFACE — the flex row beside the
+    // sidebar — once (pre-paint, layout effect) and on every resize
+    // (window, sidebar toggle, maximize: anything that moves it). That
+    // ONE measurement feeds everything geometric downstream:
+    // - the stats panel's flow-vs-float decision (statsLayout.ts — the
+    //   panel is a real flex sibling in the row, so "docked" needs no
+    //   lane, no reporting, no timing: flex pushes the conversation
+    //   left and re-centers it as the panel grows/shrinks), and
+    // - the conversation column's responsive cap + gutters
+    //   (chatColumn.ts), derived here and passed down as a style prop.
+    // A SESSION SWITCH never re-measures: the row is
+    // session-independent; the remounting ChatView/WelcomeScreen and
+    // the directory-keyed card all plan against the same live numbers
+    // in their first commit.
+    const surfaceRef = useRef<HTMLDivElement>(null);
+    const [surfaceSize, setSurfaceSize] = useState({w: 0, h: 0});
+    useLayoutEffect(() => {
+        const el = surfaceRef.current;
+        if (!el) return;
+        const measure = () => setSurfaceSize((prev) =>
+            prev.w === el.offsetWidth && prev.h === el.offsetHeight ? prev : {w: el.offsetWidth, h: el.offsetHeight},
+        );
+        measure();
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+        return () => ro.disconnect();
     }, []);
+    // The conversation column's tier (cap + gutters), derived from the
+    // surface width — stable while the stats panel expands beside the
+    // column, because the ROW's width doesn't change; only the flex-1
+    // conversation narrows within it. Shared by ChatView and the
+    // welcome screen so the composer stays put across their swap.
+    const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const columnStyle = useMemo(() => {
+        const capRem = chatColumnCapRem(surfaceSize.w, remPx);
+        const padRem = chatColumnSidePadRem(surfaceSize.w, remPx);
+        return {maxWidth: `${capRem}rem`, paddingLeft: `${padRem}rem`, paddingRight: `${padRem}rem`};
+    }, [surfaceSize.w, remPx]);
 
     const sessionInfos = sessions.map((s) => ({
         id: s.id,
@@ -241,30 +260,75 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                             glass shows through. `relative` anchors the
                             stats card layer below. */}
                         <div
+                            ref={surfaceRef}
                             className="relative w-full h-full"
                             style={contentBg ? {background: contentBg} : undefined}
                         >
-                            {/* Session ↔ welcome-screen swap, spring-animated
-                                via AnimatePresence (mode="wait": the old
-                                surface exits before the new one enters, so
-                                the two opaque surfaces never overlap). */}
-                            <AnimatePresence mode="wait" initial={false}>
-                                {activeSession ? (
-                                    <motion.div
-                                        key={`session-${activeSession.id}`}
-                                        variants={springSwap}
-                                        initial="hidden"
-                                        animate="show"
-                                        exit="exit"
-                                        className="w-full h-full"
-                                    >
-                                        <ChatView
-                                            api={api}
-                                            subscribe={subscribe}
-                                            sessionId={activeSession.id}
+                            {/* The flex ROW — conversation and workspace
+                                stats panel as REAL siblings, no lane
+                                bookkeeping: the conversation is flex-1
+                                (min-w-0 so long content can't force the
+                                row wide) and the panel either floats
+                                (absolute, out of flow) or sits in flow
+                                at its planned width, where flex pushes
+                                the conversation left and re-centers it
+                                as the panel grows or shrinks. The panel
+                                is OUTSIDE the session swap below and
+                                keyed by directory; no exit animation on
+                                the panel layer itself — an exiting
+                                in-flow panel would double-reserve row
+                                space during the swap, and the surface
+                                swap already covers the visual
+                                transition. */}
+                            <div className="relative flex h-full w-full">
+                                {/* Session ↔ welcome-screen swap, spring-animated
+                                    via AnimatePresence (mode="wait": the old
+                                    surface exits before the new one enters, so
+                                    the two opaque surfaces never overlap). */}
+                                <AnimatePresence mode="wait" initial={false}>
+                                    {activeSession ? (
+                                        <motion.div
+                                            key={`session-${activeSession.id}`}
+                                            variants={springSwap}
+                                            initial="hidden"
+                                            animate="show"
+                                            exit="exit"
+                                            className="h-full min-w-0 flex-1"
+                                        >
+                                            <ChatView
+                                                api={api}
+                                                subscribe={subscribe}
+                                                sessionId={activeSession.id}
+                                                backgroundColor={effectiveBg}
+                                                busy={busy}
+                                                disabled={!connected}
+                                                agents={agents}
+                                                models={models}
+                                                catalogOnly={catalogOnly}
+                                                agent={effectiveAgent}
+                                                model={effectiveModel}
+                                                onAgentChange={changeAgent}
+                                                onModelChange={changeModel}
+                                                directory={activeDirectory}
+                                                onDirectoryChange={changeDirectory}
+                                                onOpenModelConfig={openModelConfig}
+                                                usage={activeUsage}
+                                                columnStyle={columnStyle}
+                                                pendingPermissions={pendingAllPermissions.filter((p) => p.sessionID === activeSession.id)}
+                                                pendingForms={pendingAllForms.filter((f) => f.sessionID === activeSession.id)}
+                                                onPermissionDecision={(request, decision) => void replyPermission(request, decision)}
+                                                onFormReply={(form, answer) => void replyForm(form, answer)}
+                                                onFormCancel={(form) => void cancelForm(form)}
+                                            />
+                                        </motion.div>
+                                    ) : (
+                                        <WelcomeScreen
+                                            key="welcome"
                                             backgroundColor={effectiveBg}
-                                            busy={busy}
+                                            foregroundColor={effectiveFg}
+                                            subtitle={placeholderSubtitle ?? undefined}
                                             disabled={!connected}
+                                            onSend={(text, files, fileRefs, command) => void sendFirst(text, files, fileRefs, command)}
                                             agents={agents}
                                             models={models}
                                             catalogOnly={catalogOnly}
@@ -272,53 +336,22 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                             model={effectiveModel}
                                             onAgentChange={changeAgent}
                                             onModelChange={changeModel}
-                                            directory={activeDirectory}
+                                            api={api}
+                                            directory={pendingDirectory}
                                             onDirectoryChange={changeDirectory}
                                             onOpenModelConfig={openModelConfig}
-                                            usage={activeUsage}
-                                            lanePadding={laneState.lane}
-                                            laneDurMs={laneState.durMs}
-                                            pendingPermissions={pendingAllPermissions.filter((p) => p.sessionID === activeSession.id)}
-                                            pendingForms={pendingAllForms.filter((f) => f.sessionID === activeSession.id)}
-                                            onPermissionDecision={(request, decision) => void replyPermission(request, decision)}
-                                            onFormReply={(form, answer) => void replyForm(form, answer)}
-                                            onFormCancel={(form) => void cancelForm(form)}
+                                            columnStyle={columnStyle}
                                         />
-                                    </motion.div>
-                                ) : (
-                                    <WelcomeScreen
-                                        key="welcome"
-                                        backgroundColor={effectiveBg}
-                                        foregroundColor={effectiveFg}
-                                        subtitle={placeholderSubtitle ?? undefined}
-                                        disabled={!connected}
-                                        onSend={(text, files, fileRefs, command) => void sendFirst(text, files, fileRefs, command)}
-                                        agents={agents}
-                                        models={models}
-                                        catalogOnly={catalogOnly}
-                                        agent={effectiveAgent}
-                                        model={effectiveModel}
-                                        onAgentChange={changeAgent}
-                                        onModelChange={changeModel}
-                                        api={api}
-                                        directory={pendingDirectory}
-                                        onDirectoryChange={changeDirectory}
-                                        onOpenModelConfig={openModelConfig}
-                                    />
-                                )}
-                            </AnimatePresence>
-                            {/* Workspace stats card — floats over the
-                                transcript's right margin, OUTSIDE the
-                                session swap: it shows the DIRECTORY's
-                                working-copy diff plus the ACTIVE session's
-                                terminals/subagents. Keyed by directory so
-                                same-directory session switches keep it
-                                mounted (content swaps in place — no
-                                animation, no lane flap), while a
-                                cross-directory switch animates it out and
-                                in with the surface swap. Never rendered on
-                                the welcome screen. */}
-                            <AnimatePresence initial={false}>
+                                    )}
+                                </AnimatePresence>
+                                {/* Workspace stats panel — shows the DIRECTORY's
+                                    working-copy diff plus the ACTIVE session's
+                                    terminals/subagents. Keyed by directory so
+                                    same-directory session switches keep it
+                                    mounted (content swaps in place), while a
+                                    cross-directory switch remounts it with the
+                                    surface swap covering the transition. Never
+                                    rendered on the welcome screen. */}
                                 {activeSession && (
                                     <WorkspaceStatsCard
                                         key={activeDirectory ?? ""}
@@ -328,10 +361,10 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                         backgroundColor={effectiveBg}
                                         directory={activeDirectory}
                                         busyIds={busyIds}
-                                        onLaneChange={handleLaneChange}
+                                        surfaceSize={surfaceSize}
                                     />
                                 )}
-                            </AnimatePresence>
+                            </div>
                         </div>
                     </MaskedSurface>
                 </div>

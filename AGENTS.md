@@ -65,15 +65,28 @@ src/
 │                          #   useSessionFlow) and the session ↔ welcome-screen
 │                          #   swap. App() wraps InnerApp with
 │                          #   useMaximized/usePaddingOffset/useDragRegionDoubleClick.
-│                          #   Also owns the workspace stats card layer —
-│                          #   mounted beside the swap, KEYED BY DIRECTORY
-│                          #   (same-directory session switches keep it
-│                          #   mounted without animation; cross-directory
-│                          #   switches animate it out/in; never on the
-│                          #   welcome screen) — and the docked-lane state
-│                          #   it reports, which flows into ChatView as
-│                          #   lanePadding so the columns re-center beside
-│                          #   the expanded card across session switches.
+│                          #   Also owns the conversation surface
+│                          #   geometry: the content is a FLEX ROW —
+│                          #   conversation (flex-1, the session ↔
+│                          #   welcome swap inside it) + the workspace
+│                          #   stats panel as a REAL sibling, KEYED BY
+│                          #   DIRECTORY (same-directory session
+│                          #   switches keep it mounted;
+│                          #   cross-directory switches remount it,
+│                          #   the surface swap covering the
+│                          #   transition; never on the welcome
+│                          #   screen). The panel is position:
+│                          #   absolute when floating / out of flow
+│                          #   empty, in normal flow (fixed width)
+│                          #   when wide — flex pushes the
+│                          #   conversation left with NO lane
+│                          #   bookkeeping. App measures the ROW
+│                          #   (layout effect + RO, session-
+│                          #   independent) and derives both the
+│                          #   panel's flow/float input and the
+│                          #   conversation column's responsive cap +
+│                          #   gutters (chatColumn.ts), passed down
+│                          #   as a shared columnStyle prop.
 ├── main.tsx               # ReactDOM entry (React.StrictMode) + attachConsole
 ├── constants.ts           # CHROME_TITLE_BAR_HEIGHT
 ├── i18n/                  # en-us.ts (source of truth: keys ARE the English
@@ -273,6 +286,14 @@ src/
 │   │                      #   lasts until the card remounts): module
 │   │                      #   store + own localStorage key (legacy
 │   │                      #   boolean "false" reads as "always").
+│   │                      #   Also exports useStatsExpanded — the
+│   │                      #   panel's MANUAL expansion as an in-memory
+│   │                      #   module store SURVIVING the card's
+│   │                      #   directory-keyed remounts (a session
+│   │                      #   switch must not collapse an open panel
+│   │                      #   and drop its docked lane; a fresh run
+│   │                      #   starts collapsed in "auto" mode, while
+│   │                      #   "always" force-expands at every mount).
 │   │                      #   Consumed by SessionStatsCard; the
 │   │                      #   segmented OptionRow is in GeneralSettings.
 │   ├── useTypography.ts   # Custom fonts/sizes (useThemePreference
@@ -343,30 +364,29 @@ src/
     │   │                  #   (and fetches older pages) on scroll-up. Scrolling lives
     │   │                  #   in hooks/useTranscriptScroll.ts; block folding in
     │   │                  #   transcript.ts; rendering in TranscriptList.tsx. The
-    │   │                  #   stats card is GONE from here (it floats beside this
-    │   │                  #   view at App level now); what remains is the docked
-    │   │                  #   lane — the root pads right by the App-owned
-    │   │                  #   lanePadding/laneDurMs so the columns re-center
-    │   │                  #   beside the expanded card.
-     │   ├── chatColumn.ts + useChatColumnWidth.ts # The conversation
-     │   │                  #   column's responsive width cap + side
-     │   │                  #   gutters: 48rem base cap, a 64rem wide
-     │   │                  #   tier once the content area affords the
-     │   │                  #   cap + 8rem margins per side; gutters are
-     │   │                  #   compact (1.5rem) while the column
-     │   │                  #   reaches its cap, roomy (3rem) below it —
-     │   │                  #   there the fixed gutters are the only
-     │   │                  #   edge breathing room (and they keep the
-     │   │                  #   composer aligned with the welcome
-     │   │                  #   screen's across the first-send swap).
-     │   │                  #   The hook measures the view root
-     │   │                  #   (border-box — stable under the stats
-     │   │                  #   lane's padding-right, so a docking panel
-     │   │                  #   never flaps the tier; the column narrows
-     │   │                  #   within its cap instead) and is shared
-     │   │                  #   by ChatView's transcript/composer columns
-     │   │                  #   and the welcome screen's composer. Cap +
-     │   │                  #   gutter math node-testable.
+    │   │                  #   stats panel is GONE from here (it is a flex
+    │   │                  #   sibling of this view at App level); the
+    │   │                  #   columns' responsive cap + gutters arrive
+    │   │                  #   as App's columnStyle prop.
+     │   ├── chatColumn.ts # The conversation column's responsive width
+     │   │                  #   cap + side gutters: 48rem base cap, a
+     │   │                  #   64rem wide tier once the content area
+     │   │                  #   affords the cap + 8rem margins per
+     │   │                  #   side; gutters are compact (1.5rem)
+     │   │                  #   while the column reaches its cap,
+     │   │                  #   roomy (3rem) below it — there the fixed
+     │   │                  #   gutters are the only edge breathing
+     │   │                  #   room (and they keep the composer
+     │   │                  #   aligned with the welcome screen's
+     │   │                  #   across the first-send swap). App
+     │   │                  #   measures the conversation SURFACE (the
+     │   │                  #   flex row beside the sidebar — not the
+     │   │                  #   conversation's own flex-1 box), so the
+     │   │                  #   tier stays put while a stats panel
+     │   │                  #   expands in flow beside the column, and
+     │   │                  #   derives the style prop ChatView and the
+     │   │                  #   welcome screen share. Cap + gutter math
+     │   │                  #   node-testable.
     │   ├── transcript.ts  # Pure blockify(): folds runs of activity-only
     │   │                  #   assistant messages into TranscriptBlocks. node-testable.
     │   ├── TranscriptList.tsx # Renders the mounted slice as MessageItems /
@@ -464,20 +484,24 @@ src/
     │   └── formLogic.ts   # Pure form-answer rules: fieldVisible (`when`
     │                      #   conditions), normalize (per-type values).
     │
-    ├── stats/            # The workspace stats card (floats over the
-    │                      #   conversation surface's right margin, OUTSIDE
-    │                      #   the session swap: App mounts the
+    ├── stats/            # The workspace stats panel — a FLEX SIBLING of
+    │                      #   the conversation in App's row, OUTSIDE the
+    │                      #   session swap: App mounts the
     │                      #   WorkspaceStatsCard wrapper beside ChatView,
     │                      #   KEYED BY DIRECTORY — same-directory session
     │                      #   switches keep the card mounted (content
-    │                      #   swaps in place, no animation, no lane flap),
-    │                      #   cross-directory switches animate it out/in,
-    │                      #   and the welcome screen never shows it. Data:
+    │                      #   swaps in place), cross-directory switches
+    │                      #   remount it (the surface swap covers the
+    │                      #   transition), and the welcome screen never
+    │                      #   shows it. Data:
     │                      #   the directory's working-copy diff
     │                      #   (opencode/useWorkspaceDiff) + the ACTIVE
     │                      #   session's terminals/subagents
     │                      #   (opencode/useSessionActivity over the
-    │                      #   message-store snapshot); expansion is
+    │                      #   message-store snapshot); the panel's
+    │                      #   expansion state is useStatsExpanded
+    │                      #   (survives the directory-keyed remounts);
+    │                      #   expansion is
     │                      #   content-height (detail views cap at the
     │                      #   container's full height, the overview at
     │                      #   75vh); outside-click/Escape collapse is the
@@ -486,7 +510,7 @@ src/
     │                      #   scope hooks (workspace diff by directory,
     │                      #   session terminals/subagents) + surface
     │                      #   colors, then renders SessionStatsCard.
-    │   ├── SessionStatsCard.tsx # The floating card (presentation +
+    │   ├── SessionStatsCard.tsx # The card (presentation +
     │                      #   local navigation only): collapsed summary rows
     │   │                  #   (+N −N lines, terminal/subagent counts — presence-
     │   │                  #   animated rows via popLayout: the pill never
@@ -546,19 +570,20 @@ src/
     │   │                  #   skip their staggered fades; the card box
     │   │                  #   itself still enters animated — it only ever
     │   │                  #   mounts as a real arrival outside the swap).
-    │   │                  #   The container is measured SYNCHRONOUSLY in a
-    │   │                  #   layout effect (pre-paint), so an
-    │   │                  #   already-expanded panel's docked lane is
-    │   │                  #   part of the FIRST PAINTED FRAME — the
-    │   │                  #   conversation column starts at its correct
-    │   │                  #   position (transitions never fire on an
-    │   │                  #   element's initial style; only a card
-    │   │                  #   appearing within an already-painted
-    │   │                  #   conversation surface glides, like a manual
-    │   │                  #   expand).
-    │   │                  #   RO deliveries after the seed are resize
-    │   │                  #   replans and snap. Activity that first
-    │   │                  #   appears later still enters animated. A
+    │   │                  #   The conversation surface's size arrives
+    │   │                  #   PRE-MEASURED from App (surfaceSize prop,
+    │   │                  #   seeded in App's own layout effect), so a
+    │   │                  #   seeded card that mounts already expanded
+    │   │                  #   sits in flow at its planned width in the
+    │   │                  #   FIRST COMMIT — the conversation column
+    │   │                  #   starts at its correct width beside it,
+    │   │                  #   pure flex layout, no transition tricks
+    │   │                  #   (only a panel appearing within an
+    │   │                  #   already-laid-out conversation reflows it,
+    │   │                  #   riding the box's own width transition,
+    │   │                  #   like a manual expand — statsLayout.ts).
+    │   │                  #   Activity that
+    │   │                  #   first appears later still enters animated. A
     │   │                  #   same-directory session switch KEEPS the card
     │   │                  #   mounted but RESETS any open drill view to the
     │   │                  #   overview (the drill pointed at the previous
@@ -578,16 +603,25 @@ src/
     │   │                  #   BodyBox, the drill-body surface (fill mode
     │   │                  #   stretches with the panel instead of the
     │   │                  #   55vh cap).
-    │   ├── statsLayout.ts # Pure docked-lane planning for the expanded
-    │   │                  #   stats card: given the ChatView container
-    │   │                  #   width, dock (reserve a right lane so the
-    │   │                  #   conversation column re-centers beside the
-    │   │                  #   panel — the overview at its compact width,
-    │   │                  #   detail views widening toward a 40rem cap,
-    │   │                  #   elastically clamped so the column never
-    │   │                  #   drops below a readable floor) vs overlay
-    │   │                  #   (the float-over below the crossover).
-    │   │                  #   node-testable.
+    │   ├── statsLayout.ts # Pure position planning for the stats
+    │   │                  #   panel, ONE rule with three gates: a card
+    │   │                  #   showing nothing (no diff/terminals/
+    │   │                  #   subagents) or COLLAPSED floats —
+    │   │                  #   position: absolute, out of the row ⇒ the
+    │   │                  #   conversation keeps the full width, no
+    │   │                  #   exceptions; an EXPANDED panel reads the
+    │   │                  #   conversation surface's WIDTH
+    │   │                  #   (App-measured, beside the sidebar) — wide
+    │   │                  #   enough to fit the WIDEST panel (40rem
+    │   │                  #   detail) beside the column's readable
+    │   │                  #   floor → IN FLOW at a FIXED width (overview
+    │   │                  #   26rem, detail 40rem): a real flex sibling,
+    │   │                  #   flex pushes the conversation left and
+    │   │                  #   re-centers it as the panel's own width
+    │   │                  #   transitions — zero bookkeeping; anything
+    │   │                  #   narrower → FLOAT (cover, no push). The
+    │   │                  #   mode is a window-size property — drilling
+    │   │                  #   never flips it. node-testable.
     │   ├── ChangesSection.tsx # Whole-session git diff: file rows (icon +
     │   │                  #   status chip + net counts) → FileDiffBody (server
     │   │                  #   patch through chat/DiffViewBody + toolDiff.ts's

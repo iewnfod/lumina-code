@@ -5,12 +5,12 @@ import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {durationFast, springSoft, springSnappy} from "../../lib/motion.ts";
 import {arrivalDuration} from "../../lib/arrival.ts";
-import {useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
+import {useStatsExpanded, useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import type {SessionShellRef, SessionSubagentRef} from "../../opencode/sessionActivity.ts";
-import {planStatsLayout} from "./statsLayout.ts";
+import {planStatsPanel} from "./statsLayout.ts";
 import IconButton from "../ui/IconButton.tsx";
 import Hint from "../ui/Hint.tsx";
 import {ChangesSection, DiffCountsBadge, FileDiffBody, FileTitle} from "./ChangesSection.tsx";
@@ -26,9 +26,9 @@ type StatsView =
     | {kind: "subagent"; sub: SessionSubagentRef & {running: boolean}};
 
 /**
- * The session-activity stats card, floating at the top-right of the
- * conversation surface — a SHARED-ELEMENT transition system, not a
- * content swap:
+ * The session-activity stats card — a flex sibling of the conversation
+ * when docked (flow mode), floating top-right otherwise — built as a
+ * SHARED-ELEMENT transition system, not a content swap:
  *
  * - The BOX animates its REAL width/height as a CSS transition (pin →
  *   measure the new content → write the target + a distance-scaled
@@ -58,7 +58,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
     colors,
     directory,
     busyIds,
-    onLaneChange,
+    surfaceSize,
 }: {
     api: OpencodeApi | null;
     subscribe: (handler: OpencodeEventHandler) => () => void;
@@ -79,17 +79,30 @@ const SessionStatsCard = memo(function SessionStatsCard({
     colors: SurfaceColors;
     directory: string | null;
     busyIds: ReadonlySet<string>;
-    /** Reports the right lane a docked panel reserves (0 = none).
-     *  `animated` — view-driven changes transition; resize replans snap. */
-    onLaneChange: (lane: number, animated: boolean) => void;
+    /** The conversation surface's measured size (App owns the flex row
+     *  and measures it — the card never hunts for its parent). */
+    surfaceSize: {w: number; h: number};
 }) {
     const t = useI18n();
     const panelMode = useStatsPanelMode();
-    // "always" mounts the panel expanded (a directory switch remounts the
-    // card — App keys it by directory — restoring the expansion after a
-    // manual collapse; same-directory session switches keep whatever the
-    // user left).
-    const [expanded, setExpanded] = useState(panelMode === "always");
+    // The manual expansion lives in a MODULE store (useStatsExpanded):
+    // App keys this card by directory, so a cross-directory session
+    // switch remounts it — a local useState would reset the panel to
+    // collapsed (and the conversation back to full width) exactly when
+    // switching back to a session whose layout the user had set.
+    // "always" mode still force-expands at mount below; "auto" keeps
+    // whatever the user left, across remounts and for the rest of the
+    // app run.
+    const [expanded, setExpanded] = useStatsExpanded();
+    // "always" remounts expanded (a manual collapse in that mode lasts
+    // until the card remounts). Layout effect, mount only: the store
+    // write re-renders pre-paint, so a card mounting on a session
+    // switch is in flow at its planned width in the FIRST commit.
+    useLayoutEffect(() => {
+        if (panelMode === "always") setExpanded(true);
+        // Mount only — deliberate; later mode flips go through the
+        // panelMode effect below.
+    }, []);
     const [view, setView] = useState<StatsView>({kind: "overview"});
     // Whether the current view's content is final enough to measure.
     // File diffs render synchronously from loaded props; terminal and
@@ -125,100 +138,36 @@ const SessionStatsCard = memo(function SessionStatsCard({
     // activity that first appears later still enters animated.
     const [seeded] = useState(visible);
 
-    // --- Docked-lane planning -------------------------------------------------------
-    // An EXPANDED panel (the overview list or a file/terminal/subagent
-    // detail) docks when the conversation column can spare the width:
-    // ChatView reserves a right lane (padding-right on its root) so the
-    // column re-centers beside the panel instead of being covered —
-    // detail views also widen toward their cap. Below the crossover the
-    // card overlays exactly as before. Geometry and thresholds:
-    // statsLayout.ts (pure, tested).
-    const [container, setContainer] = useState({w: 0, h: 0});
-    const containerRef = useRef({w: 0, h: 0});
-    /** Whether the NEXT lane change animates: view-driven transitions
-     *  and the card's own (re)appearance do; window-resize replans snap
-     *  (animating every resize event reads as rubber-banding). */
-    const laneAnimatedRef = useRef(true);
+    // --- Flow vs float ---------------------------------------------------------------
+    // ONE rule (statsLayout.ts, pure + tested): a collapsed or empty
+    // card FLOATS — position: absolute, out of the row, conversation
+    // keeps the full width; an EXPANDED panel reads the conversation
+    // surface's width — wide enough for the widest panel beside the
+    // column's floor → IN FLOW at a fixed width per view, where it is a
+    // REAL flex sibling: flex pushes the conversation left, and the
+    // panel's own width/height transitions (the box machinery below)
+    // reflow the conversation frame by frame with zero bookkeeping.
+    // No lane values, no reporting, no timing — layout IS the layout.
     // `viewSettled` in the hold: an async drill view still counts as
-    // the OVERVIEW for geometry — the docked wrapper width, the lane
-    // and the height caps keep their pre-drill values in lockstep with
-    // the pinned box, and everything widens together when the content
-    // settles (same commit: lane effect + measure effect).
+    // the OVERVIEW for geometry — the in-flow width and the height caps
+    // keep their pre-drill values in lockstep with the pinned box, and
+    // everything widens together when the content settles.
     const detail = expanded && view.kind !== "overview" && viewSettled;
     // rem → px at plan time so user zoom (root font-size) scales the
-    // thresholds; a typography change mid-dock goes stale until the next
+    // threshold; a typography change mid-flow goes stale until the next
     // resize/view event — acceptable.
     const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    const plan = planStatsLayout(container.w, remPx, expanded, detail);
-    const docked = plan.mode === "dock";
-    const lane = docked ? plan.laneWidth : 0;
+    const plan = planStatsPanel(surfaceSize.w, remPx, visible, expanded, detail);
+    const inFlow = plan.mode === "flow";
 
-    // Height budgets: `availH` = the container minus the top-4/bottom-4
+    // Height budgets: `availH` = the surface minus the top-4/bottom-4
     // insets, the most the panel may occupy. The panel opens at CONTENT
     // height — detail views cap at availH so a long diff/terminal
     // stretches as tall as it needs; the overview keeps the historical
     // 75vh window cap.
-    const availH = container.h > 0 ? Math.max(240, container.h - 32) : 0;
+    const availH = surfaceSize.h > 0 ? Math.max(240, surfaceSize.h - 32) : 0;
     /** Detail views' content cap (availH); 0 = fall back to the 75vh class. */
     const detailCap = detail && availH > 0 ? availH : 0;
-
-    // Container measurement feeding the plan (width) and the full-height
-    // target (height). SEEDED SYNCHRONOUSLY at mount/appearance — a
-    // layout effect runs pre-paint, and its state update re-renders
-    // before the browser paints, so a card that mounts already expanded
-    // reserves its docked lane in the FIRST PAINTED FRAME: the
-    // conversation column starts at its correct position and the
-    // surface's entrance carries it in (CSS transitions never fire on an
-    // element's initial computed style). An appearance within an
-    // already-painted conversation surface (activity first arriving
-    // mid-session) still glides — there the padding change is a real
-    // computed-style change, riding the arrival curve like a manual
-    // expand.
-    // The observer also fires when OUR OWN lane padding shrinks the
-    // content box; offsetWidth/offsetHeight (padding-box) are stable
-    // under that, so those fires no-op — without the guard the
-    // observer would feed back into the plan.
-    useLayoutEffect(() => {
-        const parent = rootRef.current?.parentElement;
-        if (!parent) return;
-        containerRef.current = {w: 0, h: 0};
-        // The card's own appearance is view-driven: a lane change it
-        // causes post-paint animates.
-        laneAnimatedRef.current = true;
-        const seedW = parent.offsetWidth;
-        const seedH = parent.offsetHeight;
-        containerRef.current = {w: seedW, h: seedH};
-        setContainer({w: seedW, h: seedH});
-        const ro = new ResizeObserver(() => {
-            const w = parent.offsetWidth;
-            const h = parent.offsetHeight;
-            const prev = containerRef.current;
-            if (w === prev.w && h === prev.h) return;
-            containerRef.current = {w, h};
-            // A resize-driven replan snaps: zero the box's size
-            // transition so the size change about to commit doesn't
-            // animate against a stale --lum-size-dur. animateSizeTo
-            // rewrites the var on the next view change.
-            laneAnimatedRef.current = false;
-            rootRef.current?.style.setProperty("--lum-size-dur", "0ms");
-            setContainer({w, h});
-        });
-        ro.observe(parent);
-        return () => ro.disconnect();
-    }, [visible]);
-
-    // Report the reserved lane to ChatView. Layout effect so the padding
-    // transition starts in the same paint as the card's box animation.
-    useLayoutEffect(() => {
-        onLaneChange(lane, laneAnimatedRef.current);
-    }, [lane, onLaneChange]);
-
-    // The card unmounting while docked (all activity evaporated with the
-    // panel open) must release the lane — the column would stay shifted
-    // with nothing occupying it.
-    const onLaneChangeRef = useRef(onLaneChange);
-    onLaneChangeRef.current = onLaneChange;
-    useEffect(() => () => onLaneChangeRef.current(0, true), []);
 
     // --- Box size machinery ---------------------------------------------------------
     // The box's REAL width/height animate as a CSS TRANSITION (the
@@ -368,7 +317,6 @@ const SessionStatsCard = memo(function SessionStatsCard({
     }, []);
 
     const expand = useCallback(() => {
-        laneAnimatedRef.current = true;
         navKindRef.current = "expand";
         setViewSettled(true);
         pinCurrentSize();
@@ -383,7 +331,6 @@ const SessionStatsCard = memo(function SessionStatsCard({
     }, [pinCurrentSize, activity]);
 
     const collapse = useCallback(() => {
-        laneAnimatedRef.current = true;
         setViewSettled(true);
         pinCurrentSize();
         setExpanded(false);
@@ -393,7 +340,6 @@ const SessionStatsCard = memo(function SessionStatsCard({
     }, [pinCurrentSize]);
 
     const drill = useCallback((next: StatsView) => {
-        laneAnimatedRef.current = true;
         navKindRef.current = "nav";
         pinCurrentSize();
         setView(next);
@@ -406,7 +352,6 @@ const SessionStatsCard = memo(function SessionStatsCard({
     }, [pinCurrentSize]);
 
     const back = useCallback(() => {
-        laneAnimatedRef.current = true;
         navKindRef.current = "nav";
         setViewSettled(true);
         pinCurrentSize();
@@ -431,7 +376,6 @@ const SessionStatsCard = memo(function SessionStatsCard({
         sessionIdRef.current = sessionId;
         setFlightsArmed(false);
         if (viewRef.current.kind === "overview") return;
-        laneAnimatedRef.current = true;
         navKindRef.current = "nav";
         setViewSettled(true);
         pinCurrentSize();
@@ -486,7 +430,10 @@ const SessionStatsCard = memo(function SessionStatsCard({
     // (mount) is skipped — the card enters at its natural size. An
     // unsettled async drill view SKIPS the measurement (the held pin
     // keeps the box at its pre-drill size) until onSettled re-runs this
-    // with real content.
+    // with real content. `inFlow` covers the resize-driven mode flip:
+    // the wrapper changes between its fixed flow width and the float
+    // cap, and the box follows animated — in flow, each frame of that
+    // width transition reflows the conversation beside it.
     const [navTick, setNavTick] = useState(0);
     const mountedRef = useRef(false);
     useLayoutEffect(() => {
@@ -502,7 +449,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
         // container's full height; the overview keeps the 75vh window cap.
         const maxH = detailCap > 0 ? detailCap : Math.max(240, window.innerHeight * 0.75);
         animateSizeTo({w: Math.ceil(r.width), h: Math.ceil(Math.min(r.height, maxH))});
-    }, [expanded, view.kind, navTick, viewSettled, animateSizeTo]);
+    }, [expanded, view.kind, navTick, viewSettled, inFlow, animateSizeTo]);
 
     // Drill views resolve their entry LIVE (by id/path) so state updates
     // flow in — a terminal that exits while open must stop pulsing and
@@ -550,27 +497,33 @@ const SessionStatsCard = memo(function SessionStatsCard({
                 <motion.div
                     ref={rootRef}
                     // The card lives OUTSIDE the session swap (App mounts
-                    // it beside the transcript, keyed by directory): it
-                    // only ever mounts as a real arrival — the directory
-                    // layer appearing on a cross-project switch, or
-                    // activity first appearing — so it always enters
-                    // animated. First app paint is exempt via the outer
-                    // AnimatePresence's initial={false}.
+                    // it in the flex row beside the transcript, keyed by
+                    // directory): it only ever mounts as a real arrival —
+                    // the directory layer appearing on a cross-project
+                    // switch, the app opening on a session, or activity
+                    // first appearing — so it always enters animated
+                    // (sections of a SEEDED card skip their staggered
+                    // fades; the box still enters).
                     initial={{opacity: 0, y: 8}}
                     animate={{opacity: 1, y: 0}}
                     exit={{opacity: 0, y: 8, transition: {duration: durationFast}}}
                     transition={springSoft}
-                    // Content anchored top-right: it holds still in
-                    // viewport space while the box grows around it (no
-                    // clip — flights cross the growing edge in the open).
+                    // POSITION IS THE ONLY THING THE DOCK DECISION OWNS
+                    // (statsLayout.ts): floating (collapsed, empty, or a
+                    // narrow surface) = absolute top-right, out of the
+                    // row; in flow = a real flex sibling (fixed width via
+                    // the wrapper, shrink-0/self-start so it neither
+                    // compresses nor stretches) whose margins keep the
+                    // same 16px insets right-4/top-4 gave while floating.
                     // The width/height/box-shadow transition is the
                     // box-size machinery's engine: --ease-arrival sets
                     // the curve, --lum-size-dur (written per animation by
-                    // animateSizeTo) the distance-scaled duration. The
-                    // shadow rides along (single-layer values interpolate
-                    // natively) so framer JS stays out of the per-frame
-                    // path entirely.
-                    className="absolute right-4 top-4 z-30 rounded-[var(--radius-lg)] select-none flex justify-end items-start transition-[width,height,box-shadow] duration-[var(--lum-size-dur,200ms)] ease-[var(--ease-arrival)]"
+                    // animateSizeTo) the distance-scaled duration. In
+                    // flow every frame of the width transition reflows
+                    // the conversation beside it — flex does the
+                    // choreography for free. The shadow rides along
+                    // (single-layer values interpolate natively).
+                    className={`shrink-0 self-start rounded-[var(--radius-lg)] select-none flex justify-end items-start transition-[width,height,box-shadow] duration-[var(--lum-size-dur,200ms)] ease-[var(--ease-arrival)] ${inFlow ? "mt-4 mr-4" : "absolute right-4 top-4 z-30"}`}
                     style={surfaceStyle}
                 >
                     {/* shrink-0 is load-bearing: a flex child under the
@@ -578,8 +531,8 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         measurement would read the squeezed box. */}
                     <div
                         ref={measureRef}
-                        className={`shrink-0 ${expanded && !docked ? "w-[min(26rem,calc(100vw-24rem))]" : "w-max"}`}
-                        style={docked ? {width: plan.panelWidth} : undefined}
+                        className={`shrink-0 ${expanded && !inFlow ? "w-[min(26rem,calc(100vw-24rem))]" : "w-max"}`}
+                        style={inFlow ? {width: plan.panelWidth} : undefined}
                     >
                         <AnimatePresence mode="popLayout" initial={false}>
                             {!expanded ? (

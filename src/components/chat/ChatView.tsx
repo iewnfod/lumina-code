@@ -20,7 +20,6 @@ import type {
 } from "../../opencode/types.ts";
 import {useSessionMessages} from "../../opencode/useSessionMessages.ts";
 import type {SessionUsage} from "../../opencode/types.ts";
-import {useChatColumnWidth} from "./useChatColumnWidth.ts";
 import {lastContextMessage, type ContextUsage} from "./usageStats.ts";
 import TranscriptList from "./TranscriptList.tsx";
 import ChatInput from "../composer/ChatInput.tsx";
@@ -64,8 +63,7 @@ const ChatView = memo(function ChatView({
     onDirectoryChange,
     onOpenModelConfig,
     usage,
-    lanePadding,
-    laneDurMs,
+    columnStyle,
     pendingPermissions,
     pendingForms,
     onPermissionDecision,
@@ -98,15 +96,12 @@ const ChatView = memo(function ChatView({
      *  composer's context ring (which itself reads the transcript's last
      *  measured step; null on the welcome screen). */
     usage: SessionUsage | null;
-    /** Right lane the (App-owned) stats card's expanded panel reserves:
-     *  this root pads by it so the transcript + composer columns re-center
-     *  beside the docked card. App owns the value — it must survive this
-     *  view's per-session remounts (a same-directory session switch mounts
-     *  the new root with the lane as its INITIAL style, so nothing flaps;
-     *  a lane change within a mount transitions on the arrival curve). */
-    lanePadding: number;
-    /** Duration for the lane padding transition (0 = snap). */
-    laneDurMs: number;
+    /** The conversation column's responsive cap + gutters, derived by
+     *  App from the conversation SURFACE's width (chatColumn.ts) — the
+     *  row the stats panel docks into, so the tier stays put while the
+     *  panel expands and only the conversation narrows. Shared with the
+     *  welcome screen's composer so nothing jumps across their swap. */
+    columnStyle: React.CSSProperties;
     /** Pending server requests for THIS session (permission asks +
      *  question forms) — pinned above the composer until answered. */
     pendingPermissions: PermissionRequest[];
@@ -119,12 +114,6 @@ const ChatView = memo(function ChatView({
     const colors = useSurfaceColors(backgroundColor);
     const {messages, hasMore, loadingOlder, loadOlder, send, interrupt} =
         useSessionMessages(api, subscribe, sessionId);
-
-    // Responsive conversation-column cap + side gutters: the root is
-    // measured (border-box — stable under the lane padding below) and the
-    // transcript + composer columns share the style. chatColumn.ts owns
-    // the tiers (wide cap + roomy-below-cap gutters).
-    const {ref: columnRef, style: columnStyle} = useChatColumnWidth();
 
     const sentinelRef = useRef<HTMLDivElement>(null);
     const [renderLimit, setRenderLimit] = useState(RENDER_LIMIT);
@@ -204,14 +193,7 @@ const ChatView = memo(function ChatView({
 
     return (
         <div
-            ref={columnRef}
-            className="flex flex-col h-full w-full min-w-0 transition-[padding-right] duration-[var(--lum-lane-dur,0ms)] ease-[var(--ease-arrival)]"
-            style={
-                {
-                    paddingRight: lanePadding,
-                    "--lum-lane-dur": `${laneDurMs}ms`,
-                } as React.CSSProperties
-            }
+            className="flex flex-col h-full w-full min-w-0"
         >
             <div
                 ref={scrollRef}

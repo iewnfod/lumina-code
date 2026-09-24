@@ -16,18 +16,18 @@
  * screen's former stacked p-6 + px-6, so the composer stays put across
  * the welcome → session swap at EVERY window width, not just capped
  * ones. statsLayout.ts assumes the compact gutters whenever a stats
- * panel docks — safe, because docking needs far more width than the
- * base cap the roomy gutters live below.
+ * panel is in flow — safe, because flow mode needs far more width than
+ * the base cap the roomy gutters live below.
  *
- * Consumers measure their view root (useChatColumnWidth) — the region
- * beside the sidebar, NOT the window — and pass border-box width here so
- * the tier tracks the space the column actually has. Border-box on
- * purpose: the stats card's docked lane (padding-right on the same root)
- * must not flap the tier while a detail panel docks; the column narrows
- * within its cap through the elastic lane instead (stats/statsLayout.ts).
+ * Consumers receive the tier as a STYLE PROP (App derives it): App
+ * measures the conversation SURFACE — the flex row beside the sidebar,
+ * NOT the window and not the conversation's own flex-1 box — so the
+ * tier tracks the space the surface actually has and stays PUT while
+ * the stats panel expands in flow beside the conversation (only the
+ * conversation narrows, within its cap; the row's width never moves).
  *
  * All constants are rem so the thresholds scale with the user's
- * typography zoom (root font size) like the stats-lane math does.
+ * typography zoom (root font size) like the stats panel math does.
  */
 
 /** Base cap (the old `max-w-3xl`) — every window gets at least this. */

@@ -11,7 +11,6 @@ import type {
     SessionModelRef,
 } from "../opencode/types.ts";
 import {springSwap} from "../lib/motion.ts";
-import {useChatColumnWidth} from "./chat/useChatColumnWidth.ts";
 import ChatPlaceholder from "./ChatPlaceholder.tsx";
 import ChatInput from "./composer/ChatInput.tsx";
 
@@ -38,6 +37,7 @@ export default function WelcomeScreen({
     directory,
     onDirectoryChange,
     onOpenModelConfig,
+    columnStyle,
 }: {
     /** The chrome bg the composer's surface derives from. */
     backgroundColor: string;
@@ -61,21 +61,21 @@ export default function WelcomeScreen({
     onDirectoryChange: (directory: string | null) => void;
     /** Opens the settings modal on its Model tab (model/provider config). */
     onOpenModelConfig: () => void;
+    /** The conversation column's responsive cap + gutters, derived by
+     *  App from the conversation surface's width (chatColumn.ts) — the
+     *  same style ChatView's columns use, so the composer doesn't jump
+     *  sideways when the first send swaps welcome → session. */
+    columnStyle: React.CSSProperties;
 }) {
     const colors: SurfaceColors = useSurfaceColors(backgroundColor);
-    // Same responsive column cap + side gutters as ChatView, so the
-    // composer doesn't jump sideways when the first send swaps
-    // welcome → session — at every window width, not just capped ones.
-    const {ref: columnRef, style: columnStyle} = useChatColumnWidth();
 
     return (
         <motion.div
-            ref={columnRef}
             variants={springSwap}
             initial="hidden"
             animate="show"
             exit="exit"
-            className="w-full h-full"
+            className="h-full min-w-0 flex-1"
         >
             {/* No horizontal padding here — the composer column's shared
                 style owns the gutters, keeping it aligned with ChatView's

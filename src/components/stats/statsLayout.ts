@@ -1,79 +1,75 @@
 /**
- * Pure layout planning for the session-stats card's DOCKED mode.
+ * Pure position planning for the stats panel.
  *
- * Any EXPANDED panel (the overview list or a file/terminal/subagent
- * detail) wants the conversation column out from under it. When the
- * column can spare the width, the card DOCKS: it reserves a right lane
- * (padding-right on ChatView's root) so the centered, width-capped
- * column (chatColumn.ts) re-centers in the remaining space instead of
- * being covered — the overview docks at its compact width, while detail
- * views also WIDEN toward their 40rem cap. Below the crossover the card
- * keeps the overlay behavior (float over the column, exactly today's
- * layout).
+ * The panel is a REAL FLEX SIBLING of the conversation (App renders the
+ * row: conversation flex-1 + panel). ONE rule with three gates decides
+ * only the panel's position — everything else (how wide the conversation
+ * ends up, re-centering while the panel grows or shrinks) is plain flex
+ * reflow and needs no bookkeeping:
  *
- * The panel is ELASTIC: it shrinks toward its minimum before giving up,
- * so the dock/overlay boundary is continuous rather than a jump — and
- * the column is width-capped (chatColumn.ts), never pushed wider by a
- * dock: with spare width it only re-centers (zero reflow); tighter
- * windows narrow it toward the readable floor. A wide-tier (64rem)
- * column gives up more before reaching that floor — the tier itself
- * stays put because ChatView measures border-box, stable under this
- * lane's padding.
+ * 1. A card that shows NOTHING (no diff, no terminals, no subagents) or
+ *    is COLLAPSED floats — position: absolute, out of flow. Hard
+ *    binding, no exceptions: no card on screen ⇒ the conversation
+ *    column keeps the full width.
+ * 2. An EXPANDED panel reads the conversation surface's WIDTH — and
+ *    only that: wide enough to fit the WIDEST panel beside the
+ *    conversation column's readable floor → IN FLOW (position: static,
+ *    fixed width — overview 26rem, detail 40rem): the panel and the
+ *    conversation collide and flex pushes the conversation left.
+ *    The threshold is a window-size property, so drilling between
+ *    overview and detail never flips the mode.
+ * 3. Anything narrower → FLOAT (absolute, covering the column's right
+ *    margin). No pushing.
+ *
+ * The panel's own width/height keep transitioning (SessionStatsCard's
+ * box machinery), and because it sits in flow the conversation rides
+ * every frame of that transition for free.
  *
  * All rem constants scale with the root font size (user zoom), so the
  * caller passes the current px-per-rem.
  */
 
-export interface StatsLanePlan {
-    mode: "dock" | "overlay";
-    /** Docked panel width in px (0 in overlay). */
+export interface StatsPanelPlan {
+    mode: "flow" | "float";
+    /** In-flow panel width in px (0 when floating). */
     panelWidth: number;
-    /** Reserved right lane in px (0 in overlay) — applied as
-     *  padding-right on ChatView's root. */
-    laneWidth: number;
 }
 
-/** Preferred detail-panel width (the cap; the panel shrinks below it). */
-const PANEL_WIDE_REM = 40;
-/** Minimum dock width — the overview's compact width and the detail
- *  panel's shrink floor; below it the card overlays instead of docking. */
-const PANEL_MIN_REM = 26;
-/** The conversation column never narrows past this while docked. */
+/** In-flow panel widths by view: the overview list is compact; detail
+ *  views (file diffs, terminal output, subagent transcripts) read wide. */
+export const OVERVIEW_PANEL_REM = 26;
+export const DETAIL_PANEL_REM = 40;
+/** The conversation column never narrows past this beside the panel. */
 const COLUMN_FLOOR_REM = 36;
-/** The column's own side gutters while capped (both sides — chatColumn's
- *  compact tier). Docking never coexists with the roomy uncapped
- *  gutters: those live below the base cap, where the budget is already
- *  overlay territory — and a lane that narrows the column below its cap
- *  still reads as capped (border-box measurement). */
+/** The column's own side gutters while capped (chatColumn's compact
+ *  tier — flow mode only happens at widths far above the roomy tier). */
 const COLUMN_PAD_REM = 3;
-/** The card's right-4 offset (fixed px, not rem-scaled). */
-const CARD_RIGHT_PX = 16;
-/** Breathing room between the column's edge and the docked panel. */
-const LANE_GAP_PX = 12;
+/** The panel's right margin in flow (fixed px, not rem-scaled) — the
+ *  same 16px inset it keeps while floating (right-4). */
+const PANEL_MARGIN_PX = 16;
 
-const OVERLAY: StatsLanePlan = {mode: "overlay", panelWidth: 0, laneWidth: 0};
+const FLOAT: StatsPanelPlan = {mode: "float", panelWidth: 0};
 
 /**
- * Decide dock vs overlay for the current container width.
+ * Decide flow vs float for the conversation surface.
  *
- * @param containerWidth ChatView root width in px (border-box — stable
- *        under the lane's own padding-right).
+ * @param surfaceWidth The conversation surface's width in px (App
+ *        measures the flex row beside the sidebar — NOT the window).
  * @param remPx Current px-per-rem (root font size), for zoom scaling.
- * @param expanded Whether the panel is open (overview or detail) — a
- *        collapsed card never docks.
+ * @param visible Whether the card shows anything at all — an invisible
+ *        card is out of flow.
+ * @param expanded Whether the panel is open — a collapsed pill floats.
  * @param detail Whether the open view is a detail (file/terminal/
- *        subagent) — details widen toward their cap; the overview docks
- *        at its compact width.
+ *        subagent) — picks the panel's fixed width; never the mode.
  */
-export function planStatsLayout(containerWidth: number, remPx: number, expanded: boolean, detail: boolean): StatsLanePlan {
-    if (!expanded || remPx <= 0) return OVERLAY;
-    // Width the conversation can spare: everything left after the column
-    // keeps its floor + gutters, minus the card's right offset and gap.
-    const budget =
-        containerWidth - (COLUMN_FLOOR_REM + COLUMN_PAD_REM) * remPx - CARD_RIGHT_PX - LANE_GAP_PX;
-    if (budget < PANEL_MIN_REM * remPx) return OVERLAY;
-    // Elastic: take the full preferred width only when affordable.
-    const preferred = (detail ? PANEL_WIDE_REM : PANEL_MIN_REM) * remPx;
-    const panelWidth = Math.floor(Math.min(budget, preferred));
-    return {mode: "dock", panelWidth, laneWidth: panelWidth + CARD_RIGHT_PX + LANE_GAP_PX};
+export function planStatsPanel(surfaceWidth: number, remPx: number, visible: boolean, expanded: boolean, detail: boolean): StatsPanelPlan {
+    if (!visible || !expanded || remPx <= 0) return FLOAT;
+    // Enter flow only where the WIDEST panel fits beside the column's
+    // floor and gutters. At 16px/rem this lands on exactly 1280px — the
+    // column's own wide tier (chatColumn.ts); a coincidence, kept
+    // independent on purpose.
+    const flowAt = (COLUMN_FLOOR_REM + COLUMN_PAD_REM + DETAIL_PANEL_REM) * remPx + PANEL_MARGIN_PX;
+    if (surfaceWidth < flowAt) return FLOAT;
+    const panelWidth = Math.round((detail ? DETAIL_PANEL_REM : OVERVIEW_PANEL_REM) * remPx);
+    return {mode: "flow", panelWidth};
 }
