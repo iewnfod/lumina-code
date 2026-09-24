@@ -145,9 +145,12 @@ body {
     scrollbar-color: rgba(128, 128, 128, 0.35) transparent;
 }
 
+/* Narrow at rest AND on hover — the hover state only deepens the color.
+ * (The old transparent-border + background-clip narrowing trick is not
+ * honored by WebKitGTK scrollbar thumbs, which painted full-width.) */
 *::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 4px;
+    height: 4px;
 }
 
 *::-webkit-scrollbar-track {
@@ -157,13 +160,10 @@ body {
 *::-webkit-scrollbar-thumb {
     background: rgba(128, 128, 128, 0.35);
     border-radius: var(--radius-sm);
-    border: 2px solid transparent;
-    background-clip: padding-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
     background: rgba(128, 128, 128, 0.55);
-    background-clip: padding-box;
 }
 
 /* Selection — tinted with the brand cinnabar so highlighted text reads as
