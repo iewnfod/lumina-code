@@ -8,7 +8,7 @@ import {arrivalDuration} from "../../lib/arrival.ts";
 import {useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
-import type {SessionDiffEntry} from "../../opencode/types.ts";
+import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import type {SessionShellRef, SessionSubagentRef} from "../../opencode/sessionActivity.ts";
 import {planStatsLayout} from "./statsLayout.ts";
 import IconButton from "../ui/IconButton.tsx";
@@ -16,12 +16,12 @@ import Hint from "../ui/Hint.tsx";
 import {ChangesSection, DiffCountsBadge, FileDiffBody, FileTitle} from "./ChangesSection.tsx";
 import {ShellStateChip, TerminalsSection, TerminalBody, TerminalTitle} from "./TerminalsSection.tsx";
 import {SubagentsSection, SubagentBody, SubagentStateChip, SubagentTitle} from "./SubagentsSection.tsx";
-import {FadeIn, FinishedTotal} from "./statsChrome.tsx";
+import {FadeIn, FinishedTotal, statsRowPresence, statsSectionExit} from "./statsChrome.tsx";
 
 /** Which detail the expanded panel shows; "overview" is the section list. */
 type StatsView =
     | {kind: "overview"}
-    | {kind: "file"; file: SessionDiffEntry}
+    | {kind: "file"; file: WorkspaceDiffEntry}
     | {kind: "terminal"; shell: SessionShellRef & {running: boolean}}
     | {kind: "subagent"; sub: SessionSubagentRef & {running: boolean}};
 
@@ -46,12 +46,14 @@ type StatsView =
  *   would vanish crossing the growing box's edge. Entering content is
  *   hidden by its fade instead, which is what makes the reveal read.
  *
- * The data comes from useSessionActivity (owned by ChatView); this
- * component is presentation + local navigation state only.
+ * Presentation + local navigation state only — the data comes from the
+ * WorkspaceStatsCard wrapper (workspace diff by directory + the active
+ * session's terminals/subagents; see stats/WorkspaceStatsCard.tsx).
  */
 const SessionStatsCard = memo(function SessionStatsCard({
     api,
     subscribe,
+    sessionId,
     activity,
     colors,
     directory,
@@ -60,8 +62,12 @@ const SessionStatsCard = memo(function SessionStatsCard({
 }: {
     api: OpencodeApi | null;
     subscribe: (handler: OpencodeEventHandler) => () => void;
+    /** The active session — terminals/subagents are ITS (see
+     *  WorkspaceStatsCard). The card outlives same-directory session
+     *  switches, so this prop CHANGES without a remount. */
+    sessionId: string;
     activity: {
-        diff: SessionDiffEntry[] | null;
+        diff: WorkspaceDiffEntry[] | null;
         diffLoading: boolean;
         diffTotals: {added: number; removed: number; files: number};
         shells: (SessionShellRef & {running: boolean})[];
@@ -79,9 +85,10 @@ const SessionStatsCard = memo(function SessionStatsCard({
 }) {
     const t = useI18n();
     const panelMode = useStatsPanelMode();
-    // "always" mounts the panel expanded (and a session switch remounts
-    // the card — App keys ChatView's wrapper by session id — restoring
-    // the expansion after a manual collapse).
+    // "always" mounts the panel expanded (a directory switch remounts the
+    // card — App keys it by directory — restoring the expansion after a
+    // manual collapse; same-directory session switches keep whatever the
+    // user left).
     const [expanded, setExpanded] = useState(panelMode === "always");
     const [view, setView] = useState<StatsView>({kind: "overview"});
     // Whether the current view's content is final enough to measure.
@@ -112,10 +119,9 @@ const SessionStatsCard = memo(function SessionStatsCard({
     const showChanges = diffTotals.files > 0 || (diffLoading && (shells.length > 0 || subagents.length > 0));
 
     // Data was already cached when this card mounted (a switch to a
-    // session whose activity the module store holds — and whose messages
-    // seed the first render): the card is part of the session surface's
-    // INITIAL layout. It renders at its final state with no entrance of
-    // its own and rides the surface's swap animation like the transcript;
+    // directory whose workspace diff the module store holds — and whose
+    // active-session messages seed the first render): the card enters
+    // WITH its content in place (sections skip their staggered fades);
     // activity that first appears later still enters animated.
     const [seeded] = useState(visible);
 
@@ -164,9 +170,10 @@ const SessionStatsCard = memo(function SessionStatsCard({
     // conversation column starts at its correct position and the
     // surface's entrance carries it in (CSS transitions never fire on an
     // element's initial computed style). An appearance within an
-    // already-painted ChatView (activity first arriving mid-session)
-    // still glides — there the padding change is a real computed-style
-    // change, riding the arrival curve like a manual expand.
+    // already-painted conversation surface (activity first arriving
+    // mid-session) still glides — there the padding change is a real
+    // computed-style change, riding the arrival curve like a manual
+    // expand.
     // The observer also fires when OUR OWN lane padding shrinks the
     // content box; offsetWidth/offsetHeight (padding-box) are stable
     // under that, so those fires no-op — without the guard the
@@ -408,6 +415,30 @@ const SessionStatsCard = memo(function SessionStatsCard({
         setFlightsArmed(false);
     }, [pinCurrentSize]);
 
+    // A same-directory session switch keeps this card mounted — but any
+    // open drill view points at the PREVIOUS session's row (liveShell/
+    // liveSub fall back to the stale view.shell/view.sub), which is
+    // exactly the inherited-content class of bug. The session change
+    // resets to the overview with the same pinned+measured morph as
+    // back(), so the box glides instead of snapping. (Refs, not deps:
+    // view/pin are read at fire time — the effect keys on the session
+    // change alone, like the panelMode effect below.)
+    const viewRef = useRef(view);
+    viewRef.current = view;
+    const sessionIdRef = useRef(sessionId);
+    useEffect(() => {
+        if (sessionIdRef.current === sessionId) return;
+        sessionIdRef.current = sessionId;
+        setFlightsArmed(false);
+        if (viewRef.current.kind === "overview") return;
+        laneAnimatedRef.current = true;
+        navKindRef.current = "nav";
+        setViewSettled(true);
+        pinCurrentSize();
+        setView({kind: "overview"});
+        setNavTick((n) => n + 1);
+    }, [sessionId, pinCurrentSize]);
+
     /** Async drill bodies (terminal output, subagent transcript) report
      *  their first real content here — the held pin releases into ONE
      *  paced morph toward the now-measurable size. Idempotent; fires at
@@ -518,10 +549,14 @@ const SessionStatsCard = memo(function SessionStatsCard({
             {visible && (
                 <motion.div
                     ref={rootRef}
-                    // A seeded mount enters at its FINAL state — the card
-                    // is initial layout, not a late arrival; the session
-                    // surface's swap animation carries it in.
-                    initial={seeded ? {opacity: 1, y: 0} : {opacity: 0, y: 8}}
+                    // The card lives OUTSIDE the session swap (App mounts
+                    // it beside the transcript, keyed by directory): it
+                    // only ever mounts as a real arrival — the directory
+                    // layer appearing on a cross-project switch, or
+                    // activity first appearing — so it always enters
+                    // animated. First app paint is exempt via the outer
+                    // AnimatePresence's initial={false}.
+                    initial={{opacity: 0, y: 8}}
                     animate={{opacity: 1, y: 0}}
                     exit={{opacity: 0, y: 8, transition: {duration: durationFast}}}
                     transition={springSoft}
@@ -557,40 +592,53 @@ const SessionStatsCard = memo(function SessionStatsCard({
                                     onClick={expand}
                                     className="flex flex-col items-stretch gap-1 px-3 py-2.5 cursor-pointer rounded-[var(--radius-lg)] text-xs transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-stats-hover)]"
                                     style={{"--lum-stats-hover": colors.hoverOverlay} as React.CSSProperties}
-                                    aria-label={t["Session activity"]}
+                                    aria-label={t["Workspace activity"]}
                                 >
-                                    {diffTotals.files > 0 && (
-                                        <span className="flex items-center justify-between gap-2">
-                                            <Diff size={13} className="shrink-0 opacity-70"/>
-                                            <DiffCountsBadge added={diffTotals.added} removed={diffTotals.removed}/>
-                                        </span>
-                                    )}
-                                    {shells.length > 0 && (
-                                        <span className="flex items-center justify-between gap-2">
-                                            <SquareTerminal
-                                                size={13}
-                                                className={`shrink-0 opacity-70${runningShells > 0 ? " animate-pulse" : ""}`}
-                                            />
-                                            <StatCount
-                                                finished={shells.length - runningShells}
-                                                total={shells.length}
-                                                label={t["Terminals"]}
-                                            />
-                                        </span>
-                                    )}
-                                    {subagents.length > 0 && (
-                                        <span className="flex items-center justify-between gap-2">
-                                            <Bot
-                                                size={13}
-                                                className={`shrink-0 opacity-70${runningSubagents > 0 ? " animate-pulse" : ""}`}
-                                            />
-                                            <StatCount
-                                                finished={subagents.length - runningSubagents}
-                                                total={subagents.length}
-                                                label={t["Subagents"]}
-                                            />
-                                        </span>
-                                    )}
+                                    {/* The pill's rows are presence-animated
+                                        (popLayout): terminals/subagents are
+                                        session-scoped inside the directory-
+                                        keyed card, so a same-directory switch
+                                        swaps them in place — old rows pop out
+                                        of the stack and fade, new ones fade
+                                        in; the changes row rides the same
+                                        pair when the workspace goes clean ↔
+                                        dirty. popLayout (safe here — the pill
+                                        never scrolls) keeps the stack from
+                                        doubling while the old rows fade. */}
+                                    <AnimatePresence initial={false} mode="popLayout">
+                                        {diffTotals.files > 0 && (
+                                            <motion.span key="changes" {...statsRowPresence()} className="flex items-center justify-between gap-2">
+                                                <Diff size={13} className="shrink-0 opacity-70"/>
+                                                <DiffCountsBadge added={diffTotals.added} removed={diffTotals.removed}/>
+                                            </motion.span>
+                                        )}
+                                        {shells.length > 0 && (
+                                            <motion.span key="terminals" {...statsRowPresence()} className="flex items-center justify-between gap-2">
+                                                <SquareTerminal
+                                                    size={13}
+                                                    className={`shrink-0 opacity-70${runningShells > 0 ? " animate-pulse" : ""}`}
+                                                />
+                                                <StatCount
+                                                    finished={shells.length - runningShells}
+                                                    total={shells.length}
+                                                    label={t["Terminals"]}
+                                                />
+                                            </motion.span>
+                                        )}
+                                        {subagents.length > 0 && (
+                                            <motion.span key="subagents" {...statsRowPresence()} className="flex items-center justify-between gap-2">
+                                                <Bot
+                                                    size={13}
+                                                    className={`shrink-0 opacity-70${runningSubagents > 0 ? " animate-pulse" : ""}`}
+                                                />
+                                                <StatCount
+                                                    finished={subagents.length - runningSubagents}
+                                                    total={subagents.length}
+                                                    label={t["Subagents"]}
+                                                />
+                                            </motion.span>
+                                        )}
+                                    </AnimatePresence>
                                 </motion.button>
                             ) : (
                                 <motion.div
@@ -635,7 +683,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
                                             // content below (body px-3 + section px-2 =
                                             // 20px; header pl-1.5 + this pl-3.5 = 20px).
                                             <FadeIn delay={contentFadeDelay} className="flex-1 min-w-0 pl-3.5 text-xs font-medium truncate">
-                                                {t["Session activity"]}
+                                                {t["Workspace activity"]}
                                             </FadeIn>
                                         )}
                                         {view.kind === "file" && liveFile && (
@@ -696,37 +744,58 @@ const SessionStatsCard = memo(function SessionStatsCard({
                                     >
                                         {view.kind === "overview" && (
                                             <>
-                                                {showChanges && (
-                                                    <ChangesSection
-                                                        diff={diff}
-                                                        loading={diffLoading}
-                                                        totals={diffTotals}
-                                                        colors={colors}
-                                                        directory={directory}
-                                                        fadeDelay={contentFadeDelay}
-                                                        flight={flightsArmed}
-                                                        onOpenFile={(file) => drill({kind: "file", file})}
-                                                    />
-                                                )}
-                                                {shells.length > 0 && (
-                                                    <TerminalsSection
-                                                        shells={shells}
-                                                        colors={colors}
-                                                        fadeDelay={contentFadeDelay}
-                                                        flight={flightsArmed}
-                                                        onOpenTerminal={(shell) => drill({kind: "terminal", shell})}
-                                                        onStopShell={stopShell}
-                                                    />
-                                                )}
-                                                {subagents.length > 0 && (
-                                                    <SubagentsSection
-                                                        subagents={subagents}
-                                                        colors={colors}
-                                                        fadeDelay={contentFadeDelay}
-                                                        flight={flightsArmed}
-                                                        onOpenSubagent={(sub) => drill({kind: "subagent", sub})}
-                                                    />
-                                                )}
+                                                {/* Sections are presence-wrapped
+                                                    (exit-only — entrance keeps
+                                                    each section's own FadeIn
+                                                    choreography, a wrapper
+                                                    enter fade would compound
+                                                    opacities): a section
+                                                    emptying out, or leaving
+                                                    with a same-directory
+                                                    session switch, fades
+                                                    instead of snapping. The
+                                                    terminal/subagent ROWS
+                                                    swap animated inside their
+                                                    sections (statsRowPresence). */}
+                                                <AnimatePresence initial={false}>
+                                                    {showChanges && (
+                                                        <motion.div key="changes" {...statsSectionExit}>
+                                                            <ChangesSection
+                                                                diff={diff}
+                                                                loading={diffLoading}
+                                                                totals={diffTotals}
+                                                                colors={colors}
+                                                                directory={directory}
+                                                                fadeDelay={contentFadeDelay}
+                                                                flight={flightsArmed}
+                                                                onOpenFile={(file) => drill({kind: "file", file})}
+                                                            />
+                                                        </motion.div>
+                                                    )}
+                                                    {shells.length > 0 && (
+                                                        <motion.div key="terminals" {...statsSectionExit}>
+                                                            <TerminalsSection
+                                                                shells={shells}
+                                                                colors={colors}
+                                                                fadeDelay={contentFadeDelay}
+                                                                flight={flightsArmed}
+                                                                onOpenTerminal={(shell) => drill({kind: "terminal", shell})}
+                                                                onStopShell={stopShell}
+                                                            />
+                                                        </motion.div>
+                                                    )}
+                                                    {subagents.length > 0 && (
+                                                        <motion.div key="subagents" {...statsSectionExit}>
+                                                            <SubagentsSection
+                                                                subagents={subagents}
+                                                                colors={colors}
+                                                                fadeDelay={contentFadeDelay}
+                                                                flight={flightsArmed}
+                                                                onOpenSubagent={(sub) => drill({kind: "subagent", sub})}
+                                                            />
+                                                        </motion.div>
+                                                    )}
+                                                </AnimatePresence>
                                             </>
                                         )}
                                         {view.kind === "file" && liveFile && (

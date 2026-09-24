@@ -15,10 +15,10 @@ import type {
     OpencodeSession,
     PermissionDecision,
     PermissionRequest,
-    SessionDiffEntry,
     SessionModelRef,
     ShellInfo,
     ShellOutput,
+    WorkspaceDiffEntry,
 } from "./types.ts";
 export type {Session} from "@opencode-ai/sdk/v2/client";
 export type {
@@ -33,9 +33,9 @@ export type {
     OpencodeProject,
     OpencodeProvider,
     OpencodeSession,
-    SessionDiffEntry,
     ShellInfo,
     ShellOutput,
+    WorkspaceDiffEntry,
 } from "./types.ts";
 
 /** The messages endpoint caps `limit` at 200 (400 above that). */
@@ -189,29 +189,33 @@ export class OpencodeApi {
         ).then((r) => r?.interrupted ?? false);
     }
 
-    // --- Session activity (stats card) — verified against server v2.0.11 ---
+    // --- Workspace activity (stats card) — verified against server v2.0.11 ---
     //
     // The shells are location-scoped services: a session whose directory
     // differs from the server's own cwd spawns its shells under THAT
     // location, and the list/get/output routes only see them when the
     // request carries the same `location[directory]` query.
 
-    /** Real git diff of everything a session changed (snapshot-based; a run
-     * in flight compares against the working copy). Without anchors it
-     * diffs the NEWEST turn only — pass the session's first/last user
-     * message ids to span the whole session. `context` defaults to 3:
-     * OMITTING it serves full-file patches (verified — one edit returned a
-     * 574-line patch), which is unreadable in a detail view. */
-    sessionDiff(
-        sessionId: string,
-        anchors?: {from?: string; to?: string; context?: number},
-    ): Promise<SessionDiffEntry[]> {
+    /** Real git diff of the WORKING COPY against HEAD for a directory
+     *  (`GET /api/vcs/diff?mode=working`, verified against server v2.0.11):
+     *  uncommitted changes including untracked files ("added"). This is the
+     *  stats card's Changes truth - the per-session diff endpoint compares
+     *  whole-worktree snapshot trees over the session's TIME WINDOW, so any
+     *  other session editing the same project leaks into it (see types.ts).
+     *  Location-scoped like the shell endpoints; a directory without VCS
+     *  fails with 503 - callers catch that and read as "no changes".
+     *  `context` defaults to 3 lines like the session endpoint (omitting it
+     *  serves full-file patches). */
+    vcsDiff(
+        directory: string | null,
+        opts?: {context?: number},
+    ): Promise<WorkspaceDiffEntry[]> {
         const params = new URLSearchParams();
-        if (anchors?.from) params.set("from", anchors.from);
-        if (anchors?.to) params.set("to", anchors.to);
-        params.set("context", String(anchors?.context ?? 3));
-        return this.request<SessionDiffEntry[]>(
-            `/api/session/${encodeURIComponent(sessionId)}/diff?${params.toString()}`,
+        params.set("mode", "working");
+        if (directory) params.set("location[directory]", directory);
+        params.set("context", String(opts?.context ?? 3));
+        return this.request<WorkspaceDiffEntry[]>(
+            `/api/vcs/diff?${params.toString()}`,
         );
     }
 
@@ -268,30 +272,6 @@ export class OpencodeApi {
         return this.requestRaw<{data?: ShellOutput}>(
             `/api/shell/${encodeURIComponent(shellId)}/output${query ? `?${query}` : ""}`,
         ).then((r) => r?.data ?? {output: "", cursor: 0, size: 0, truncated: false});
-    }
-
-    /** The session's FIRST user message id (the whole-session diff anchor)
-     * via `?order=asc&limit=1&type=user` — cheaper than walking pages. */
-    firstUserMessageId(sessionId: string): Promise<string | null> {
-        return this.requestRaw<MessagesPage>(
-            `/api/session/${encodeURIComponent(sessionId)}/message?order=asc&limit=1&type=user`,
-        ).then((page) => {
-            const first = (page?.data ?? [])[0];
-            return first && first.type === "user" ? first.id : null;
-        });
-    }
-
-    /** The session's LAST user message id (the diff's `to` anchor) via
-     * `?order=desc&limit=1&type=user` — verified against v2.0.11 to return
-     * exactly the newest user message. Used by the activity prefetch,
-     * before any messages are loaded locally. */
-    lastUserMessageId(sessionId: string): Promise<string | null> {
-        return this.requestRaw<MessagesPage>(
-            `/api/session/${encodeURIComponent(sessionId)}/message?order=desc&limit=1&type=user`,
-        ).then((page) => {
-            const last = (page?.data ?? [])[0];
-            return last && last.type === "user" ? last.id : null;
-        });
     }
 
     /** Available models (includes each model's thinking-depth variants). */

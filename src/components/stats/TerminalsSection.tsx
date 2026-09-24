@@ -1,5 +1,5 @@
 import {memo, useCallback, useEffect, useRef, useState} from "react";
-import {motion} from "framer-motion";
+import {AnimatePresence, motion} from "framer-motion";
 import {Square, SquareTerminal} from "lucide-react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
@@ -9,7 +9,7 @@ import type {OpencodeApi} from "../../opencode/api.ts";
 import type {SessionShellRef} from "../../opencode/sessionActivity.ts";
 import IconButton from "../ui/IconButton.tsx";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
-import {BodyBox, DrillChevron, FadeIn, FinishedTotal, StateChip, StatsSection} from "./statsChrome.tsx";
+import {BodyBox, DrillChevron, FadeIn, FinishedTotal, StateChip, StatsSection, statsRowPresence} from "./statsChrome.tsx";
 
 /** Poll cadence for a running terminal's tail. */
 const OUTPUT_POLL_MS = 2000;
@@ -99,10 +99,15 @@ export const TerminalsSection = memo(function TerminalsSection({
         >
             {/* pt-1 widens this section's header→list gap beyond the
                 section chrome's gap-1 — the terminal cards are tall
-                two-line rows and sat flush under the title. */}
-            <FadeIn delay={fadeDelay} className="flex flex-col gap-1.5 pt-1">
-                {shells.map((shell) => (
-                    <div key={shell.id} className="group/term relative">
+                two-line rows and sat flush under the title. Rows animate
+                INDIVIDUALLY (statsRowPresence): they are session-scoped
+                inside the directory-keyed card, so a same-directory
+                session switch swaps them in place, and a terminal
+                appearing/vanishing mid-run folds with a fade. */}
+            <div className="flex flex-col gap-1.5 pt-1">
+                <AnimatePresence initial={false}>
+                    {shells.map((shell) => (
+                        <motion.div key={shell.id} {...statsRowPresence(fadeDelay)} className="group/term relative">
                         <button
                             type="button"
                             onClick={() => onOpenTerminal(shell)}
@@ -157,9 +162,10 @@ export const TerminalsSection = memo(function TerminalsSection({
                                 <Square size={11} className="fill-current" style={{color: "#ef4444"}}/>
                             </IconButton>
                         )}
-                    </div>
-                ))}
-            </FadeIn>
+                        </motion.div>
+                    ))}
+                </AnimatePresence>
+            </div>
         </StatsSection>
     );
 });

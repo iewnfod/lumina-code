@@ -2,6 +2,7 @@ import type {CSSProperties, ReactNode, RefObject} from "react";
 import {motion} from "framer-motion";
 import {ChevronRight} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {durationFast} from "../../lib/motion.ts";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
 import RollingTitle from "../ui/RollingTitle.tsx";
 
@@ -186,3 +187,26 @@ export function FadeIn({
         </motion.div>
     );
 }
+
+/** Motion props for a stats ROW that is session-scoped inside the
+ * directory-keyed card: a same-directory session switch keeps the card
+ * mounted and swaps the row set in place, so rows need BOTH directions
+ * animated (FadeIn only ever covered entrance). Enter mirrors FadeIn —
+ * same 0.3s fade, same context-dependent delay — exit is the
+ * chrome-standard fast fade. */
+export function statsRowPresence(delay = 0) {
+    return {
+        initial: {opacity: 0},
+        animate: {opacity: 1, transition: {duration: 0.3, delay}},
+        exit: {opacity: 0, transition: {duration: durationFast}},
+    };
+}
+
+/** Exit-only fade for a stats SECTION wrapper: entrance stays the
+ * section's own FadeIn choreography (an enter fade on the wrapper would
+ * compound opacities with it), so the wrapper animates only the leaving
+ * direction — a section emptying out (or leaving with a session switch)
+ * fades instead of snapping. */
+export const statsSectionExit = {
+    exit: {opacity: 0, transition: {duration: durationFast}},
+};

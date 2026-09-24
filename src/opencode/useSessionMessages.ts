@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useRef, useState} from "react";
+import {useCallback, useEffect, useRef, useState, useSyncExternalStore} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import {OpencodeApi} from "./api.ts";
 import {applyEvent, applyOlderPage, applySeedPage} from "./messageStore.ts";
@@ -105,6 +105,30 @@ export function subscribeSessionMessages(listener: (sessionId: string) => void):
 /** A tracked session's current messages (undefined = never opened here). */
 export function peekSessionMessages(sessionId: string): readonly ChatMessage[] | undefined {
     return entries.get(sessionId)?.messages;
+}
+
+/** Stable empty snapshot for sessions with no store entry. */
+const EMPTY_MESSAGES: readonly ChatMessage[] = [];
+
+/** Read-only live snapshot of a tracked session's messages — the store
+ *  watched from OUTSIDE ChatView (the workspace stats card, which survives
+ *  same-directory session switches and must not show the previous
+ *  session's terminals/subagents for a frame). useSyncExternalStore
+ *  re-subscribes and re-checks the snapshot when the session id changes,
+ *  so there is no stale frame; seeding/actions stay ChatView's job. */
+export function useSessionMessagesSnapshot(sessionId: string | null): readonly ChatMessage[] {
+    const subscribe = useCallback(
+        (notify: () => void) =>
+            subscribeSessionMessages((sid) => {
+                if (sessionId === null || sid === sessionId) notify();
+            }),
+        [sessionId],
+    );
+    const getSnapshot = useCallback(
+        () => (sessionId !== null ? peekSessionMessages(sessionId) ?? EMPTY_MESSAGES : EMPTY_MESSAGES),
+        [sessionId],
+    );
+    return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 export function useSessionMessages(

@@ -257,16 +257,19 @@ export interface UserMessageFile {
     [key: string]: unknown;
 }
 
-// --- Session activity (stats card) — verified against server v2.0.11 ---
+// --- Workspace activity (stats card) — verified against server v2.0.11 ---
 //
+// The stats card's Changes section is WORKSPACE truth, not session truth:
 // `GET /api/session/{id}/diff` compares the snapshot trees recorded around
-// the session's model steps, so it is a REAL git diff of everything the
-// session changed — a run still in flight compares against the working
-// copy. Without anchors it diffs only the NEWEST turn; passing the first
-// and last user message ids as `from`/`to` spans the whole session.
+// a session's model steps — the whole worktree over a TIME WINDOW — so
+// edits made by any other session in the same project leak in (two
+// sessions share one physical worktree and one snapshot repository).
+// Instead the card reads `GET /api/vcs/diff?mode=working` (HEAD vs the
+// working copy, untracked files included as "added"), location-scoped by
+// the directory. Same FileDiff.Info shape as the session endpoint.
 
-/** `GET /api/session/{id}/diff` entry — one changed file. */
-export interface SessionDiffEntry {
+/** `GET /api/vcs/diff` entry — one changed file (server `FileDiff.Info`). */
+export interface WorkspaceDiffEntry {
     file: string;
     /** Unified-diff patch text (hunk context = the server's default). */
     patch: string;

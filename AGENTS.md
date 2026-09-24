@@ -65,6 +65,15 @@ src/
 │                          #   useSessionFlow) and the session ↔ welcome-screen
 │                          #   swap. App() wraps InnerApp with
 │                          #   useMaximized/usePaddingOffset/useDragRegionDoubleClick.
+│                          #   Also owns the workspace stats card layer —
+│                          #   mounted beside the swap, KEYED BY DIRECTORY
+│                          #   (same-directory session switches keep it
+│                          #   mounted without animation; cross-directory
+│                          #   switches animate it out/in; never on the
+│                          #   welcome screen) — and the docked-lane state
+│                          #   it reports, which flows into ChatView as
+│                          #   lanePadding so the columns re-center beside
+│                          #   the expanded card across session switches.
 ├── main.tsx               # ReactDOM entry (React.StrictMode) + attachConsole
 ├── constants.ts           # CHROME_TITLE_BAR_HEIGHT
 ├── i18n/                  # en-us.ts (source of truth: keys ARE the English
@@ -125,7 +134,10 @@ src/
 │   │                      #   (not first effect) — a session switched back to paints
 │   │                      #   in the mounting commit. Exports
 │   │                      #   subscribeSessionMessages/peekSessionMessages for the
-│   │                      #   activity store's background freshness.
+│   │                      #   activity store's background freshness, plus
+│   │                      #   useSessionMessagesSnapshot — a read-only
+│   │                      #   useSyncExternalStore binding for consumers that
+│   │                      #   outlive session switches (the stats card).
 │   │                      #   prepareCommandSubmission pre-creates the entry so a
 │   │                      #   first-send slash command keeps its enqueue frame.
 │   ├── useSessionFlow.ts  # App-level session flow: active session id + composer
@@ -148,26 +160,35 @@ src/
 │   │                      #   mutation signature (file-mutation count + last confirmed
 │   │                      #   user message id — streamed frames never move it).
 │   │                      #   node-testable.
-│   ├── useSessionActivity.ts # Stats-card state over a MODULE-LEVEL store (one entry
-│   │                      #   per session, the useSessionMessages pattern): the
-│   │                      #   whole-session git diff (GET /api/session/{id}/diff
-│   │                      #   anchored to the first/last user message — no anchors
-│   │                      #   would diff only the newest turn), the live running-shell
-│   │                      #   set and subagent running flags (the App busy set). A
-│   │                      #   switch BACK paints the cached diff in the mounting
-│   │                      #   commit (SWR — activation revalidates behind it), so the
-│   │                      #   stats card mounts as part of the session surface's
-│   │                      #   initial layout instead of popping in late.
-│   │                      #   Backgrounded sessions stay fresh: the global shell
-│   │                      #   bus patches their running sets and a message-store
-│   │                      #   watcher re-pulls the diff (debounced) when the
-│   │                      #   mutation signature moves. The first-user anchor loads
-│   │                      #   once per session; the last-user anchor comes from the
-│   │                      #   tracked messages or one tiny desc request (prefetch).
-│   │                      #   prefetchSessionActivity (sidebar hover, wired in App)
-│   │                      #   warms never-opened sessions ahead of the click.
-│   │                      #   Derived arrays are identity-stable across streamed
-│   │                      #   frames.
+│   ├── useSessionActivity.ts # Stats-card state, split by scope, both over
+│   │                      #   MODULE-LEVEL stores (the useSessionMessages
+│   │                      #   pattern): (1) the WORKSPACE DIFF — one entry
+│   │                      #   per DIRECTORY (GET /api/vcs/diff?mode=working,
+│   │                      #   HEAD vs the working copy, untracked included),
+│   │                      #   shared by every session in the directory so a
+│   │                      #   same-directory switch paints identical numbers
+│   │                      #   with no re-entry. This REPLACED the per-session
+│   │                      #   diff endpoint (GET /api/session/{id}/diff),
+│   │                      #   which compares whole-worktree snapshot trees
+│   │                      #   over the session's TIME WINDOW — sessions in
+│   │                      #   one directory share one physical worktree and
+│   │                      #   snapshot repo, so a sibling session's edits
+│   │                      #   leaked into an idle session's "own" diff.
+│   │                      #   (2) the active session's TERMINALS + SUBAGENTS
+│   │                      #   (running shells seeded from GET /api/shell,
+│   │                      #   patched by the global shell bus; collections
+│   │                      #   from the message store via the read-only
+│   │                      #   useSessionMessagesSnapshot binding — the card
+│   │                      #   outlives same-directory session switches and
+│   │                      #   must not show the previous session's rows for
+│   │                      #   a frame). A message-store watcher re-pulls a
+│   │                      #   directory's diff (debounced) when any of its
+│   │                      #   sessions' mutation signatures move, so
+│   │                      #   backgrounded sessions keep the numbers fresh.
+│   │                      #   prefetchSessionActivity (sidebar hover, wired
+│   │                      #   in App) warms both ahead of the click.
+│   │                      #   Derived arrays are identity-stable across
+│   │                      #   streamed frames.
 │   └── useModelCatalog.ts # Providers/agents/models + server default, fetched per
 │                          #   connection AND re-fetched whenever the bus reports
 │                          #   credential.updated / config.updated (connecting a key
@@ -321,10 +342,12 @@ src/
     │   │                  #   IntersectionObserver on the top sentinel grows the window
     │   │                  #   (and fetches older pages) on scroll-up. Scrolling lives
     │   │                  #   in hooks/useTranscriptScroll.ts; block folding in
-    │   │                  #   transcript.ts; rendering in TranscriptList.tsx. Also
-    │   │                  #   owns useSessionActivity and floats stats/
-    │   │                  #   SessionStatsCard over the transcript (busyIds flow in
-    │   │                  #   from App for the subagent running flags).
+    │   │                  #   transcript.ts; rendering in TranscriptList.tsx. The
+    │   │                  #   stats card is GONE from here (it floats beside this
+    │   │                  #   view at App level now); what remains is the docked
+    │   │                  #   lane — the root pads right by the App-owned
+    │   │                  #   lanePadding/laneDurMs so the columns re-center
+    │   │                  #   beside the expanded card.
      │   ├── chatColumn.ts + useChatColumnWidth.ts # The conversation
      │   │                  #   column's responsive width cap + side
      │   │                  #   gutters: 48rem base cap, a 64rem wide
@@ -441,15 +464,35 @@ src/
     │   └── formLogic.ts   # Pure form-answer rules: fieldVisible (`when`
     │                      #   conditions), normalize (per-type values).
     │
-    ├── stats/            # The session-activity stats card (floats over the
-    │                      #   transcript's right margin; data from
-    │                      #   opencode/useSessionActivity, owned by ChatView;
-    │                      #   expansion is content-height (detail views cap
-    │                      #   at the container's full height, the overview
-    │                      #   at 75vh); outside-click/Escape collapse is the
+    ├── stats/            # The workspace stats card (floats over the
+    │                      #   conversation surface's right margin, OUTSIDE
+    │                      #   the session swap: App mounts the
+    │                      #   WorkspaceStatsCard wrapper beside ChatView,
+    │                      #   KEYED BY DIRECTORY — same-directory session
+    │                      #   switches keep the card mounted (content
+    │                      #   swaps in place, no animation, no lane flap),
+    │                      #   cross-directory switches animate it out/in,
+    │                      #   and the welcome screen never shows it. Data:
+    │                      #   the directory's working-copy diff
+    │                      #   (opencode/useWorkspaceDiff) + the ACTIVE
+    │                      #   session's terminals/subagents
+    │                      #   (opencode/useSessionActivity over the
+    │                      #   message-store snapshot); expansion is
+    │                      #   content-height (detail views cap at the
+    │                      #   container's full height, the overview at
+    │                      #   75vh); outside-click/Escape collapse is the
     │                      #   useStatsPanelMode "auto" mode)
-    │   ├── SessionStatsCard.tsx # The floating card: collapsed summary rows
-    │   │                  #   (+N −N lines, terminal/subagent counts — non-empty
+    │   ├── WorkspaceStatsCard.tsx # The card's data owner: owns the two
+    │                      #   scope hooks (workspace diff by directory,
+    │                      #   session terminals/subagents) + surface
+    │                      #   colors, then renders SessionStatsCard.
+    │   ├── SessionStatsCard.tsx # The floating card (presentation +
+    │                      #   local navigation only): collapsed summary rows
+    │   │                  #   (+N −N lines, terminal/subagent counts — presence-
+    │   │                  #   animated rows via popLayout: the pill never
+    │   │                  #   scrolls, and old rows must pop out of the
+    │   │                  #   stack while fading (a same-directory session
+    │   │                  #   swap, first activity arriving)
     │   │                  #   rows only) expanding into the detail panel via a
     │   │                  #   SHARED-ELEMENT transition, all validated against a
     │   │                  #   headless-browser repro (see git history): the box
@@ -499,9 +542,11 @@ src/
     │   │                  #   back to, or hover-prefetched) is initial
     │   │                  #   layout, not a late arrival: the card enters
     │   │                  #   at its final state and rides the surface's
-    │   │                  #   swap animation like the transcript (no
-    │   │                  #   self-entrance, no content fade delay). The
-    │   │                  #   container is measured SYNCHRONOUSLY in a
+    │   │                  #   swap animation like the transcript (sections
+    │   │                  #   skip their staggered fades; the card box
+    │   │                  #   itself still enters animated — it only ever
+    │   │                  #   mounts as a real arrival outside the swap).
+    │   │                  #   The container is measured SYNCHRONOUSLY in a
     │   │                  #   layout effect (pre-paint), so an
     │   │                  #   already-expanded panel's docked lane is
     │   │                  #   part of the FIRST PAINTED FRAME — the
@@ -509,12 +554,27 @@ src/
     │   │                  #   position (transitions never fire on an
     │   │                  #   element's initial style; only a card
     │   │                  #   appearing within an already-painted
-    │   │                  #   ChatView glides, like a manual expand).
+    │   │                  #   conversation surface glides, like a manual
+    │   │                  #   expand).
     │   │                  #   RO deliveries after the seed are resize
     │   │                  #   replans and snap. Activity that first
-    │   │                  #   appears later still enters animated.
+    │   │                  #   appears later still enters animated. A
+    │   │                  #   same-directory session switch KEEPS the card
+    │   │                  #   mounted but RESETS any open drill view to the
+    │   │                  #   overview (the drill pointed at the previous
+    │   │                  #   session's row — the inherited-content bug
+    │   │                  #   class), morphing like back(); the overview's
+    │   │                  #   sections sit in exit-only presence wrappers
+    │   │                  #   (entrance stays each section's own FadeIn — a
+    │   │                  #   wrapper enter fade would compound opacities),
+    │   │                  #   so a section emptying out or leaving with a
+    │   │                  #   session switch fades instead of snapping.
     │   ├── statsChrome.tsx # Shared section header + row/hover classes
-    │   │                  #   (the MenuItem pattern via a CSS var) and
+    │   │                  #   (the MenuItem pattern via a CSS var),
+    │   │                  #   statsRowPresence/statsSectionExit (the
+    │   │                  #   enter/exit fades for session-scoped rows and
+    │   │                  #   section wrappers that swap in place inside
+    │   │                  #   the directory-keyed card), and
     │   │                  #   BodyBox, the drill-body surface (fill mode
     │   │                  #   stretches with the panel instead of the
     │   │                  #   55vh cap).
@@ -533,8 +593,12 @@ src/
     │   │                  #   patch through chat/DiffViewBody + toolDiff.ts's
     │   │                  #   patchHunks — real line numbers). FileTitle /
     │   │                  #   file row & header layoutIds live here.
-    │   ├── TerminalsSection.tsx # Background-shell rows (running pulse / exit
-    │   │                  #   chip; a running row cross-fades its drill
+    │   ├── TerminalsSection.tsx # Background-shell rows (each row
+    │   │                  #   presence-animated — statsRowPresence: the rows
+    │   │                  #   are session-scoped inside the directory-keyed
+    │   │                  #   card, so a same-directory session switch swaps
+    │   │                  #   them in place with a crossfade; running pulse /
+    │   │                  #   exit chip; a running row cross-fades its drill
     │   │                  #   chevron into a hover STOP button — manual kill
     │   │                  #   via DELETE /api/shell/{id}, optimistic in
     │   │                  #   useSessionActivity.stopShell) → TerminalBody:
@@ -547,7 +611,9 @@ src/
     │   │                  #   onSettled when the first page (or terminal
     │   │                  #   failure) lands — releases the card's drill
     │   │                  #   hold.
-    │   └── SubagentsSection.tsx # Subagent rows (agent + task label + running
+    │   └── SubagentsSection.tsx # Subagent rows (presence-animated per
+    │   │                  #   row, like TerminalsSection; agent + task
+    │   │                  #   label + running
     │                      #   state) → SubagentBody: read-only transcript reusing
     │                      #   the module-level message store + TranscriptList, so
     │                      #   background children stream in live; fires onSettled

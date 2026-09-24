@@ -5,7 +5,7 @@ import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
-import type {SessionDiffEntry} from "../../opencode/types.ts";
+import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import {DIFF_ADD, DIFF_DEL, patchHunks} from "../chat/toolDiff.ts";
 import DiffViewBody from "../chat/DiffViewBody.tsx";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
@@ -39,7 +39,7 @@ export function DiffCountsBadge({added, removed}: {added?: number; removed?: num
  * makes the drill transition read as navigation instead of replacement.
  */
 export function FileTitle({entry, directory, flight = true, className = ""}: {
-    entry: SessionDiffEntry;
+    entry: WorkspaceDiffEntry;
     directory: string | null;
     /** When false the element joins the tree WITHOUT its layoutId —
      *  mounting rows must never pair against stale registry boxes
@@ -72,7 +72,7 @@ export const ChangesSection = memo(function ChangesSection({
     flight = true,
     onOpenFile,
 }: {
-    diff: SessionDiffEntry[] | null;
+    diff: WorkspaceDiffEntry[] | null;
     loading: boolean;
     totals: {added: number; removed: number; files: number};
     colors: SurfaceColors;
@@ -82,7 +82,7 @@ export const ChangesSection = memo(function ChangesSection({
     /** Whether rows carry their flight layoutIds (armed by the card on
      *  pointer-down, so a drill-in unmount stores their boxes). */
     flight?: boolean;
-    onOpenFile: (file: SessionDiffEntry) => void;
+    onOpenFile: (file: WorkspaceDiffEntry) => void;
 }) {
     const t = useI18n();
     const summary = loading
@@ -133,7 +133,7 @@ export const FileDiffBody = memo(function FileDiffBody({
     entry,
     colors,
 }: {
-    entry: SessionDiffEntry;
+    entry: WorkspaceDiffEntry;
     colors: SurfaceColors;
 }) {
     const t = useI18n();

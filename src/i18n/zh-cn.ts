@@ -182,8 +182,8 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Custom providers are stored in the global OpenCode config": "自定义供应商保存在 OpenCode 全局配置中",
     "Connect failed": "连接失败",
     "Save failed": "保存失败",
-    // --- Session activity stats card ---
-    "Session activity": "会话动态",
+    // --- Workspace activity stats card ---
+    "Workspace activity": "工作区动态",
     "Changes": "代码改动",
     "Terminals": "后台终端",
     "Subagents": "子代理",

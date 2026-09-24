@@ -1,6 +1,5 @@
 import {memo, useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {AnimatePresence, motion} from "framer-motion";
-import {arrivalDuration} from "../../lib/arrival.ts";
 import {fadeIn} from "../../lib/motion.ts";
 import {useSurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useTranscriptScroll} from "../../hooks/useTranscriptScroll.ts";
@@ -20,7 +19,6 @@ import type {
     SessionModelRef,
 } from "../../opencode/types.ts";
 import {useSessionMessages} from "../../opencode/useSessionMessages.ts";
-import {useSessionActivity} from "../../opencode/useSessionActivity.ts";
 import type {SessionUsage} from "../../opencode/types.ts";
 import {useChatColumnWidth} from "./useChatColumnWidth.ts";
 import {lastContextMessage, type ContextUsage} from "./usageStats.ts";
@@ -28,7 +26,6 @@ import TranscriptList from "./TranscriptList.tsx";
 import ChatInput from "../composer/ChatInput.tsx";
 import {PermissionCard} from "./PermissionCard.tsx";
 import {QuestionCard} from "./QuestionCard.tsx";
-import SessionStatsCard from "../stats/SessionStatsCard.tsx";
 
 /**
  * The conversation view for the active session: a transcript column (user
@@ -67,21 +64,19 @@ const ChatView = memo(function ChatView({
     onDirectoryChange,
     onOpenModelConfig,
     usage,
+    lanePadding,
+    laneDurMs,
     pendingPermissions,
     pendingForms,
     onPermissionDecision,
     onFormReply,
     onFormCancel,
-    busyIds,
 }: {
     api: OpencodeApi | null;
     subscribe: (handler: OpencodeEventHandler) => () => void;
     sessionId: string;
     backgroundColor: string;
     busy: boolean;
-    /** Sessions with an execution in flight (ALL sessions — subagent
-     *  children included; the stats card reads their running state). */
-    busyIds: ReadonlySet<string>;
     /** No connection. */
     disabled: boolean;
     /** Composer catalog + effective selections (owned by App). */
@@ -103,6 +98,15 @@ const ChatView = memo(function ChatView({
      *  composer's context ring (which itself reads the transcript's last
      *  measured step; null on the welcome screen). */
     usage: SessionUsage | null;
+    /** Right lane the (App-owned) stats card's expanded panel reserves:
+     *  this root pads by it so the transcript + composer columns re-center
+     *  beside the docked card. App owns the value — it must survive this
+     *  view's per-session remounts (a same-directory session switch mounts
+     *  the new root with the lane as its INITIAL style, so nothing flaps;
+     *  a lane change within a mount transitions on the arrival curve). */
+    lanePadding: number;
+    /** Duration for the lane padding transition (0 = snap). */
+    laneDurMs: number;
     /** Pending server requests for THIS session (permission asks +
      *  question forms) — pinned above the composer until answered. */
     pendingPermissions: PermissionRequest[];
@@ -115,33 +119,12 @@ const ChatView = memo(function ChatView({
     const colors = useSurfaceColors(backgroundColor);
     const {messages, hasMore, loadingOlder, loadOlder, send, interrupt} =
         useSessionMessages(api, subscribe, sessionId);
-    const activity = useSessionActivity(api, subscribe, sessionId, messages, busyIds, directory);
 
     // Responsive conversation-column cap + side gutters: the root is
     // measured (border-box — stable under the lane padding below) and the
     // transcript + composer columns share the style. chatColumn.ts owns
     // the tiers (wide cap + roomy-below-cap gutters).
     const {ref: columnRef, style: columnStyle} = useChatColumnWidth();
-
-    // --- Stats-card docked lane -----------------------------------------------------
-    // An expanded stats card reserves a right lane here: padding-right on
-    // the root makes the transcript + composer columns (both centered at
-    // the column cap above) re-center in the remaining space, while the
-    // card itself is absolutely positioned against the padding box and
-    // stays pinned at the window's right edge. View-driven lane changes
-    // ride the arrival curve like the card's box (distance-scaled
-    // duration); resize-driven replans snap. Geometry:
-    // stats/statsLayout.ts.
-    const [laneState, setLaneState] = useState({lane: 0, durMs: 0});
-    const handleLaneChange = useCallback((lane: number, animated: boolean) => {
-        setLaneState((prev) => {
-            if (prev.lane === lane) return prev;
-            const durMs = animated
-                ? Math.round(arrivalDuration(Math.abs(lane - prev.lane)) * 1000)
-                : 0;
-            return {lane, durMs};
-        });
-    }, []);
 
     const sentinelRef = useRef<HTMLDivElement>(null);
     const [renderLimit, setRenderLimit] = useState(RENDER_LIMIT);
@@ -222,28 +205,14 @@ const ChatView = memo(function ChatView({
     return (
         <div
             ref={columnRef}
-            className="relative flex flex-col h-full w-full min-w-0 transition-[padding-right] duration-[var(--lum-lane-dur,0ms)] ease-[var(--ease-arrival)]"
+            className="flex flex-col h-full w-full min-w-0 transition-[padding-right] duration-[var(--lum-lane-dur,0ms)] ease-[var(--ease-arrival)]"
             style={
                 {
-                    paddingRight: laneState.lane,
-                    "--lum-lane-dur": `${laneState.durMs}ms`,
+                    paddingRight: lanePadding,
+                    "--lum-lane-dur": `${laneDurMs}ms`,
                 } as React.CSSProperties
             }
         >
-            {/* Session-activity stats card — floats over the transcript's
-                right margin; expands in place into its panel. The expanded
-                panel DOCKS: it reserves a right lane (the padding above) so
-                the conversation column re-centers beside it when there's
-                room, and only overlays when there isn't. */}
-            <SessionStatsCard
-                api={api}
-                subscribe={subscribe}
-                activity={activity}
-                colors={colors}
-                directory={directory}
-                busyIds={busyIds}
-                onLaneChange={handleLaneChange}
-            />
             <div
                 ref={scrollRef}
                 onScroll={onScroll}

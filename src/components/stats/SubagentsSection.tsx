@@ -1,5 +1,5 @@
 import {memo, useEffect} from "react";
-import {motion} from "framer-motion";
+import {AnimatePresence, motion} from "framer-motion";
 import {Bot} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
@@ -8,7 +8,7 @@ import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
 import {useSessionMessages} from "../../opencode/useSessionMessages.ts";
 import type {SessionSubagentRef} from "../../opencode/sessionActivity.ts";
 import TranscriptList from "../chat/TranscriptList.tsx";
-import {BodyBox, DrillChevron, FadeIn, FinishedTotal, statsRowClass, StateChip, StatsSection} from "./statsChrome.tsx";
+import {BodyBox, DrillChevron, FadeIn, FinishedTotal, statsRowClass, statsRowPresence, StateChip, StatsSection} from "./statsChrome.tsx";
 
 /** layoutId of one subagent's icon+name, shared between its row and the
  *  detail header. */
@@ -81,21 +81,28 @@ export const SubagentsSection = memo(function SubagentsSection({
                 </FadeIn>
             }
         >
-            <FadeIn delay={fadeDelay} className="flex flex-col gap-1">
-                {subagents.map((sub) => (
-                    <button
-                        key={sub.id}
-                        type="button"
-                        onClick={() => onOpenSubagent(sub)}
-                        className={statsRowClass}
-                        style={{"--lum-stats-hover": colors.hoverOverlay} as React.CSSProperties}
-                    >
-                        <SubagentTitle sub={sub} flight={flight} className="flex-1"/>
-                        <SubagentStateChip running={sub.running} colors={colors}/>
-                        <DrillChevron/>
-                    </button>
-                ))}
-            </FadeIn>
+            {/* Rows animate INDIVIDUALLY (statsRowPresence): they are
+                session-scoped inside the directory-keyed card, so a
+                same-directory session switch swaps them in place, and a
+                subagent appearing/vanishing mid-run folds with a fade. */}
+            <div className="flex flex-col gap-1">
+                <AnimatePresence initial={false}>
+                    {subagents.map((sub) => (
+                        <motion.button
+                            key={sub.id}
+                            {...statsRowPresence(fadeDelay)}
+                            type="button"
+                            onClick={() => onOpenSubagent(sub)}
+                            className={statsRowClass}
+                            style={{"--lum-stats-hover": colors.hoverOverlay} as React.CSSProperties}
+                        >
+                            <SubagentTitle sub={sub} flight={flight} className="flex-1"/>
+                            <SubagentStateChip running={sub.running} colors={colors}/>
+                            <DrillChevron/>
+                        </motion.button>
+                    ))}
+                </AnimatePresence>
+            </div>
         </StatsSection>
     );
 });

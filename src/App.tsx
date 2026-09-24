@@ -6,6 +6,7 @@ import TitleBar from "./components/TitleBar.tsx";
 import SessionBar from "./components/SessionBar.tsx";
 import WelcomeScreen from "./components/WelcomeScreen.tsx";
 import ChatView from "./components/chat/ChatView.tsx";
+import WorkspaceStatsCard from "./components/stats/WorkspaceStatsCard.tsx";
 import SettingsModal, {type SettingsTab} from "./components/settings/SettingsModal.tsx";
 import MaskedSurface from "./components/ui/MaskedSurface.tsx";
 import {useMaximized} from "./hooks/maximized.ts";
@@ -17,6 +18,7 @@ import {useSystemTheme} from "./hooks/useSystemTheme.ts";
 import {useThemePreference} from "./hooks/useThemePreference.ts";
 import {useSurfaceColors} from "./hooks/surfaceColors.ts";
 import {useWindowOutline} from "./hooks/useWindowOutline.ts";
+import {arrivalDuration} from "./lib/arrival.ts";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {fadeIn, springSwap} from "./lib/motion.ts";
 import {isLinux} from "./lib/platform.ts";
@@ -91,6 +93,13 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
         deleteSession,
     } = useSessionFlow(api, subscribe, {models, agents, defaultModel});
     const busy = activeId !== null && busyIds.has(activeId);
+    // The active session's working directory — scopes the stats card's
+    // workspace diff AND keys the card layer: same-directory session
+    // switches keep the card mounted (no exit/enter animation), a
+    // cross-directory switch remounts it so it animates with the swap.
+    const activeDirectory = activeSession
+        ? activeSession.directory ?? activeSession.location?.directory ?? null
+        : null;
     // Cumulative usage of the open session (seeded from the session list,
     // live-patched by session.usage.updated) — feeds the composer's ring.
     const activeUsage: SessionUsage | null = activeSession
@@ -115,6 +124,27 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     const openModelConfig = useCallback(() => openSettings("model"), [openSettings]);
     // The modal's surface derives from the same chrome bg as everything else.
     const settingsColors = useSurfaceColors(effectiveBg);
+
+    // --- Stats-card docked lane (App-owned) ------------------------------------------
+    // The workspace stats card floats over the conversation surface; its
+    // expanded panel reserves a right lane that ChatView applies as
+    // padding so the transcript + composer columns re-center beside the
+    // docked card. App owns the value because the card outlives ChatView's
+    // per-session remounts: a same-directory session switch must mount the
+    // new ChatView root with the lane as its INITIAL style (no flap), and
+    // view-driven lane changes ride the arrival curve (distance-scaled
+    // duration) while resize-driven replans snap. Geometry:
+    // stats/statsLayout.ts.
+    const [laneState, setLaneState] = useState({lane: 0, durMs: 0});
+    const handleLaneChange = useCallback((lane: number, animated: boolean) => {
+        setLaneState((prev) => {
+            if (prev.lane === lane) return prev;
+            const durMs = animated
+                ? Math.round(arrivalDuration(Math.abs(lane - prev.lane)) * 1000)
+                : 0;
+            return {lane, durMs};
+        });
+    }, []);
 
     const sessionInfos = sessions.map((s) => ({
         id: s.id,
@@ -208,9 +238,10 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                         {/* The conversation canvas — its own opaque bg in
                             light mode, distinct from the chrome glass frame
                             around it. Dark mode stays transparent so the
-                            glass shows through. */}
+                            glass shows through. `relative` anchors the
+                            stats card layer below. */}
                         <div
-                            className="w-full h-full"
+                            className="relative w-full h-full"
                             style={contentBg ? {background: contentBg} : undefined}
                         >
                             {/* Session ↔ welcome-screen swap, spring-animated
@@ -233,7 +264,6 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                             sessionId={activeSession.id}
                                             backgroundColor={effectiveBg}
                                             busy={busy}
-                                            busyIds={busyIds}
                                             disabled={!connected}
                                             agents={agents}
                                             models={models}
@@ -242,10 +272,12 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                             model={effectiveModel}
                                             onAgentChange={changeAgent}
                                             onModelChange={changeModel}
-                                            directory={activeSession.directory ?? activeSession.location?.directory ?? null}
+                                            directory={activeDirectory}
                                             onDirectoryChange={changeDirectory}
                                             onOpenModelConfig={openModelConfig}
                                             usage={activeUsage}
+                                            lanePadding={laneState.lane}
+                                            laneDurMs={laneState.durMs}
                                             pendingPermissions={pendingAllPermissions.filter((p) => p.sessionID === activeSession.id)}
                                             pendingForms={pendingAllForms.filter((f) => f.sessionID === activeSession.id)}
                                             onPermissionDecision={(request, decision) => void replyPermission(request, decision)}
@@ -272,6 +304,31 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                                         directory={pendingDirectory}
                                         onDirectoryChange={changeDirectory}
                                         onOpenModelConfig={openModelConfig}
+                                    />
+                                )}
+                            </AnimatePresence>
+                            {/* Workspace stats card — floats over the
+                                transcript's right margin, OUTSIDE the
+                                session swap: it shows the DIRECTORY's
+                                working-copy diff plus the ACTIVE session's
+                                terminals/subagents. Keyed by directory so
+                                same-directory session switches keep it
+                                mounted (content swaps in place — no
+                                animation, no lane flap), while a
+                                cross-directory switch animates it out and
+                                in with the surface swap. Never rendered on
+                                the welcome screen. */}
+                            <AnimatePresence initial={false}>
+                                {activeSession && (
+                                    <WorkspaceStatsCard
+                                        key={activeDirectory ?? ""}
+                                        api={api}
+                                        subscribe={subscribe}
+                                        sessionId={activeSession.id}
+                                        backgroundColor={effectiveBg}
+                                        directory={activeDirectory}
+                                        busyIds={busyIds}
+                                        onLaneChange={handleLaneChange}
                                     />
                                 )}
                             </AnimatePresence>
