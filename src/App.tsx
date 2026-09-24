@@ -236,9 +236,6 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                 <TitleBar
                     theme={effectiveTheme}
                     title={activeSession ? activeSession.title?.trim() || t["Untitled"] : null}
-                    // Command palette arrives with the business logic; the
-                    // button stays in place so the chrome is final.
-                    onOpenCommandPalette={() => {}}
                     onOpenSettings={() => openSettings()}
                     isMaximized={isMaximized}
                 />

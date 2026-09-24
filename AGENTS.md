@@ -321,7 +321,6 @@ src/
 │   │                      #   (same pattern as i18n), consumed once in App
 │   │                      #   to resolve appThemeFor's input.
 │   ├── useIsWayland.ts    # cached invoke("is_wayland")
-│   ├── useAlwaysOnTop.ts  # per-window pin (no-op on Wayland)
 │   ├── useWindowOutline.ts # Linux window-outline toggle (App's inset
 │   │                      #   box-shadow edge for DEs without compositor
 │   │                      #   shadows): module store + own localStorage
