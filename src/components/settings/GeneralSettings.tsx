@@ -186,8 +186,8 @@ export default function GeneralSettings({colors}: {colors: SurfaceColors}) {
                     expanded and keeps it open (a manual collapse lasts
                     until the card remounts — a session switch). */}
                 <OptionRow
-                    label={t["Activity panel"]}
-                    description={t["Whether the activity panel collapses on outside clicks or stays open"]}
+                    label={t["Workspace activity"]}
+                    description={t["Whether the workspace activity panel collapses on outside clicks or stays open"]}
                     options={panelOptions}
                     selected={panelMode}
                     colors={colors}

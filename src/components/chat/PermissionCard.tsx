@@ -16,7 +16,7 @@ function permissionPhrase(action: string, t: ReturnType<typeof useI18n>): string
         case "read": return t["Read files"];
         case "webfetch": return t["Fetch a web page"];
         case "websearch": return t["Search the web"];
-        case "question": return t["Ask you questions"];
+        case "question": return t["Question"];
         default: return action.charAt(0).toUpperCase() + action.slice(1);
     }
 }

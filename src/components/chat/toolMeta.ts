@@ -45,7 +45,7 @@ export const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon}
     websearch: {title: "Search", icon: Globe},
     // The question tool — the "AI asks the user" surface. Distinct from the
     // generic wrench so its FoldRow reads as a question, not a tool call.
-    question: {title: "Ask you questions", icon: MessageCircleQuestion},
+    question: {title: "Question", icon: MessageCircleQuestion},
     skill: {title: "Skill", icon: Sparkles},
 };
 

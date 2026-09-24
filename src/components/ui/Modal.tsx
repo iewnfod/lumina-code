@@ -3,6 +3,7 @@ import {createPortal} from "react-dom";
 import {AnimatePresence, motion} from "framer-motion";
 import {X} from "lucide-react";
 import type {SurfaceColors} from "../../hooks/surfaceColors.ts";
+import {useI18n} from "../../hooks/i18n.tsx";
 import {fadeIn, scaleIn} from "../../lib/motion.ts";
 import IconButton from "./IconButton.tsx";
 
@@ -31,6 +32,7 @@ export default function Modal({
     /** Panel width in px. */
     width?: number;
 }) {
+    const t = useI18n();
     useEffect(() => {
         if (!open) return;
         const onKeyDown = (e: KeyboardEvent) => {
@@ -84,7 +86,7 @@ export default function Modal({
                                     size={24}
                                     hoverOverlay={colors.hoverOverlay}
                                     activeOverlay={colors.activeOverlay}
-                                    aria-label="Close"
+                                    aria-label={t["Close"]}
                                     onClick={onClose}
                                 >
                                     <X size={14}/>
