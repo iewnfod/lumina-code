@@ -16,6 +16,8 @@ between the two keeps a comment noting its origin.
 
 This project does not use tools like OpenSpec to record the changes in each session.
 Instead, we use the plan mode in each harness, especially in large changes.
+If you are an AI, you should enter the plan mode by yourself (if you are in lumina code, you should have this ability),
+or ask the user to enter the plan mode for you.
 
 ---
 
@@ -33,14 +35,43 @@ Instead, we use the plan mode in each harness, especially in large changes.
 
 - `pnpm fetch:opencode` is a **prerequisite** for `tauri dev`/`tauri build`:
   Tauri's `externalBin` (`src-tauri/binaries/opencode`) must exist or the
-  bundle step fails. Binaries are gitignored.
-- There is no lint/format config and no CI yet; `pnpm build` is the
+  bundle step fails. Binaries are gitignored. The sidecar is also a hard
+  dependency of the BUILD SCRIPT — `cargo check` alone fails without it, and
+  every CI job fetches it first.
+- There is no lint/format config; `pnpm build` is the
   guardrail — tsconfig is strict with `noUnusedLocals` /
   `noUnusedParameters` / `noFallthroughCasesInSwitch`, so unused imports and
   vars fail the build. Run it (and `pnpm test`) before claiming done.
 - Rust backend: `cargo check` / `cargo build` via
   `--manifest-path src-tauri/Cargo.toml`. The lib crate is
   `lumina_code_lib` (needed if you ever add integration tests).
+
+### CI & Release (GitHub Actions)
+
+Mirrors lumina-terminal's pipeline (keep the two in sync when fixing one):
+
+- **ci-frontend.yml** — every push/PR: `pnpm test` + `pnpm build` on
+  ubuntu-latest.
+- **ci-backend.yml** — every push/PR: `cargo check --locked` across
+  Linux/Windows/macOS. Fetches the host sidecar via
+  `node scripts/fetch-opencode.mjs` (tauri-build needs it even for check)
+  and drops a placeholder `dist/index.html` for `generate_context!`.
+- **release.yml** — on a **published GitHub release** (or manual dispatch
+  with a `tag` input): builds the 5-target matrix (linux amd64/arm64,
+  windows x64, macos amd64/arm64), fetching the sidecar for the exact
+  matrix target first, and attaches bundles to the release. Hand-written
+  release notes are snapshotted and echoed back so the concurrent matrix
+  never overwrites them. No updater signing (the Tauri updater is not
+  configured for this app).
+- **pkg-trigger.yml → aur.yml / copr.yml** — after Release succeeds,
+  republish the .deb/.rpm assets as `lumina-code-bin` (AUR) and `lumina-code`
+  (Fedora COPR) from the `.aur/PKGBUILD` / `.copr/lumina-code.spec`
+  templates. One-time repo secrets: `AUR_SSH_PRIVATE_KEY`, `COPR_CONFIG`
+  (plus a manually created COPR project `iewnfod/lumina-code`).
+
+Release notes are written by hand (see `docs/RELEASE_PROMPT.md`), then the
+release publish fills in the assets. Asset names derive from productName
+"Lumina Code" → `Lumina.Code_<ver>_amd64.deb`, `Lumina.Code-<ver>-1.x86_64.rpm`.
 
 ### The OpenCode version pin (three-way sync)
 
@@ -180,8 +211,11 @@ src/
 │                          #   echoes the checklist (compaction self-healing).
 │                          #   setup() also rides the v2.0.11 session hook —
 │                          #   ctx.session.hook("context", e => e.system.push)
-│                          #   appends the PLAN_WORKFLOW protocol to every
-│                          #   model call (binary-verified; runtime-probed,
+│                          #   appends HOST_IDENTITY (the harness identity:
+│                          #   "you run inside Lumina Code, the desktop GUI
+│                          #   client for OpenCode — not the TUI") and the
+│                          #   PLAN_WORKFLOW protocol to every model call
+│                          #   (binary-verified; runtime-probed,
 │                          #   degrades to tool descriptions when absent).
 │
 ├── opencode/              # THE domain layer — everything talking to the server
@@ -704,6 +738,40 @@ src/
     │   ├── SubagentCard.tsx # Subagent tool renderer
     │   ├── RunFooter.tsx + runFooters.ts # Per-turn summary footer (pure collector in
     │   │                  #   runFooters.ts — node-testable)
+    │   ├── TailWorking.tsx + tailActivity.ts # The transcript tail's "still
+    │   │                  #   working" loop: a label followed by three
+    │   │                  #   quiet dots (.lum-loading's small .lum-loading-tail
+    │   │                  #   variant) hung under the last transcript
+    │   │                  #   block while the session is busy but the
+    │   │                  #   tail is SILENT — the first-token wait after
+    │   │                  #   a prompt, the gap between model steps (a
+    │   │                  #   completed tool, the next step's message not
+    │   │                  #   open yet), mid-answer stalls, steps opened
+    │   │                  #   with no parts. ANTI-FLICKER state machine
+    │   │                  #   (TailWorking's hook): the dots appear only
+    │   │                  #   after the tail stays quiet TAIL_QUIET_MS
+    │   │                  #   (progress resets via tailProgressSignature,
+    │   │                  #   a VALUE signature — array identity is
+    │   │                  #   useless under ChatView's per-render
+    │   │                  #   filter), ride out the rest of the run once
+    │   │                  #   shown, and stand down no sooner than
+    │   │                  #   TAIL_MIN_SHOW_MS (the min-dwell idea from
+    │   │                  #   useExpansion). Suppressed while the tail
+    │   │                  #   self-animates (pending/running tool's
+    │   │                  #   pulsing icon — tailSelfAnimating) or the
+    │   │                  #   session waits on the USER (ChatView's
+    │   │                  #   waitingForUser: permission/question/plan
+    │   │                  #   approval cards — a decision, not work); a
+    │   │                  #   stalled reasoning stream deliberately still
+    │   │                  #   shows it. Label via tailWorkLabel
+    │   │                  #   ("Thinking" fresh turn → "Working" once
+    │   │                  #   the run has output — no ellipsis; the
+    │   │                  #   pulsing dots are the ongoing signal, and
+    │   │                  #   the "..." variants belong to ThinkingBlock
+    │   │                  #   / ActivityGroup, which have no dots).
+    │   │                  #   Subagent transcripts pass busy and
+    │   │                  #   get the dots too (SubagentsSection).
+    │   │                  #   tailActivity.ts is pure + node-testable.
     │   ├── UsageRing.tsx + usageStats.ts # Context/cost ring (pure math in usageStats.ts)
     │   ├── Markdown.tsx   # Shared react-markdown + remark-gfm; links via plugin-opener.
     │   │                  #   Splits text into memoized block chunks (only the
@@ -1002,6 +1070,10 @@ types (opencode/types.ts, i18n keys)  ←  opencode/ + lib/  ←  hooks/  ←  c
   components).
   **File-type icons** → `lib/fileIcons.ts` (never hand-roll per-extension
   icon tables; regenerate assets via `pnpm gen:icons`).
+- **Hover hints** → `components/ui/Hint.tsx` when a hover hint is truly
+  needed. Native `title` attribute tooltips are BANNED everywhere — the
+  OS-drawn box doesn't follow the app's surface language (e.g. the stats
+  panel's todo rows carry no tooltip at all; the row text is the content).
 - **Chrome buttons** → `components/ui/IconButton.tsx`. **Dropdowns** →
   `PopoverMenu`. **Rounded chrome clipping** → `MaskedSurface`.
 - **Maximized / paddingOffset** → computed once in `App`, passed as props.
