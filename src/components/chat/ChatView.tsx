@@ -165,6 +165,11 @@ const ChatView = memo(function ChatView({
         () => planApprovalPending(messages as ChatMessage[]),
         [messages],
     );
+    // The tail's working dots stand down while a decision is pending —
+    // a permission/question/plan-approval card is the session waiting
+    // on the USER, not work in progress.
+    const waitingForUser =
+        pendingPermissions.length > 0 || pendingForms.length > 0 || pendingPlan !== null;
     const handlePlanDecision = useCallback(
         (approve: boolean) => {
             if (!pendingPlan) return;
@@ -285,6 +290,7 @@ const ChatView = memo(function ChatView({
                         busy={busy}
                         directory={directory}
                         models={models}
+                        waitingForUser={waitingForUser}
                     />
                 </div>
             </div>

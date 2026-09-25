@@ -7,6 +7,7 @@ import {effectiveTailPart, type ActivityEntry, type ActivityPart} from "./messag
 import {blockify} from "./transcript.ts";
 import RunFooter from "./RunFooter.tsx";
 import {collectRunFooters} from "./runFooters.ts";
+import TailWorking from "./TailWorking.tsx";
 
 /**
  * The transcript column's body: folds the rendered message list into
@@ -35,6 +36,7 @@ const TranscriptList = memo(function TranscriptList({
     busy,
     directory,
     models,
+    waitingForUser = false,
 }: {
     /** The window of messages currently mounted (newest N). */
     messages: ChatMessage[];
@@ -45,6 +47,9 @@ const TranscriptList = memo(function TranscriptList({
     /** Model catalog for the switch divider's names (absent in subagent
      *  transcripts — dividers then fall back to raw model ids). */
     models?: OpencodeModel[];
+    /** The session is blocked on a user decision (permission / question /
+     *  plan approval) — the tail's working dots stand down for it. */
+    waitingForUser?: boolean;
 }) {
     // An assistant message still lacks its completion stamp while the
     // session is working — that's the streaming state (caret / thinking).
@@ -186,6 +191,11 @@ const TranscriptList = memo(function TranscriptList({
                     </Fragment>
                 );
             })}
+            {/* The tail's "still working" loop — covers the busy-but-
+             * silent gaps (first-token wait, step boundaries, stalls);
+             * see TailWorking. Subagent transcripts pass busy and get
+             * it too; waitingForUser only exists for the active view. */}
+            <TailWorking messages={messages} busy={busy} waiting={waitingForUser}/>
         </>
     );
 });

@@ -75,8 +75,13 @@ const enUs = {
     "Subagent failed": "Subagent failed",
     "Request failed": "Request failed",
     "Thinking...": "Thinking...",
+    /** Tail-working label (no ellipsis — the pulsing dots beside it are
+     *  the ongoing signal; the "..." variants belong to ThinkingBlock /
+     *  ActivityGroup, which have no dots). */
+    "Thinking": "Thinking",
     "Thought process": "Thought process",
     "Working...": "Working...",
+    "Working": "Working",
     "tool call": "tool call",
     "tool calls": "tool calls",
     "thought": "thought",

@@ -518,6 +518,31 @@ body {
 }
 
 /*
+ * The transcript tail's working loop (chat/TailWorking): the same three
+ * pulsing dots as the surface loading phase, one size down and following
+ * the label — a quiet "still generating" row under the last transcript
+ * block. Reuses lum-loading-pulse as-is; only the geometry shrinks.
+ *
+ * The top nudge is an optical baseline correction (the MONO_ROW_STYLE
+ * idea): flex items-center aligns the dots' 4px box with the label
+ * text-xs LINE BOX center, and the glyphs' ink center sits ~1px below
+ * it — the dots read high against the label (0.5px under-corrected;
+ * measured by eye against the installed CJK stack, same residual
+ * magnitude as MONO_ROW_STYLE's). `relative` shifts painting without
+ * affecting layout.
+ */
+.lum-loading-tail {
+    gap: 4px;
+    position: relative;
+    top: 1px;
+}
+
+.lum-loading-tail span {
+    width: 4px;
+    height: 4px;
+}
+
+/*
  * List-row exit (the ExitList half of the exit engine,
  * components/ui/ExitPresence.tsx): the row's height collapses through
  * the same animated grid-template-rows idea as .lum-fold, but as a
