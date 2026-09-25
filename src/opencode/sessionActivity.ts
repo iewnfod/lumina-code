@@ -48,6 +48,11 @@ export interface SessionShellRef {
      *  shell registry no longer knows the shell (it is process-local: a
      *  server restart orphans exited shells and their output endpoint). */
     finalText?: string;
+    /** Spawned (or re-referenced) at/after the last user message. The
+     * stats card keeps completed items from the current turn only;
+     * running ones stay visible whatever their age — running state lives
+     * in useSessionActivity, so the filtering happens there. */
+    currentTurn: boolean;
 }
 
 /** One subagent child session spawned by this session. */
@@ -57,6 +62,9 @@ export interface SessionSubagentRef {
     agent?: string;
     /** The 3-5 word task label the caller sent. */
     label?: string;
+    /** Spawned (or continued) at/after the last user message — see
+     * SessionShellRef.currentTurn for the filtering contract. */
+    currentTurn: boolean;
 }
 
 /** First present, non-empty string among the given keys. */
@@ -79,6 +87,35 @@ function toolParts(list: ChatMessage[]): AssistantToolPart[] {
     return parts;
 }
 
+/** Index of the last server-confirmed user message — the anchor of the
+ * "current turn". Optimistic local- bubbles don't count (same rule as
+ * mutationSignature); -1 when the list holds none (then everything is
+ * current — e.g. a child transcript or a fresh session). */
+function lastConfirmedUserIndex(list: ChatMessage[]): number {
+    for (let i = list.length - 1; i >= 0; i--) {
+        const m = list[i];
+        if (m.type === "user" && !m.id.startsWith("local-")) return i;
+    }
+    return -1;
+}
+
+/** Tool parts with their turn membership: whether the carrying message
+ * sits at/after the last user message (a subagent CONTINUED in the
+ * current turn counts as current activity, hence the or-backfill below). */
+function toolPartsWithTurn(list: ChatMessage[]): {part: AssistantToolPart; currentTurn: boolean}[] {
+    const anchor = lastConfirmedUserIndex(list);
+    const parts: {part: AssistantToolPart; currentTurn: boolean}[] = [];
+    for (let i = 0; i < list.length; i++) {
+        const m = list[i];
+        if (!isAssistantMessage(m)) continue;
+        const currentTurn = anchor < 0 || i > anchor;
+        for (const part of m.content) {
+            if (part.type === "tool") parts.push({part, currentTurn});
+        }
+    }
+    return parts;
+}
+
 /**
  * The session's background terminals in spawn order. A shell's completion
  * arrives as a notification message carrying
@@ -88,7 +125,7 @@ function toolParts(list: ChatMessage[]): AssistantToolPart[] {
  */
 export function collectSessionShells(list: ChatMessage[]): SessionShellRef[] {
     const byId = new Map<string, SessionShellRef>();
-    for (const part of toolParts(list)) {
+    for (const {part, currentTurn} of toolPartsWithTurn(list)) {
         if (!isShellToolName(part.name)) continue;
         const meta = part.state.metadata;
         const id = meta ? metaString(meta, "shellID", "shell_id") : undefined;
@@ -101,9 +138,10 @@ export function collectSessionShells(list: ChatMessage[]): SessionShellRef[] {
         const existing = byId.get(id);
         if (existing) {
             if (!existing.command && command) existing.command = command;
+            existing.currentTurn ||= currentTurn;
             continue;
         }
-        byId.set(id, {id, command, partId: part.id, finished: false});
+        byId.set(id, {id, command, partId: part.id, finished: false, currentTurn});
     }
     if (byId.size === 0) return [];
     // Completion notifications can be marker-typed messages ("shell",
@@ -136,11 +174,17 @@ export function collectSessionShells(list: ChatMessage[]): SessionShellRef[] {
  */
 export function collectSessionSubagents(list: ChatMessage[]): SessionSubagentRef[] {
     const byId = new Map<string, SessionSubagentRef>();
-    for (const part of toolParts(list)) {
+    for (const {part, currentTurn} of toolPartsWithTurn(list)) {
         if (!isSubagentToolName(part.name)) continue;
         const id = part.state.metadata ? metaString(part.state.metadata, "sessionID", "session_id") : undefined;
         if (!id) continue;
-        if (byId.has(id)) continue;
+        const existing = byId.get(id);
+        if (existing) {
+            // A continuation in the current turn re-surfaces the child
+            // as current activity even if it was spawned turns ago.
+            existing.currentTurn ||= currentTurn;
+            continue;
+        }
         const input =
             part.state.input && typeof part.state.input === "object"
                 ? (part.state.input as Record<string, unknown>)
@@ -149,6 +193,7 @@ export function collectSessionSubagents(list: ChatMessage[]): SessionSubagentRef
             id,
             agent: metaString(input, "agent"),
             label: metaString(input, "description"),
+            currentTurn,
         });
     }
     return [...byId.values()];

@@ -128,6 +128,52 @@ test("collectSessionSubagents skips parts without a linkable child id", () => {
     assert.equal(collectSessionSubagents(list).length, 0);
 });
 
+test("currentTurn anchors on the last user message (local bubbles don't count)", () => {
+    const list: ChatMessage[] = [
+        userMsg("msg_u1"),
+        assistantMsg("msg_a1", [
+            shellPart("tool_1", "npm run dev", "sh_1"), // old turn
+            subagentPart("tool_2", {agent: "explore", description: "old research"}, "ses_old"),
+        ]),
+        userMsg("msg_u2"),
+        {id: "local-1", type: "user", text: "optimistic"},
+        assistantMsg("msg_a2", [
+            shellPart("tool_3", "cargo watch", "sh_2"), // current turn
+            subagentPart("tool_4", {agent: "review", description: "review diff"}, "ses_new"),
+        ]),
+    ];
+    const shells = collectSessionShells(list);
+    assert.equal(shells.find((s) => s.id === "sh_1")?.currentTurn, false);
+    assert.equal(shells.find((s) => s.id === "sh_2")?.currentTurn, true);
+    const subs = collectSessionSubagents(list);
+    assert.equal(subs.find((s) => s.id === "ses_old")?.currentTurn, false);
+    assert.equal(subs.find((s) => s.id === "ses_new")?.currentTurn, true);
+});
+
+test("a continuation in the current turn re-marks an old child as current", () => {
+    const list: ChatMessage[] = [
+        userMsg("msg_u1"),
+        assistantMsg("msg_a1", [
+            subagentPart("tool_1", {agent: "explore", description: "find auth code"}, "ses_child_1"),
+        ]),
+        userMsg("msg_u2"),
+        assistantMsg("msg_a2", [
+            subagentPart("tool_2", {agent: "explore", description: "continue digging", sessionID: "ses_child_1"}, "ses_child_1"),
+        ]),
+    ];
+    const subs = collectSessionSubagents(list);
+    assert.equal(subs.length, 1);
+    assert.equal(subs[0].currentTurn, true);
+    assert.equal(subs[0].label, "find auth code"); // first occurrence still wins
+});
+
+test("with no user message at all, everything is current turn", () => {
+    const list: ChatMessage[] = [
+        assistantMsg("msg_a1", [shellPart("tool_1", "make", "sh_1")]),
+    ];
+    assert.equal(collectSessionShells(list)[0].currentTurn, true);
+});
+
 test("fileMutationCount counts file-mutating tool parts of any status", () => {
     const parts: AssistantToolPart[] = [
         {type: "tool", id: "t1", name: "edit", state: {status: "completed"}},

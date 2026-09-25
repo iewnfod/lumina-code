@@ -79,6 +79,11 @@ export const ChangesSection = memo(function ChangesSection({
                 {diff === null && loading && (
                     <div className="px-2 py-1 text-xs opacity-40 select-none">{t["Loading..."]}</div>
                 )}
+                {diff !== null && totals.files === 0 && (
+                    // Loaded and clean: the section still renders (the card
+                    // is visible from session entry) — say so explicitly.
+                    <div className="px-2 py-1 text-xs opacity-40 select-none">{t["No changes yet"]}</div>
+                )}
                 {(diff ?? []).map((entry) => (
                     <button
                         key={entry.file}

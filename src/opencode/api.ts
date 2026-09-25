@@ -209,6 +209,11 @@ export class OpencodeApi {
      *  other session editing the same project leaks into it (see types.ts).
      *  Location-scoped like the shell endpoints; a directory without VCS
      *  fails with 503 - callers catch that and read as "no changes".
+     *  v2.0.11 QUIRK: the FIRST call a server instance serves for a
+     *  location returns [] while the VCS backend lazily initializes
+     *  (restart → 1st query empty, 2nd+ real, verified live); consumers
+     *  must re-check an empty FIRST result once (see
+     *  useSessionActivity.ts DIFF_WARMUP_RETRY_MS).
      *  `context` defaults to 3 lines like the session endpoint (omitting it
      *  serves full-file patches). */
     vcsDiff(

@@ -263,7 +263,11 @@ src/
 │   │                      #   background results carry it) with their completion
 │   │                      #   notifications (marker messages with metadata.source ===
 │   │                      #   "shell"), subagent child sessions (part metadata.sessionID,
-│   │                      #   deduped — continuation reuses the child id), and the
+│   │                      #   deduped — continuation reuses the child id), each item
+│   │                      #   stamped currentTurn (spawned/re-referenced at/after the
+│   │                      #   last user message — the stats card hides COMPLETED items
+│   │                      #   from earlier turns; running ones stay, filtered in
+│   │                      #   useSessionActivity where running state is known), and the
 │   │                      #   mutation signature (file-mutation count + last confirmed
 │   │                      #   user message id — streamed frames never move it).
 │   │                      #   node-testable.

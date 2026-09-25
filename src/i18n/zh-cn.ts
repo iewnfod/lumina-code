@@ -182,6 +182,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Workspace activity": "工作区动态",
     "Changes": "代码改动",
     "Terminals": "后台终端",
+    "Terminal": "终端",
     "Subagents": "子代理",
     "Running": "运行中",
     "Finished": "已完成",

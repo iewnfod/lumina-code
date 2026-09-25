@@ -582,7 +582,12 @@ body {
  * var on the element (e.g. an active row washing with the accent).
  */
 .lum-wash {
-    transition: background-color var(--duration-fast) var(--ease-glass);
+    /* opacity rides along so hover-revealed wash buttons (the bubble/run
+     * copy affordances) keep their fade-in — a Tailwind transition-opacity
+     * on the element would be REPLACED by this shorthand, killing it. */
+    transition:
+        background-color var(--duration-fast) var(--ease-glass),
+        opacity var(--duration-fast) var(--ease-glass);
 }
 
 .lum-wash:hover {

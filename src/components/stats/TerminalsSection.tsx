@@ -268,8 +268,20 @@ export const TerminalBody = memo(function TerminalBody({
     return (
         // flex-1 + fill: the output surface stretches with the panel on
         // long output — follow-bottom rides BodyBox's own scroll,
-        // unaffected by the taller viewport.
-        <div className="lum-enter flex flex-col flex-1 min-h-0">
+        // unaffected by the taller viewport. The COMMAND lives in its own
+        // block above (commands are long; the drill header stays short).
+        <div className="lum-enter flex flex-col flex-1 min-h-0 gap-2">
+            {shell.command && (
+                <div
+                    // Same recessed surface as BodyBox, but a capped strip:
+                    // wraps instead of truncating, scrolls only when a
+                    // pasted script outgrows the cap.
+                    className="shrink-0 max-h-24 overflow-auto rounded-[var(--radius-sm)] px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap break-words"
+                    style={{...MONO_STYLE, background: colors.recessedBg}}
+                >
+                    {shell.command}
+                </div>
+            )}
             <BodyBox
                 mono
                 fill

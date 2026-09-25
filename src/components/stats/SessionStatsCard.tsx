@@ -9,7 +9,7 @@ import ExitPresence from "../ui/ExitPresence.tsx";
 import IconButton from "../ui/IconButton.tsx";
 import Hint from "../ui/Hint.tsx";
 import {ChangesSection, DiffCountsBadge, FileDiffBody, FileTitle} from "./ChangesSection.tsx";
-import {ShellStateChip, TerminalsSection, TerminalBody, TerminalTitle} from "./TerminalsSection.tsx";
+import {ShellStateChip, TerminalsSection, TerminalBody} from "./TerminalsSection.tsx";
 import {SubagentsSection, SubagentBody, SubagentStateChip, SubagentTitle} from "./SubagentsSection.tsx";
 import {FinishedTotal} from "./statsChrome.tsx";
 
@@ -83,13 +83,18 @@ const SessionStatsCard = memo(function SessionStatsCard({
     const runningShells = shells.filter((s) => s.running).length;
     const runningSubagents = subagents.filter((s) => s.running).length;
 
-    // Nothing to report yet — the card doesn't exist visually (no flash
-    // of an empty shell while the first diff loads).
-    const visible = diffTotals.files > 0 || shells.length > 0 || subagents.length > 0;
+    // The card exists from the moment a session is entered and its first
+    // diff pull has landed — even at zero changes (entering a session
+    // must already SHOW the workspace being tracked, not wait for the
+    // first message to edit something). While the diff is still loading
+    // the card doesn't exist visually (no flash of an empty shell).
+    const visible = diff !== null || shells.length > 0 || subagents.length > 0;
     // Empty sections don't render in the expanded panel either. Changes
-    // is exempt while the diff LOADS on a card already open for
-    // terminals/subagents, so the file list doesn't pop in unannounced.
-    const showChanges = diffTotals.files > 0 || (diffLoading && (shells.length > 0 || subagents.length > 0));
+    // renders once its diff has loaded (the panel then shows the explicit
+    // "No changes yet" state) and is exempt while the diff LOADS on a
+    // card already open for terminals/subagents, so the file list
+    // doesn't pop in unannounced.
+    const showChanges = diff !== null || (diffLoading && (shells.length > 0 || subagents.length > 0));
 
     const expand = useCallback(() => {
         setExpanded(true);
@@ -209,10 +214,19 @@ const SessionStatsCard = memo(function SessionStatsCard({
                     className="flex flex-col items-stretch gap-1 px-3 py-2.5 cursor-pointer rounded-[var(--radius-lg)] text-xs lum-wash"
                     aria-label={t["Workspace activity"]}
                 >
-                    {diffTotals.files > 0 && (
+                    {diff !== null && (
                         <span className="lum-enter flex items-center justify-between gap-2">
                             <Diff size={13} className="shrink-0 opacity-70"/>
-                            <DiffCountsBadge added={diffTotals.added} removed={diffTotals.removed}/>
+                            {diffTotals.files > 0 ? (
+                                <DiffCountsBadge added={diffTotals.added} removed={diffTotals.removed}/>
+                            ) : (
+                                // Clean working copy — the row still shows so
+                                // the card says "tracked, nothing changed"
+                                // instead of vanishing.
+                                <span className="text-[10px] opacity-40 select-none">
+                                    {t["No changes yet"]}
+                                </span>
+                            )}
                         </span>
                     )}
                     {shells.length > 0 && (
@@ -265,8 +279,15 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         )}
                         {view.kind === "file" && liveFile ? (
                             <FileTitle entry={liveFile} directory={directory} className="flex-1"/>
-                        ) : view.kind === "terminal" && liveShell ? (
-                            <TerminalTitle shell={liveShell} className="flex-1"/>
+                        ) : view.kind === "terminal" ? (
+                            // Not the raw command — commands are long; the
+                            // full command gets its own block above the
+                            // output (TerminalBody). No leading padding:
+                            // unlike the overview title, a drill view sits
+                            // right after the back button.
+                            <div className="flex-1 min-w-0 text-xs font-medium truncate">
+                                {t["Terminal"]}
+                            </div>
                         ) : view.kind === "subagent" && liveSub ? (
                             <SubagentTitle sub={liveSub} className="flex-1"/>
                         ) : (

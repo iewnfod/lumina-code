@@ -16,6 +16,15 @@ import {
 const DIFF_DEBOUNCE_MS = 800;
 
 /**
+ * v2.0.11 warmup race: the FIRST `/api/vcs/diff` call a server instance
+ * makes for a location returns `[]` while its VCS backend lazily
+ * initializes (verified live: restart → query#1 empty, query#2+ real).
+ * An empty answer to a session's FIRST load is therefore re-checked once
+ * after this delay instead of painting a false "clean workspace".
+ */
+const DIFF_WARMUP_RETRY_MS = 400;
+
+/**
  * Stats-card state, split by scope:
  *
  * - WORKSPACE DIFF (`GET /api/vcs/diff?mode=working` — HEAD vs the working
@@ -36,6 +45,11 @@ const DIFF_DEBOUNCE_MS = 800;
  *   always wins over the live set.
  * - SUBAGENTS: child ids from subagent tool parts; "running" is the app's
  *   busy set, which the execution events of child sessions already feed.
+ * - Both lists are CURRENT-TURN scoped: completed items spawned before
+ *   the last user message are hidden (sessionActivity.currentTurn), so a
+ *   long session's early research subagents / test terminals don't bury
+ *   the live activity at the bottom of the list. RUNNING items stay
+ *   visible whatever their turn.
  *
  * The consumer is the stats card living OUTSIDE the session swap (App),
  * so the session-scoped hook reads the message store through a SNAPSHOT
@@ -169,7 +183,16 @@ async function loadWorkspaceDiff(directory: string | null): Promise<void> {
     try {
         const list = await api.vcsDiff(directory);
         if (seq !== entry.seq) return;
+        const wasFirstLoad = entry.diff === null;
         entry.diff = list;
+        if (wasFirstLoad && list.length === 0) {
+            // Warmup race (see DIFF_WARMUP_RETRY_MS): one delayed re-check.
+            // One-shot by construction — the retry's own load completes with
+            // entry.diff already set ([]), so it never schedules another.
+            setTimeout(() => {
+                if (entry.seq === seq) void loadWorkspaceDiff(directory);
+            }, DIFF_WARMUP_RETRY_MS);
+        }
     } catch (e) {
         if (seq !== entry.seq) return;
         const msg = String(e);
@@ -410,13 +433,19 @@ export function useSessionActivity(
     // Identity-stable derived arrays: `messages` changes identity on every
     // streamed frame, and the card subtree must not re-render per frame —
     // when the computed key is unchanged, the previous array is returned.
+    // CURRENT-TURN FILTER: completed shells from earlier turns are hidden
+    // (research/test leftovers of a long session); RUNNING ones stay
+    // whatever their age — a dev server started turns ago is still live,
+    // killable activity. A turn-anchored shell that finishes is dropped
+    // by the same rule on its next recompute.
     const shellsCacheRef = useRef<{key: string; value: (SessionShellRef & {running: boolean})[]} | null>(null);
     const shells = useMemo(() => {
-        const key = shellRefs
+        const visible = shellRefs.filter((s) => s.currentTurn || runningShellIds.has(s.id));
+        const key = visible
             .map((s) => `${s.id}:${s.command}:${s.finished ? "f" : ""}:${s.state ?? ""}:${s.exit ?? ""}:${s.finalText?.length ?? ""}:${runningShellIds.has(s.id) ? "r" : ""}`)
             .join("|");
         if (shellsCacheRef.current?.key === key) return shellsCacheRef.current.value;
-        const value = shellRefs.map((ref) => ({...ref, running: !ref.finished && runningShellIds.has(ref.id)}));
+        const value = visible.map((ref) => ({...ref, running: !ref.finished && runningShellIds.has(ref.id)}));
         shellsCacheRef.current = {key, value};
         return value;
     }, [shellRefs, runningShellIds]);
@@ -424,11 +453,14 @@ export function useSessionActivity(
     const subagentRefs = useMemo(() => collectSessionSubagents(messages as ChatMessage[]), [messages]);
     const subagentsCacheRef = useRef<{key: string; value: (SessionSubagentRef & {running: boolean})[]} | null>(null);
     const subagents = useMemo(() => {
-        const key = subagentRefs
+        // Same current-turn rule as shells: finished children of earlier
+        // turns are hidden, running ones (busy set) always stay.
+        const visible = subagentRefs.filter((s) => s.currentTurn || busyIds.has(s.id));
+        const key = visible
             .map((s) => `${s.id}:${s.agent ?? ""}:${s.label ?? ""}:${busyIds.has(s.id) ? "r" : ""}`)
             .join("|");
         if (subagentsCacheRef.current?.key === key) return subagentsCacheRef.current.value;
-        const value = subagentRefs.map((ref) => ({...ref, running: busyIds.has(ref.id)}));
+        const value = visible.map((ref) => ({...ref, running: busyIds.has(ref.id)}));
         subagentsCacheRef.current = {key, value};
         return value;
     }, [subagentRefs, busyIds]);

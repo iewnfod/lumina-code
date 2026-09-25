@@ -189,8 +189,7 @@ function UserBubble({message, enter}: {message: ChatUserMessage; enter: boolean}
                         <button
                             type="button"
                             onClick={() => void copy(message.text)}
-                            className={`inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none hover:bg-[var(--lum-bubble-copy-hover)] transition-[opacity,background-color] duration-[var(--duration-fast)] transform-gpu ${copied ? "opacity-100" : "opacity-0 group-hover/msg:opacity-100"}`}
-                            style={{"--lum-bubble-copy-hover": colors.hoverOverlay} as CSSProperties}
+                            className={`inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none lum-wash transition-opacity duration-[var(--duration-fast)] transform-gpu ${copied ? "opacity-100" : "opacity-0 group-hover/msg:opacity-50 hover:opacity-100"}`}
                         >
                             {copied
                                 ? <Check size={14} className="shrink-0"/>

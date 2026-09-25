@@ -181,6 +181,7 @@ const enUs = {
     "Workspace activity": "Workspace activity",
     "Changes": "Changes",
     "Terminals": "Terminals",
+    "Terminal": "Terminal",
     "Subagents": "Subagents",
     "Running": "Running",
     "Finished": "Finished",
