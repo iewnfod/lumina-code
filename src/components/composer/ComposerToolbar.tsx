@@ -1,8 +1,8 @@
 import {ArrowUp, Bot, Brain, Cpu, Paperclip, Settings2, Square} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
-import type {OpencodeApi} from "../../opencode/api.ts";
+import {useCatalog} from "../../opencode/catalogContext.tsx";
+import {useConnection} from "../../opencode/connectionContext.tsx";
 import type {
-    OpencodeAgent,
     OpencodeModel,
     SessionModelRef,
     SessionUsage,
@@ -45,15 +45,11 @@ export default function ComposerToolbar({
     onAttach,
     onSend,
     onInterrupt,
-    agents,
-    models,
-    catalogOnly,
     agent,
     model,
     onAgentChange,
     onModelChange,
     conversationStarted,
-    api,
     directory,
     onDirectoryChange,
     onOpenModelConfig,
@@ -68,13 +64,6 @@ export default function ComposerToolbar({
     onAttach: () => void;
     onSend: () => void;
     onInterrupt: () => void;
-    /** Selectable modes (primary agents). */
-    agents: OpencodeAgent[];
-    models: OpencodeModel[];
-    /** No authenticated provider of the user's own — the picker leads
-     *  with its "nothing configured" entry (the free catalog still lists
-     *  below as a usable fallback). */
-    catalogOnly: boolean;
     /** Effective selections (session-bound once a session exists). */
     agent: string;
     model: SessionModelRef | null;
@@ -83,7 +72,6 @@ export default function ComposerToolbar({
     /** False until the conversation has its first message — shows the
      *  project picker (welcome screen and freshly created sessions). */
     conversationStarted: boolean;
-    api: OpencodeApi | null;
     directory: string | null;
     onDirectoryChange: (directory: string | null) => void;
     /** Opens the settings modal on its Model tab (model/provider config). */
@@ -95,6 +83,9 @@ export default function ComposerToolbar({
 }) {
     const colors = useColors();
     const t = useI18n();
+    // Picker catalog + server handle from the context split.
+    const {api} = useConnection();
+    const {agents, models, catalogOnly} = useCatalog();
 
     /** The picker's empty-state entry shows when the user has no model
      *  provider of their own — either nothing authenticated at all (empty
@@ -193,8 +184,6 @@ export default function ComposerToolbar({
             </PopoverMenu>
             {!conversationStarted && (
                 <DirectoryPicker
-                    api={api}
-
                     directory={directory}
                     onChange={onDirectoryChange}
                 />

@@ -1,3 +1,4 @@
+import {MESSAGES_PAGE_SIZE} from "./types.ts";
 import type {
     ChatMessage,
     ComposerFileRef,
@@ -38,14 +39,12 @@ export type {
     WorkspaceDiffEntry,
 } from "./types.ts";
 
-/** The messages endpoint caps `limit` at 200 (400 above that). */
-const MESSAGES_PAGE_SIZE = 200;
-
 /** Raw shape of `GET /api/session/{id}/message` — NOT envelope-unwrapped
- *  (the `data` here is the payload itself; unwrapping would lose `cursor`). */
+ *  (the `data` here is the payload itself; unwrapping would lose `cursor`).
+ *  The server nulls (not omits) spent cursor fields on the wire. */
 export interface MessagesPage {
     data?: ChatMessage[];
-    cursor?: {previous?: string; next?: string};
+    cursor?: {previous?: string | null; next?: string | null};
 }
 
 /**
@@ -158,7 +157,13 @@ export class OpencodeApi {
     }
 
     /** Messages page — desc order (newest first) with an optional cursor
-     *  toward older pages. `cursor` requests must NOT carry `order`. */
+     *  toward older pages. `cursor` requests must NOT carry `order`.
+     *
+     *  CURSOR QUIRK (verified against v2.0.11): `cursor.next` is non-null
+     *  on every page with rows — even a short one whose anchor is already
+     *  the session's oldest message; only a ZERO-row page nulls it. So
+     *  "page came back shorter than the requested limit" is the real
+     *  exhaustion signal; messageStore's page merges apply that rule. */
     listMessagesPage(sessionId: string, cursor?: string): Promise<MessagesPage> {
         const query = cursor
             ? `?limit=${MESSAGES_PAGE_SIZE}&cursor=${encodeURIComponent(cursor)}`

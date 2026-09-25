@@ -4,6 +4,7 @@ import {takePendingCommand} from "./pendingCommands.ts";
 import {
     isAssistantMessage,
     isUserMessage,
+    MESSAGES_PAGE_SIZE,
     type AssistantPart,
     type AssistantToolPart,
     type ChatAssistantMessage,
@@ -158,6 +159,19 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
     }
 }
 
+/** The next-older cursor of a page, with the server's exhaustion quirk
+ *  applied: v2.0.x keeps `cursor.next` non-null on every page that has
+ *  rows (it anchors at the page's oldest message even when nothing older
+ *  exists) and only nulls it on a ZERO-row reply — verified against
+ *  v2.0.11. A page that came back SHORT of the requested limit has
+ *  reached the beginning, so it reads as exhausted here. Without this,
+ *  every non-empty session would look like it has older history and the
+ *  transcript's top sentinel would never leave. */
+function nextCursor(page: MessagesPage): string | null {
+    if ((page?.data?.length ?? 0) >= MESSAGES_PAGE_SIZE) return page.cursor?.next ?? null;
+    return null;
+}
+
 /** Reconcile with the NEWEST server page (order=desc on the wire →
  *  ascending here). Messages present on both sides merge part-by-part —
  *  the server snapshot predates locally observed events, so locally
@@ -189,7 +203,7 @@ export function applySeedPage(
     for (const m of list) {
         if (!pageIds.has(m.id)) messages.push(m);
     }
-    return {messages, cursor: page?.cursor?.next ?? null};
+    return {messages, cursor: nextCursor(page)};
 }
 
 /** Prepend the next-older page (already ascending on the wire via
@@ -203,7 +217,7 @@ export function applyOlderPage(
     const fresh = older.filter((m) => !held.has(m.id));
     return {
         messages: fresh.length > 0 ? [...fresh, ...list] : list,
-        cursor: page?.cursor?.next ?? null,
+        cursor: nextCursor(page),
     };
 }
 

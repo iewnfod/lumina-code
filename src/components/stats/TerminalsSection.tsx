@@ -4,7 +4,7 @@ import {error as logError} from "@tauri-apps/plugin-log";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
-import type {OpencodeApi} from "../../opencode/api.ts";
+import {useConnection} from "../../opencode/connectionContext.tsx";
 import type {SessionShellRef} from "../../opencode/sessionActivity.ts";
 import IconButton from "../ui/IconButton.tsx";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
@@ -168,16 +168,16 @@ export const TerminalsSection = memo(function TerminalsSection({
  * 200k-char tail is several screens of scrollback already.
  */
 export const TerminalBody = memo(function TerminalBody({
-    api,
     shell,
     directory,
 }: {
-    api: OpencodeApi | null;
     shell: SessionShellRef & {running: boolean};
     directory: string | null;
 }) {
     const t = useI18n();
     const colors = useColors();
+    // Server handle from the connection context (output polling).
+    const {api} = useConnection();
     const [text, setText] = useState<string | null>(null);
     const [failed, setFailed] = useState(false);
     const cursorRef = useRef(0);

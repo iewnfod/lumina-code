@@ -32,7 +32,9 @@ import type {
 
 interface SessionEntry {
     messages: ChatMessage[];
-    /** Cursor toward the next-older page (desc-sequence `cursor.next`). */
+    /** Cursor toward the next-older page (desc-sequence `cursor.next`),
+     *  already null once a SHORT page marked the beginning reached — the
+     *  server itself never nulls it before a zero-row reply. */
     cursor: string | null;
     /** The newest page has landed at least once. */
     seeded: boolean;
@@ -74,7 +76,27 @@ function requestSeed(api: OpencodeApi, sessionId: string): void {
     }).catch((e) => {
         if (seq !== entry.seq) return;
         logError(`Failed to load messages for ${sessionId}: ${e}`).catch(() => {});
+        // A failed seed must still resolve readiness: the surface
+        // choreography waits on `seeded` to play its entrance, and a
+        // wedge here would loop the loading phase forever. Enter with
+        // whatever the store holds (possibly empty).
+        entry.seeded = true;
+        notify(sessionId);
     });
+}
+
+/** Warm a session's store WITHOUT mounting its view: creates the entry
+ * (so the bus keeps it live) and pulls the newest page unless it has
+ * already landed once. THE readiness primitive behind App's sequential
+ * surface choreography (called at switch/hover time) — once it resolves,
+ * mounting the session's view renders its first frame from the store
+ * with no server round-trip. No-op for already-seeded sessions and
+ * while disconnected. */
+export function ensureSessionSeeded(api: OpencodeApi | null, sessionId: string): void {
+    if (!api) return;
+    const entry = entryOf(sessionId);
+    if (entry.seeded) return;
+    requestSeed(api, sessionId);
 }
 
 /** The single bus handler, installed once per app run (`subscribe` is
@@ -146,6 +168,27 @@ export function useSessionMessagesSnapshot(sessionId: string | null): readonly C
     );
     const getSnapshot = useCallback(
         () => (sessionId !== null ? peekSessionMessages(sessionId) ?? EMPTY_MESSAGES : EMPTY_MESSAGES),
+        [sessionId],
+    );
+    return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/** Whether a session's newest page has landed at least once (null =
+ *  nothing to wait for → always ready, e.g. the welcome surface). The
+ *  boolean the surface choreography gates its entrance phase on: a
+ *  `true` flip means the store can paint the session's first frame
+ *  without a server round-trip. Booleans are stable snapshot values,
+ *  so useSyncExternalStore re-renders only on the flip itself. */
+export function useSessionSeeded(sessionId: string | null): boolean {
+    const subscribe = useCallback(
+        (notify: () => void) =>
+            subscribeSessionMessages((sid) => {
+                if (sessionId === null || sid === sessionId) notify();
+            }),
+        [sessionId],
+    );
+    const getSnapshot = useCallback(
+        () => (sessionId !== null ? entries.get(sessionId)?.seeded === true : true),
         [sessionId],
     );
     return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);

@@ -1,9 +1,6 @@
-import type {OpencodeApi} from "../opencode/api.ts";
 import type {
     ComposerAttachment,
     ComposerFileRef,
-    OpencodeAgent,
-    OpencodeModel,
     PendingCommand,
     SessionModelRef,
 } from "../opencode/types.ts";
@@ -21,14 +18,10 @@ export default function WelcomeScreen({
     subtitle,
     disabled,
     onSend,
-    agents,
-    models,
-    catalogOnly,
     agent,
     model,
     onAgentChange,
     onModelChange,
-    api,
     directory,
     onDirectoryChange,
     onOpenModelConfig,
@@ -39,16 +32,10 @@ export default function WelcomeScreen({
     /** No connection yet. */
     disabled: boolean;
     onSend: (text: string, files: ComposerAttachment[], fileRefs: ComposerFileRef[], command: PendingCommand | null) => void;
-    agents: OpencodeAgent[];
-    models: OpencodeModel[];
-    /** No authenticated provider of the user's own — the model picker
-     *  shows its "nothing configured" entry above the free catalog. */
-    catalogOnly: boolean;
     agent: string;
     model: SessionModelRef | null;
     onAgentChange: (agent: string) => void;
     onModelChange: (model: SessionModelRef) => void;
-    api: OpencodeApi | null;
     directory: string | null;
     onDirectoryChange: (directory: string | null) => void;
     /** Opens the settings modal on its Model tab (model/provider config). */
@@ -78,15 +65,11 @@ export default function WelcomeScreen({
                         busy={false}
                         onSend={onSend}
                         onInterrupt={() => {}}
-                        agents={agents}
-                        models={models}
                         agent={agent}
                         model={model}
                         onAgentChange={onAgentChange}
                         onModelChange={onModelChange}
                         conversationStarted={false}
-                        api={api}
-                        catalogOnly={catalogOnly}
                         directory={directory}
                         onDirectoryChange={onDirectoryChange}
                         onOpenModelConfig={onOpenModelConfig}

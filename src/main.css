@@ -457,6 +457,67 @@ body {
 }
 
 /*
+ * Sequential surface exit (App's SessionSurface choreography): the
+ * leaving conversation surface plays this to COMPLETION before the
+ * successor mounts — unlike the old crossfade, it is alone on stage
+ * (nothing enters underneath), so it may travel: a rise-out reads as
+ * departure where two glass surfaces translating against each other
+ * smeared. The end of this animation is a sequencing event (the
+ * animationend handler in SessionSurface, name+target matched via
+ * exitGate with a timer fallback), not just decoration.
+ */
+.lum-surface-exit {
+    animation: lum-surface-exit var(--duration-base) var(--ease-glass) both;
+}
+
+@keyframes lum-surface-exit {
+    to {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+}
+
+/*
+ * The loading loop between surface phases: three dots pulsing while the
+ * successor session's first frame is fetched from the server. Pure CSS
+ * infinite loop (compositor-friendly opacity/scale only); the stagger
+ * rides nth-child delays.
+ */
+.lum-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.lum-loading span {
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: currentColor;
+    animation: lum-loading-pulse 1.2s var(--ease-glass) infinite;
+}
+
+.lum-loading span:nth-child(2) {
+    animation-delay: 0.15s;
+}
+
+.lum-loading span:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+@keyframes lum-loading-pulse {
+    0%, 100% {
+        opacity: 0.25;
+        transform: scale(0.85);
+    }
+    40% {
+        opacity: 0.7;
+        transform: scale(1);
+    }
+}
+
+/*
  * List-row exit (the ExitList half of the exit engine,
  * components/ui/ExitPresence.tsx): the row's height collapses through
  * the same animated grid-template-rows idea as .lum-fold, but as a

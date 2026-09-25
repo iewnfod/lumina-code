@@ -1,9 +1,10 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {applyEvent, applyOlderPage, applySeedPage} from "./messageStore.ts";
+import type {MessagesPage} from "./api.ts";
+import {MESSAGES_PAGE_SIZE} from "./types.ts";
 import {recordPendingCommand} from "./pendingCommands.ts";
 import type {OpencodeEvent} from "./eventStream.ts";
-import type {MessagesPage} from "./api.ts";
 import type {ChatAssistantMessage, ChatMessage, ChatUserMessage} from "./types.ts";
 import {isUserMessage} from "./types.ts";
 
@@ -205,16 +206,43 @@ test("seed merge keeps event-delivered usage over an older snapshot", () => {
 test("applyOlderPage prepends unseen history and updates the cursor", () => {
     let list: ChatMessage[] = [];
     list = applyEvent(list, stepStarted());
+    // A FULL page (MESSAGES_PAGE_SIZE rows) is the only shape whose
+    // cursor can legitimately point further back — shorter means the
+    // beginning was reached (see nextCursor). Wire order: desc.
     const older: MessagesPage = {
-        data: [{id: "msg_u0", type: "user", text: "old"}], // desc order
+        data: Array.from({length: MESSAGES_PAGE_SIZE}, (_, i) => ({
+            id: `msg_u${MESSAGES_PAGE_SIZE - 1 - i}`,
+            type: "user",
+            text: "old",
+        })),
         cursor: {next: "cursor-2"},
     };
     const merged = applyOlderPage(list, older);
-    assert.deepEqual(merged.messages.map((m) => m.id), ["msg_u0", MID]);
+    assert.deepEqual(
+        merged.messages.slice(-2).map((m) => m.id),
+        [`msg_u${MESSAGES_PAGE_SIZE - 1}`, MID],
+    );
     assert.equal(merged.cursor, "cursor-2");
     // Re-applying the same page must not duplicate.
     const again = applyOlderPage(merged.messages, older);
-    assert.deepEqual(again.messages.map((m) => m.id), ["msg_u0", MID]);
+    assert.equal(again.messages.length, merged.messages.length);
+});
+
+test("a short page reads as exhausted even though the server sends cursor.next", () => {
+    // v2.0.x anchors cursor.next at the page's oldest row regardless of
+    // whether anything older exists (only a zero-row page nulls it) —
+    // verified against v2.0.11. The merges must not hand that cursor
+    // through, or the transcript's top sentinel ("scroll to load
+    // earlier messages") shows on sessions with no earlier messages.
+    const shortPage: MessagesPage = {
+        data: [{id: "msg_u0", type: "user", text: "only message"}],
+        cursor: {next: "cursor-phantom"},
+    };
+    assert.equal(applySeedPage([], shortPage).cursor, null);
+    assert.equal(applyOlderPage([], shortPage).cursor, null);
+    // The genuine zero-row end page (cursor nulled server-side too).
+    const emptyPage: MessagesPage = {data: [], cursor: {next: null}};
+    assert.equal(applyOlderPage([{id: "msg_u0", type: "user", text: "x"}], emptyPage).cursor, null);
 });
 
 test("text parts stream and settle alongside reasoning", () => {

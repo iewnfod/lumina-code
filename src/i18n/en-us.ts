@@ -117,6 +117,7 @@ const enUs = {
     // --- Transcript chrome ---
     "Untitled": "Untitled",
     "Loading earlier messages...": "Loading earlier messages...",
+    "Loading conversation…": "Loading conversation…",
     "Scroll to load earlier messages": "Scroll to load earlier messages",
     "Waiting for OpenCode...": "Waiting for OpenCode...",
     "Send a message to start": "Send a message to start",

@@ -1,23 +1,17 @@
 import {memo, useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {useTranscriptScroll} from "../../hooks/useTranscriptScroll.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
-import type {OpencodeApi} from "../../opencode/api.ts";
-import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
+import {useCatalog} from "../../opencode/catalogContext.tsx";
+import {useConnection} from "../../opencode/connectionContext.tsx";
+import {usePendingRequests, useSessionData, useSessionTranscript} from "../../opencode/sessionDataContext.tsx";
 import {divertAttachmentsForSend, modelAcceptsImages} from "../../opencode/visionAttachments.ts";
 import type {
     ComposerAttachment,
     ComposerFileRef,
-    FormAnswer,
-    FormRequest,
-    OpencodeAgent,
-    OpencodeModel,
     PendingCommand,
-    PermissionDecision,
-    PermissionRequest,
     SessionModelRef,
+    SessionUsage,
 } from "../../opencode/types.ts";
-import {useSessionMessages} from "../../opencode/useSessionMessages.ts";
-import type {SessionUsage} from "../../opencode/types.ts";
 import {lastContextMessage, type ContextUsage} from "./usageStats.ts";
 import TranscriptList from "./TranscriptList.tsx";
 import {ExitList} from "../ui/ExitPresence.tsx";
@@ -49,14 +43,9 @@ import {QuestionCard} from "./QuestionCard.tsx";
 const RENDER_LIMIT = 60;
 
 const ChatView = memo(function ChatView({
-    api,
-    subscribe,
     sessionId,
     busy,
     disabled,
-    agents,
-    models,
-    catalogOnly,
     agent,
     model,
     onAgentChange,
@@ -65,24 +54,11 @@ const ChatView = memo(function ChatView({
     onDirectoryChange,
     onOpenModelConfig,
     usage,
-    pendingPermissions,
-    pendingForms,
-    onPermissionDecision,
-    onFormReply,
-    onFormCancel,
 }: {
-    api: OpencodeApi | null;
-    subscribe: (handler: OpencodeEventHandler) => () => void;
     sessionId: string;
     busy: boolean;
     /** No connection. */
     disabled: boolean;
-    /** Composer catalog + effective selections (owned by App). */
-    agents: OpencodeAgent[];
-    models: OpencodeModel[];
-    /** No authenticated provider of the user's own — the model picker
-     *  shows its "nothing configured" entry above the free catalog. */
-    catalogOnly: boolean;
     agent: string;
     model: SessionModelRef | null;
     onAgentChange: (agent: string) => void;
@@ -96,17 +72,14 @@ const ChatView = memo(function ChatView({
      *  composer's context ring (which itself reads the transcript's last
      *  measured step; null on the welcome screen). */
     usage: SessionUsage | null;
-    /** Pending server requests for THIS session (permission asks +
-     *  question forms) — pinned above the composer until answered. */
-    pendingPermissions: PermissionRequest[];
-    pendingForms: FormRequest[];
-    onPermissionDecision: (request: PermissionRequest, decision: PermissionDecision) => void;
-    onFormReply: (form: FormRequest, answer: FormAnswer) => void;
-    onFormCancel: (form: FormRequest) => void;
 }) {
     const t = useI18n();
+    const {api} = useConnection();
+    const {models} = useCatalog();
+    const {replyPermission, replyForm, cancelForm} = useSessionData();
     const {messages, hasMore, loadingOlder, loadOlder, send, interrupt} =
-        useSessionMessages(api, subscribe, sessionId);
+        useSessionTranscript(sessionId);
+    const {permissions: pendingPermissions, forms: pendingForms} = usePendingRequests(sessionId);
 
     const sentinelRef = useRef<HTMLDivElement>(null);
     const [renderLimit, setRenderLimit] = useState(RENDER_LIMIT);
@@ -270,7 +243,7 @@ const ChatView = memo(function ChatView({
                     {(request) => (
                         <PermissionCard
                             request={request}
-                            onDecision={onPermissionDecision}
+                            onDecision={(req, decision) => void replyPermission(req, decision)}
                         />
                     )}
                 </ExitList>
@@ -283,8 +256,8 @@ const ChatView = memo(function ChatView({
                     {(form) => (
                         <QuestionCard
                             form={form}
-                            onReply={onFormReply}
-                            onCancel={onFormCancel}
+                            onReply={(f, answer) => void replyForm(f, answer)}
+                            onCancel={cancelForm}
                         />
                     )}
                 </ExitList>
@@ -297,15 +270,11 @@ const ChatView = memo(function ChatView({
                         busy={busy}
                         onSend={handleSend}
                         onInterrupt={handleInterrupt}
-                        agents={agents}
-                        models={models}
                         agent={agent}
                         model={model}
                         onAgentChange={onAgentChange}
                         onModelChange={onModelChange}
                         conversationStarted={hasConversation}
-                        api={api}
-                        catalogOnly={catalogOnly}
                         directory={directory}
                         onDirectoryChange={onDirectoryChange}
                         onOpenModelConfig={onOpenModelConfig}

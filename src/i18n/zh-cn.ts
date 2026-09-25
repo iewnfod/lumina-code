@@ -118,6 +118,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     // --- Transcript chrome ---
     "Untitled": "无标题",
     "Loading earlier messages...": "正在加载更早的消息...",
+    "Loading conversation…": "正在加载对话…",
     "Scroll to load earlier messages": "滚动以加载更早的消息",
     "Waiting for OpenCode...": "等待 OpenCode...",
     "Send a message to start": "发送消息开始对话",

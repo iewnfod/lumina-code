@@ -4,6 +4,13 @@
  * the shapes actually on the wire, kept loose where the server is loose).
  */
 
+/** Page size the client requests for `GET /api/session/{id}/message` (the
+ *  endpoint caps `limit` at 200, 400 above that). A wire fact, so it lives
+ *  with the wire types; messageStore's pagination-exhaustion rule reads it
+ *  (a page shorter than this has reached the session's beginning — the
+ *  server's cursor.next alone never says "no more"). */
+export const MESSAGES_PAGE_SIZE = 200;
+
 export interface SessionTime {
     created: number;
     updated: number;

@@ -3,8 +3,6 @@ import {Bot, ChevronLeft, ChevronUp, Diff, Square, SquareTerminal} from "lucide-
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {useStatsExpanded, useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
-import type {OpencodeApi} from "../../opencode/api.ts";
-import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import type {SessionShellRef, SessionSubagentRef} from "../../opencode/sessionActivity.ts";
 import ExitPresence from "../ui/ExitPresence.tsx";
@@ -40,15 +38,11 @@ type StatsView =
  * session's terminals/subagents; see stats/WorkspaceStatsCard.tsx).
  */
 const SessionStatsCard = memo(function SessionStatsCard({
-    api,
-    subscribe,
     sessionId,
     activity,
     directory,
     busyIds,
 }: {
-    api: OpencodeApi | null;
-    subscribe: (handler: OpencodeEventHandler) => () => void;
     /** The active session — terminals/subagents are ITS (see
      *  WorkspaceStatsCard). The card outlives same-directory session
      *  switches, so this prop CHANGES without a remount. */
@@ -347,15 +341,12 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         )}
                         {view.kind === "terminal" && liveShell && (
                             <TerminalBody
-                                api={api}
                                 shell={liveShell}
                                 directory={directory}
                             />
                         )}
                         {view.kind === "subagent" && liveSub && (
                             <SubagentBody
-                                api={api}
-                                subscribe={subscribe}
                                 sub={liveSub}
                                 directory={directory}
                                 busyIds={busyIds}

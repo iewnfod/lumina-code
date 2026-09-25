@@ -3,14 +3,14 @@ import {error} from "@tauri-apps/plugin-log";
 import {loadState, saveState} from "../lib/persist.ts";
 import {OpencodeApi} from "./api.ts";
 import {prepareCommandSubmission} from "./useSessionMessages.ts";
-import {useSessions} from "./useSessions.ts";
+import {useCatalog} from "./catalogContext.tsx";
+import {useConnection} from "./connectionContext.tsx";
+import {useSessionData} from "./sessionDataContext.tsx";
 import {divertAttachmentsForSend, modelAcceptsImages} from "./visionAttachments.ts";
-import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {
     ComposerAttachment,
     ComposerFileRef,
-    OpencodeAgent,
-    OpencodeModel,
+    OpencodeSession,
     PendingCommand,
     SessionModelRef,
 } from "./types.ts";
@@ -25,23 +25,19 @@ import type {
  * list). Before that, pending* state rides along into the session created
  * on the first send — including the working directory — seeded from the
  * last run's choices via lib/persist.ts.
+ *
+ * Consumes the context split (connection / catalog / session data):
+ * the session list + CRUD live in SessionDataProvider, the catalog in
+ * CatalogProvider; this hook is pure flow control on top of them.
  */
-export function useSessionFlow(
-    api: OpencodeApi | null,
-    subscribe: (handler: OpencodeEventHandler) => () => void,
-    catalog: {
-        models: OpencodeModel[];
-        agents: OpencodeAgent[];
-        defaultModel: OpencodeModel | null;
-    },
-): {
-    sessions: ReturnType<typeof useSessions>["sessions"];
+export function useSessionFlow(): {
+    sessions: OpencodeSession[];
     /** True once the first session list has landed. */
     sessionsLoaded: boolean;
     busyIds: ReadonlySet<string>;
     activeId: string | null;
     setActiveId: (id: string | null) => void;
-    activeSession: ReturnType<typeof useSessions>["sessions"][number] | null;
+    activeSession: OpencodeSession | null;
     /** Composer selections: the session's own once it exists, else the
      *  staged/fallback pick. */
     effectiveModel: SessionModelRef | null;
@@ -63,8 +59,16 @@ export function useSessionFlow(
     ) => Promise<void>;
     deleteSession: (id: string) => void;
 } {
-    const {models, agents, defaultModel} = catalog;
-    const {sessions, loaded: sessionsLoaded, busyIds, create, remove, patch} = useSessions(api, subscribe);
+    const {api} = useConnection();
+    const {models, agents, defaultModel} = useCatalog();
+    const {
+        sessions,
+        sessionsLoaded,
+        busyIds,
+        createSession: create,
+        removeSession: remove,
+        patchSession: patch,
+    } = useSessionData();
 
     // Cross-restart restore, read synchronously so the first paint already
     // targets the previous session / composer choices.

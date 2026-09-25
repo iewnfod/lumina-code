@@ -3,7 +3,7 @@ import {Folder, FolderSearch, GitBranch} from "lucide-react";
 import {open as openDialog} from "@tauri-apps/plugin-dialog";
 import {warn} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
-import type {OpencodeApi} from "../../opencode/api.ts";
+import {useConnection} from "../../opencode/connectionContext.tsx";
 import type {OpencodeProject} from "../../opencode/types.ts";
 import {folderLabel} from "../../lib/path.ts";
 import PopoverMenu, {MenuItem, MenuLabel} from "../ui/PopoverMenu.tsx";
@@ -17,17 +17,16 @@ import {useI18n} from "../../hooks/i18n.tsx";
  * (Tauri dialog plugin). Choosing `null` keeps the server's default (home).
  */
 export default function DirectoryPicker({
-    api,
     directory,
     onChange,
 }: {
-    api: OpencodeApi | null;
     /** Absolute working directory for the next session; null = server default. */
     directory: string | null;
     onChange: (directory: string | null) => void;
 }) {
     const colors = useColors();
     const t = useI18n();
+    const {api} = useConnection();
     const [projects, setProjects] = useState<OpencodeProject[]>([]);
 
     // The server's project list accumulates every directory it ever touched

@@ -23,7 +23,7 @@ import {
     mergeRegister,
     type EditorState,
 } from "lexical";
-import type {OpencodeApi} from "../../opencode/api.ts";
+import {useConnection} from "../../opencode/connectionContext.tsx";
 import {isMacOS} from "../../lib/platform.ts";
 import type {
     ComposerFileRef,
@@ -57,7 +57,6 @@ const MAX_LINES = 5;
 export default function ComposerCore({
     disabled,
     busy,
-    api,
     directory,
     commands,
     placeholder,
@@ -68,7 +67,6 @@ export default function ComposerCore({
 }: {
     disabled: boolean;
     busy: boolean;
-    api: OpencodeApi | null;
     directory: string | null;
     commands: OpencodeCommand[];
     placeholder: string;
@@ -78,6 +76,8 @@ export default function ComposerCore({
     onCanSendChange: (canSend: boolean) => void;
 }) {
     const t = useI18n();
+    // Server handle from the connection context (file suggestions).
+    const {api} = useConnection();
     const [editor] = useLexicalComposerContext();
     const [suggest, setSuggest] = useState<TriggerState | null>(null);
     const [suggestItems, setSuggestItems] = useState<SuggestionItem[]>([]);

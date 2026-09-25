@@ -3,13 +3,11 @@ import {X} from "lucide-react";
 import {LexicalComposer} from "@lexical/react/LexicalComposer";
 import {error} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
-import type {OpencodeApi} from "../../opencode/api.ts";
+import {useConnection} from "../../opencode/connectionContext.tsx";
 import type {
     ComposerAttachment,
     ComposerFileRef,
-    OpencodeAgent,
     OpencodeCommand,
-    OpencodeModel,
     PendingCommand,
     SessionModelRef,
     SessionUsage,
@@ -49,15 +47,11 @@ const ChatInput = memo(function ChatInput({
     busy,
     onSend,
     onInterrupt,
-    agents,
-    models,
-    catalogOnly,
     agent,
     model,
     onAgentChange,
     onModelChange,
     conversationStarted,
-    api,
     directory,
     onDirectoryChange,
     onOpenModelConfig,
@@ -69,12 +63,6 @@ const ChatInput = memo(function ChatInput({
     busy: boolean;
     onSend: (text: string, files: ComposerAttachment[], fileRefs: ComposerFileRef[], command: PendingCommand | null) => void;
     onInterrupt: () => void;
-    /** Selectable modes (primary agents). */
-    agents: OpencodeAgent[];
-    models: OpencodeModel[];
-    /** No authenticated provider of the user's own — the model picker
-     *  shows its "nothing configured" entry above the free catalog. */
-    catalogOnly: boolean;
     /** Effective selections (session-bound once a session exists). */
     agent: string;
     model: SessionModelRef | null;
@@ -83,7 +71,6 @@ const ChatInput = memo(function ChatInput({
     /** False until the conversation has its first message — shows the
      *  project picker (welcome screen and freshly created sessions). */
     conversationStarted: boolean;
-    api: OpencodeApi | null;
     directory: string | null;
     onDirectoryChange: (directory: string | null) => void;
     /** Opens the settings modal on its Model tab (model/provider config). */
@@ -95,6 +82,9 @@ const ChatInput = memo(function ChatInput({
 }) {
     const colors = useColors();
     const t = useI18n();
+    // Server handle from the connection context (slash commands); the
+    // picker catalog is ComposerToolbar's own concern now.
+    const {api} = useConnection();
     const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
     const [commands, setCommands] = useState<OpencodeCommand[]>([]);
     // The list last fetched, keyed by its directory — remounts for the
@@ -219,7 +209,6 @@ const ChatInput = memo(function ChatInput({
                 <ComposerCore
                     disabled={disabled}
                     busy={busy}
-                    api={api}
                     directory={directory}
                     commands={commands}
                     placeholder={disabled ? t["Connecting to OpenCode..."] : t["Ask Lumina Code, use @ to add context, use / for commands"]}
@@ -239,15 +228,11 @@ const ChatInput = memo(function ChatInput({
                 onAttach={() => fileInputRef.current?.click()}
                 onSend={() => composerApiRef.current?.submit()}
                 onInterrupt={onInterrupt}
-                agents={agents}
-                models={models}
                 agent={agent}
                 model={model}
                 onAgentChange={onAgentChange}
                 onModelChange={onModelChange}
                 conversationStarted={conversationStarted}
-                api={api}
-                catalogOnly={catalogOnly}
                 directory={directory}
                 onDirectoryChange={onDirectoryChange}
                 onOpenModelConfig={onOpenModelConfig}

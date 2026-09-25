@@ -61,35 +61,45 @@ Bumping one without the others breaks the build or the startup check.
 src/
 ├── App.tsx                # Layout shell only: chrome (glass frame, sidebar,
 │                          #   title bar) + OpenCode wiring via hooks
-│                          #   (useOpencode, useSessionRequests, useModelCatalog,
-│                          #   useSessionFlow) and the session ↔ welcome-screen
-│                          #   swap (SurfaceSwap, also defined here: the
-│                          #   entering surface rises in while the outgoing
-│                          #   one is held underneath, fading out in place).
-│                          #   App() wraps InnerApp with
-│                          #   useMaximized/usePaddingOffset/useDragRegionDoubleClick.
-│                          #   Also owns the conversation surface
-│                          #   geometry: the content is a FLEX ROW —
-│                          #   conversation (flex-1, the session ↔
-│                          #   welcome swap inside it) + the workspace
-│                          #   stats panel as a REAL sibling, KEYED BY
-│                          #   DIRECTORY (same-directory session
-│                          #   switches keep it mounted;
-│                          #   cross-directory switches remount it,
-│                          #   the surface swap covering the
-│                          #   transition; never on the welcome
-│                          #   screen). App measures NOTHING:
-│                          #   the row (.lum-row) is a CSS size
-│                          #   CONTAINER — the column's width cap +
-│                          #   gutters (.lum-column) and the stats
-│                          #   panel's flow/float (.lum-stats) are
-│                          #   container queries in main.css, and
-│                          #   flex pushes the conversation left as
-│                          #   the panel's width transitions. App
-│                          #   also derives the ONE SurfaceColors
-│                          #   palette (useSurfaceColors) and provides
-│                          #   it via ColorsProvider (hooks/colors.tsx)
-│                          #   + the --lum-wash hover vars on the root.
+│                          #   (useOpencode, useSessionFlow) and the
+│                          #   session ↔ welcome-screen swap (SessionSurface,
+│                          #   also defined here). Split in two since the
+│                          #   context refactor: InnerApp is the
+│                          #   connection/theme shell (useOpencode + palette
+│                          #   + the three providers below), AppBody
+│                          #   consumes the contexts and hosts the flow +
+│                          #   chrome. SESSION SURFACE CHOREOGRAPHY: the swap
+│                          #   is SEQUENTIAL (lib/surfacePhases.ts, pure) —
+│                          #   click starts the old surface's exit
+│                          #   (.lum-surface-exit) AND the successor's store
+│                          #   warm (ensureSessionSeeded) in parallel; the
+│                          #   exit plays to completion; an unready
+│                          #   successor shows the looping .lum-loading dots
+│                          #   until its newest page has seeded
+│                          #   (useSessionSeeded), then enters via .lum-enter
+│                          #   with its FIRST FRAME already carrying content —
+│                          #   the entrance starts exactly when there is
+│                          #   something to reveal, so it covers the load
+│                          #   whatever the latency. App() wraps InnerApp
+│                          #   with useMaximized/usePaddingOffset/
+│                          #   useDragRegionDoubleClick. Also owns the
+│                          #   conversation surface geometry: the content is
+│                          #   a FLEX ROW — conversation (flex-1, the swap
+│                          #   inside it) + the workspace stats panel as a
+│                          #   REAL sibling, KEYED BY DIRECTORY
+│                          #   (same-directory session switches keep it
+│                          #   mounted; cross-directory switches remount it;
+│                          #   never on the welcome screen). App measures
+│                          #   NOTHING: the row (.lum-row) is a CSS size
+│                          #   CONTAINER — the column's width cap + gutters
+│                          #   (.lum-column) and the stats panel's
+│                          #   flow/float (.lum-stats) are container queries
+│                          #   in main.css, and flex pushes the conversation
+│                          #   left as the panel's width transitions. App
+│                          #   also derives the ONE SurfaceColors palette
+│                          #   (useSurfaceColors) and provides it via
+│                          #   ColorsProvider (hooks/colors.tsx) + the
+│                          #   --lum-wash hover vars on the root.
 ├── main.tsx               # ReactDOM entry (React.StrictMode) + attachConsole
 ├── constants.ts           # CHROME_TITLE_BAR_HEIGHT
 ├── i18n/                  # en-us.ts (source of truth: keys ARE the English
@@ -167,6 +177,31 @@ src/
 │   ├── pendingCommands.ts # Pure registry of pending slash-command submissions
 │   │                      #   (compact `/name args` forms stamped onto the
 │   │                      #   confirming enqueue event; per-session FIFO + undo).
+│   ├── connectionContext.tsx # THE CONTEXT SPLIT, base layer: ConnectionProvider
+│   │                      #   + useConnection() distribute useOpencode's api/
+│   │                      #   subscribe/status to anything needing a raw handle
+│   │                      #   (settings' credential flows, composer file/command
+│   │                      #   lookups, terminal output polling) — no more
+│   │                      #   api/subscribe props threaded through every level.
+│   ├── catalogContext.tsx # Settings-domain layer: CatalogProvider hosts
+│   │                      #   useModelCatalog ONCE; useCatalog() feeds the
+│   │                      #   composer pickers, ChatView's image-capability
+│   │                      #   check and useSessionFlow's fallback pick.
+│   │                      #   Separate from session data on purpose — the
+│   │                      #   catalog changes on credential/config events,
+│   │                      #   not with the session list.
+│   ├── sessionDataContext.tsx # Session-domain layer: SessionDataProvider hosts
+│   │                      #   useSessions + useSessionRequests ONCE;
+│   │                      #   useSessionData() (list/busy/CRUD/pending asks),
+│   │                      #   useSessionTranscript(sessionId) (message store
+│   │                      #   binding — mounting it still seeds an unseeded
+│   │                      #   session), usePendingRequests(sessionId),
+│   │                      #   useWorkspaceDiffOf/useSessionActivityOf (the
+│   │                      #   stats card's scopes). Views stop caring whether
+│   │                      #   data comes from the module caches or off the
+│   │                      #   wire; the stores themselves are untouched.
+│   │                      #   The surface choreography's readiness protocol
+│   │                      #   builds on this provider (see ensureSessionSeeded).
 │   ├── useOpencode.ts     # Server connection: invoke("opencode_start") → API client
 │   │                      #   + auth token + event stream; subscribe() fans frames out
 │   │                      #   to handlers. Server lifecycle is Rust-owned — the effect
@@ -189,16 +224,22 @@ src/
 │   │                      #   — backgrounded sessions keep accumulating deltas; entries
 │   │                      #   drop on session.deleted). One global bus handler applies
 │   │                      #   events to every tracked session. Cursor-based loadOlder;
-│   │                      #   `seeding` tells consumers (the stats card's subagent
-│   │                      #   drill) whether an empty list is still loading. The
-│   │                      #   messages state seeds from the store at FIRST RENDER
-│   │                      #   (not first effect) — a session switched back to paints
-│   │                      #   in the mounting commit. Exports
+│   │                      #   `seeding` tells consumers whether an empty list is still
+│   │                      #   loading. The messages state seeds from the store at FIRST
+│   │                      #   RENDER (not first effect) — a session switched back to
+│   │                      #   paints in the mounting commit. Exports
 │   │                      #   subscribeSessionMessages/peekSessionMessages for the
 │   │                      #   activity store's background freshness, plus
 │   │                      #   useSessionMessagesSnapshot — a read-only
 │   │                      #   useSyncExternalStore binding for consumers that
-│   │                      #   outlive session switches (the stats card).
+│   │                      #   outlive session switches (the stats card) — AND THE
+│   │                      #   READINESS PROTOCOL of the surface choreography:
+│   │                      #   ensureSessionSeeded(api, id) warms an unopened
+│   │                      #   session's store without mounting its view (called at
+│   │                      #   switch/hover time), useSessionSeeded(id) is its
+│   │                      #   boolean useSyncExternalStore mirror, and a FAILED seed
+│   │                      #   still sets seeded+notify (otherwise the loading phase
+│   │                      #   would loop forever).
 │   │                      #   prepareCommandSubmission pre-creates the entry so a
 │   │                      #   first-send slash command keeps its enqueue frame;
 │   │                      #   a session.model.selected event re-pulls the newest
@@ -209,7 +250,9 @@ src/
 │   │                      #   seeded from lib/persist.ts), changeModel/changeAgent/
 │   │                      #   changeDirectory/newSession/deleteSession, sendFirst
 │   │                      #   (create-then-deliver with the slash-command fallback),
-│   │                      #   and the cross-restart save. Wraps useSessions.
+│   │                      #   and the cross-restart save. Consumes the context
+│   │                      #   split (connection handles + catalog + the
+│   │                      #   provider-hosted session list) — no parameters.
 │   ├── useSessionRequests.ts # Pending server→user asks across ALL sessions (permission
 │   │                      #   requests + forms), seeded from the list endpoints then
 │   │                      #   bus-maintained; a pending ask blocks the session's
@@ -277,6 +320,16 @@ src/
 │   │                      #   springSnappy) and RollingTitle's timer
 │   │                      #   constant survive — every other animation
 │   │                      #   is the CSS utilities in main.css (§3.7).
+│   ├── surfacePhases.ts   # The session-surface phase machine (pure,
+│   │                      #   node-testable): shown / exiting / waiting
+│   │                      #   with events retarget·exitEnded·becameReady.
+│   │                      #   The sequencing brain of App's SessionSurface —
+│   │                      #   strictly sequential (exit completes before the
+│   │                      #   successor may mount), idempotent transitions
+│   │                      #   (duplicate exitEnded from the fallback timer
+│   │                      #   is a no-op), and rapid mid-exit retargets
+│   │                      #   re-aim the successor without canceling the
+│   │                      #   exit.
 │   ├── path.ts            # folderLabel (last path segment) + displayPath
 │   │                      #   (project-relative file paths) — shared by the
 │   │                      #   sidebar, directory picker and tool cards. node-testable.
@@ -426,7 +479,13 @@ src/
     │   └── WindowControls.tsx # minimize/maximize/close cluster (non-macOS)
     ├── chat/              # The conversation surface
     │   ├── ChatView.tsx   # Transcript column + composer for the active session.
-    │   │                  #   Bounded DOM: only the newest RENDER_LIMIT (60)
+    │   │                  #   Data via the context split (transcript through
+    │   │                  #   useSessionTranscript, pending asks through
+    │   │                  #   usePendingRequests, catalog through useCatalog) —
+    │   │                  #   App's surface choreography has ALREADY seeded
+    │   │                  #   the store before this view mounts, so its first
+    │   │                  #   frame paints with content. Bounded DOM: only the
+    │   │                  #   newest RENDER_LIMIT (60)
     │   │                  #   entries mount; an IntersectionObserver on the
     │   │                  #   top sentinel grows the window (and fetches older
     │   │                  #   pages) on scroll-up. Scrolling lives in
@@ -571,10 +630,11 @@ src/
     │                      #   container's full height, the overview at
     │                      #   75vh); outside-click/Escape collapse is the
     │                      #   useStatsPanelMode "auto" mode)
-    │   ├── WorkspaceStatsCard.tsx # The card's data owner: owns the two
-    │                      #   scope hooks (workspace diff by directory,
-    │                      #   session terminals/subagents), then renders
-    │                      #   SessionStatsCard (colors via context).
+    │   ├── WorkspaceStatsCard.tsx # The card's data owner: consumes the
+    │                      #   two context scope hooks (workspace diff by
+    │                      #   directory, session terminals/subagents),
+    │                      #   then renders SessionStatsCard (colors via
+    │                      #   context).
     │   ├── SessionStatsCard.tsx # The card (presentation + local
     │                      #   navigation only): collapsed summary rows
     │                      #   (+N −N lines, terminal/subagent counts)
@@ -622,18 +682,16 @@ src/
     │   │                  #   cap, falls back to the notification's embedded output
     │   │                  #   once the process-local shell registry 404s (a manual
     │   │                  #   stop removes the retained output too, so the
-    │   │                  #   fallback is the normal path after one). Fires
-    │   │                  #   onSettled when the first page (or terminal
-    │   │                  #   failure) lands — releases the card's drill
-    │   │                  #   hold.
+    │   │                  #   fallback is the normal path after one). The api
+    │   │                  #   handle comes from useConnection().
     │   └── SubagentsSection.tsx # Subagent rows (presence-animated per
     │   │                  #   row, like TerminalsSection; agent + task
     │   │                  #   label + running
-    │                      #   state) → SubagentBody: read-only transcript reusing
-    │                      #   the module-level message store + TranscriptList, so
-    │                      #   background children stream in live; fires onSettled
-    │                      #   when the seed page lands (useSessionMessages'
-    │                      #   `seeding`) — releases the card's drill hold.
+    │                      #   state) → SubagentBody: read-only transcript
+    │                      #   through useSessionTranscript (the shared
+    │                      #   module-level message store + TranscriptList, so
+    │                      #   background children stream in live; mounting the
+    │                      #   body seeds the child session's store).
     ├── composer/          # The prompt composer
         ├── ChatInput.tsx  # Composer shell: staged attachments (chips),
         │                  #   slash-command fetch (per-directory, retried),
@@ -762,17 +820,24 @@ types (opencode/types.ts, i18n keys)  ←  opencode/ + lib/  ←  hooks/  ←  c
   modules are what `pnpm test` can load (node:test + type stripping, no
   bundler) — keep new logic testable by keeping it there.
 - `opencode/` is the only layer that talks to the server. Components never
-  `fetch()` the server directly — they receive `api`/`subscribe` as props
-  from App and go through the `use*` hooks.
+  `fetch()` the server directly — they consume the context split
+  (`useConnection` / `useCatalog` / `useSessionData` and friends) or go
+  through the `use*` hooks.
 - `hooks/` may import `lib/` and `opencode/`, never `components/`.
-- `App.tsx` owns the connection and hands `api` + `subscribe` down.
+- `App.tsx` owns the connection and distributes it through the providers
+  (Connection → Catalog + SessionData); AppBody below them is a consumer
+  like any other.
 
 ### 3.2 Single Source of Truth (no duplication)
 
 - **Server access** → only through `OpencodeApi` (`opencode/api.ts`) or the
   bus (`subscribe` + `messageStore.applyEvent`). Never a second fetch
   client, and never re-derive wire shapes from the SDK — `types.ts` is the
-  authority (verified against the installed server).
+  authority (verified against the installed server). Components never
+  `fetch()` the server directly — the handles flow from App's useOpencode
+  through the CONTEXT SPLIT (ConnectionProvider / CatalogProvider /
+  SessionDataProvider in `opencode/*Context.tsx`), and data arrives via
+  their `use*` bindings or the use* hooks underneath.
 - **Platform checks** → `lib/platform.ts`. **Glass/backdrop-filter** →
   `lib/glass.ts` only (inline `backdrop-filter` breaks the Linux fallback).
   **Button springs** → `lib/motion.ts` (everything else is CSS, §3.7).

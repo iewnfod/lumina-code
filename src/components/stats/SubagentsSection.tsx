@@ -1,9 +1,7 @@
 import {memo} from "react";
 import {Bot} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
-import type {OpencodeApi} from "../../opencode/api.ts";
-import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
-import {useSessionMessages} from "../../opencode/useSessionMessages.ts";
+import {useSessionTranscript} from "../../opencode/sessionDataContext.tsx";
 import type {SessionSubagentRef} from "../../opencode/sessionActivity.ts";
 import TranscriptList from "../chat/TranscriptList.tsx";
 import {ExitList} from "../ui/ExitPresence.tsx";
@@ -95,20 +93,18 @@ export const SubagentsSection = memo(function SubagentsSection({
  * module-level store, so a background subagent streams in here live.
  */
 export const SubagentBody = memo(function SubagentBody({
-    api,
-    subscribe,
     sub,
     directory,
     busyIds,
 }: {
-    api: OpencodeApi | null;
-    subscribe: (handler: OpencodeEventHandler) => () => void;
     sub: SessionSubagentRef & {running: boolean};
     directory: string | null;
     busyIds: ReadonlySet<string>;
 }) {
     const t = useI18n();
-    const {messages} = useSessionMessages(api, subscribe, sub.id);
+    // Transcript via the session-data context (seeds the child session's
+    // store on mount; mounting this view is still what triggers the fetch).
+    const {messages} = useSessionTranscript(sub.id);
     // Same transcript rules as ChatView: content plus the persisted
     // model-switch markers (rendered as dividers; names fall back to raw
     // ids here — no catalog in the stats card).

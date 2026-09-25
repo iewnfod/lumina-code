@@ -1,7 +1,5 @@
 import {memo} from "react";
-import type {OpencodeApi} from "../../opencode/api.ts";
-import type {OpencodeEventHandler} from "../../opencode/useOpencode.ts";
-import {useSessionActivity, useWorkspaceDiff} from "../../opencode/useSessionActivity.ts";
+import {useSessionActivityOf, useWorkspaceDiffOf} from "../../opencode/sessionDataContext.tsx";
 import SessionStatsCard from "./SessionStatsCard.tsx";
 
 /**
@@ -12,22 +10,18 @@ import SessionStatsCard from "./SessionStatsCard.tsx";
  * animates out and in with the surface swap. Never mounted on the
  * welcome screen (App renders it only while a session is active).
  *
- * Two scopes feed the card:
- * - the DIRECTORY's workspace diff (useWorkspaceDiff — HEAD vs working
+ * Data comes from the session-data context (no api/subscribe props):
+ * - the DIRECTORY's workspace diff (useWorkspaceDiffOf — HEAD vs working
  *   copy, shared by every session in the directory);
- * - the ACTIVE session's terminals/subagents (useSessionActivity over the
- *   message-store snapshot — these swap in place on same-directory
+ * - the ACTIVE session's terminals/subagents (useSessionActivityOf over
+ *   the message-store snapshot — these swap in place on same-directory
  *   switches without remounting the card).
  */
 const WorkspaceStatsCard = memo(function WorkspaceStatsCard({
-    api,
-    subscribe,
     sessionId,
     directory,
     busyIds,
 }: {
-    api: OpencodeApi | null;
-    subscribe: (handler: OpencodeEventHandler) => () => void;
     /** The active session (terminals/subagents scope). */
     sessionId: string;
     /** The active session's working directory — the workspace scope. */
@@ -36,13 +30,11 @@ const WorkspaceStatsCard = memo(function WorkspaceStatsCard({
      *  children included; the stats card reads their running state). */
     busyIds: ReadonlySet<string>;
 }) {
-    const {diff, diffLoading, diffTotals, refreshDiff} = useWorkspaceDiff(api, subscribe, directory);
-    const {shells, subagents, stopShell} = useSessionActivity(api, subscribe, sessionId, busyIds, directory);
+    const {diff, diffLoading, diffTotals, refreshDiff} = useWorkspaceDiffOf(directory);
+    const {shells, subagents, stopShell} = useSessionActivityOf(sessionId, busyIds, directory);
 
     return (
         <SessionStatsCard
-            api={api}
-            subscribe={subscribe}
             sessionId={sessionId}
             activity={{diff, diffLoading, diffTotals, shells, subagents, refreshDiff, stopShell}}
             directory={directory}
