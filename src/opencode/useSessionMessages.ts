@@ -345,10 +345,13 @@ export function useSessionMessages(
         // confirm it with the real id (applyEvent adopts it in messageStore).
         // A command submission carries its compact form so the transcript
         // renders `/name args`, not the expanded template the event brings.
+        const localId = `local-${Date.now()}`;
         const optimistic: ChatUserMessage = {
-            id: `local-${Date.now()}`,
+            id: localId,
             type: "user",
             text: trimmed,
+            // Stable row key across the id swap (see ChatUserMessage.localKey).
+            localKey: localId,
             files: [
                 ...(files ?? []).map((f) => ({name: f.name, mime: f.mime, uri: f.uri})),
                 ...(fileRefs ?? []).map((r) => ({name: r.path.split("/").pop() ?? r.path})),

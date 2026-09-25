@@ -228,6 +228,57 @@ test("applyOlderPage prepends unseen history and updates the cursor", () => {
     assert.equal(again.messages.length, merged.messages.length);
 });
 
+test("re-seed keeps loadOlder history ABOVE the newest page (no shuffled transcripts)", () => {
+    // The shuffle bug: older pages were loaded (scroll-up prepend), then
+    // a re-seed fires (session switch back, or the model-switch re-pull).
+    // The newest server page covers only the tail — everything older the
+    // store already holds must stay in FRONT, not be appended below the
+    // page. Positional anchor: the page's window overlaps the local list.
+    const newest: MessagesPage = {
+        data: [{id: "msg_user_new", type: "user", text: "new"}], // desc order
+        cursor: {next: "cursor-new"},
+    };
+    const olderPage: MessagesPage = {
+        data: Array.from({length: MESSAGES_PAGE_SIZE}, (_, i) => ({
+            id: `msg_u${MESSAGES_PAGE_SIZE - 1 - i}`,
+            type: "user",
+            text: "old",
+        })),
+        cursor: {next: "cursor-old"},
+    };
+    const loaded = applyOlderPage([{id: "msg_user_new", type: "user", text: "new"}], olderPage);
+    const reseeded = applySeedPage(loaded.messages, newest);
+    assert.deepEqual(
+        reseeded.messages.map((m) => m.id),
+        [
+            ...Array.from({length: MESSAGES_PAGE_SIZE}, (_, i) => `msg_u${i}`),
+            "msg_user_new",
+        ],
+        "older held history stays above the newest page",
+    );
+});
+
+test("re-seed with a disjoint window orders held history by time", () => {
+    // No id overlap (the session grew a full window since we last
+    // looked): fall back to time.created to decide front vs back.
+    const list: ChatMessage[] = [
+        {id: "msg_old_1", type: "user", text: "old", time: {created: 10}},
+        {id: "msg_old_2", type: "user", text: "old", time: {created: 20}},
+    ];
+    const page: MessagesPage = {
+        data: [
+            {id: "msg_new_2", type: "user", text: "new", time: {created: 200}},
+            {id: "msg_new_1", type: "user", text: "new", time: {created: 100}},
+        ],
+        cursor: {next: "c"},
+    };
+    const reseeded = applySeedPage(list, page);
+    assert.deepEqual(
+        reseeded.messages.map((m) => m.id),
+        ["msg_old_1", "msg_old_2", "msg_new_1", "msg_new_2"],
+    );
+});
+
 test("a short page reads as exhausted even though the server sends cursor.next", () => {
     // v2.0.x anchors cursor.next at the page's oldest row regardless of
     // whether anything older exists (only a zero-row page nulls it) —
@@ -283,6 +334,24 @@ test("command enqueue stamps the compact form and adopts the optimistic bubble",
     assert.equal(m.id, "msg_user_cmd");
     assert.equal(m.text.includes("expanded template"), true, "expanded prompt kept as the stored text");
     assert.deepEqual(m.command, {name: "init", arguments: "只要前端"});
+});
+
+test("adoption preserves the optimistic bubble's localKey (stable React key across the id swap)", () => {
+    // send() appends a `local-*` bubble; the confirming enqueued event
+    // swaps in the server id. Without a stable key the transcript row
+    // REMOUNTS and replays its entrance animation — the double opacity
+    // animation under the transcript mask is the layer-churn flash seen
+    // on WebKitGTK (see FoldRow's transform-gpu note). localKey keeps
+    // the row's React key stable across the swap.
+    let list: ChatMessage[] = [
+        {id: "local-1", type: "user", text: "hi", localKey: "local-1"},
+    ];
+    list = applyEvent(list, enqueue("hi", "msg_user_real"));
+    assert.equal(list.length, 1);
+    const m = list[0];
+    assert.ok(isUserMessage(m));
+    assert.equal(m.id, "msg_user_real");
+    assert.equal(m.localKey, "local-1", "localKey carried onto the adopted message");
 });
 
 test("plain-prompt fallback enqueues unstamped", () => {

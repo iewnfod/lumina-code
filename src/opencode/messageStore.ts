@@ -59,6 +59,10 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
                 last && isUserMessage(last) && last.id.startsWith("local-") &&
                 (last.text === text || (command != null && last.command?.name === command.name))
             ) {
+                // Carry the optimistic bubble's localKey onto the adopted
+                // message so the transcript row's React key survives the id
+                // swap (no remount → no replayed entrance animation).
+                if (last.localKey) incoming.localKey = last.localKey;
                 return [...list.slice(0, -1), incoming];
             }
             // …or append when the prompt came from another client.
@@ -178,8 +182,13 @@ function nextCursor(page: MessagesPage): string | null {
  *  streamed text (longer, mid-flight) and settled completion stamps must
  *  survive, while page-only content (history we never held, e.g. missed
  *  across an event-stream gap) is adopted. Locally held messages the page
- *  doesn't know about (optimistic bubbles, frames newer than the
- *  snapshot) stay appended. */
+ *  doesn't know about split in TWO groups and the split is the anti-
+ *  shuffle rule: OLDER history (loadOlder prepends it; a re-seed must
+ *  not drop it below the newest window) stays in front, NEWER ones
+ *  (optimistic bubbles, frames past the snapshot) stay appended. The
+ *  split is positional when the page's window overlaps the local list
+ *  (local-only messages before the page's oldest member are older) and
+ *  falls back to time.created when the windows are disjoint. */
 export function applySeedPage(
     list: ChatMessage[],
     page: MessagesPage,
@@ -193,17 +202,31 @@ export function applySeedPage(
             // User messages: the page knows only the expanded template —
             // keep the compact command form a local event stamped.
             if (isUserMessage(local) && isUserMessage(pm) && local.command && !pm.command) {
-                return {...pm, command: local.command};
+                // Keep the compact command form AND the optimistic row's
+                // stable key (see ChatUserMessage.localKey) — dropping
+                // either would re-render the row as the expanded template
+                // or remount it and replay the entrance animation.
+                return {...pm, command: local.command, ...(local.localKey ? {localKey: local.localKey} : {})};
             }
             return pm;
         }
         return mergeAssistant(local, pm);
     });
     const pageIds = new Set(ascending.map((m) => m.id));
-    for (const m of list) {
-        if (!pageIds.has(m.id)) messages.push(m);
-    }
-    return {messages, cursor: nextCursor(page)};
+    // Positional anchor: the first local message the page also carries.
+    // Local-only messages before it predate the page's window.
+    const anchorIndex = list.findIndex((m) => pageIds.has(m.id));
+    const windowStart = ascending.length > 0 ? ascending[0].time?.created : undefined;
+    const older: ChatMessage[] = [];
+    const newer: ChatMessage[] = [];
+    list.forEach((m, i) => {
+        if (pageIds.has(m.id)) return;
+        const beforeWindow = anchorIndex >= 0
+            ? i < anchorIndex
+            : windowStart !== undefined && (m.time?.created ?? windowStart) < windowStart;
+        (beforeWindow ? older : newer).push(m);
+    });
+    return {messages: [...older, ...messages, ...newer], cursor: nextCursor(page)};
 }
 
 /** Prepend the next-older page (already ascending on the wire via

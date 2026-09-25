@@ -403,6 +403,15 @@ export interface ChatUserMessage {
      *  compact `{name} {arguments}` form. Stamped client-side from the
      *  pending-command registry in messageStore.ts. */
     command?: {name: string; arguments: string};
+    /** Stable React key across the optimistic→server id swap: send()
+     *  appends a `local-*` bubble and the confirming enqueued event
+     *  replaces its id (messageStore.ts carries this key onto the
+     *  adopted message). Keying the transcript row by id would remount
+     *  it and REPLAY the entrance animation — a double opacity
+     *  animation under the transcript mask churns compositing layers,
+     *  which flashes the whole conversation area on WebKitGTK (same
+     *  class as FoldRow's transform-gpu note). */
+    localKey?: string;
     time?: {created?: number};
 }
 

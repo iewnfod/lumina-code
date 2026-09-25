@@ -1,5 +1,5 @@
 import {Fragment, memo, useEffect, useRef, type ReactNode} from "react";
-import {isAssistantMessage, type ChatMessage, type OpencodeModel} from "../../opencode/types.ts";
+import {isAssistantMessage, isUserMessage, type ChatMessage, type OpencodeModel} from "../../opencode/types.ts";
 import MessageItem from "./MessageItem.tsx";
 import ActivityGroup from "./ActivityGroup.tsx";
 import ModelChangeDivider from "./ModelChangeDivider.tsx";
@@ -161,8 +161,15 @@ const TranscriptList = memo(function TranscriptList({
                 // Key stays the block's FIRST message id — for a growing
                 // activity run the last id changes per step and would
                 // remount the whole block. A divider keys by its marker id.
+                // A user message keys by localKey when present: the
+                // optimistic bubble's id is swapped for the server's when
+                // the enqueue confirms (messageStore), and keying by id
+                // would remount the row — replaying the entrance
+                // animation, which flashes the whole transcript area on
+                // WebKitGTK (compositing-layer churn under the mask; see
+                // FoldRow's transform-gpu note for the mechanism).
                 const key = block.kind === "message"
-                    ? block.message.id
+                    ? isUserMessage(block.message) ? block.message.localKey ?? block.message.id : block.message.id
                     : block.kind === "activity"
                         ? block.messages[0].id
                         : `model:${block.id}`;
