@@ -1,10 +1,11 @@
 /**
- * Pure helpers for the Tools tab of the Model settings: the config-file
- * merge for Lumina Code's custom-tools plugin (src/plugins/luminaTools.js,
+ * Pure helpers for Lumina Code's custom-tools plugin (src/plugins/luminaTools.js,
  * written to `<global config>/plugins/lumina-tools/index.js` and
  * referenced from the global opencode.json's `plugins` array with
  * per-tool options). The server (v2.0.11) hot-reloads plugins on config
- * change, so a merge here takes effect without a restart.
+ * change, so a merge here takes effect without a restart. Consumers: the
+ * Tools tab of the Model settings and the connect-time installer
+ * (useLuminaTools.ts).
  *
  * Same rules as modelConfig.ts: only plain-JSON configs are rewritten
  * (JSONC returns null), and every unrelated field — including other
@@ -82,11 +83,12 @@ export function readLuminaToolsOptions(raw: string, pluginPath: string): LuminaT
 
 /** Merge our plugin entry AND the restricted helper agents of the
  * configured tools into the raw config text. Sections and entries we
- * don't own are preserved verbatim. An entry with no configured tool is
- * REMOVED (the plugin file stays on disk, but the server stops loading
- * it and models see no tools; the agents go with it). Returns the new
- * text, or null when the file isn't plain JSON / a managed section
- * exists but has the wrong shape. */
+ * don't own are preserved verbatim. The entry is ALWAYS written now —
+ * the plan_mode tool ships always-on (it needs no options), so an empty
+ * options object still loads the plugin; vision registers only when its
+ * model is configured. Per-tool opt-in arrives with a proper tool
+ * marketplace. Returns the new text, or null when the file isn't plain
+ * JSON / a managed section exists but has the wrong shape. */
 export function mergeLuminaToolsPlugin(
     raw: string,
     pluginPath: string,
@@ -97,13 +99,9 @@ export function mergeLuminaToolsPlugin(
     let plugins = pluginsSection(root);
     if (!plugins) return null;
     const own = findOwnEntry(plugins, pluginPath);
-    if (hasAnyTool(options)) {
-        const entry = {package: pluginPath, options};
-        if (own) plugins[plugins.indexOf(own)] = entry;
-        else plugins = [...plugins, entry];
-    } else if (own) {
-        plugins = plugins.filter((e) => e !== own);
-    }
+    const entry = {package: pluginPath, options};
+    if (own) plugins[plugins.indexOf(own)] = entry;
+    else plugins = [...plugins, entry];
     if (plugins.length > 0) root["plugins"] = plugins;
     else delete root["plugins"];
 
@@ -119,14 +117,21 @@ export function freshConfigWithToolsPlugin(
 ): string {
     const root: Record<string, unknown> = {
         $schema: "https://opencode.ai/config.json",
+        plugins: [{package: pluginPath, options}],
     };
-    if (hasAnyTool(options)) root["plugins"] = [{package: pluginPath, options}];
     mergeLuminaAgents(root, options);
     return JSON.stringify(root, null, 2);
 }
 
-function hasAnyTool(options: LuminaToolsOptions): boolean {
-    return options.vision?.model !== undefined && options.vision.model !== "";
+/** Whether our plugin entry exists in the raw config text — independent
+ * of its options (readLuminaToolsOptions conflates "no entry" with
+ * "empty options", and the always-on plan tool makes both valid states
+ * that must not be confused: absent entry = plugin not loaded). */
+export function luminaToolsEntryPresent(raw: string, pluginPath: string): boolean {
+    const root = parseRoot(raw);
+    if (!root) return false;
+    const plugins = pluginsSection(root);
+    return plugins !== null && findOwnEntry(plugins, pluginPath) !== undefined;
 }
 
 /**
@@ -136,6 +141,12 @@ function hasAnyTool(options: LuminaToolsOptions): boolean {
  * verified live against the pinned server: `permissions` must be the
  * ARRAY rulesen ([{action, resource, effect}]) — the object form
  * {deny: […]} of V1 configs is rejected by normalization.
+ *
+ * NOTE: the plan workflow's approval gate deliberately has NO config
+ * rule here — binary-verified on v2.0.11 that plugin tools have no
+ * execution-time permission check (options.permission only filters
+ * tool VISIBILITY); plan_submit's executor blocks itself (Route A,
+ * see the plugin source).
  *
  * Returns null on success, or a marker string when `agents` exists with
  * a non-object shape (caller refuses the rewrite).

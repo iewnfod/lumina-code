@@ -44,7 +44,10 @@ export function TerminalTitle({shell, className = ""}: {
     return (
         <span className={`flex items-center gap-2 min-w-0 ${className}`}>
             <SquareTerminal size={13} className={`shrink-0 ${shell.running ? "animate-pulse" : "opacity-45"}`}/>
-            <span className="min-w-0 truncate text-left" style={MONO_STYLE}>
+            {/* leading-[1.5]: truncate's clip box must fit the font's
+             * descenders (g/y/p) — symmetric growth keeps the icon/text
+             * alignment; see TodoSection's note. */}
+            <span className="min-w-0 truncate text-left leading-[1.5]" style={MONO_STYLE}>
                 {shell.command || shell.id}
             </span>
         </span>

@@ -32,16 +32,13 @@ import {
     type GlobalConfigTarget,
 } from "./modelConfig.ts";
 import {
-    freshConfigWithToolsPlugin,
     luminaToolsPluginPath,
-    LUMINA_TOOLS_PLUGIN_DIR,
-    mergeLuminaToolsPlugin,
     readLuminaToolsOptions,
     visionCapableModels,
-} from "./toolPluginConfig.ts";
-// The plugin host shipped with the app — written verbatim under the
-// global config's `plugins/` when a tool is configured here (see ToolsTab).
-import luminaToolsPluginSource from "../../plugins/luminaTools.js?raw";
+} from "../../opencode/toolPluginConfig.ts";
+import {ensureLuminaToolsPlugin} from "../../opencode/useLuminaTools.ts";
+// The plugin host itself is written by opencode/useLuminaTools.ts
+// (ensureLuminaToolsPlugin), shared with the connect-time installer.
 
 /** Default package for custom providers — any OpenAI-compatible API. */
 const DEFAULT_NPM = "@ai-sdk/openai-compatible";
@@ -521,11 +518,13 @@ export default function ModelSettings({
 
 /**
  * The Tools tab — Lumina Code's custom tools (src/plugins/luminaTools.js):
- * configuring a tool writes the plugin under the global config's
- * `plugins/` and merges its entry (+ the tool's restricted helper agent)
- * into the global opencode.json; the server hot-reloads both, so the
- * tool appears for models without a restart. One section per tool —
- * vision is the first resident.
+ * configuring a tool goes through the shared installer
+ * (ensureLuminaToolsPlugin), which writes the plugin under the global
+ * config's `plugins/` and merges its entry (+ the tool's restricted
+ * helper agent) into the global opencode.json; the server hot-reloads
+ * both, so the tool appears for models without a restart. One section
+ * per configurable tool — vision is the first (plan_mode needs no
+ * configuration and ships always-on).
  */
 function ToolsTab({
     api,
@@ -573,41 +572,31 @@ function ToolsTab({
         [rawConfig, pluginPath],
     );
 
-    /** Write the plugin file (only when it differs — the server's watcher
-     *  reloads on every write) and merge the config entry; a failure on
-     *  either write surfaces the error and changes nothing. */
+    /** Save a vision-model choice ("" = off) through the shared installer
+     * (ensureLuminaToolsPlugin): it re-reads the config fresh, writes the
+     * plugin file when it differs and merges our entry — plan_mode stays
+     * always-on either way. A failure surfaces the error and changes
+     * nothing. */
     const choose = (model: string) => {
         if (!api || !target || busy) return;
         if (rawConfig === null) {
             onActionError(t["Failed to load config"]);
             return;
         }
-        const options = model ? {vision: {model}} : {};
-        const text = rawConfig === ""
-            ? freshConfigWithToolsPlugin(pluginPath, options)
-            : mergeLuminaToolsPlugin(rawConfig, pluginPath, options);
-        if (text === null) {
-            onActionError(t["The config file uses JSONC (comments) and cannot be edited here. Open it to edit manually."]);
-            return;
-        }
         setBusy(true);
         onBusyChange(true);
-        const pluginDir = `${target.directory.replace(/\/+$/, "")}/${LUMINA_TOOLS_PLUGIN_DIR}`;
-        // v2.0.11 quirk: fs/read on a directory that doesn't exist yet
-        // (first-ever save) returns 500, not 404 — treat ANY read failure
-        // as "not there" and let the authoritative write below run.
-        api.readTextFile(pluginDir, "index.js")
-            .catch(() => null)
-            .then((existing) =>
-                existing === luminaToolsPluginSource
-                    ? Promise.resolve()
-                    : api.writeTextFile(`${pluginDir}/index.js`, luminaToolsPluginSource),
-            )
-            .then(() => api.writeTextFile(target.file, text))
-            .then(() => {
-                logInfo(`Saved lumina-tools config (vision: ${model || "off"}) to ${target.file}`).catch(() => {});
-                onActionError(null);
-                onSaved();
+        ensureLuminaToolsPlugin(api, model ? {vision: {model}} : {})
+            .then((result) => {
+                if (result.status === "skipped" && result.reason === "jsonc") {
+                    onActionError(t["The config file uses JSONC (comments) and cannot be edited here. Open it to edit manually."]);
+                } else if (result.status === "skipped") {
+                    onActionError(`${t["Save failed"]}: ${result.reason}`);
+                    logWarn(`lumina-tools save skipped: ${result.reason}`).catch(() => {});
+                } else {
+                    logInfo(`Saved lumina-tools config (vision: ${model || "off"}) to ${target.file}`).catch(() => {});
+                    onActionError(null);
+                    onSaved();
+                }
             })
             .catch((e) => {
                 onActionError(`${t["Save failed"]}: ${e}`);

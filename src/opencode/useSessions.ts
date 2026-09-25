@@ -21,9 +21,11 @@ function isRootSession(s: OpencodeSession): boolean {
 /**
  * The sidebar's session list, kept in sync with the OpenCode server:
  * seeded from `GET /api/session`, then live-patched from the event bus
- * (session.created / inbox.enqueued / renamed / deleted — the enqueued
- * signal re-lists so the list's `time.updated` ordering tracks each
- * session's last question, not its creation — and session.usage.updated,
+ * (session.created / inbox.enqueued / renamed / agent.selected / deleted
+ * — the enqueued signal re-lists so the list's `time.updated` ordering
+ * tracks each session's last question, not its creation; agent.selected
+ * patches the mode in place, covering the model switching itself into
+ * plan mode via the plan_mode tool; and session.usage.updated,
  * which patches the cumulative cost/token totals the composer's usage
  * ring reads), plus a running-state set
  * driven by
@@ -186,6 +188,17 @@ export function useSessions(
                     const {sessionID, title} = event.data as {sessionID: string; title: string};
                     setSessions((prev) =>
                         prev.map((s) => (s.id === sessionID ? {...s, title} : s)),
+                    );
+                    break;
+                }
+                // The session's mode flipped — the user's composer pick, or
+                // the model itself via the plan_mode tool. Patch in place so
+                // the composer's picker and the session list reflect it
+                // without a re-list.
+                case "session.agent.selected": {
+                    const {sessionID, agent} = event.data as EventMap["session.agent.selected"];
+                    setSessions((prev) =>
+                        prev.map((s) => (s.id === sessionID ? {...s, agent} : s)),
                     );
                     break;
                 }

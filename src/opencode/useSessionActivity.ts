@@ -7,9 +7,11 @@ import {peekSessionMessages, subscribeSessionMessages, useSessionMessagesSnapsho
 import {
     collectSessionShells,
     collectSessionSubagents,
+    collectSessionTodos,
     mutationSignature,
     type SessionShellRef,
     type SessionSubagentRef,
+    type SessionTodos,
 } from "./sessionActivity.ts";
 
 /** Debounce for diff re-pulls while a burst of edits streams in. */
@@ -393,6 +395,8 @@ export function useSessionActivity(
     shells: (SessionShellRef & {running: boolean})[];
     /** Subagent children (spawn order) with live state. */
     subagents: (SessionSubagentRef & {running: boolean})[];
+    /** The plan-workflow todo list (null when the session has no plan). */
+    todos: SessionTodos | null;
     /** Manually stop one of the session's running shells. */
     stopShell: (shellId: string) => void;
 } {
@@ -465,8 +469,24 @@ export function useSessionActivity(
         return value;
     }, [subagentRefs, busyIds]);
 
+    // The plan-workflow todo list is a PURE transcript derivation (no
+    // endpoints, no running-set store) — same identity-cache discipline
+    // as above so streamed frames don't re-render the card per delta.
+    const todosCacheRef = useRef<{key: string; value: SessionTodos | null} | null>(null);
+    const todos = useMemo(() => {
+        const derived = collectSessionTodos(messages as ChatMessage[]);
+        const key = derived
+            ? `${derived.title}|${derived.pendingApproval ? "p" : ""}|${derived.items
+                  .map((i) => `${i.title}:${i.status}:${i.reason ?? ""}`)
+                  .join("|")}`
+            : "";
+        if (todosCacheRef.current?.key === key) return todosCacheRef.current.value;
+        todosCacheRef.current = {key, value: derived};
+        return derived;
+    }, [messages]);
+
     return useMemo(
-        () => ({shells, subagents, stopShell: stopShellCb}),
-        [shells, subagents, stopShellCb],
+        () => ({shells, subagents, todos, stopShell: stopShellCb}),
+        [shells, subagents, todos, stopShellCb],
     );
 }

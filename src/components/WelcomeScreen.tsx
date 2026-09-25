@@ -6,6 +6,7 @@ import type {
 } from "../opencode/types.ts";
 import ChatPlaceholder from "./ChatPlaceholder.tsx";
 import ChatInput from "./composer/ChatInput.tsx";
+import {WELCOME_DRAFT_KEY} from "./composer/composerDrafts.ts";
 
 /**
  * The welcome screen shown while no session is open: greeting/logo, a
@@ -63,6 +64,7 @@ export default function WelcomeScreen({
                     <ChatInput
                         disabled={disabled}
                         busy={false}
+                        draftKey={WELCOME_DRAFT_KEY}
                         onSend={onSend}
                         onInterrupt={() => {}}
                         agent={agent}

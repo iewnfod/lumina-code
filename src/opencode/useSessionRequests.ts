@@ -1,14 +1,10 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import type {OpencodeApi} from "./api.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
-import type {
-    EventMap,
-    FormAnswer,
-    FormRequest,
-    PermissionDecision,
-    PermissionRequest,
-} from "./types.ts";
+import type {ChatMessage, EventMap, FormAnswer, FormRequest, PermissionDecision, PermissionRequest} from "./types.ts";
+import {peekSessionMessages, subscribeSessionMessages} from "./useSessionMessages.ts";
+import {planApprovalPending} from "./sessionActivity.ts";
 
 /**
  * Pending server→user requests across ALL sessions: permission asks
@@ -23,7 +19,52 @@ import type {
  * that was pending before the event stream connected), then maintained
  * live from the bus. Until it is answered, the session's execution is
  * blocked server-side — these cards are the only way forward.
+ *
+ * The plan workflow's pending APPROVAL rides the same badge pipeline
+ * (Route A): it is not a wire-level request but a transcript-derived
+ * one — the plan_submit executor blocks inside its tool call, so a
+ * still-running part IS a pending decision (sessionActivity.
+ * planApprovalPending). A module-level store watches the message store
+ * for every tracked session and folds those into pendingCounts, giving
+ * plan approvals the same sidebar badge as questions.
  */
+
+/** Sessions with a blocking plan_submit, as a stable snapshot for
+ * useSyncExternalStore (replaced — never mutated — on change). */
+let planApprovalSnapshot: ReadonlySet<string> = new Set();
+const planApprovalListeners = new Set<() => void>();
+let planApprovalsWired = false;
+
+/** Recompute one session's plan-approval state from its message store
+ * entry (called on every store notification for that session). */
+function recomputePlanApproval(sessionId: string): void {
+    const messages = peekSessionMessages(sessionId);
+    if (!messages) return;
+    const pending = planApprovalPending(messages as ChatMessage[]) !== null;
+    if (pending === planApprovalSnapshot.has(sessionId)) return;
+    const next = new Set(planApprovalSnapshot);
+    if (pending) next.add(sessionId);
+    else next.delete(sessionId);
+    planApprovalSnapshot = next;
+    for (const listener of planApprovalListeners) listener();
+}
+
+/** Drop a deleted session's entry (its message store entry goes with it). */
+function dropPlanApproval(sessionId: string): void {
+    if (!planApprovalSnapshot.has(sessionId)) return;
+    const next = new Set(planApprovalSnapshot);
+    next.delete(sessionId);
+    planApprovalSnapshot = next;
+    for (const listener of planApprovalListeners) listener();
+}
+
+/** Install the message-store watcher once per app run. */
+function ensurePlanApprovalWiring(): void {
+    if (planApprovalsWired) return;
+    planApprovalsWired = true;
+    subscribeSessionMessages((sessionId) => recomputePlanApproval(sessionId));
+}
+
 export function useSessionRequests(
     api: OpencodeApi | null,
     subscribe: (handler: OpencodeEventHandler) => () => void,
@@ -101,6 +142,7 @@ export function useSessionRequests(
                     const {sessionID} = event.data as {sessionID: string};
                     setPermissions((prev) => prev.filter((p) => p.sessionID !== sessionID));
                     setForms((prev) => prev.filter((f) => f.sessionID !== sessionID));
+                    dropPlanApproval(sessionID);
                     break;
                 }
             }
@@ -160,12 +202,30 @@ export function useSessionRequests(
         );
     }, [settle]);
 
+    // The transcript-derived plan approvals (module store above) join
+    // the count — same sidebar badge as questions.
+    const subscribePlanApprovals = useCallback((notify: () => void) => {
+        planApprovalListeners.add(notify);
+        return () => {
+            planApprovalListeners.delete(notify);
+        };
+    }, []);
+    const planApprovals = useSyncExternalStore(
+        subscribePlanApprovals,
+        () => planApprovalSnapshot,
+        () => planApprovalSnapshot,
+    );
+    useEffect(() => {
+        ensurePlanApprovalWiring();
+    }, []);
+
     const pendingCounts = useMemo(() => {
         const counts = new Map<string, number>();
         for (const p of permissions) counts.set(p.sessionID, (counts.get(p.sessionID) ?? 0) + 1);
         for (const f of forms) counts.set(f.sessionID, (counts.get(f.sessionID) ?? 0) + 1);
+        for (const sid of planApprovals) counts.set(sid, (counts.get(sid) ?? 0) + 1);
         return counts;
-    }, [permissions, forms]);
+    }, [permissions, forms, planApprovals]);
 
     return {permissions, forms, pendingCounts, replyPermission, replyForm, cancelForm};
 }

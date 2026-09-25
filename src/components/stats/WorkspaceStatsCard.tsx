@@ -31,12 +31,12 @@ const WorkspaceStatsCard = memo(function WorkspaceStatsCard({
     busyIds: ReadonlySet<string>;
 }) {
     const {diff, diffLoading, diffTotals, refreshDiff} = useWorkspaceDiffOf(directory);
-    const {shells, subagents, stopShell} = useSessionActivityOf(sessionId, busyIds, directory);
+    const {shells, subagents, todos, stopShell} = useSessionActivityOf(sessionId, busyIds, directory);
 
     return (
         <SessionStatsCard
             sessionId={sessionId}
-            activity={{diff, diffLoading, diffTotals, shells, subagents, refreshDiff, stopShell}}
+            activity={{diff, diffLoading, diffTotals, shells, subagents, todos, refreshDiff, stopShell}}
             directory={directory}
             busyIds={busyIds}
         />

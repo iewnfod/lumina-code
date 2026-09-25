@@ -35,7 +35,9 @@ export function FileTitle({entry, directory, className = ""}: {
     return (
         <span className={`flex items-center gap-2 min-w-0 ${className}`}>
             <img src={fileIconUrl(entry.file)} alt="" className="w-4 h-4 shrink-0"/>
-            <span className="min-w-0 truncate text-left" style={MONO_STYLE}>
+            {/* leading-[1.5]: descender clip room for truncate — see
+             * TodoSection's note. */}
+            <span className="min-w-0 truncate text-left leading-[1.5]" style={MONO_STYLE}>
                 {displayPath(entry.file, directory)}
             </span>
         </span>

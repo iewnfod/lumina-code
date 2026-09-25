@@ -40,10 +40,12 @@ export default function ToolbarButton({
             } as React.CSSProperties}
         >
             {icon}
-            {/* Noto's tall ascent (room for CJK) drops the Latin baseline ~1px
-             * below the flex centerline; nudge labels up to sit level with
-             * the geometrically-centered icons. */}
-            {label != null && <span className="text-xs font-medium truncate leading-normal max-w-44 -translate-y-px">{label}</span>}
+            {/* Geometric centering only — no optical nudge. A former
+             * hardcoded -translate-y-px compensated the DEFAULT font's
+             * baseline droop, but overcorrected on custom fonts (the
+             * same double-counting class ToolCard's comments warn
+             * about); centering is predictable across font stacks. */}
+            {label != null && <span className="text-xs font-medium truncate leading-normal max-w-44">{label}</span>}
         </button>
     );
     return title ? <Hint label={title}>{button}</Hint> : button;

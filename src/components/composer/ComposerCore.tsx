@@ -25,6 +25,7 @@ import {
 } from "lexical";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {isMacOS} from "../../lib/platform.ts";
+import {clearDraft, saveDraftEditorState} from "./composerDrafts.ts";
 import type {
     ComposerFileRef,
     OpencodeCommand,
@@ -57,6 +58,7 @@ const MAX_LINES = 5;
 export default function ComposerCore({
     disabled,
     busy,
+    draftKey,
     directory,
     commands,
     placeholder,
@@ -67,6 +69,8 @@ export default function ComposerCore({
 }: {
     disabled: boolean;
     busy: boolean;
+    /** Draft-store key (see ChatInput) — the editor half of the draft. */
+    draftKey: string;
     directory: string | null;
     commands: OpencodeCommand[];
     placeholder: string;
@@ -95,15 +99,25 @@ export default function ComposerCore({
 
     // Grab focus on mount: a freshly created session (or a session switch)
     // remounts the composer, and the user's next keystroke should land in it.
+    // A restored draft must also recompute canSend (onChange only fires on
+    // CHANGES, and the initialEditorState hydration is not one).
     useEffect(() => {
         if (!disabled) editor.focus();
-    }, [editor, disabled]);
+        onCanSendChange(editor.getEditorState().read(() => $getRoot().getTextContent().trim().length > 0));
+    }, [editor, disabled, onCanSendChange]);
 
     // Selection changes count (caret moves re-run trigger detection);
     // content changes recompute canSend and the open trigger — all read
-    // from the node tree, never from a serialized string.
+    // from the node tree, never from a serialized string. Content changes
+    // also persist the buffer into the draft store (selection-only
+    // callbacks are skipped via state identity).
+    const lastDraftStateRef = useRef<EditorState | null>(null);
     const onChange = useCallback(
         (state: EditorState) => {
+            if (state !== lastDraftStateRef.current) {
+                lastDraftStateRef.current = state;
+                saveDraftEditorState(draftKey, JSON.stringify(state.toJSON()));
+            }
             state.read(() => {
                 onCanSendChange($getRoot().getTextContent().trim().length > 0);
                 const next = $detectTrigger();
@@ -117,7 +131,7 @@ export default function ComposerCore({
                 }
             });
         },
-        [onCanSendChange],
+        [onCanSendChange, draftKey],
     );
 
     // Commands filter client-side (small list); files come from the
@@ -238,12 +252,17 @@ export default function ComposerCore({
             command = {name: slash[1], arguments: slash[2] ?? ""};
         }
         onSubmit(trimmed, payload.paths.map((path) => ({path})), command);
+        // Sent: drop the whole draft (editor state + attachments) for
+        // this surface BEFORE clearing the editor — the clearing update
+        // re-fires onChange and re-saves an empty buffer, which is the
+        // correct resting draft anyway.
+        clearDraft(draftKey);
         editor.update(() => {
             $getRoot().clear();
             $getRoot().append($createParagraphNode());
         });
         editor.focus();
-    }, [editor, commands, onSubmit]);
+    }, [editor, commands, onSubmit, draftKey]);
 
     // Hand the imperative submit up to the toolbar's send button.
     useEffect(() => {

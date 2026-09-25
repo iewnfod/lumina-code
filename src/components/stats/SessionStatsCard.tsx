@@ -1,10 +1,10 @@
 import {memo, useCallback, useEffect, useLayoutEffect, useRef, useState} from "react";
-import {Bot, ChevronLeft, ChevronUp, Diff, Square, SquareTerminal} from "lucide-react";
+import {Bot, ChevronLeft, ChevronUp, Diff, ListChecks, Square, SquareTerminal} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {useStatsExpanded, useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
-import type {SessionShellRef, SessionSubagentRef} from "../../opencode/sessionActivity.ts";
+import type {SessionShellRef, SessionSubagentRef, SessionTodos} from "../../opencode/sessionActivity.ts";
 import ExitPresence from "../ui/ExitPresence.tsx";
 import IconButton from "../ui/IconButton.tsx";
 import Hint from "../ui/Hint.tsx";
@@ -12,6 +12,7 @@ import {ChangesSection, DiffCountsBadge, FileDiffBody, FileTitle} from "./Change
 import {ShellStateChip, TerminalsSection, TerminalBody} from "./TerminalsSection.tsx";
 import {SubagentsSection, SubagentBody, SubagentStateChip, SubagentTitle} from "./SubagentsSection.tsx";
 import {FinishedTotal} from "./statsChrome.tsx";
+import {TodoSection} from "./TodoSection.tsx";
 
 /** Which detail the expanded panel shows; "overview" is the section list. */
 type StatsView =
@@ -53,6 +54,8 @@ const SessionStatsCard = memo(function SessionStatsCard({
         diffTotals: {added: number; removed: number; files: number};
         shells: (SessionShellRef & {running: boolean})[];
         subagents: (SessionSubagentRef & {running: boolean})[];
+        /** The plan-workflow todo list (null when the session has no plan). */
+        todos: SessionTodos | null;
         refreshDiff: () => void;
         /** Manual stop for one of the session's running shells. */
         stopShell: (shellId: string) => void;
@@ -79,16 +82,28 @@ const SessionStatsCard = memo(function SessionStatsCard({
     const [view, setView] = useState<StatsView>({kind: "overview"});
     const rootRef = useRef<HTMLDivElement>(null);
 
-    const {diff, diffLoading, diffTotals, shells, subagents, stopShell} = activity;
+    const {diff, diffLoading, diffTotals, shells, subagents, todos, stopShell} = activity;
     const runningShells = shells.filter((s) => s.running).length;
     const runningSubagents = subagents.filter((s) => s.running).length;
+
+    // The plan's progress read: completed tasks + whether anything is
+    // live (an execution in flight, or a submission still awaiting its
+    // approval card). Pulses the pill row while the plan is moving.
+    const todoCompleted = todos ? todos.items.filter((i) => i.status === "completed").length : 0;
+    const todoLive = Boolean(
+        todos && (todos.pendingApproval || (busyIds.has(sessionId) && todos.items.some((i) => i.status === "pending"))),
+    );
 
     // The card exists from the moment a session is entered and its first
     // diff pull has landed — even at zero changes (entering a session
     // must already SHOW the workspace being tracked, not wait for the
     // first message to edit something). While the diff is still loading
     // the card doesn't exist visually (no flash of an empty shell).
-    const visible = diff !== null || shells.length > 0 || subagents.length > 0;
+    const visible =
+        diff !== null ||
+        shells.length > 0 ||
+        subagents.length > 0 ||
+        (todos?.items.length ?? 0) > 0;
     // Empty sections don't render in the expanded panel either. Changes
     // renders once its diff has loaded (the panel then shows the explicit
     // "No changes yet" state) and is exempt while the diff LOADS on a
@@ -199,7 +214,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
             // the width simply follows the view kind.
             data-expanded={expanded}
             data-detail={expanded && view.kind !== "overview"}
-            className={`lum-stats shrink-0 self-start rounded-[var(--radius-lg)] select-none flex justify-end items-start ${closing ? "lum-fade-exit" : "lum-enter"}`}
+            className={`lum-stats shrink-0 self-start rounded-[var(--radius-xl)] select-none flex justify-end items-start ${closing ? "lum-fade-exit" : "lum-enter"}`}
             style={surfaceStyle}
             {...bind}
         >
@@ -211,9 +226,30 @@ const SessionStatsCard = memo(function SessionStatsCard({
                     // (.lum-enter on each row) — terminals/subagents are
                     // session-scoped inside the directory-keyed card, so a
                     // same-directory switch swaps them in place.
-                    className="flex flex-col items-stretch gap-1 px-3 py-2.5 cursor-pointer rounded-[var(--radius-lg)] text-xs lum-wash"
+                    className="flex flex-col items-stretch gap-1 px-3 py-2.5 cursor-pointer rounded-[var(--radius-xl)] text-xs lum-wash"
                     aria-label={t["Workspace activity"]}
                 >
+                    {todos && todos.items.length > 0 && (
+                        // The plan's progress rides ABOVE the diff row —
+                        // the plan frames the work, the diff is residue.
+                        <span className="lum-enter flex items-center justify-between gap-2">
+                            <ListChecks
+                                size={13}
+                                className={`shrink-0 ${todoLive ? "animate-pulse" : "opacity-70"}`}
+                            />
+                            {todos.pendingApproval ? (
+                                <span className="text-[10px] opacity-40 select-none">
+                                    {t["Waiting for approval"]}
+                                </span>
+                            ) : (
+                                <StatCount
+                                    finished={todoCompleted}
+                                    total={todos.items.length}
+                                    label={t["Plan progress"]}
+                                />
+                            )}
+                        </span>
+                    )}
                     {diff !== null && (
                         <span className="lum-enter flex items-center justify-between gap-2">
                             <Diff size={13} className="shrink-0 opacity-70"/>
@@ -265,7 +301,10 @@ const SessionStatsCard = memo(function SessionStatsCard({
                 >
                     {/* Panel header: back (in a drill view), the title,
                         and the collapse button. */}
-                    <div className="flex items-center gap-1 pl-1.5 pr-2 py-1.5 shrink-0 min-w-0">
+                    {/* pt-2 + the title's centering inside the 24px icon row
+                        ≈ 12px of visual top gap, matching the body's px-3
+                        side gutters (four equal margins). */}
+                    <div className="flex items-center gap-1 pl-1.5 pr-2 pt-2 pb-1.5 shrink-0 min-w-0">
                         {view.kind !== "overview" && (
                             <IconButton
                                 size={24}
@@ -333,6 +372,9 @@ const SessionStatsCard = memo(function SessionStatsCard({
                     <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-3">
                         {view.kind === "overview" && (
                             <>
+                                {todos && todos.items.length > 0 && (
+                                    <TodoSection todos={todos} busy={busyIds.has(sessionId)}/>
+                                )}
                                 {showChanges && (
                                     <ChangesSection
                                         diff={diff}

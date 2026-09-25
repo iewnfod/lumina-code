@@ -2,6 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {
     freshConfigWithToolsPlugin,
+    luminaToolsEntryPresent,
     luminaToolsPluginPath,
     mergeLuminaToolsPlugin,
     readLuminaToolsOptions,
@@ -50,24 +51,21 @@ test("merge replaces our previous entry (no duplicates) on re-save", () => {
     assert.equal(root.plugins[0].options.vision.model, "deepseek/deepseek-flash");
 });
 
-test("empty options remove our entry and agent, keeping the rest", () => {
+test("empty options keep the entry (plan_mode is always-on) but drop the vision agent", () => {
     const raw = JSON.stringify({
         plugins: [{package: PATH, options: OPTS}, "some-pkg"],
         agents: {"lumina-vision": {name: "V"}, keep: {name: "K"}},
     });
     const out = mergeLuminaToolsPlugin(raw, PATH, {})!;
     const root = JSON.parse(out);
-    assert.deepEqual(root.plugins, ["some-pkg"]);
+    assert.deepEqual(root.plugins, [{package: PATH, options: {}}, "some-pkg"]);
     assert.equal("lumina-vision" in root.agents, false);
     assert.ok(root.agents.keep);
 });
 
-test("removal drops empty sections entirely", () => {
-    const raw = mergeLuminaToolsPlugin("{}", PATH, OPTS)!;
-    const out = mergeLuminaToolsPlugin(raw, PATH, {})!;
-    const root = JSON.parse(out);
-    assert.equal("plugins" in root, false);
-    assert.equal("agents" in root, false);
+test("no options means an empty options object, not a dropped entry", () => {
+    const root = JSON.parse(mergeLuminaToolsPlugin("{}", PATH, {})!);
+    assert.deepEqual(root.plugins, [{package: PATH, options: {}}]);
 });
 
 test("merge refuses JSONC and malformed sections", () => {
@@ -85,12 +83,23 @@ test("readLuminaToolsOptions reads back our entry only", () => {
     assert.equal(readLuminaToolsOptions("not json", PATH), null);
 });
 
-test("fresh config carries schema, entry and agent; empty stays empty", () => {
+test("fresh config carries schema and entry; empty options keep the entry", () => {
     const root = JSON.parse(freshConfigWithToolsPlugin(PATH, OPTS));
     assert.equal(root.$schema, "https://opencode.ai/config.json");
     assert.deepEqual(root.plugins, [{package: PATH, options: OPTS}]);
     assert.ok(root.agents["lumina-vision"]);
-    assert.equal(JSON.parse(freshConfigWithToolsPlugin(PATH, {})).plugins, undefined);
+    const bare = JSON.parse(freshConfigWithToolsPlugin(PATH, {}));
+    assert.deepEqual(bare.plugins, [{package: PATH, options: {}}]);
+    assert.equal("agents" in bare, false);
+});
+
+test("luminaToolsEntryPresent distinguishes an absent entry from empty options", () => {
+    const present = JSON.stringify({plugins: [{package: PATH, options: {}}]});
+    const absent = JSON.stringify({plugins: ["some-pkg"]});
+    assert.equal(luminaToolsEntryPresent(present, PATH), true);
+    assert.equal(luminaToolsEntryPresent(absent, PATH), false);
+    assert.equal(luminaToolsEntryPresent("{}", PATH), false);
+    assert.equal(luminaToolsEntryPresent("not json", PATH), false);
 });
 
 test("luminaToolsPluginPath joins without doubling slashes", () => {

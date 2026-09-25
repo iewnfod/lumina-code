@@ -24,7 +24,9 @@ export function SubagentTitle({sub, className = ""}: {
     return (
         <span className={`flex items-center gap-2 min-w-0 text-xs ${className}`}>
             <Bot size={13} className="shrink-0 opacity-70"/>
-            <span className="min-w-0 truncate text-left">
+            {/* leading-[1.5]: descender clip room for truncate — see
+             * TodoSection's note. */}
+            <span className="min-w-0 truncate text-left leading-[1.5]">
                 <span className="font-medium">
                     {sub.agent ? sub.agent.charAt(0).toUpperCase() + sub.agent.slice(1) : t["Subagent"]}
                 </span>

@@ -1,11 +1,15 @@
 import {memo, useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {warn as logWarn} from "@tauri-apps/plugin-log";
 import {useTranscriptScroll} from "../../hooks/useTranscriptScroll.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {usePendingRequests, useSessionData, useSessionTranscript} from "../../opencode/sessionDataContext.tsx";
+import {planApprovalPending} from "../../opencode/sessionActivity.ts";
+import {composePlanDocument, planFileName} from "../../lib/planFiles.ts";
 import {divertAttachmentsForSend, modelAcceptsImages} from "../../opencode/visionAttachments.ts";
 import type {
+    ChatMessage,
     ComposerAttachment,
     ComposerFileRef,
     PendingCommand,
@@ -15,8 +19,10 @@ import type {
 import {lastContextMessage, type ContextUsage} from "./usageStats.ts";
 import TranscriptList from "./TranscriptList.tsx";
 import {ExitList} from "../ui/ExitPresence.tsx";
+import ExitPresence from "../ui/ExitPresence.tsx";
 import ChatInput from "../composer/ChatInput.tsx";
 import {PermissionCard} from "./PermissionCard.tsx";
+import {PlanApprovalCard} from "./PlanApprovalCard.tsx";
 import {QuestionCard} from "./QuestionCard.tsx";
 
 /**
@@ -146,6 +152,59 @@ const ChatView = memo(function ChatView({
     );
     const handleInterrupt = useCallback(() => void interrupt(), [interrupt]);
 
+    // Plan-workflow approval (Route A): the plan_submit executor BLOCKS
+    // inside its tool call, so a still-running part IS the pending
+    // decision — the card renders from that derivation, not from the
+    // permission-request pipeline (v2.0.11 has no permission gate for
+    // plugin tools). Approving = switching the session to build — the
+    // agent change IS what the executor's poll waits for — plus a
+    // best-effort save of the plan document (the transcript keeps the
+    // content whatever happens). Rejecting = interrupting the session,
+    // which aborts the executor → it returns a revision prompt.
+    const pendingPlan = useMemo(
+        () => planApprovalPending(messages as ChatMessage[]),
+        [messages],
+    );
+    const handlePlanDecision = useCallback(
+        (approve: boolean) => {
+            if (!pendingPlan) return;
+            if (!approve) {
+                void interrupt();
+                return;
+            }
+            void (async () => {
+                if (directory && api) {
+                    try {
+                        // Same-day same-title revisions get -2, -3… (the
+                        // fs/read probe is location-confined; a missing
+                        // .lumina/plans yields 500 on v2.0.11 — treated as
+                        // absent by the probe's catch).
+                        const exists = async (name: string) => {
+                            try {
+                                return (await api.readTextFile(directory, `.lumina/plans/${name}`)) !== null;
+                            } catch {
+                                return false;
+                            }
+                        };
+                        const name = await planFileName(pendingPlan.title, new Date(), exists);
+                        await api.writeTextFile(
+                            `${directory.replace(/\/+$/, "")}/.lumina/plans/${name}`,
+                            composePlanDocument(
+                                pendingPlan.title,
+                                pendingPlan.plan,
+                                pendingPlan.todos.map((title) => ({title, status: "pending"})),
+                            ),
+                        );
+                    } catch (e) {
+                        logWarn(`Failed to save the plan document: ${e}`).catch(() => {});
+                    }
+                }
+                await api?.switchAgent(sessionId, "build");
+            })();
+        },
+        [pendingPlan, directory, api, sessionId, interrupt],
+    );
+
     // Grow the render window / fetch an older page (both directions of
     // "earlier": in-memory tail first, then the server cursor).
     const loadEarlier = useCallback(() => {
@@ -230,6 +289,23 @@ const ChatView = memo(function ChatView({
                 </div>
             </div>
             <div className="lum-column shrink-0 pb-4 flex flex-col gap-2">
+                {/* The plan workflow's approval card — pinned here while
+                 * the plan_submit executor blocks on the user's decision
+                 * (a still-running part in the transcript; see
+                 * planApprovalPending). Collapses away in place once the
+                 * part settles. */}
+                <ExitPresence present={pendingPlan !== null} exitMs={250} exit={{animation: "lum-row-exit"}}>
+                    {(closing, bind) =>
+                        (pendingPlan || closing) && (
+                            <PlanApprovalCard
+                                payload={pendingPlan}
+                                onApprove={() => handlePlanDecision(true)}
+                                onReject={() => handlePlanDecision(false)}
+                                {...bind}
+                            />
+                        )
+                    }
+                </ExitPresence>
                 {/* Pinned server requests — while any is pending, the
                     session's execution waits server-side, so they stay
                     in the composer's place, never scrolled away. Answered
@@ -268,6 +344,7 @@ const ChatView = memo(function ChatView({
                     <ChatInput
                         disabled={disabled}
                         busy={busy}
+                        draftKey={sessionId}
                         onSend={handleSend}
                         onInterrupt={handleInterrupt}
                         agent={agent}

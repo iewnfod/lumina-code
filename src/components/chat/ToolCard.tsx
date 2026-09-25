@@ -189,6 +189,39 @@ function toolDetail(
                 <span className="truncate min-w-0">{headers.join(" / ")}</span>
             ) : null;
         }
+        // Lumina's plan workflow (plugins/luminaTools.js): the identifying
+        // human text, never the raw JSON.
+        case "task_complete": {
+            const title = inputStr(o, "title");
+            if (!title) return null;
+            if (o.blocked === true) {
+                const reason = typeof o.reason === "string" ? o.reason : "";
+                return (
+                    <span className="truncate min-w-0" style={MONO_ROW_STYLE}>
+                        {`${title} · ${reason}`}
+                    </span>
+                );
+            }
+            return <span className="truncate min-w-0">{title}</span>;
+        }
+        case "plan_submit": {
+            const title = inputStr(o, "title");
+            const count = Array.isArray(o.todos) ? o.todos.length : 0;
+            return title ? (
+                <>
+                    {path(title)}
+                    {count > 0 && (
+                        <span className="shrink-0 opacity-60">
+                            {`${count} ${t["Tasks"]}`}
+                        </span>
+                    )}
+                </>
+            ) : null;
+        }
+        case "plan_amend": {
+            const count = Array.isArray(o.todos) ? o.todos.length : 0;
+            return path(`${count} ${t["Tasks"]}`);
+        }
         default: {
             return rawJsonDetail(part);
         }

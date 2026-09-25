@@ -4,9 +4,12 @@ import type {AssistantToolPart, ChatMessage, ChatMarkerMessage} from "./types.ts
 import {
     collectSessionShells,
     collectSessionSubagents,
+    collectSessionTodos,
     fileMutationCount,
+    findPlanSubmitInput,
     isFileMutatingToolName,
     mutationSignature,
+    planApprovalPending,
 } from "./sessionActivity.ts";
 
 /** A shell tool part whose result moved the command to the background
@@ -215,4 +218,150 @@ test("mutationSignature ignores optimistic local user messages and text frames",
     // A streamed text-only append keeps the signature identical.
     const streamed: ChatMessage[] = [...list, {id: "msg_a2", type: "assistant", content: [{type: "text", text: "delta"}]}];
     assert.equal(mutationSignature(streamed), mutationSignature(list));
+});
+
+// --- Plan workflow (plan_submit / task_complete / plan_amend) ---
+
+function planToolPart(
+    id: string,
+    name: string,
+    input: Record<string, unknown>,
+    status: AssistantToolPart["state"]["status"] = "completed",
+): AssistantToolPart {
+    return {type: "tool", id, name, state: {status, input}};
+}
+
+function submitInput(title: string, todos: string[]): Record<string, unknown> {
+    return {title, plan: `# ${title}\n\nDo the thing.`, todos};
+}
+
+test("collectSessionTodos returns null without a plan_submit part", () => {
+    assert.equal(collectSessionTodos([assistantMsg("m1", [shellPart("t1", "ls", "sh_1")])]), null);
+    assert.equal(collectSessionTodos([]), null);
+});
+
+test("the last plan_submit defines the list; running means pendingApproval", () => {
+    const running = collectSessionTodos([
+        assistantMsg("m1", [planToolPart("t1", "plan_submit", submitInput("Plan A", ["a", "b"]), "running")]),
+    ])!;
+    assert.deepEqual(
+        running.items.map((i) => [i.title, i.status]),
+        [["a", "pending"], ["b", "pending"]],
+    );
+    assert.equal(running.pendingApproval, true);
+    assert.equal(running.title, "Plan A");
+
+    const settled = collectSessionTodos([
+        assistantMsg("m1", [planToolPart("t1", "plan_submit", submitInput("Plan A", ["a"]))]),
+    ])!;
+    assert.equal(settled.pendingApproval, false);
+});
+
+test("a rejected (errored) submission leaves no active plan", () => {
+    assert.equal(
+        collectSessionTodos([
+            assistantMsg("m1", [planToolPart("t1", "plan_submit", submitInput("Bad", ["x"]), "error")]),
+        ]),
+        null,
+    );
+    // A malformed completed payload is equally unusable.
+    assert.equal(
+        collectSessionTodos([assistantMsg("m1", [planToolPart("t1", "plan_submit", {title: "T"})])]),
+        null,
+    );
+});
+
+test("task_complete folds in order; mismatches and repeats are ignored", () => {
+    const list: ChatMessage[] = [
+        assistantMsg("m1", [planToolPart("t1", "plan_submit", submitInput("P", ["one", "two", "three"]))]),
+        assistantMsg("m2", [planToolPart("t2", "task_complete", {title: "three"})]), // skipped → rejected server-side
+        assistantMsg("m3", [planToolPart("t3", "task_complete", {title: "one"})]),
+        assistantMsg("m4", [planToolPart("t4", "task_complete", {title: "one"})]), // duplicate → rejected
+        assistantMsg("m5", [planToolPart("t5", "task_complete", {title: "two", blocked: true, reason: "no dep"}, "error")]),
+        assistantMsg("m6", [planToolPart("t6", "task_complete", {title: "two", blocked: true, reason: "no dep"})]),
+        assistantMsg("m7", [planToolPart("t7", "task_complete", {title: "  three  "})]), // whitespace-normalized match
+    ];
+    const todos = collectSessionTodos(list)!;
+    assert.deepEqual(
+        todos.items.map((i) => [i.title, i.status]),
+        [["one", "completed"], ["two", "blocked"], ["three", "completed"]],
+    );
+    assert.equal(todos.items[1].reason, "no dep");
+});
+
+test("plan_amend replaces the pending tail, keeping settled history", () => {
+    const list: ChatMessage[] = [
+        assistantMsg("m1", [planToolPart("t1", "plan_submit", submitInput("P", ["one", "two", "three"]))]),
+        assistantMsg("m2", [planToolPart("t2", "task_complete", {title: "one"})]),
+        assistantMsg("m3", [planToolPart("t3", "plan_amend", {todos: ["two-b", "four"]})]),
+        assistantMsg("m4", [planToolPart("t4", "task_complete", {title: "two-b"})]),
+    ];
+    const todos = collectSessionTodos(list)!;
+    assert.deepEqual(
+        todos.items.map((i) => [i.title, i.status]),
+        [["one", "completed"], ["two-b", "completed"], ["four", "pending"]],
+    );
+});
+
+test("a newer plan_submit wholly replaces the older plan's state", () => {
+    const list: ChatMessage[] = [
+        assistantMsg("m1", [planToolPart("t1", "plan_submit", submitInput("v1", ["a"]))]),
+        assistantMsg("m2", [planToolPart("t2", "task_complete", {title: "a"})]),
+        assistantMsg("m3", [planToolPart("t3", "plan_submit", submitInput("v2", ["x", "y"]))]),
+    ];
+    const todos = collectSessionTodos(list)!;
+    assert.equal(todos.title, "v2");
+    assert.deepEqual(todos.items.map((i) => i.status), ["pending", "pending"]);
+});
+
+test("findPlanSubmitInput resolves by source part id, then falls back to the last part", () => {
+    const list: ChatMessage[] = [
+        assistantMsg("m1", [planToolPart("t1", "plan_submit", submitInput("v1", ["a"]))]),
+        assistantMsg("m2", [planToolPart("t2", "plan_submit", submitInput("v2", ["x", "y"]), "running")]),
+    ];
+    const bySource = findPlanSubmitInput(list, {messageID: "m1", id: "t1"})!;
+    assert.equal(bySource.title, "v1");
+    const fallback = findPlanSubmitInput(list, null)!;
+    assert.equal(fallback.title, "v2");
+    assert.equal(fallback.todos.length, 2);
+    // An id that matches nothing falls back to the last plan_submit…
+    assert.equal(findPlanSubmitInput(list, {id: "nope"})!.title, "v2");
+    // …but a located-yet-malformed source never substitutes another plan.
+    const broken: ChatMessage[] = [
+        assistantMsg("m1", [planToolPart("t9", "plan_submit", {title: "T"}, "running")]),
+        assistantMsg("m2", [planToolPart("t8", "plan_submit", submitInput("ok", ["a"]))]),
+    ];
+    assert.equal(findPlanSubmitInput(broken, {id: "t9"}), null);
+    assert.equal(findPlanSubmitInput([assistantMsg("m9", [])], null), null);
+});
+
+test("planApprovalPending tracks the blocking submission", () => {
+    const running = planApprovalPending([
+        assistantMsg("m1", [planToolPart("t1", "plan_submit", submitInput("P", ["a"]), "running")]),
+    ])!;
+    assert.equal(running.title, "P");
+    assert.equal(running.todos.length, 1);
+    // Approved (part completed) or rejected/timed out (error) → no pending card.
+    assert.equal(
+        planApprovalPending([assistantMsg("m1", [planToolPart("t2", "plan_submit", submitInput("P", ["a"]))])]),
+        null,
+    );
+    assert.equal(
+        planApprovalPending([assistantMsg("m1", [planToolPart("t3", "plan_submit", submitInput("P", ["a"]), "error")])]),
+        null,
+    );
+    // An older running part behind a settled newer one → settled (last wins).
+    assert.equal(
+        planApprovalPending([
+            assistantMsg("m1", [planToolPart("t4", "plan_submit", submitInput("v1", ["a"]), "running")]),
+            assistantMsg("m2", [planToolPart("t5", "plan_submit", submitInput("v2", ["b"]))]),
+        ]),
+        null,
+    );
+    // Malformed running payload → null (card offers rejection only via null guard).
+    assert.equal(
+        planApprovalPending([assistantMsg("m1", [planToolPart("t6", "plan_submit", {title: "T"}, "running")])]),
+        null,
+    );
+    assert.equal(planApprovalPending([assistantMsg("m0", [])]), null);
 });

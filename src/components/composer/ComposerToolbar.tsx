@@ -1,4 +1,4 @@
-import {ArrowUp, Bot, Brain, Cpu, Paperclip, Settings2, Square} from "lucide-react";
+import {ArrowUp, Blocks, Brain, Cpu, Paperclip, Settings2, Square} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
@@ -8,7 +8,7 @@ import type {
     SessionUsage,
 } from "../../opencode/types.ts";
 import type {ContextUsage} from "../chat/usageStats.ts";
-import {useI18n} from "../../hooks/i18n.tsx";
+import {useI18n, type TranslationKey} from "../../hooks/i18n.tsx";
 import {disabledModelKey, useDisabledModels} from "../../hooks/useDisabledModels.ts";
 import PopoverMenu, {MenuItem, MenuLabel} from "../ui/PopoverMenu.tsx";
 import ToolbarButton from "./ToolbarButton.tsx";
@@ -16,7 +16,7 @@ import UsageRing from "../chat/UsageRing.tsx";
 import DirectoryPicker from "./DirectoryPicker.tsx";
 
 /** Display labels for the thinking-depth variants a model can carry. */
-const DEPTH_LABELS: Record<string, string> = {
+const DEPTH_LABELS: Record<string, TranslationKey> = {
     none: "Off",
     low: "Low",
     medium: "Medium",
@@ -24,8 +24,20 @@ const DEPTH_LABELS: Record<string, string> = {
     max: "Max",
 };
 
-function depthLabel(variant: string): string {
-    return DEPTH_LABELS[variant] ?? variant.charAt(0).toUpperCase() + variant.slice(1);
+function depthLabel(variant: string, t: Record<TranslationKey, string>): string {
+    const key = DEPTH_LABELS[variant];
+    return key ? t[key] : variant.charAt(0).toUpperCase() + variant.slice(1);
+}
+
+/** Known agent ids get translated labels; foreign agents keep their name. */
+const AGENT_LABELS: Record<string, TranslationKey> = {
+    build: "Build mode",
+    plan: "Plan mode",
+};
+
+function agentLabel(id: string, name: string | null | undefined, t: Record<TranslationKey, string>): string {
+    const key = AGENT_LABELS[id];
+    return key ? t[key] : name ?? id;
 }
 
 /**
@@ -112,7 +124,7 @@ export default function ComposerToolbar({
     const usageContextLimit = usageModel?.limit?.context ?? currentModel?.limit?.context;
     const variants = currentModel?.variants ?? [];
     const currentVariant = model?.variant ?? variants[0]?.id;
-    const agentName = agents.find((a) => a.id === agent)?.name ?? agent;
+    const agentName = agentLabel(agent, agents.find((a) => a.id === agent)?.name, t);
 
     // Group the catalog by provider for the model picker, hiding models
     // the user switched off in the model settings (a client-side
@@ -154,7 +166,7 @@ export default function ComposerToolbar({
                 align="start"
                 trigger={({open, toggle}) => (
                     <ToolbarButton
-                        icon={<Bot size={14}/>}
+                        icon={<Blocks size={14}/>}
                         label={agentName}
                         active={open}
 
@@ -175,7 +187,7 @@ export default function ComposerToolbar({
                                         close();
                                     }}
                                 >
-                                    {a.name ?? a.id}
+                                    {agentLabel(a.id, a.name, t)}
                                 </MenuItem>
                             </div>
                         ))}
@@ -275,7 +287,7 @@ export default function ComposerToolbar({
                     trigger={({open, toggle}) => (
                         <ToolbarButton
                             icon={<Brain size={14}/>}
-                            label={depthLabel(currentVariant)}
+                            label={depthLabel(currentVariant, t)}
                             active={open}
                             onClick={toggle}
                         />
@@ -294,7 +306,7 @@ export default function ComposerToolbar({
                                         close();
                                     }}
                                 >
-                                    {depthLabel(v.id)}
+                                    {depthLabel(v.id, t)}
                                 </MenuItem>
                             ))}
                         </div>

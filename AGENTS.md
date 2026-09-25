@@ -14,6 +14,9 @@ It shares its chrome conventions with the sibling project `lumina-terminal`
 (glass surfaces, motion presets, custom title bar, logging) — code ported
 between the two keeps a comment noting its origin.
 
+This project does not use tools like OpenSpec to record the changes in each session.
+Instead, we use the plan mode in each harness, especially in large changes.
+
 ---
 
 ## 1. Commands & Toolchain
@@ -107,27 +110,79 @@ src/
 │
 ├── plugins/               # Plugin SOURCES shipped with the app (plain JS, no
 │   └── luminaTools.js     #   imports — a bare default export loads on server
-│                          #   v2.0.11). The custom-tools host: Model settings →
-│                          #   Tools writes it verbatim under the global config's
-│                          #   `plugins/lumina-tools/` and references it from
+│                          #   v2.0.11). The custom-tools host: Lumina Code
+│                          #   ensures this file lives under the global config's
+│                          #   `plugins/lumina-tools/` and is referenced from
 │                          #   opencode.json's `plugins` array with per-tool
-│                          #   options; the server hot-reloads on config change.
-│                          #   TOOLS registry inside = one entry per tool
-│                          #   (enabled/agentId/tool). v2.0.11 facts encoded
-│                          #   here: plugin tools default to CODE MODE exposure
-│                          #   — `codemode: false` makes them NATIVE tools
-│                          #   (verified live; the code-mode path has a step
-│                          #   budget and degrades to hallucinated text when
-│                          #   exhausted); the agent transform has no add() —
-│                          #   restricted helper agents are defined in the
-│                          #   config's `agents` section (written by
-│                          #   toolPluginConfig.ts); the plugin ctx has no
-│                          #   session delete — helper sessions carry
-│                          #   metadata {source: "lumina-tools"} and the
-│                          #   frontend deletes them (useSessions.ts). First
-│                          #   resident: vision (识图) — a text-only model asks
-│                          #   a configured vision model about an image file
-│                          #   via a transient helper session (askModel).
+│                          #   options (see opencode/useLuminaTools.ts, the
+│                          #   connect-time installer); the server hot-reloads
+│                          #   on config change. TOOLS registry inside = one
+│                          #   entry per tool (enabled/agentId/tool). v2.0.11
+│                          #   facts encoded here: plugin tools default to
+│                          #   CODE MODE exposure — `codemode: false` makes
+│                          #   them NATIVE tools (verified live; the code-mode
+│                          #   path has a step budget and degrades to
+│                          #   hallucinated text when exhausted); the agent
+│                          #   transform has no add() — restricted helper
+│                          #   agents are defined in the config's `agents`
+│                          #   section (written by opencode/toolPluginConfig.ts);
+│                          #   the plugin ctx has no session delete — helper
+│                          #   sessions carry metadata {source:
+│                          #   "lumina-tools"} and the frontend deletes them
+│                          #   (useSessions.ts); tool executors receive
+│                          #   context.{sessionID, agent, signal}. Residents:
+│                          #   vision (识图) — a text-only model asks a
+│                          #   configured vision model about an image file via
+│                          #   a transient helper session (askModel), gated on
+│                          #   its model option — and plan_mode (always-on
+│                          #   while the plugin loads): the model switches ITS
+│                          #   OWN session into OpenCode's Plan Mode (the
+│                          #   builtin `plan` agent) via ctx.session.switchAgent
+│                          #   — verified against v2.0.11 source: the runner
+│                          #   re-resolves the agent EVERY step, so the step
+│                          #   after the tool result already runs under plan;
+│                          #   one-way by design, returning to build is the
+│                          #   user's call (the composer's mode picker; the
+│                          #   switch broadcasts session.agent.selected, which
+│                          #   useSessions patches live). THE PLAN WORKFLOW
+│                          #   (always-on): plan_submit / task_complete /
+│                          #   plan_amend close the loop around plan mode —
+│                          #   the plan agent submits {title, plan, todos}
+│                          #   and the executor BLOCKS as the approval
+│                          #   gate (Route A): v2.0.11 has NO
+│                          #   execution-time permission check for
+│                          #   plugin tools (binary-verified:
+│                          #   options.permission only filters tool
+│                          #   VISIBILITY; asking is builtin-internal),
+│                          #   so the gate is a poll loop — every 400ms
+│                          #   the executor re-reads the session's
+│                          #   agent; APPROVAL ARRIVES AS THE SWITCH
+│                          #   itself (Lumina Code's approval card
+│                          #   calls switchAgent "build"; the model's
+│                          #   next step already runs under build),
+│                          #   rejection as the executor's abort signal
+│                          #   (the card interrupts), 10-min deadline
+│                          #   otherwise. Task titles must be SHORT
+│                          #   (protocol text). Build then reports via
+│                          #   task_complete {title} under STRICT
+│                          #   validation (title must equal the NEXT
+│                          #   open task's title, whitespace-normalized,
+│                          #   no skipping/revisiting; blocked:true +
+│                          #   reason is the honest exit), plan_amend
+│                          #   {todos} replaces the remaining tail.
+│                          #   Validation state is DERIVED FROM THE
+│                          #   TRANSCRIPT each call (ctx.session.context:
+│                          #   last completed plan_submit + subsequent
+│                          #   completed task_complete/plan_amend parts —
+│                          #   planStateFromEntries; no plugin-side mutable
+│                          #   state; subagent child sessions self-scope-out,
+│                          #   their transcripts hold no plan). Every result
+│                          #   echoes the checklist (compaction self-healing).
+│                          #   setup() also rides the v2.0.11 session hook —
+│                          #   ctx.session.hook("context", e => e.system.push)
+│                          #   appends the PLAN_WORKFLOW protocol to every
+│                          #   model call (binary-verified; runtime-probed,
+│                          #   degrades to tool descriptions when absent).
 │
 ├── opencode/              # THE domain layer — everything talking to the server
 │   ├── api.ts             # OpencodeApi: hand-rolled typed REST client (fetch +
@@ -146,6 +201,33 @@ src/
 │   │                      #   lives, derived from GET /api/config (pure; shared
 │   │                      #   by the settings config editor and the attachment
 │   │                      #   divert). node-testable via its consumers.
+│   ├── useLuminaTools.ts  # The custom-tools plugin's install half:
+│   │                      #   ensureLuminaToolsPlugin(api, options?) writes the
+│   │                      #   plugin file + the config entry (diff-gated — the
+│   │                      #   server hot-reloads on every config write), and
+│   │                      #   useLuminaToolsInstall (AppBody, once per
+│   │                      #   connection) keeps both current so the always-on
+│   │                      #   plan_mode tool exists from the first prompt on.
+│   │                      #   Passing options REPLACES the stored per-tool
+│   │                      #   options (the Tools tab's saves go through it);
+│   │                      #   omitting them preserves what's configured.
+│   │                      #   Failures log and degrade to "tool absent".
+│   ├── toolPluginConfig.ts # Pure custom-tools config logic (moved out of
+│   │                      #   components/settings when useLuminaTools needed
+│   │                      #   it — layering, §3.1): the lumina-tools plugin
+│   │                      #   entry upsert/read-back/entry-present probe in
+│   │                      #   the global opencode.json's `plugins` array
+│   │                      #   (per-tool options, foreign entries preserved;
+│   │                      #   the entry is ALWAYS written now — plan_mode
+│   │                      #   ships always-on) + the restricted helper agents
+│   │                      #   in the config's `agents` section (v2.0.11 has
+│   │                      #   no plugin-side agent add) + the vision-capable
+│   │                      #   model filter. NOTE: the plan workflow's
+│   │                      #   approval gate deliberately has NO config
+│   │                      #   rule — plugin tools have no execution-time
+│   │                      #   permission check on v2.0.11 (see the
+│   │                      #   plugin source's Route A poll gate).
+│   │                      #   node-testable.
 │   ├── visionAttachments.ts # The vision tool's sending half (pure planning +
 │   │                      #   one api-bound writer): when the model a prompt is
 │   │                      #   bound for lacks image input (catalog
@@ -215,7 +297,10 @@ src/
 │   │                      #   "lumina-tools"} metadata marker — and are DELETED
 │   │                      #   by this hook once their execution ends, plus a
 │   │                      #   one-per-connection sweep of leftovers, because
-│   │                      #   v2.0.11's plugin API has no session delete); busy set seeded from
+│   │                      #   v2.0.11's plugin API has no session delete);
+│   │                      #   session.agent.selected patches the mode in place
+│   │                      #   (covers the model switching itself into Plan
+│   │                      #   Mode via the plan_mode tool); busy set seeded from
 │   │                      #   GET /api/session/active (a stale busy id blocks the
 │   │                      #   composer forever — the seed must not resurrect ids watched
 │   │                      #   end); create/remove/patch (optimistic model/agent).
@@ -257,7 +342,11 @@ src/
 │   │                      #   requests + forms), seeded from the list endpoints then
 │   │                      #   bus-maintained; a pending ask blocks the session's
 │   │                      #   execution server-side. Global, not per-session, so sidebar
-│   │                      #   badges work for inactive sessions.
+│   │                      #   badges work for inactive sessions. The plan workflow's
+│   │                      #   pending APPROVAL folds into the same pendingCounts via
+│   │                      #   a module store over the message transcript
+│   │                      #   (planApprovalPending — Route A; see
+│   │                      #   PlanApprovalCard) — same badge as questions.
 │   ├── sessionActivity.ts # Pure stats-card derivations from a session's messages:
 │   │                      #   background shells (tool-part metadata.shellID — only
 │   │                      #   background results carry it) with their completion
@@ -267,9 +356,23 @@ src/
 │   │                      #   stamped currentTurn (spawned/re-referenced at/after the
 │   │                      #   last user message — the stats card hides COMPLETED items
 │   │                      #   from earlier turns; running ones stay, filtered in
-│   │                      #   useSessionActivity where running state is known), and the
+│   │                      #   useSessionActivity where running state is known), the
 │   │                      #   mutation signature (file-mutation count + last confirmed
-│   │                      #   user message id — streamed frames never move it).
+│   │                      #   user message id — streamed frames never move it), and
+│   │                      #   the PLAN-WORKFLOW state: collectSessionTodos (the LAST
+│   │                      #   plan_submit part defines the list — status "error" =
+│   │                      #   rejected, no active plan; running = pendingApproval —
+│   │                      #   and subsequent COMPLETED task_complete/plan_amend parts
+│   │                      #   advance it; the FRONTEND MIRROR of the plugin's
+│   │                      #   planStateFromEntries fold — keep the two in sync) +
+│   │                      #   findPlanSubmitInput (locates a pending request's plan
+│   │                      #   payload via its permission source part id, falling
+│   │                      #   back to the last plan_submit; a located-but-malformed
+│   │                      #   source never substitutes another plan) +
+│   │                      #   planApprovalPending (the LAST plan_submit
+│   │                      #   part while still running — Route A's
+│   │                      #   pending-approval signal, driving the
+│   │                      #   approval card).
 │   │                      #   node-testable.
 │   ├── useSessionActivity.ts # Stats-card state, split by scope, both over
 │   │                      #   MODULE-LEVEL stores (the useSessionMessages
@@ -296,8 +399,12 @@ src/
 │   │                      #   directory's diff (debounced) when any of its
 │   │                      #   sessions' mutation signatures move, so
 │   │                      #   backgrounded sessions keep the numbers fresh.
+│   │                      #   (3) the active session's plan-workflow TODOS —
+│   │                      #   a pure collectSessionTodos fold over the same
+│   │                      #   snapshot (identity-cached like the others), no
+│   │                      #   endpoints or bus of its own.
 │   │                      #   prefetchSessionActivity (sidebar hover, wired
-│   │                      #   in App) warms both ahead of the click.
+│   │                      #   in App) warms the scopes ahead of the click.
 │   │                      #   Derived arrays are identity-stable across
 │   │                      #   streamed frames.
 │   └── useModelCatalog.ts # Providers/agents/models + server default, fetched per
@@ -356,6 +463,15 @@ src/
 │   ├── persist.ts         # loadState/saveState — cross-restart UI state in
 │   │                      #   localStorage ("lumina-code:ui-state": open session,
 │   │                      #   model, agent, directory). Never throws.
+│   ├── planFiles.ts       # Plan-workflow document persistence (pure): the
+│   │                      #   CJK-safe filename slug, the dated
+│   │                      #   `.lumina/plans/YYYY-MM-DD-<slug>.md` name with
+│   │                      #   collision suffixes (async exists-probe — the
+│   │                      #   fs/read round-trip), and composePlanDocument
+│   │                      #   (plan markdown + checklist appendix, self-
+│   │                      #   contained). The write itself is the approval
+│   │                      #   card's job (it owns the api + directory).
+│   │                      #   node-testable.
 │   ├── clipboard.ts       # copyText — clipboard write with an execCommand
 │   │                      #   fallback for webviews lacking the async API
 │   ├── dragRegionDoubleClick.ts # pure predicate behind the title-bar double-click
@@ -507,7 +623,14 @@ src/
     │   │                  #   (never-rendered rows materializing from the
     │   │                  #   intrinsic-size estimate shifted the viewport
     │   │                  #   on WebKitGTK). Don't re-add without a plan
-    │   │                  #   for those two failure modes.
+    │   │                  #   for those two failure modes. Also owns the
+    │   │                  #   plan-workflow APPROVAL (Route A): the
+    │   │                  #   plan_submit executor blocks inside its
+    │   │                  #   call, planApprovalPending derives the
+    │   │                  #   pending payload from the transcript, and
+    │   │                  #   PlanApprovalCard pins above the composer
+    │   │                  #   (approve = switchAgent + plan-file save;
+    │   │                  #   reject = interrupt).
     │   ├── transcript.ts  # Pure blockify(): folds runs of activity-only
     │   │                  #   assistant messages into TranscriptBlocks; a persisted
     │   │                  #   model-switched marker becomes its own model-change
@@ -602,6 +725,19 @@ src/
     │   │                  #   session moves forward (answers go to the reply endpoints).
     │   │                  #   Shared chrome in RequestCardChrome.tsx; answer rules in
     │   │                  #   formLogic.ts (pure, node-testable).
+    │   ├── PlanApprovalCard.tsx # The plan workflow's approval card
+    │   │                  #   (Route A): the plan_submit executor
+    │   │                  #   BLOCKS inside its tool call, so ChatView
+    │   │                  #   derives the pending state from the
+    │   │                  #   transcript (sessionActivity.
+    │   │                  #   planApprovalPending — a still-running
+    │   │                  #   part IS a pending decision) and pins this
+    │   │                  #   card above the composer via ExitPresence.
+    │   │                  #   批准 = switchAgent("build") + best-effort
+    │   │                  #   plan-document save (lib/planFiles.ts →
+    │   │                  #   .lumina/plans/); 驳回 = interrupt (aborts
+    │   │                  #   the executor → revision prompt). A
+    │   │                  #   malformed payload offers rejection only.
     │   ├── RequestCardChrome.tsx # Card + CardButton + MONO_STYLE (mono
     │   │                  #   family + settings-driven --lum-code-size)
     │   │                  #   shared by the request kinds and tool cards;
@@ -641,8 +777,11 @@ src/
     │                      #   context).
     │   ├── SessionStatsCard.tsx # The card (presentation + local
     │                      #   navigation only): collapsed summary rows
-    │                      #   (+N −N lines, terminal/subagent counts)
-    │                      #   expanding into the detail panel. ALL motion
+    │                      #   (plan progress ✓n/N, +N −N lines,
+    │                      #   terminal/subagent counts) expanding into
+    │                      #   the detail panel (TodoSection rides ABOVE
+    │                      #   ChangesSection — see stats/TodoSection).
+    │                      #   ALL motion
     │                      #   is CSS (§3.7): the root wears .lum-enter /
     │                      #   .lum-fade-exit (the exit engine holds the
     │                      #   unmount), the WIDTH transitions between the
@@ -688,7 +827,7 @@ src/
     │   │                  #   stop removes the retained output too, so the
     │   │                  #   fallback is the normal path after one). The api
     │   │                  #   handle comes from useConnection().
-    │   └── SubagentsSection.tsx # Subagent rows (presence-animated per
+    │   ├── SubagentsSection.tsx # Subagent rows (presence-animated per
     │   │                  #   row, like TerminalsSection; agent + task
     │   │                  #   label + running
     │                      #   state) → SubagentBody: read-only transcript
@@ -696,6 +835,17 @@ src/
     │                      #   module-level message store + TranscriptList, so
     │                      #   background children stream in live; mounting the
     │                      #   body seeds the child session's store).
+    │   └── TodoSection.tsx # The plan workflow's section — the approved
+    │                      #   plan's task list with live statuses (○ pending,
+    │                      #   ◐ in-progress = first pending task while the
+    │                      #   session is busy — DERIVED, no task_begin tool;
+    │                      #   ✓ completed struck through, ⏸ blocked with its
+    │                      #   reason). Sits ABOVE ChangesSection by design:
+    │                      #   the plan frames the work, the diff is residue.
+    │                      #   Static rows (statuses swap in place, nothing
+    │                      #   unmounts — no presence animation needed);
+    │                      #   pendingApproval swaps the header count for a
+    │                      #   "waiting for approval" chip.
     ├── composer/          # The prompt composer
         ├── ChatInput.tsx  # Composer shell: staged attachments (chips),
         │                  #   slash-command fetch (per-directory, retried),
@@ -715,6 +865,12 @@ src/
         ├── composerTriggers.ts # Lexical node-tree algorithms: `@`/`/` trigger
         │                  #   detection (CJK-aware) + atomic mention ←/→.
         ├── composerAttachments.ts # Data-URI attachment reader + size cap
+        ├── composerDrafts.ts  # In-memory composer draft store (Map keyed
+        │                      #   by surface — WELCOME_DRAFT_KEY or the
+        │                      #   session id): serialized Lexical
+        │                      #   EditorState + staged attachments
+        │                      #   survive the session-surface swap's
+        │                      #   remounts; cleared on submit.
         ├── InputSuggestions.tsx # Autocomplete popup (@ / / triggers)
         ├── FileMentionNode.tsx / CommandMentionNode.tsx # Lexical token TextNodes
         ├── ToolbarButton.tsx # The composer's compact toolbar control
@@ -748,9 +904,10 @@ src/
     │                      #   custom-tools surface (ToolsTab): configures
     │                      #   Lumina Code's plugin tools, currently the
     │                      #   vision model (picker over image-capable
-    │                      #   catalog models + Off), which writes the
-    │                      #   plugin file + merges its entry/agent into the
-    │                      #   global config via toolPluginConfig.ts.
+    │                      #   catalog models + Off), saving through the
+    │                      #   shared installer
+    │                      #   (opencode/useLuminaTools.ts; plan_mode needs
+    │                      #   no configuration — always-on).
     ├── AboutSettings.tsx # About pane: centered identity hero (icon +
     │                      #   name + app version via getVersion), the
     │                      #   OpenCode server version as a key/value line,
@@ -765,15 +922,9 @@ src/
     ├── modelConfig.ts    # Pure model-config logic: integration search,
     │                      #   custom-provider config merge/remove/read-back
     │                      #   (globalConfigTarget itself lives in
-    │                      #   opencode/configFiles.ts). node-testable.
-    └── toolPluginConfig.ts # Pure custom-tools config logic: the
-                           #   lumina-tools plugin entry upsert/remove/
-                           #   read-back in the global opencode.json's
-                           #   `plugins` array (per-tool options, foreign
-                           #   entries preserved) + the restricted helper
-                           #   agents in the config's `agents` section
-                           #   (v2.0.11 has no plugin-side agent add) +
-                           #   the vision-capable model filter. node-testable.
+    │                      #   opencode/configFiles.ts; the custom-tools
+    │                      #   twin toolPluginConfig.ts also lives in
+    │                      #   opencode/ now). node-testable.
 ```
 
 ### Backend (`src-tauri/src/`)

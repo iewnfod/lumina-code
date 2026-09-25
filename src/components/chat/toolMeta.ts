@@ -1,14 +1,18 @@
 import {
+    ClipboardCheck,
+    ClipboardList,
     FilePen,
     FilePlus,
     FolderOpen,
     FolderSearch,
     Globe,
+    ListChecks,
     ListTodo,
     MessageCircleQuestion,
     ScanEye,
     Search,
     Sparkles,
+    SquareCheck,
     SquareTerminal,
     Wrench,
     type LucideIcon,
@@ -48,9 +52,16 @@ export const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon}
     // generic wrench so its FoldRow reads as a question, not a tool call.
     question: {title: "Question", icon: MessageCircleQuestion},
     skill: {title: "Skill", icon: Sparkles},
-    // Lumina Code's tools plugin: image inspection via a vision-capable
-    // helper model (see src/plugins/luminaTools.js).
+    // Lumina Code's tools plugin (see src/plugins/luminaTools.js): image
+    // inspection via a vision-capable helper model, and the model
+    // switching the session into Plan Mode on its own initiative.
     vision: {title: "Vision", icon: ScanEye},
+    plan_mode: {title: "Plan mode", icon: ClipboardList},
+    // The plan workflow (same plugin): plan submission for approval,
+    // in-order task completion reports, and remaining-list amendments.
+    plan_submit: {title: "Plan submission", icon: ClipboardCheck},
+    task_complete: {title: "Task complete", icon: SquareCheck},
+    plan_amend: {title: "Plan amend", icon: ListChecks},
 };
 
 /** Display title for a tool name (used by ActivityGroup's summary too).

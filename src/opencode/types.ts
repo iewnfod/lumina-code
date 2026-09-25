@@ -481,6 +481,12 @@ export function isAssistantMessage(m: ChatMessage): m is ChatAssistantMessage {
 export interface EventMap {
     "session.created": {sessionID: string};
     "session.updated": {sessionID: string};
+    /** The session's agent ("mode") was switched — from the composer, or
+     *  by the model itself through the plan_mode tool (no marker message
+     *  is persisted for agent switches, unlike model switches; consumers
+     *  patch the session's agent field). `previous` is absent on the
+     *  first selection. */
+    "session.agent.selected": {sessionID: string; agent: string; previous?: string};
     /** The session's model was switched. The switch's commit also persists
      *  a `model-switched` marker message, but the event carries no message
      *  frame — consumers re-pull the newest page to pick it up (see

@@ -26,6 +26,7 @@ import {liveSurfaceKey, nextSurfacePhase, type SurfacePhase} from "./lib/surface
 import {matchesAnimationEvent} from "./lib/exitGate.ts";
 import {useOpencode} from "./opencode/useOpencode.ts";
 import {useSessionFlow} from "./opencode/useSessionFlow.ts";
+import {useLuminaToolsInstall} from "./opencode/useLuminaTools.ts";
 import {CatalogProvider} from "./opencode/catalogContext.tsx";
 import {ConnectionProvider, useConnection} from "./opencode/connectionContext.tsx";
 import {SessionDataProvider, useSessionData} from "./opencode/sessionDataContext.tsx";
@@ -330,6 +331,12 @@ function AppBody({
         ? {tokens: activeSession.tokens, cost: activeSession.cost}
         : null;
     const connected = connectionStatus.state === "connected";
+
+    // Keep Lumina Code's custom-tools plugin installed on the server (its
+    // always-on plan_mode tool — the model's way to switch the session
+    // into Plan Mode — must exist from the first prompt on). No-op once
+    // current; failures only log.
+    useLuminaToolsInstall();
 
     // The settings modal: the title-bar gear opens it, and the model
     // picker's "Configure models…" deep-links to its Model tab. App owns

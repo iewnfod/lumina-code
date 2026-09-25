@@ -18,6 +18,7 @@ import {useI18n} from "../../hooks/i18n.tsx";
 import ComposerCore from "./ComposerCore.tsx";
 import ComposerToolbar from "./ComposerToolbar.tsx";
 import {readAttachment} from "./composerAttachments.ts";
+import {saveDraftAttachments, takeInitialDraft} from "./composerDrafts.ts";
 import {FileMentionNode} from "./FileMentionNode.tsx";
 import {CommandMentionNode} from "./CommandMentionNode.tsx";
 import Hint from "../ui/Hint.tsx";
@@ -57,6 +58,10 @@ const ChatInput = memo(function ChatInput({
     onOpenModelConfig,
     usage = null,
     contextUsage = null,
+    /** Draft-store key for this surface (session id, or the welcome
+     *  screen's fixed key) — keeps the half-typed buffer across the
+     *  surface-swap remounts. */
+    draftKey,
 }: {
     /** No connection yet. */
     disabled: boolean;
@@ -79,13 +84,22 @@ const ChatInput = memo(function ChatInput({
     usage?: SessionUsage | null;
     /** The session's current context reading (last measured step). */
     contextUsage?: ContextUsage | null;
+    draftKey: string;
 }) {
     const colors = useColors();
     const t = useI18n();
     // Server handle from the connection context (slash commands); the
     // picker catalog is ComposerToolbar's own concern now.
     const {api} = useConnection();
-    const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+    // Draft restore: staged attachments come back with the editor state
+    // (both were saved into the draft store on every change); a submit
+    // clears the entry, so a fresh mount after sending starts empty.
+    const [attachments, setAttachments] = useState<ComposerAttachment[]>(() => takeInitialDraft(draftKey)?.attachments ?? []);
+    // Mirror staged attachments into the draft store (the editor half is
+    // ComposerCore's concern — it owns the EditorState).
+    useEffect(() => {
+        saveDraftAttachments(draftKey, attachments);
+    }, [draftKey, attachments]);
     const [commands, setCommands] = useState<OpencodeCommand[]>([]);
     // The list last fetched, keyed by its directory — remounts for the
     // same directory reuse it, a directory change re-queries.
@@ -155,6 +169,12 @@ const ChatInput = memo(function ChatInput({
     const initialConfig = {
         namespace: "lumina-composer",
         nodes: [FileMentionNode, CommandMentionNode],
+        // Restored draft (if any): the serialized EditorState re-hydrates
+        // text AND mention nodes (the node set is registered above). NOTE:
+        // the config field is `editorState` (Lexical's InitialConfigType)
+        // — an `initialEditorState` key would be silently ignored, and
+        // this object has no type annotation to catch it.
+        editorState: takeInitialDraft(draftKey)?.editorState || undefined,
         onError: (e: unknown) => {
             error(`Composer error: ${e}`).catch(() => {});
         },
@@ -209,6 +229,7 @@ const ChatInput = memo(function ChatInput({
                 <ComposerCore
                     disabled={disabled}
                     busy={busy}
+                    draftKey={draftKey}
                     directory={directory}
                     commands={commands}
                     placeholder={disabled ? t["Connecting to OpenCode..."] : t["Ask Lumina Code, use @ to add context, use / for commands"]}
