@@ -414,6 +414,16 @@ function renderChecklist(state) {
   return lines.join("\n");
 }
 
+/** Host identity pushed into every model call alongside PLAN_PROTOCOL.
+ * Without this, the server's own prompt says only "OpenCode" and a model
+ * running inside Lumina Code cannot know its actual harness (the desktop
+ * GUI, not the TUI). This plugin is installed EXCLUSIVELY by Lumina Code
+ * (opencode/useLuminaTools.ts), so its presence is the reliable signal. */
+const HOST_IDENTITY =
+  "Harness identity: you are running inside Lumina Code — a desktop GUI client for OpenCode " +
+  "(Tauri + React), NOT the OpenCode TUI or CLI. When asked which harness or app you run in, " +
+  "answer \"Lumina Code\"; the underlying server and agent machinery is OpenCode's.";
+
 /** The system-prompt protocol pushed into every model call via the
  * "context" session hook (v2.0.11 ships hooks — verified by binary
  * inspection; setup probes the method at runtime and degrades to
@@ -706,14 +716,15 @@ export default {
     await ctx.tool.transform((editor) => {
       for (const t of active) editor.add(t.tool(options, ctx));
     });
-    // The plan-workflow protocol rides the "context" session hook when
-    // the server offers it (v2.0.11 does — binary-verified; the docs'
-    // event.system.push shape). Absent the hook, enforcement degrades
-    // to the tool descriptions above.
+    // The host identity + plan-workflow protocol ride the "context"
+    // session hook when the server offers it (v2.0.11 does —
+    // binary-verified; the docs' event.system.push shape). Absent the
+    // hook, enforcement degrades to the tool descriptions above.
     try {
       if (typeof ctx.session?.hook === "function") {
         await ctx.session.hook("context", (event) => {
           if (Array.isArray(event?.system)) {
+            event.system.push({type: "text", text: HOST_IDENTITY});
             event.system.push({type: "text", text: PLAN_PROTOCOL});
           }
         });
