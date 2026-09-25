@@ -65,12 +65,12 @@ jobs:
         run: pnpm fetch:opencode aarch64-unknown-linux-gnu
 
       # Same bundler path as the release run (deb → rpm → appimage), but with
-      # verbosity 2 (Trace): the bundler pipes every linuxdeploy output line
-      # into the log instead of swallowing it on failure.
+      # the --verbose flag repeated twice: ONLY the CLI flag (not the
+      # TAURI_CLI_VERBOSITY env var — that one just filters the CLI's own logs
+      # and leaves the bundler on its silent Error branch) makes the bundler
+      # stream every linuxdeploy output line into the log.
       - name: Build AppImage with verbose bundler logs
-        env:
-          TAURI_CLI_VERBOSITY: "2"
-        run: pnpm tauri build --target aarch64-unknown-linux-gnu
+        run: pnpm tauri build --target aarch64-unknown-linux-gnu --verbose --verbose
 
       # On failure the AppDir is the crime scene (how far linuxdeploy got,
       # which libs it copied). On success the AppImage itself is the proof.
