@@ -197,7 +197,6 @@ const enUs = {
     "Vision": "Vision",
     "Vision model": "Vision model",
     "Adds a vision tool that text-only models can call to see images": "Adds a vision tool that text-only models can call to see images",
-    "Off": "Off",
     "No vision-capable models found": "No vision-capable models found",
     "Custom tools are stored in the global OpenCode config": "Custom tools are stored in the global OpenCode config",
 } as const;

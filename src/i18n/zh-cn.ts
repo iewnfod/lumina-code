@@ -198,7 +198,6 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Vision": "识图",
     "Vision model": "识图模型",
     "Adds a vision tool that text-only models can call to see images": "提供识图工具：纯文字模型可以调用它查看图片",
-    "Off": "关闭",
     "No vision-capable models found": "没有支持图片输入的模型",
     "Custom tools are stored in the global OpenCode config": "自定义工具保存在 OpenCode 全局配置中",
 };

@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {motion} from "framer-motion";
 import {ArrowLeft, Globe, ScanEye, Search, Trash2} from "lucide-react";
 import {openPath, openUrl} from "@tauri-apps/plugin-opener";
@@ -634,17 +634,39 @@ function ToolsTab({
         );
     }
 
+    const enabled = current !== "";
+    // The model to restore when the switch is flipped back on: the last
+    // enabled choice, else the first vision-capable model.
+    const lastModel = useRef(current);
+    if (current) lastModel.current = current;
+    const toggle = (on: boolean) => {
+        if (on) {
+            const fallback = models?.[0];
+            const model = lastModel.current || (fallback ? `${fallback.providerID}/${fallback.modelID}` : "");
+            if (model) choose(model);
+        } else {
+            choose("");
+        }
+    };
+
     const row = (key: string, label: string, sub: string | undefined, selected: boolean, onClick: () => void) => (
         <motion.button
             key={key}
             type="button"
-            disabled={busy}
+            disabled={busy || !enabled}
             onClick={onClick}
-            {...whileHoverTap}
-            className="flex items-center justify-between gap-2 w-full px-2.5 py-2 rounded-[var(--radius-sm)] text-left cursor-pointer transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-row-hover)] disabled:opacity-50"
+            {...(enabled && !busy ? whileHoverTap : {})}
+            className={`flex items-center justify-between gap-2 w-full px-2.5 py-2 rounded-[var(--radius-sm)] text-left transition-colors duration-[var(--duration-fast)] ${
+                enabled && !busy
+                    ? "cursor-pointer hover:bg-[var(--lum-row-hover)]"
+                    : "cursor-default"
+            }`}
             style={{"--lum-row-hover": colors.hoverOverlay} as React.CSSProperties}
         >
-            <span className="min-w-0 flex-1 truncate leading-normal text-xs">
+            <span
+                className="min-w-0 flex-1 truncate leading-normal text-xs"
+                style={enabled ? undefined : {color: colors.inactiveText}}
+            >
                 {label}
                 {sub && (
                     <span className="block text-[10px] truncate leading-normal" style={{color: colors.inactiveText}}>
@@ -669,13 +691,22 @@ function ToolsTab({
     return (
         <div className="flex flex-col gap-2">
             <section className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-2 px-0.5">
-                    <ScanEye size={14} className="shrink-0 opacity-60"/>
-                    <span className="text-xs font-medium">{t["Vision model"]}</span>
+                <div className="flex items-center justify-between gap-4 px-0.5">
+                    <div className="flex flex-col gap-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                            <ScanEye size={14} className="shrink-0 opacity-60"/>
+                            <span className="text-xs font-medium">{t["Vision model"]}</span>
+                        </div>
+                        <p className="text-[10px] leading-relaxed" style={{color: colors.inactiveText}}>
+                            {t["Adds a vision tool that text-only models can call to see images"]}
+                        </p>
+                    </div>
+                    <Switch
+                        checked={enabled}
+                        label={enabled ? t["Enabled"] : t["Disabled"]}
+                        onChange={toggle}
+                    />
                 </div>
-                <p className="text-[10px] leading-relaxed px-0.5" style={{color: colors.inactiveText}}>
-                    {t["Adds a vision tool that text-only models can call to see images"]}
-                </p>
                 {models === null && !modelsFailed && (
                     <p className="text-xs py-1" style={{color: colors.inactiveText}}>{t["Loading..."]}</p>
                 )}
@@ -688,7 +719,6 @@ function ToolsTab({
                     </p>
                 )}
                 <div className="flex flex-col">
-                    {row("off", t["Off"], undefined, current === "", () => choose(""))}
                     {models?.map((m) => {
                         const key = `${m.providerID}/${m.modelID}`;
                         return row(
