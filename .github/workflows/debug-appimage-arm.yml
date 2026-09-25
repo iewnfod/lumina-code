@@ -1,0 +1,84 @@
+name: Debug ARM AppImage
+
+# TEMPORARY diagnostics workflow — do not ship in a release.
+# Reproduces the release.yml ubuntu-22.04-arm leg (and ONLY that leg, no
+# tauri-action, no asset upload) with TAURI_CLI_VERBOSITY=2 so the bundler
+# streams linuxdeploy's stdout/stderr into the log. The default verbosity
+# discards it, which is why the release run only shows the useless
+# `failed to run linuxdeploy`.
+# Delete this file once the root cause is found and fixed.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: debug-appimage-arm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-arm-appimage:
+    runs-on: ubuntu-22.04-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      # Deviation from release.yml: cache the toolchain builds so repeated
+      # diagnostic runs don't pay the full Rust compile every time.
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: aarch64-unknown-linux-gnu
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            xdg-utils
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Fetch OpenCode sidecar (aarch64-unknown-linux-gnu)
+        run: pnpm fetch:opencode aarch64-unknown-linux-gnu
+
+      # Same bundler path as the release run (deb → rpm → appimage), but with
+      # verbosity 2 (Trace): the bundler pipes every linuxdeploy output line
+      # into the log instead of swallowing it on failure.
+      - name: Build AppImage with verbose bundler logs
+        env:
+          TAURI_CLI_VERBOSITY: "2"
+        run: pnpm tauri build --target aarch64-unknown-linux-gnu
+
+      # On failure the AppDir is the crime scene (how far linuxdeploy got,
+      # which libs it copied). On success the AppImage itself is the proof.
+      - name: Upload bundle output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm-appimage-bundle
+          path: src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/
+          if-no-files-found: ignore
+          retention-days: 3
