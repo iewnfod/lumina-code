@@ -7,8 +7,8 @@ import {FinishedTotal, StateChip, StatsSection} from "./statsChrome.tsx";
 /** One task row's status icon. "in progress" is DERIVED — the first
  * pending task while the session executes (no task_begin tool to call
  * or forget): only it displays at full strength (accent + pulse); the
- * settled states stay quiet. The row's own title attribute carries the
- * tooltip (task text / blocked reason), so the icons stay bare. */
+ * settled states stay quiet. The rows carry NO hover tooltip — the text
+ * is the row itself (AGENTS.md §3.2: native title tooltips are banned). */
 function TodoGlyph({status}: {status: SessionTodoItem["status"] | "in_progress"}) {
     if (status === "in_progress") {
         return <ArrowRight size={12} className="shrink-0 animate-pulse"/>;
@@ -62,7 +62,6 @@ export const TodoSection = memo(function TodoSection({
                     // First row breathes below the section header (its
                     // py-1 alone reads as glued to the title).
                     className={`w-full flex items-center gap-2 px-2 py-1 text-xs rounded-[var(--radius-sm)] ${i === 0 ? "pt-2" : ""}`}
-                    title={item.status === "blocked" && item.reason ? item.reason : item.title}
                 >
                     <TodoGlyph
                         status={inProgress && i === firstPending ? "in_progress" : item.status}
