@@ -1,0 +1,140 @@
+name: Release
+
+# Builds the app for every desktop target and uploads the bundles to an
+# EXISTING GitHub release (create it with hand-written notes first; this
+# workflow only attaches assets). The `tag` input makes workflow_dispatch
+# re-runnable for a specific release without re-publishing.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to (re)build (e.g. v0.1.0)"
+        required: true
+        type: string
+
+# Whatever triggered us, the release to attach assets to is identified by its
+# tag: the dispatch input when given, else the published release's ref name.
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  publish-tauri:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            args: "--target x86_64-unknown-linux-gnu"
+          - platform: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            args: "--target aarch64-unknown-linux-gnu"
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: "--target x86_64-pc-windows-msvc"
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            args: "--target aarch64-apple-darwin"
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            args: "--target x86_64-apple-darwin"
+
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            xdg-utils
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # THE lumina-code difference: fetch the pinned OpenCode server sidecar
+      # for the EXACT matrix target (the macOS x86_64 leg cross-compiles on
+      # an arm64 runner, so host detection would fetch the wrong binary).
+      # Tauri's externalBin bundling requires
+      # src-tauri/binaries/opencode-<target>[.exe] to exist before the build;
+      # scripts/fetch-opencode.mjs verifies the npm tarball's sha512 against
+      # the registry-published integrity.
+      - name: Fetch OpenCode sidecar (${{ matrix.target }})
+        run: pnpm fetch:opencode ${{ matrix.target }}
+
+      # Snapshot the hand-written release title and body BEFORE tauri-action
+      # runs. We feed them straight back to tauri-action (releaseName /
+      # releaseBody) so whatever it writes back is identical to what we read —
+      # the notes you wrote in the GitHub UI are preserved. Reading is
+      # idempotent across the concurrent matrix jobs since every job re-reads
+      # the same values up front.
+      - name: Read existing release title and notes
+        id: release_meta
+        env:
+          # GITHUB_TOKEN (built-in) with the job's contents: write permission
+          # is sufficient — no PAT needed for reading release metadata.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Force bash on every OS: the command substitution + heredoc below are
+        # bash syntax, which the Windows runner's default shell (PowerShell) can't run.
+        shell: bash
+        run: |
+          # title (single line) → steps.release_meta.outputs.name
+          name="$(gh release view '${{ env.RELEASE_TAG }}' --json name --jq '.name')"
+          # body (multiline) → steps.release_meta.outputs.body
+          body="$(gh release view '${{ env.RELEASE_TAG }}' --json body --jq '.body')"
+          {
+            echo "name=$name"
+            # multiline value: use the delimiter form so newlines survive
+            echo "body<<BODY_EOF"
+            echo "$body"
+            echo "BODY_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # Builds + bundles (deb/rpm/AppImage, NSIS, dmg/app) and uploads the
+      # artifacts to the release. NO updater signing env here — lumina-code
+      # does not configure the Tauri updater (no createUpdaterArtifacts /
+      # plugins.updater in tauri.conf.json). When the updater is enabled,
+      # add TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+      # secrets to this env block alongside the config changes.
+      - name: Build tauri app and upload artifacts
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ env.RELEASE_TAG }}
+          # Echo back the exact title/notes we snapshotted above so the action's
+          # internal release update is a no-op on metadata — only assets change.
+          releaseName: ${{ steps.release_meta.outputs.name }}
+          releaseBody: ${{ steps.release_meta.outputs.body }}
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

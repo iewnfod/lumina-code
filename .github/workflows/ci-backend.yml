@@ -1,0 +1,113 @@
+name: CI - Backend
+
+# Verifies the Rust/Tauri backend on every commit / PR, across all three
+# desktop platforms (Linux / Windows / macOS): `cargo check` as a fast
+# type/borrow gate. NOT `cargo check` + `cargo test` — lumina-code has no
+# Rust test suite yet (no src-tauri/tests/); add a `cargo test --locked`
+# step here the moment one appears.
+#
+# This job is INTENTIONALLY independent of the frontend build: it drops a
+# placeholder dist/index.html (see below) instead of running `pnpm build`, so
+# a frontend regression cannot mask or supersede a genuine backend failure.
+# ci-frontend.yml owns frontend coverage separately.
+#
+# `--locked` enforces that the committed `src-tauri/Cargo.lock` is up to date;
+# a drift that would silently change resolved versions locally fails here
+# instead.
+
+# Run on every branch and every PR, not just master — a feature branch should
+# be verified before it ever merges.
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    name: backend check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    # Per-OS group so a new commit cancels only the superseded run on that OS.
+    # Must live inside the job: `matrix` is only in scope after the job's
+    # strategy block, so a workflow-level concurrency block can't reference it.
+    #
+    # Keyed on the source branch (`github.head_ref || github.ref_name`), not on
+    # github.ref, so a push to a branch and the PR that tracks it share one
+    # group and don't run twice for the same commit:
+    #   push          → head_ref empty    → branch name
+    #   pull_request  → head_ref = source → branch name
+    concurrency:
+      group: ci-backend-${{ matrix.os }}-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Tauri's Linux backend links against WebKitGTK / GTK / libsoup, so the
+      # dev headers must be present for `cargo check` to resolve the
+      # `tauri-build` build script and conditional `#[cfg(target_os)]` code.
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            xdg-utils
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      # THE lumina-code difference: the OpenCode server sidecar
+      # (bundle.externalBin) is a hard dependency of the BUILD SCRIPT —
+      # tauri-build's copy_binaries runs during `cargo check` too and fails
+      # with ResourcePathNotFound when src-tauri/binaries/opencode-<triple>
+      # is absent. scripts/fetch-opencode.mjs has zero npm imports, so plain
+      # `node` runs it with no pnpm install; with no arguments it fetches the
+      # HOST triple, which matches each matrix runner (~200 MB, integrity-
+      # verified against the npm registry).
+      - name: Fetch OpenCode sidecar (host target)
+        run: node scripts/fetch-opencode.mjs
+
+      # `tauri::generate_context!()` (expanded during cargo check) embeds the
+      # `frontendDist` directory (`../dist` from Cargo.toml's location) at
+      # compile time and fails if it is missing. It only needs the directory
+      # to EXIST — the embedded asset content has no bearing on the Rust
+      # type-check conclusion — so a one-line placeholder index.html satisfies
+      # it.
+      #
+      # Deliberately NOT running `pnpm build` here: this job must verify the
+      # Rust backend in isolation. If it depended on the frontend build, a
+      # frontend regression would mask / supersede a genuine backend failure.
+      # ci-frontend.yml owns frontend coverage independently.
+      - name: Create placeholder dist (for generate_context!)
+        shell: bash
+        run: |
+          mkdir -p dist
+          printf '<!DOCTYPE html><html><head></head><body></body></html>\n' > dist/index.html
+
+      # The actual verification: `cargo check` — fast type + borrow check
+      # across the matrix. No binary is produced; fails quickly on compile
+      # errors. (No `cargo test` yet — lumina-code has no Rust test suite.)
+      - name: cargo check
+        run: cargo check --locked --manifest-path src-tauri/Cargo.toml

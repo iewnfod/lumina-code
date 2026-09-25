@@ -1,0 +1,59 @@
+name: Trigger package publishes (fallback)
+
+# Runs AFTER the Release workflow completes successfully, using the
+# `workflow_run` event. This avoids the GITHUB_TOKEN permission restriction
+# that `release` events impose on `repository_dispatch` calls (release-triggered
+# runs get permissions stripped — `gh api POST /dispatches` then 403s).
+#
+# `workflow_run` runs with normal permissions. Note the dispatch endpoint
+# (`POST /repos/{repo}/dispatches`) is covered by `contents: write`, NOT
+# `actions: write` (see the "Contents" row of GitHub's App permissions table
+# at docs.github.com/rest/authentication/permissions-required-for-github-apps)
+# — with only `actions: write` it 403s with "Resource not accessible by
+# integration". A GITHUB_TOKEN-fired repository_dispatch still triggers the
+# downstream workflow (repository_dispatch is one of the two documented
+# exceptions to the "GITHUB_TOKEN events don't spawn runs" rule), so no PAT
+# is needed.
+#
+# Triggered by: Release workflow completing with success. Each matrix leg
+# dispatches ONE downstream publish workflow, both of which read the tag
+# from `client_payload.tag`:
+#   publish-aur  → .github/workflows/aur.yml  (AUR lumina-code-bin)
+#   publish-copr → .github/workflows/copr.yml (Fedora COPR lumina-code)
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+
+jobs:
+  trigger:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      # A failure in one leg must not cancel the other's dispatch.
+      fail-fast: false
+      matrix:
+        event: [publish-aur, publish-copr]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Trigger Publish workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The completed Release run's head_branch is the tag (e.g. v0.1.0).
+          tag="${{ github.event.workflow_run.head_branch }}"
+          if [[ -z "${tag}" || "${tag}" == "master" ]]; then
+            echo "::error::No release tag found (head_branch=${tag}); aborting" >&2
+            exit 1
+          fi
+          echo "::notice::Dispatching ${{ matrix.event }} for tag ${tag}"
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${{ github.repository }}/dispatches" \
+            -f event_type=${{ matrix.event }} \
+            -f "client_payload[tag]=${tag}"

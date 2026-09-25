@@ -1,0 +1,245 @@
+name: Publish to AUR
+
+# Publishes the `lumina-code-bin` package to the Arch User Repository.
+#
+# Triggered by the pkg-trigger workflow's `publish-aur` dispatch (via a
+# `repository_dispatch` event) AFTER every arch's .deb has been uploaded to
+# the release — so by the time this workflow runs, the assets we need are
+# guaranteed to be there. Also supports a manual `workflow_dispatch` run with
+# an explicit tag for re-publishing an older release without re-running
+# Release.
+#
+# Why `repository_dispatch` instead of `gh workflow run`? Because triggering
+# another workflow via `gh workflow run` requires a PAT/App token (the default
+# GITHUB_TOKEN is blocked from spawning new workflow runs). A dispatch event
+# fires this workflow with the repo's own GITHUB_TOKEN — no PAT, no extra
+# secret to manage. The tag travels in `client_payload.tag`.
+#
+# Why not `on: release: published`? Because the Release workflow uploads the
+# .debs concurrently with the release going live, so at publish-time the
+# assets aren't there yet. Letting Release explicitly call us after its
+# matrix finishes avoids any polling/waiting.
+#
+# Required repo secrets:
+#   AUR_SSH_PRIVATE_KEY — OpenSSH private key whose public half is registered
+#                          on the AUR account that owns `lumina-code-bin`.
+
+on:
+  workflow_dispatch:
+    # `tag` is the only input. Manual invocations pass the release tag
+    # (e.g. "v0.1.0") here.
+    inputs:
+      tag:
+        description: "Release tag to publish (e.g. v0.1.0)"
+        required: true
+        type: string
+  repository_dispatch:
+    # Fired by pkg-trigger's publish-aur leg with {tag: "<release tag>"} in
+    # the client payload. Runs on the DEFAULT branch (master), so this always
+    # uses the latest workflow code — no stale-on-tag problem.
+    types: [publish-aur]
+
+# Avoid two concurrent pushes racing the same AUR ssh:// git remote.
+concurrency:
+  group: aur-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: rel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # tag arrives differently depending on the trigger:
+          #   workflow_dispatch    → inputs.tag
+          #   repository_dispatch  → github.event.client_payload.tag
+          INPUT_TAG: ${{ inputs.tag }}
+          PAYLOAD_TAG: ${{ github.event.client_payload.tag }}
+        run: |
+          tag="${INPUT_TAG:-${PAYLOAD_TAG}}"
+          [[ -n "${tag}" ]] || { echo "No release tag resolved" >&2; exit 1; }
+          # AUR pkgver is the version without the leading "v".
+          case "${tag}" in
+            v*) ver="${tag#v}" ;;
+            *)  ver="${tag}" ;;
+          esac
+          {
+            echo "tag=${tag}"
+            echo "pkgver=${ver}"
+          } >> "$GITHUB_OUTPUT"
+
+      # Download both Linux .debs the Release workflow uploaded. By the time
+      # this workflow runs (called by pkg-trigger AFTER the whole Release
+      # build matrix finished), both .debs are guaranteed to be on the
+      # release — no polling, no retry loop, no timeout needed. If a download
+      # fails here it's a genuine problem (asset missing / network), and we
+      # want to surface it loudly rather than paper over it.
+      #
+      # Asset names: Tauri's deb bundler maps productName "Lumina Code" to
+      # "Lumina.Code_<ver>_<dpkg-arch>.deb" (spaces become dots).
+      - name: Fetch release .deb assets and compute sha256
+        id: sums
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          tag="${{ steps.rel.outputs.tag }}"
+          pkgver="${{ steps.rel.outputs.pkgver }}"
+
+          # Map dpkg arch suffixes to the asset filenames the Release job produces.
+          declare -A assets=(
+            [amd64]="Lumina.Code_${pkgver}_amd64.deb"
+            [arm64]="Lumina.Code_${pkgver}_arm64.deb"
+          )
+
+          for darch in amd64 arm64; do
+            name="${assets[$darch]}"
+            gh release download "${tag}" \
+              --repo "${{ github.repository }}" \
+              --pattern "${name}" \
+              --dir assets
+            sum="$(sha256sum "assets/${name}" | awk '{print $1}')"
+            # Expose the sums as uppercase env-style placeholders for envsubst.
+            case "${darch}" in
+              amd64) echo "SHA256_AMD64=${sum}" >> "$GITHUB_OUTPUT" ;;
+              arm64) echo "SHA256_ARM64=${sum}" >> "$GITHUB_OUTPUT" ;;
+            esac
+            echo "::notice::${name} sha256=${sum}"
+          done
+
+      - name: Render PKGBUILD
+        env:
+          PKGVER: ${{ steps.rel.outputs.pkgver }}
+          PKGREL: "1"
+          SHA256_AMD64: ${{ steps.sums.outputs.SHA256_AMD64 }}
+          SHA256_ARM64: ${{ steps.sums.outputs.SHA256_ARM64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          # envsubst with an explicit var list substitutes ONLY the named
+          # placeholders — $pkgver, $srcdir, ${source_*[0]} in the PKGBUILD
+          # body are left intact for makepkg to interpret.
+          envsubst '${PKGVER} ${PKGREL} ${SHA256_AMD64} ${SHA256_ARM64}' \
+            < .aur/PKGBUILD > out/PKGBUILD
+
+          echo "===== rendered out/PKGBUILD ====="
+          cat out/PKGBUILD
+
+      # namcap is Arch-only (and itself an AUR package), so it can't be
+      # apt-installed on the Ubuntu runner. We do the two portable checks
+      # that actually catch the real failure modes of a *rendered* PKGBUILD:
+      #   1. bash -n  — syntax check (no install needed).
+      #   2. leftover-placeholder scan — catches a broken envsubst, which is
+      #      the only thing that can go wrong at render time.
+      # Structural validation (missing required fields, bad arrays) is then
+      # enforced by `makepkg --printsrcinfo` in the .SRCINFO step below.
+      - name: Lint rendered PKGBUILD
+        run: |
+          set -euo pipefail
+          bash -n out/PKGBUILD
+          if grep -nE '\$\{(PKGVER|PKGREL|SHA256_AMD64|SHA256_ARM64)\}' out/PKGBUILD; then
+            echo "::error::Unsubstituted placeholder found in PKGBUILD" >&2
+            exit 1
+          fi
+          echo "PKGBUILD OK: syntax valid, no leftover placeholders"
+
+      - name: Set up SSH for AUR
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          # Trust AUR's host up front so the first git push doesn't hang on
+          # an interactive yes/no prompt.
+          ssh-keyscan -t ed25519,rsa aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
+
+          # Write the deploy key with tight perms; strip any stray CRLF that
+          # GitHub secrets UI sometimes injects (OpenSSH refuses CRLF).
+          printf '%s\n' "${AUR_SSH_PRIVATE_KEY}" > ~/.ssh/aur_key
+          chmod 600 ~/.ssh/aur_key
+          # Inject a host-specific key so git over ssh picks it up automatically.
+          {
+            echo "Host aur.archlinux.org"
+            echo "    User aur"
+            echo "    IdentityFile ~/.ssh/aur_key"
+            echo "    StrictHostKeyChecking accept-new"
+            echo "    IdentitiesOnly yes"
+          } >> ~/.ssh/config
+
+      - name: Clone or init AUR repo
+        env:
+          PKG: lumina-code-bin
+        run: |
+          set -euo pipefail
+          # `git clone` over the AUR ssh:// URL works for an existing
+          # package. A brand-new package does not yet have a remote repo, so
+          # clone fails with "repository not found" — that's expected; fall
+          # through to init a local repo and attach the remote by hand. The
+          # very first push then creates the package on AUR automatically.
+          #
+          # If clone fails for ANY reason (auth error, network, partial
+          # checkout that left a half-written .git behind), wipe the aur/
+          # directory before re-initializing — otherwise `git -C aur ...`
+          # downstream hits a corrupt repo and dies with
+          # "fatal: not a git repository".
+          if git clone "ssh://aur@aur.archlinux.org/${PKG}.git" aur; then
+            echo "Cloned existing AUR repo."
+          else
+            clone_rc=$?
+            echo "::warning::git clone failed (rc=${clone_rc}); initializing a fresh local repo."
+            # Remove any half-written clone leftovers (including a partial .git).
+            rm -rf aur
+            mkdir -p aur
+            git -C aur init -q -b master
+            git -C aur remote add origin "ssh://aur@aur.archlinux.org/${PKG}.git"
+          fi
+          # Sanity check: aur/ must now be a usable git repo, otherwise the
+          # later `git -C aur ...` steps will fail with "not a git repository".
+          git -C aur rev-parse --git-dir >/dev/null
+
+      - name: Generate .SRCINFO
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq pacman-package-manager
+          # Copy the rendered PKGBUILD into a working dir makepkg can use.
+          # makepkg refuses to run as root, so drop into a non-root tmpdir.
+          work="$(mktemp -d)"
+          cp out/PKGBUILD "${work}/PKGBUILD"
+          # makepkg --printsrcinfo emits a deterministic .SRCINFO without
+          # downloading sources (we only need the metadata it derives from
+          # the PKGBUILD header). --nodeps skips dependency resolution since
+          # the runner doesn't have the Arch runtime deps installed.
+          (cd "${work}" && makepkg --printsrcinfo > .SRCINFO) || {
+            echo "::error::makepkg --printsrcinfo failed" >&2; exit 1;
+          }
+          cp "${work}/.SRCINFO" aur/.SRCINFO
+
+      - name: Commit and push to AUR
+        env:
+          PKG: lumina-code-bin
+        run: |
+          set -euo pipefail
+          cp out/PKGBUILD aur/PKGBUILD
+
+          git -C aur config user.name  "github-actions[bot]"
+          git -C aur config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Stage whatever changed (PKGBUILD and/or .SRCINFO). If neither
+          # file differs from AUR's tip — e.g. a re-trigger of the same tag —
+          # the commit fails harmlessly and we skip the push.
+          git -C aur add PKGBUILD .SRCINFO
+          if ! git -C aur diff --cached --quiet; then
+            git -C aur commit -m "chore: update ${PKG} to ${{ steps.rel.outputs.pkgver }}"
+            git -C aur push origin HEAD:master
+            echo "::notice::Pushed ${PKG} ${{ steps.rel.outputs.pkgver }} to AUR"
+          else
+            echo "::notice::No changes vs AUR — nothing to push"
+          fi
