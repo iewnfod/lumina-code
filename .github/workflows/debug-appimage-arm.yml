@@ -92,6 +92,25 @@ jobs:
           NO_STRIP: "1"
         run: pnpm tauri build --target aarch64-unknown-linux-gnu --verbose --verbose
 
+      # Forensics: linuxdeploy discards ldd's stderr, so after a failure (or
+      # success) inspect the exact sidecar binary the walk choked on — on the
+      # native 64K-page kernel, not under emulation.
+      - name: Forensics on the AppDir sidecar
+        if: always()
+        run: |
+          f="src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/appimage/Lumina Code.AppDir/usr/bin/opencode"
+          if [ ! -f "$f" ]; then echo "no AppDir sidecar (bundle never reached it)"; exit 0; fi
+          ls -la "$f"
+          file "$f"
+          echo '--- program headers:'
+          readelf -l "$f" | grep -A1 'LOAD'
+          echo '--- dynamic:'
+          readelf -d "$f" | grep -iE 'needed|runpath|rpath'
+          echo '--- ldd:'
+          ldd "$f"; echo "ldd exit=$?"
+          echo '--- loader --list (bypasses the ldd script):'
+          /lib/ld-linux-aarch64.so.1 --list "$f"; echo "loader exit=$?"
+
       # On failure the AppDir is the crime scene (how far linuxdeploy got,
       # which libs it copied). On success the AppImage itself is the proof.
       - name: Upload bundle output
