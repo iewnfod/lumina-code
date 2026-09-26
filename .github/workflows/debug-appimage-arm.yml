@@ -64,12 +64,32 @@ jobs:
       - name: Fetch OpenCode sidecar (aarch64-unknown-linux-gnu)
         run: pnpm fetch:opencode aarch64-unknown-linux-gnu
 
-      # Same bundler path as the release run (deb → rpm → appimage), but with
-      # the --verbose flag repeated twice: ONLY the CLI flag (not the
-      # TAURI_CLI_VERBOSITY env var — that one just filters the CLI's own logs
-      # and leaves the bundler on its silent Error branch) makes the bundler
-      # stream every linuxdeploy output line into the log.
+      # THE FIX UNDER TEST: linuxdeploy AppImages carry a frozen, statically
+      # bundled patchelf whose segment-shift math is wrong for 64K-aligned
+      # aarch64 binaries (Go builds like the opencode sidecar) — it corrupts
+      # the ELF during --set-rpath and the loader can't process it afterwards
+      # (x86_64 Go builds are 4K-aligned, which is why the amd64 leg works).
+      # linuxdeploy honors $PATCHELF to use an external binary instead;
+      # patchelf >= 0.18 ships official static aarch64 builds and computes
+      # the layout correctly (verified locally against the exact sidecar).
+      - name: Install modern patchelf
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/patchelf.tgz" \
+            https://github.com/NixOS/patchelf/releases/download/0.19.1/patchelf-0.19.1-aarch64.tar.gz
+          mkdir -p "$RUNNER_TEMP/patchelf-dir"
+          tar -xzf "$RUNNER_TEMP/patchelf.tgz" -C "$RUNNER_TEMP/patchelf-dir"
+          pe="$(find "$RUNNER_TEMP/patchelf-dir" -type f -name patchelf | head -1)"
+          chmod +x "$pe"
+          "$pe" --version
+          echo "PATCHELF=$pe" >> "$GITHUB_ENV"
+
+      # Second half of the fix: linuxdeploy's bundled (static binutils) strip
+      # also mangles the Go sidecar, and getStripPath() has no env override —
+      # NO_STRIP skips the phase entirely. Cost: ~75 kB of unstripped Go
+      # symbols (the Rust binary strips itself via Cargo's strip=true).
       - name: Build AppImage with verbose bundler logs
+        env:
+          NO_STRIP: "1"
         run: pnpm tauri build --target aarch64-unknown-linux-gnu --verbose --verbose
 
       # On failure the AppDir is the crime scene (how far linuxdeploy got,
