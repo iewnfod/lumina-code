@@ -58,7 +58,7 @@ export default function TailWorking({
                     // closing class never flips the content's layout.
                     <div className={closing ? "lum-row-exit" : undefined} {...bind}>
                         <div className="lum-enter flex items-center gap-2 text-xs opacity-60 select-none">
-                            <span>{t[label]}</span>
+                            <span className="pb-0.5">{t[label]}</span>
                             <span className="lum-loading lum-loading-tail" aria-hidden="true">
                                 <span/><span/><span/>
                             </span>
