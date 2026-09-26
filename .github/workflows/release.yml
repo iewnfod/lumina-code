@@ -91,6 +91,44 @@ jobs:
       - name: Fetch OpenCode sidecar (${{ matrix.target }})
         run: pnpm fetch:opencode ${{ matrix.target }}
 
+      # aarch64-unknown-linux-gnu only: the Go sidecar's ELF (64K-aligned
+      # PT_LOADs, Go's aarch64 layout) cannot survive ANY patchelf rewrite —
+      # linuxdeploy's bundled patchelf corrupts it during --set-rpath, and
+      # even patchelf 0.19.1's corrected layout segfaults the loader on
+      # native 64K-page kernels (verified: ldd dies with zero output). The
+      # x86_64 sidecar is 4K-aligned and unaffected, which is why the amd64
+      # leg always worked. The sidecar's rpath is useless anyway (its deps
+      # are blacklisted system libs), so intercept linuxdeploy's $PATCHELF
+      # hook with a wrapper that no-ops --set-rpath for the sidecar and
+      # forwards everything else to real patchelf 0.19.1; NO_STRIP skips
+      # linuxdeploy's bundled strip phase (it mangles the Go binary too,
+      # and getStripPath() has no env override — cost: ~75 kB of symbols,
+      # the Rust binary strips itself via Cargo's strip=true).
+      - name: Neutralize patchelf/strip for the ARM sidecar
+        if: runner.os == 'Linux' && matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/patchelf.tgz" \
+            https://github.com/NixOS/patchelf/releases/download/0.19.1/patchelf-0.19.1-aarch64.tar.gz
+          mkdir -p "$RUNNER_TEMP/patchelf-dir"
+          tar -xzf "$RUNNER_TEMP/patchelf.tgz" -C "$RUNNER_TEMP/patchelf-dir"
+          real="$(find "$RUNNER_TEMP/patchelf-dir" -type f -name patchelf | head -1)"
+          chmod +x "$real"
+          "$real" --version
+          wrapper="$RUNNER_TEMP/patchelf-wrapper"
+          printf '%s\n' \
+            '#!/usr/bin/env bash' \
+            "real=\"$real\"" \
+            'if [ "$1" = "--set-rpath" ] && [ "$#" -ge 3 ] && [ "${3##*/}" = "opencode" ]; then' \
+            '  exit 0' \
+            'fi' \
+            'exec "$real" "$@"' > "$wrapper"
+          chmod +x "$wrapper"
+          touch "$RUNNER_TEMP/opencode"
+          "$wrapper" --set-rpath '$ORIGIN/../lib' "$RUNNER_TEMP/opencode"
+          "$wrapper" --version
+          echo "PATCHELF=$wrapper" >> "$GITHUB_ENV"
+          echo "NO_STRIP=1" >> "$GITHUB_ENV"
+
       # Snapshot the hand-written release title and body BEFORE tauri-action
       # runs. We feed them straight back to tauri-action (releaseName /
       # releaseBody) so whatever it writes back is identical to what we read —
