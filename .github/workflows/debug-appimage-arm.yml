@@ -64,24 +64,38 @@ jobs:
       - name: Fetch OpenCode sidecar (aarch64-unknown-linux-gnu)
         run: pnpm fetch:opencode aarch64-unknown-linux-gnu
 
-      # THE FIX UNDER TEST: linuxdeploy AppImages carry a frozen, statically
-      # bundled patchelf whose segment-shift math is wrong for 64K-aligned
-      # aarch64 binaries (Go builds like the opencode sidecar) — it corrupts
-      # the ELF during --set-rpath and the loader can't process it afterwards
-      # (x86_64 Go builds are 4K-aligned, which is why the amd64 leg works).
-      # linuxdeploy honors $PATCHELF to use an external binary instead;
-      # patchelf >= 0.18 ships official static aarch64 builds and computes
-      # the layout correctly (verified locally against the exact sidecar).
-      - name: Install modern patchelf
+      # THE FIX (v2): no patchelf rewrite of the Go sidecar is loadable on
+      # native 64K-page aarch64 kernels — even patchelf 0.19.1's corrected
+      # layout segfaults the loader under --list (verified on the runner:
+      # ldd exits 1 with zero output = the trace crashed). The sidecar's
+      # rpath is useless anyway (its deps are all blacklisted system libs),
+      # so intercept $PATCHELF with a wrapper that no-ops --set-rpath for
+      # the sidecar and forwards everything else to real patchelf 0.19.1.
+      - name: Install patchelf with sidecar skip wrapper
         run: |
           curl -fsSL -o "$RUNNER_TEMP/patchelf.tgz" \
             https://github.com/NixOS/patchelf/releases/download/0.19.1/patchelf-0.19.1-aarch64.tar.gz
           mkdir -p "$RUNNER_TEMP/patchelf-dir"
           tar -xzf "$RUNNER_TEMP/patchelf.tgz" -C "$RUNNER_TEMP/patchelf-dir"
-          pe="$(find "$RUNNER_TEMP/patchelf-dir" -type f -name patchelf | head -1)"
-          chmod +x "$pe"
-          "$pe" --version
-          echo "PATCHELF=$pe" >> "$GITHUB_ENV"
+          real="$(find "$RUNNER_TEMP/patchelf-dir" -type f -name patchelf | head -1)"
+          chmod +x "$real"
+          "$real" --version
+          wrapper="$RUNNER_TEMP/patchelf-wrapper"
+          printf '%s\n' \
+            '#!/usr/bin/env bash' \
+            "real=\"$real\"" \
+            'if [ "$1" = "--set-rpath" ] && [ "$#" -ge 3 ] && [ "${3##*/}" = "opencode" ]; then' \
+            '  echo "patchelf-wrapper: skipping --set-rpath for sidecar $3" >&2' \
+            '  exit 0' \
+            'fi' \
+            'exec "$real" "$@"' > "$wrapper"
+          chmod +x "$wrapper"
+          # smoke test: skip branch fires for a file named opencode (never
+          # reaches the real patchelf), forwarding branch runs --version
+          touch "$RUNNER_TEMP/opencode"
+          "$wrapper" --set-rpath '$ORIGIN/../lib' "$RUNNER_TEMP/opencode"
+          "$wrapper" --version
+          echo "PATCHELF=$wrapper" >> "$GITHUB_ENV"
 
       # Second half of the fix: linuxdeploy's bundled (static binutils) strip
       # also mangles the Go sidecar, and getStripPath() has no env override —
@@ -106,10 +120,10 @@ jobs:
           readelf -l "$f" | grep -A1 'LOAD'
           echo '--- dynamic:'
           readelf -d "$f" | grep -iE 'needed|runpath|rpath'
-          echo '--- ldd:'
-          ldd "$f"; echo "ldd exit=$?"
+          echo '--- ldd (output may be empty if the trace crashes):'
+          ldd "$f" || echo "ldd exit=$?"
           echo '--- loader --list (bypasses the ldd script):'
-          /lib/ld-linux-aarch64.so.1 --list "$f"; echo "loader exit=$?"
+          /lib/ld-linux-aarch64.so.1 --list "$f" || echo "loader exit=$?"
 
       # On failure the AppDir is the crime scene (how far linuxdeploy got,
       # which libs it copied). On success the AppImage itself is the proof.
