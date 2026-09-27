@@ -2,9 +2,9 @@
 #
 # This file is a TEMPLATE rendered by .github/workflows/copr.yml before an
 # SRPM is built and submitted to COPR. The ${VERSION} placeholder is
-# substituted at release-publish time (see the render step in the workflow).
-# Do NOT edit the rendered values by hand — regenerate via the workflow
-# instead.
+# substituted at release-publish time (see the render step in the workflow);
+# ${TAG} becomes the release TAG verbatim (e.g. "v0.1.2-2"). Do NOT edit the
+# rendered values by hand — regenerate via the workflow instead.
 #
 # Local sanity check (after substituting ${VERSION}):
 #   VERSION=0.1.0 && envsubst '${VERSION}' < .copr/lumina-code.spec | rpmspec -P /dev/stdin
@@ -35,8 +35,13 @@ Summary:        A Tauri + React desktop GUI for OpenCode, bundling its own pinne
 
 License:        MPL-2.0
 URL:            https://github.com/iewnfod/lumina-code
-Source0:        %{url}/releases/download/v%{version}/Lumina.Code-%{version}-1.x86_64.rpm
-Source1:        %{url}/releases/download/v%{version}/Lumina.Code-%{version}-1.aarch64.rpm
+# The URL's tag segment is the rendered ${TAG}, NOT "v%{version}":
+# republished releases carry a suffix in the tag (v0.1.2-2) while the assets
+# stay named after the plain app version — building the URL from the version
+# 404s (the v0.1.2-2 incident; COPR builds didn't notice because the SRPM
+# embeds pre-downloaded sources, but rpmbuild --rebuild / spectool do).
+Source0:        %{url}/releases/download/${TAG}/Lumina.Code-%{version}-1.x86_64.rpm
+Source1:        %{url}/releases/download/${TAG}/Lumina.Code-%{version}-1.aarch64.rpm
 
 # Repacking needs no toolchain — just cpio to receive rpm2cpio's stream.
 BuildRequires:  cpio

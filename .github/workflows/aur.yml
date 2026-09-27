@@ -126,10 +126,14 @@ jobs:
       - name: Render PKGBUILD
         env:
           PKGVER: ${{ steps.rel.outputs.pkgver }}
+          # The release TAG verbatim (e.g. "v0.1.2-2") — the source URLs'
+          # tag segment. Never "v${pkgver}": republish suffixes would 404.
+          TAG: ${{ steps.rel.outputs.tag }}
           # Bumped per republish of the SAME app version so yay offers the
           # update (0.1.2-2 ships options=(!strip) — makepkg's strip broke
-          # the bun-compiled sidecar). Reset to "1" on the next version.
-          PKGREL: "2"
+          # the bun-compiled sidecar; 0.1.2-3 fixes the source URL tag).
+          # Reset to "1" on the next version.
+          PKGREL: "3"
           SHA256_AMD64: ${{ steps.sums.outputs.SHA256_AMD64 }}
           SHA256_ARM64: ${{ steps.sums.outputs.SHA256_ARM64 }}
         run: |
@@ -138,7 +142,7 @@ jobs:
           # envsubst with an explicit var list substitutes ONLY the named
           # placeholders — $pkgver, $srcdir, ${source_*[0]} in the PKGBUILD
           # body are left intact for makepkg to interpret.
-          envsubst '${PKGVER} ${PKGREL} ${SHA256_AMD64} ${SHA256_ARM64}' \
+          envsubst '${PKGVER} ${PKGREL} ${TAG} ${SHA256_AMD64} ${SHA256_ARM64}' \
             < .aur/PKGBUILD > out/PKGBUILD
 
           echo "===== rendered out/PKGBUILD ====="
@@ -156,7 +160,7 @@ jobs:
         run: |
           set -euo pipefail
           bash -n out/PKGBUILD
-          if grep -nE '\$\{(PKGVER|PKGREL|SHA256_AMD64|SHA256_ARM64)\}' out/PKGBUILD; then
+          if grep -nE '\$\{(PKGVER|PKGREL|TAG|SHA256_AMD64|SHA256_ARM64)\}' out/PKGBUILD; then
             echo "::error::Unsubstituted placeholder found in PKGBUILD" >&2
             exit 1
           fi

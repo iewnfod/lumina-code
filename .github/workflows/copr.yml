@@ -131,13 +131,16 @@ jobs:
       - name: Render spec
         env:
           VERSION: ${{ steps.rel.outputs.pkgver }}
+          # The release TAG verbatim (e.g. "v0.1.2-2") — the Source URLs'
+          # tag segment. Never "v%{version}": republish suffixes would 404.
+          TAG: ${{ steps.rel.outputs.tag }}
         run: |
           set -euo pipefail
           mkdir -p out
           # envsubst with an explicit var list substitutes ONLY the named
-          # placeholder — %{version}, %{buildroot}, %{SOURCE0} etc. are left
+          # placeholders — %{version}, %{buildroot}, %{SOURCE0} etc. are left
           # intact for rpmbuild to expand.
-          envsubst '${VERSION}' \
+          envsubst '${VERSION} ${TAG}' \
             < .copr/lumina-code.spec > out/lumina-code.spec
 
           # Append a %changelog entry for this release; rpmbuild warns
@@ -169,7 +172,7 @@ jobs:
         run: |
           set -euo pipefail
           rpmspec -P out/lumina-code.spec > /dev/null
-          if grep -nE '\$\{VERSION\}' out/lumina-code.spec; then
+          if grep -nE '\$\{(VERSION|TAG)\}' out/lumina-code.spec; then
             echo "::error::Unsubstituted placeholder found in spec" >&2
             exit 1
           fi
