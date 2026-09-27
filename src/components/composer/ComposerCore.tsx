@@ -5,6 +5,7 @@ import {HistoryPlugin} from "@lexical/react/LexicalHistoryPlugin";
 import {OnChangePlugin} from "@lexical/react/LexicalOnChangePlugin";
 import {LexicalErrorBoundary} from "@lexical/react/LexicalErrorBoundary";
 import {useLexicalComposerContext} from "@lexical/react/LexicalComposerContext";
+import {error} from "@tauri-apps/plugin-log";
 import {
     $createParagraphNode,
     $createTextNode,
@@ -43,6 +44,17 @@ import {$detectTrigger, $skipMention, triggerId, type TriggerState} from "./comp
 const LINE_HEIGHT = 20;
 const MAX_LINES = 5;
 
+/** Imperative handle into the editor (ChatInput's composerApiRef). */
+export interface ComposerHandle {
+    submit: () => void;
+    /** Replace the buffer with PLAIN text (edit-mode entry): one
+     * paragraph per line, focused with the caret at the end. */
+    setText: (text: string) => void;
+    /** Restore a serialized EditorState full-fidelity (mention nodes
+     * survive); an empty string clears the buffer. */
+    setState: (json: string) => void;
+}
+
 /**
  * Everything editor-internal: trigger detection, suggestions, keyboard
  * routing, Enter to send, paste-to-attach. Lives inside the LexicalComposer
@@ -66,6 +78,7 @@ export default function ComposerCore({
     onSubmit,
     onReady,
     onCanSendChange,
+    onCancelEdit,
 }: {
     disabled: boolean;
     busy: boolean;
@@ -75,9 +88,19 @@ export default function ComposerCore({
     commands: OpencodeCommand[];
     placeholder: string;
     addFiles: (files: File[]) => Promise<void>;
-    onSubmit: (text: string, files: ComposerFileRef[], command: PendingCommand | null) => void;
-    onReady: (handle: {submit: () => void}) => void;
+    /** Submit the serialized buffer. May resolve `false` to KEEP the
+     * buffer (an edit's revert failed — the user retries); any other
+     * result (void/true) clears the editor and the draft like a send. */
+    onSubmit: (
+        text: string,
+        files: ComposerFileRef[],
+        command: PendingCommand | null,
+    ) => boolean | Promise<boolean | void>;
+    onReady: (handle: ComposerHandle) => void;
     onCanSendChange: (canSend: boolean) => void;
+    /** Present = the composer is editing a sent message; Esc (with no
+     * suggestion popup open) cancels the edit instead of doing nothing. */
+    onCancelEdit?: () => void;
 }) {
     const t = useI18n();
     // Server handle from the connection context (file suggestions).
@@ -92,8 +115,8 @@ export default function ComposerCore({
     const dismissedRef = useRef<string | null>(null);
     // Latest render values for command callbacks that register once but
     // must read fresh state.
-    const liveRef = useRef({suggest, items: suggestItems, selected: suggestSelected, disabled, busy});
-    liveRef.current = {suggest, items: suggestItems, selected: suggestSelected, disabled, busy};
+    const liveRef = useRef({suggest, items: suggestItems, selected: suggestSelected, disabled, busy, onCancelEdit});
+    liveRef.current = {suggest, items: suggestItems, selected: suggestSelected, disabled, busy, onCancelEdit};
     const addFilesRef = useRef(addFiles);
     addFilesRef.current = addFiles;
 
@@ -224,10 +247,25 @@ export default function ComposerCore({
     /** Serialize the buffer for sending: plain text (mentions contribute
      *  "@relative", blocks joined by newlines) + the absolute paths of all
      *  mentions. Enter with a non-empty buffer sends; a leading `/name`
-     *  that matches a known command runs server-side instead. */
+     *  that matches a known command runs server-side instead. A pending
+     *  async submit blocks re-entry (an edit's revert round-trip must not
+     *  be doubled by a second Enter). */
+    const submitInFlightRef = useRef(false);
+    const clearAfterSend = useCallback(() => {
+        // Sent: drop the whole draft (editor state + attachments) for
+        // this surface BEFORE clearing the editor — the clearing update
+        // re-fires onChange and re-saves an empty buffer, which is the
+        // correct resting draft anyway.
+        clearDraft(draftKey);
+        editor.update(() => {
+            $getRoot().clear();
+            $getRoot().append($createParagraphNode());
+        });
+        editor.focus();
+    }, [editor, draftKey]);
     const submit = useCallback(() => {
         const live = liveRef.current;
-        if (live.disabled || live.busy) return;
+        if (live.disabled || live.busy || submitInFlightRef.current) return;
         const payload = editor.getEditorState().read(() => {
             let text = "";
             const paths: string[] = [];
@@ -251,23 +289,58 @@ export default function ComposerCore({
         if (slash && commands.some((c) => c.name === slash[1])) {
             command = {name: slash[1], arguments: slash[2] ?? ""};
         }
-        onSubmit(trimmed, payload.paths.map((path) => ({path})), command);
-        // Sent: drop the whole draft (editor state + attachments) for
-        // this surface BEFORE clearing the editor — the clearing update
-        // re-fires onChange and re-saves an empty buffer, which is the
-        // correct resting draft anyway.
-        clearDraft(draftKey);
+        submitInFlightRef.current = true;
+        void Promise.resolve(onSubmit(trimmed, payload.paths.map((path) => ({path})), command))
+            .then((keep) => {
+                if (keep === false) {
+                    // The consumer kept the buffer (an edit's revert
+                    // failed): nothing clears — refocus for a retry.
+                    editor.focus();
+                    return;
+                }
+                clearAfterSend();
+            })
+            .finally(() => {
+                submitInFlightRef.current = false;
+            });
+    }, [editor, commands, onSubmit, draftKey, clearAfterSend]);
+
+    /** Edit-mode entry: replace the buffer with the message's plain text
+     * (paragraph per line) and land the caret at the end. */
+    const setText = useCallback((text: string) => {
         editor.update(() => {
-            $getRoot().clear();
-            $getRoot().append($createParagraphNode());
+            const root = $getRoot();
+            root.clear();
+            for (const line of text.split("\n")) {
+                root.append($createParagraphNode().append($createTextNode(line)));
+            }
+            root.selectEnd();
         });
         editor.focus();
-    }, [editor, commands, onSubmit, draftKey]);
+    }, [editor]);
 
-    // Hand the imperative submit up to the toolbar's send button.
+    /** Draft restore: rehydrate a serialized EditorState (mention nodes
+     * included) or clear the buffer for an empty string. */
+    const setState = useCallback((json: string) => {
+        if (json === "") {
+            editor.update(() => {
+                $getRoot().clear();
+                $getRoot().append($createParagraphNode());
+            });
+        } else {
+            try {
+                editor.setEditorState(editor.parseEditorState(json));
+            } catch (e) {
+                error(`Failed to restore the composer draft: ${e}`).catch(() => {});
+            }
+        }
+        editor.focus();
+    }, [editor]);
+
+    // Hand the imperative handle up (toolbar send + edit-mode entry).
     useEffect(() => {
-        onReady({submit});
-    }, [onReady, submit]);
+        onReady({submit, setText, setState});
+    }, [onReady, submit, setText, setState]);
 
     // --- Keyboard: one registration, Lexical commands only. -------------
     // Every handler is IME-safe: keys pressed while composing (candidate
@@ -325,17 +398,26 @@ export default function ComposerCore({
                 },
                 COMMAND_PRIORITY_HIGH,
             ),
-            // Esc closes the popup for THIS trigger only.
+            // Esc closes the popup for THIS trigger only; with no popup
+            // open it cancels an active message edit (the composer is
+            // the edit surface — see ChatInput).
             editor.registerCommand(
                 KEY_ESCAPE_COMMAND,
                 (event) => {
                     const live = liveRef.current;
-                    if (!live.suggest) return false;
-                    event?.preventDefault();
-                    dismissedRef.current = triggerId(live.suggest);
-                    setSuggest(null);
-                    setSuggestItems([]);
-                    return true;
+                    if (live.suggest) {
+                        event?.preventDefault();
+                        dismissedRef.current = triggerId(live.suggest);
+                        setSuggest(null);
+                        setSuggestItems([]);
+                        return true;
+                    }
+                    if (live.onCancelEdit) {
+                        event?.preventDefault();
+                        live.onCancelEdit();
+                        return true;
+                    }
+                    return false;
                 },
                 COMMAND_PRIORITY_HIGH,
             ),

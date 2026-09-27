@@ -1,10 +1,11 @@
 import {memo, useCallback, useEffect, useRef, useState} from "react";
-import {X} from "lucide-react";
+import {Pencil, X} from "lucide-react";
 import {LexicalComposer} from "@lexical/react/LexicalComposer";
 import {error} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import type {
+    ChatUserMessage,
     ComposerAttachment,
     ComposerFileRef,
     OpencodeCommand,
@@ -15,10 +16,10 @@ import type {
 import type {ContextUsage} from "../chat/usageStats.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
-import ComposerCore from "./ComposerCore.tsx";
+import ComposerCore, {type ComposerHandle} from "./ComposerCore.tsx";
 import ComposerToolbar from "./ComposerToolbar.tsx";
-import {readAttachment} from "./composerAttachments.ts";
-import {saveDraftAttachments, takeInitialDraft} from "./composerDrafts.ts";
+import {filesFromMessage, readAttachment} from "./composerAttachments.ts";
+import {saveDraftAttachments, saveDraftEditorState, takeInitialDraft} from "./composerDrafts.ts";
 import {FileMentionNode} from "./FileMentionNode.tsx";
 import {CommandMentionNode} from "./CommandMentionNode.tsx";
 import Hint from "../ui/Hint.tsx";
@@ -62,6 +63,9 @@ const ChatInput = memo(function ChatInput({
      *  screen's fixed key) — keeps the half-typed buffer across the
      *  surface-swap remounts. */
     draftKey,
+    editMessage = null,
+    onCancelEdit,
+    onSubmitEdit,
 }: {
     /** No connection yet. */
     disabled: boolean;
@@ -85,6 +89,15 @@ const ChatInput = memo(function ChatInput({
     /** The session's current context reading (last measured step). */
     contextUsage?: ContextUsage | null;
     draftKey: string;
+    /** The sent message being edited HERE (null = normal send mode —
+     *  the welcome screen passes none). Entering edit loads its text +
+     *  attachments into the composer; the draft in progress is stashed
+     *  and restored when the edit ends without a successful submit. */
+    editMessage?: ChatUserMessage | null;
+    onCancelEdit?: () => void;
+    /** Submit the edit; resolves false when the revert failed (the
+     *  composer keeps the edited text and attachments for a retry). */
+    onSubmitEdit?: (message: ChatUserMessage, text: string, files: ComposerAttachment[]) => Promise<boolean>;
 }) {
     const colors = useColors();
     const t = useI18n();
@@ -106,9 +119,46 @@ const ChatInput = memo(function ChatInput({
     const commandsRef = useRef<{directory: string | null; list: OpencodeCommand[]} | null>(null);
     const [canSend, setCanSend] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    // Imperative handle into the editor (submit) — the send button lives
-    // in the toolbar, the editor state lives in ComposerCore.
-    const composerApiRef = useRef<{submit: () => void} | null>(null);
+    // Imperative handle into the editor (submit, edit-mode entry) — the
+    // send button lives in the toolbar, the editor state lives in
+    // ComposerCore.
+    const composerApiRef = useRef<ComposerHandle | null>(null);
+
+    // --- Edit mode ("edit last message" lives in the composer) ---
+    // Entering: stash whatever draft was in progress (snapshot object —
+    // the store never mutates entries in place), load the message's
+    // plain text + its attachments as removable chips. Leaving without a
+    // successful submit (cancel): restore the stash full-fidelity
+    // (mention nodes survive). A successful submit consumes the stash in
+    // handleSubmit, so this restore is a no-op and the composer is
+    // already empty. Unmounting mid-edit (session switch) writes the
+    // stash back into the draft store — the pre-edit buffer survives the
+    // surface swap.
+    const stashRef = useRef<{editorState: string; attachments: ComposerAttachment[]} | null>(null);
+    useEffect(() => {
+        if (editMessage) {
+            stashRef.current = takeInitialDraft(draftKey) ?? {editorState: "", attachments: []};
+            composerApiRef.current?.setText(editMessage.text);
+            setAttachments(filesFromMessage(editMessage));
+            return () => {
+                const pending = stashRef.current;
+                if (pending) {
+                    saveDraftEditorState(draftKey, pending.editorState);
+                    saveDraftAttachments(draftKey, pending.attachments);
+                }
+            };
+        }
+        const stash = stashRef.current;
+        if (stash) {
+            stashRef.current = null;
+            if (stash.editorState) {
+                composerApiRef.current?.setState(stash.editorState);
+            } else {
+                composerApiRef.current?.setState("");
+            }
+            setAttachments(stash.attachments);
+        }
+    }, [editMessage, draftKey]);
 
     // Slash commands are a small list, but they are location-scoped
     // (project-local .opencode/commands/ + built-ins only register inside
@@ -160,11 +210,35 @@ const ChatInput = memo(function ChatInput({
     }, []);
 
     /** ComposerCore hands the serialized content up; attachments ride
-     *  along and are cleared with the editor. */
-    const handleSubmit = useCallback((text: string, fileRefs: ComposerFileRef[], command: PendingCommand | null) => {
-        onSend(text, attachments, fileRefs, command);
-        setAttachments([]);
-    }, [onSend, attachments]);
+     *  along and are cleared with the editor. In edit mode the content
+     *  routes to the edit-submit instead (revert + resend); a failed
+     *  revert resolves false, which keeps the whole buffer in place. */
+    const handleSubmit = useCallback(
+        (
+            text: string,
+            fileRefs: ComposerFileRef[],
+            command: PendingCommand | null,
+        ): boolean | Promise<boolean> => {
+            if (editMessage) {
+                if (!onSubmitEdit) return false;
+                const files = attachments;
+                return onSubmitEdit(editMessage, text, files).then((ok) => {
+                    if (ok) {
+                        // The edit replaced the message — the stashed
+                        // pre-edit draft is dead and the composer rests
+                        // empty (ComposerCore clears the editor).
+                        stashRef.current = null;
+                        setAttachments([]);
+                    }
+                    return ok;
+                });
+            }
+            onSend(text, attachments, fileRefs, command);
+            setAttachments([]);
+            return true;
+        },
+        [editMessage, onSubmitEdit, onSend, attachments],
+    );
 
     const initialConfig = {
         namespace: "lumina-composer",
@@ -195,6 +269,27 @@ const ChatInput = memo(function ChatInput({
                     e.target.value = "";
                 }}
             />
+
+            {editMessage && (
+                /* The edit-mode banner: names the mode and offers the
+                 * cancel (the bubble being edited wears a highlight ring
+                 * so the target stays visible while typing down here). */
+                <div className="flex items-center gap-2 px-3 pt-2.5 text-xs" style={{color: colors.inactiveText}}>
+                    <Pencil size={12} className="shrink-0"/>
+                    <span className="select-none">{t["Editing message"]}</span>
+                    <span className="flex-1"/>
+                    <Hint label={t["Cancel"]}>
+                        <button
+                            type="button"
+                            onClick={onCancelEdit}
+                            className="inline-flex items-center justify-center w-5 h-5 rounded-[var(--radius-xs)] cursor-pointer hover:bg-[var(--lum-chip-hover)] transition-colors duration-[var(--duration-fast)]"
+                            style={{"--lum-chip-hover": colors.hoverOverlay} as React.CSSProperties}
+                        >
+                            <X size={11}/>
+                        </button>
+                    </Hint>
+                </div>
+            )}
 
             {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
@@ -239,6 +334,7 @@ const ChatInput = memo(function ChatInput({
                         composerApiRef.current = handle;
                     }}
                     onCanSendChange={setCanSend}
+                    onCancelEdit={editMessage ? onCancelEdit : undefined}
                 />
             </LexicalComposer>
 

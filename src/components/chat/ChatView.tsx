@@ -10,12 +10,14 @@ import {composePlanDocument, planFileName} from "../../lib/planFiles.ts";
 import {divertAttachmentsForSend, modelAcceptsImages} from "../../opencode/visionAttachments.ts";
 import type {
     ChatMessage,
+    ChatUserMessage,
     ComposerAttachment,
     ComposerFileRef,
     PendingCommand,
     SessionModelRef,
     SessionUsage,
 } from "../../opencode/types.ts";
+import {isUserMessage} from "../../opencode/types.ts";
 import {lastContextMessage, type ContextUsage} from "./usageStats.ts";
 import TranscriptList from "./TranscriptList.tsx";
 import {ExitList} from "../ui/ExitPresence.tsx";
@@ -83,7 +85,7 @@ const ChatView = memo(function ChatView({
     const {api} = useConnection();
     const {models} = useCatalog();
     const {replyPermission, replyForm, cancelForm} = useSessionData();
-    const {messages, hasMore, loadingOlder, loadOlder, send, interrupt} =
+    const {messages, hasMore, loadingOlder, loadOlder, send, editResend, interrupt} =
         useSessionTranscript(sessionId);
     const {permissions: pendingPermissions, forms: pendingForms} = usePendingRequests(sessionId);
 
@@ -91,6 +93,15 @@ const ChatView = memo(function ChatView({
     const [renderLimit, setRenderLimit] = useState(RENDER_LIMIT);
     useEffect(() => {
         setRenderLimit(RENDER_LIMIT);
+    }, [sessionId]);
+
+    // --- Edit-last-message state ---
+    // Which message's text the COMPOSER is editing (the pencil on the
+    // last user bubble loads it there); cleared on submit success or
+    // cancel (never on failure — the user's edit must not be lost).
+    const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+    useEffect(() => {
+        setEditingMessageId(null);
     }, [sessionId]);
 
     const {scrollRef, onScroll, onWheel, pinAnchor, snapToBottom} = useTranscriptScroll({
@@ -154,6 +165,64 @@ const ChatView = memo(function ChatView({
         [send, api, models, model, snapToBottom],
     );
     const handleInterrupt = useCallback(() => void interrupt(), [interrupt]);
+
+    // --- Edit-last-message wiring ---
+    // Only the session's LAST user message is editable, and only while
+    // idle (the server enforces it too — revert stage answers 409 to a
+    // busy session) and connected. A slash-command submission is not: the
+    // stored text is the EXPANDED template, not what the user typed. An
+    // optimistic local bubble can't be the last editable row either (it
+    // only exists mid-send, which busy already excludes).
+    const lastEditableId = useMemo(() => {
+        if (busy || disabled) return null;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const m = messages[i];
+            if (!isUserMessage(m)) continue;
+            return m.command || m.id.startsWith("local-") ? null : m.id;
+        }
+        return null;
+    }, [messages, busy, disabled]);
+    const handleStartEdit = useCallback((message: ChatUserMessage) => {
+        setEditingMessageId(message.id);
+    }, []);
+    const handleCancelEdit = useCallback(() => {
+        setEditingMessageId(null);
+    }, []);
+    const handleSubmitEdit = useCallback(
+        async (message: ChatUserMessage, text: string, files: ComposerAttachment[]): Promise<boolean> => {
+            const ok = await editResend(message, text, files);
+            if (ok) {
+                setEditingMessageId(null);
+                // The resent message (and its rerun) lands at the tail —
+                // follow it like a fresh send.
+                snapToBottom();
+            }
+            return ok;
+        },
+        [editResend, snapToBottom],
+    );
+    // The message whose text the COMPOSER is editing (null = normal send
+    // mode). Identity-stable across streaming frames — clone-on-write
+    // keeps untouched message objects referentially equal, so ChatInput's
+    // memo holds and its edit-mode effect only fires on real transitions.
+    const editMessage = useMemo(
+        () =>
+            editingMessageId == null
+                ? null
+                : (messages.find((m) => m.id === editingMessageId && isUserMessage(m)) as ChatUserMessage | undefined) ??
+                  null,
+        [messages, editingMessageId],
+    );
+    // One identity-stable bundle per (flags, handlers) change so the
+    // memoized transcript rows skip re-renders across streaming frames.
+    const editProps = useMemo(
+        () => ({
+            editableMessageId: lastEditableId,
+            editingMessageId,
+            onStartEdit: handleStartEdit,
+        }),
+        [lastEditableId, editingMessageId, handleStartEdit],
+    );
 
     // Plan-workflow approval (Route A): the plan_submit executor BLOCKS
     // inside its tool call, so a still-running part IS the pending
@@ -297,6 +366,7 @@ const ChatView = memo(function ChatView({
                         directory={directory}
                         models={models}
                         waitingForUser={waitingForUser}
+                        edit={editProps}
                     />
                 </div>
             </div>
@@ -377,6 +447,9 @@ const ChatView = memo(function ChatView({
                         onOpenModelConfig={onOpenModelConfig}
                         usage={usage}
                         contextUsage={contextUsage}
+                        editMessage={editMessage}
+                        onCancelEdit={handleCancelEdit}
+                        onSubmitEdit={handleSubmitEdit}
                     />
                 )}
             </div>

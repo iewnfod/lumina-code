@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {applyEvent, applyOlderPage, applySeedPage} from "./messageStore.ts";
+import {applyEvent, applyOlderPage, applySeedPage, dropFromBoundary} from "./messageStore.ts";
 import type {MessagesPage} from "./api.ts";
 import {MESSAGES_PAGE_SIZE} from "./types.ts";
 import {recordPendingCommand} from "./pendingCommands.ts";
@@ -454,4 +454,53 @@ test("seed merge keeps the compact command stamp on user messages", () => {
     const m = seeded.messages.find((x): x is ChatUserMessage => isUserMessage(x) && x.id === "msg_user_cmd");
     assert.ok(m, "stamped message kept");
     assert.deepEqual(m.command, {name: "init", arguments: "x"});
+});
+
+// --- Revert commit (edit-last-message flow) ---
+//
+// Server v2.0.11 deletes the boundary message AND everything after it
+// (seq >= boundary); the bus event carries only the boundary id. The
+// drop rule is the first message whose id >= boundary (string compare,
+// the TUI's cache rule) — see dropFromBoundary.
+
+function revertList(): ChatMessage[] {
+    return [
+        {id: "msg_a", type: "user", text: "first"},
+        {id: "msg_b", type: "assistant", content: [], time: {created: 2}},
+        {id: "msg_c", type: "user", text: "second"},
+        {id: "msg_d", type: "assistant", content: [], time: {created: 4}},
+    ];
+}
+
+test("dropFromBoundary removes the boundary message and its tail", () => {
+    const kept = dropFromBoundary(revertList(), "msg_c");
+    assert.deepEqual(kept.map((m) => m.id), ["msg_a", "msg_b"]);
+});
+
+test("dropFromBoundary with a boundary older than everything clears the list", () => {
+    // Another client reverted to a message before our loaded window:
+    // every held id sorts at-or-after the boundary — all go.
+    assert.deepEqual(dropFromBoundary(revertList(), "msg_0"), []);
+});
+
+test("dropFromBoundary with a boundary newer than the tail is a no-op (same array)", () => {
+    const list = revertList();
+    assert.equal(dropFromBoundary(list, "msg_z"), list);
+});
+
+test("dropFromBoundary never drops a local optimistic bubble", () => {
+    // The edit flow appends its optimistic bubble BEFORE the committed
+    // event lands; `local-` sorts before every `msg_` id, so the pending
+    // edit survives the late event (which is then a clean no-op).
+    const list: ChatMessage[] = [
+        ...revertList().slice(0, 2),
+        {id: "local-123", type: "user", text: "edited"},
+    ];
+    const kept = dropFromBoundary(list, "msg_c");
+    assert.deepEqual(kept.map((m) => m.id), ["msg_a", "msg_b", "local-123"]);
+});
+
+test("revert committed event drops through applyEvent", () => {
+    const list = applyEvent(revertList(), ev("session.revert.committed", {to: "msg_c"}));
+    assert.deepEqual(list.map((m) => m.id), ["msg_a", "msg_b"]);
 });

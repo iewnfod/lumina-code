@@ -180,6 +180,7 @@ const enUs = {
     "Model ID": "Model ID",
     "Model name": "Model name",
     "Save": "Save",
+    "Editing message": "Editing message",
     "Saving...": "Saving...",
     "Custom provider ID, Base URL and at least one model are required": "Custom provider ID, Base URL and at least one model are required",
     "The config file uses JSONC (comments) and cannot be edited here. Open it to edit manually.": "The config file uses JSONC (comments) and cannot be edited here. Open it to edit manually.",

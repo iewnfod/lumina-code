@@ -564,6 +564,12 @@ export interface EventMap {
     /** The run stopped without succeeding/failing (dismissed question,
      *  stop button, shutdown). Clears the busy indicator. */
     "session.execution.interrupted": {sessionID: string; reason?: string};
+    /** A staged revert was committed (server v2.0.11): `to` is the
+     *  boundary message id — it AND everything after it are gone from
+     *  the session. The server emits no per-message removal events;
+     *  consumers drop the range locally (messageStore.dropFromBoundary,
+     *  the same rule the official TUI applies). */
+    "session.revert.committed": {sessionID: string; to: string};
     "session.usage.updated": {
         sessionID: string;
         cost?: number;

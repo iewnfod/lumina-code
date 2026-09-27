@@ -163,9 +163,27 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
                 if (d.tokens !== undefined) m.tokens = d.tokens;
             });
         }
+        case "session.revert.committed": {
+            const d = data as EventMap["session.revert.committed"];
+            return dropFromBoundary(list, d.to);
+        }
         default:
             return list;
     }
+}
+
+/** Drop the revert boundary message and everything after it (server
+ *  v2.0.11 deletes `seq >= boundary`; the boundary itself dies too —
+ *  this is the "edit a sent message" primitive, see api.ts). The
+ *  boundary is located by the FIRST message whose id sorts at or after
+ *  it (plain string compare — server ids are `msg_` + a time-sortable
+ *  suffix, the same rule the official TUI applies to its cache), so a
+ *  boundary older than everything held clears the list while one newer
+ *  than the tail is a no-op. Optimistic `local-` bubbles sort before
+ *  every `msg_` id and are never dropped. */
+export function dropFromBoundary(list: ChatMessage[], boundaryId: string): ChatMessage[] {
+    const index = list.findIndex((m) => m.id >= boundaryId);
+    return index === -1 ? list : list.slice(0, index);
 }
 
 /** The next-older cursor of a page, with the server's exhaustion quirk

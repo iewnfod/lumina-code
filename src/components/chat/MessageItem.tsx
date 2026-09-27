@@ -1,12 +1,13 @@
 import {memo, useEffect, useRef, useState, type CSSProperties} from "react";
 import {motion} from "framer-motion";
-import {Terminal, Check, Copy, AlertCircle} from "lucide-react";
+import {Terminal, Check, Copy, AlertCircle, Pencil} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {
     ChatAssistantMessage,
     ChatMessage,
     ChatUserMessage,
+    UserMessageFile,
 } from "../../opencode/types.ts";
 import {isAssistantMessage, isUserMessage} from "../../opencode/types.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
@@ -35,11 +36,30 @@ import Hint from "../ui/Hint.tsx";
  * live at the transcript's tail animates in; bulk-mounted history renders
  * at its final state (see TranscriptList).
  */
+/** Edit-flow bundle threaded ChatView → TranscriptList → MessageItem as
+ *  ONE stable-prop object (identity-stable across streaming frames, so
+ *  memoized rows keep skipping re-renders; each row resolves its own
+ *  editable/editing flags from the ids). All optional so subagent
+ *  transcripts render MessageItem without any of this. */
+export interface TranscriptEditProps {
+    /** The id of the session's last plain user message while idle — the
+     *  only row that grows the edit affordance (null = none). */
+    editableMessageId: string | null;
+    /** The id of the message being edited in the COMPOSER right now
+     *  (null = none) — that bubble wears a highlight ring so the edit
+     *  target stays visible while the typing happens down in the
+     *  composer. */
+    editingMessageId: string | null;
+    /** Load the message's text + attachments into the composer. */
+    onStartEdit: (message: ChatUserMessage) => void;
+}
+
 const MessageItem = memo(function MessageItem({
     message,
     streaming,
     directory,
     enter,
+    edit,
 }: {
     message: ChatMessage;
     /** True while this assistant message is still being produced. */
@@ -48,9 +68,19 @@ const MessageItem = memo(function MessageItem({
     directory?: string | null;
     /** True when this message appeared live at the tail (animate in). */
     enter: boolean;
+    /** Edit-flow bundle (see {@link TranscriptEditProps}). */
+    edit?: TranscriptEditProps;
 }) {
     if (isUserMessage(message)) {
-        return <UserBubble message={message} enter={enter} />;
+        return (
+            <UserBubble
+                message={message}
+                enter={enter}
+                editable={edit != null && edit.editableMessageId === message.id}
+                editing={edit != null && edit.editingMessageId === message.id}
+                onStartEdit={edit?.onStartEdit}
+            />
+        );
     }
     if (isAssistantMessage(message)) {
         return (
@@ -72,7 +102,23 @@ export default MessageItem;
  * "Show more" expander under the bubble. */
 const USER_BUBBLE_MAX_PX = 256;
 
-function UserBubble({message, enter}: {message: ChatUserMessage; enter: boolean}) {
+function UserBubble({
+    message,
+    enter,
+    editable = false,
+    editing = false,
+    onStartEdit,
+}: {
+    message: ChatUserMessage;
+    enter: boolean;
+    /** The edit affordance (pencil) shows on hover. */
+    editable?: boolean;
+    /** The composer is editing THIS message — highlight the bubble so
+     *  the target of the edit stays visible while typing happens in
+     *  the composer below. */
+    editing?: boolean;
+    onStartEdit?: (message: ChatUserMessage) => void;
+}) {
     const colors = useColors();
     const t = useI18n();
     const {copied, copy} = useCopy();
@@ -108,29 +154,7 @@ function UserBubble({message, enter}: {message: ChatUserMessage; enter: boolean}
             {/* Attachments float ABOVE the bubble, outside it — the prompt
                 text keeps a clean single-surface read and the files read as
                 accompanying material rather than bubble content. */}
-            {files.length > 0 && (
-                <div className="flex flex-wrap justify-end gap-1.5 mb-1.5 max-w-[85%]">
-                    {files.map((f, i) => {
-                        const src = typeof f.uri === "string" ? f.uri
-                            : f.data && f.mime ? `data:${f.mime};base64,${f.data}`
-                            : null;
-                        return (
-                            <span
-                                key={i}
-                                className="inline-flex items-center gap-1.5 h-7 pl-2.5 pr-2.5 rounded-[var(--radius-lg)] max-w-56"
-                                style={{background: "rgba(128,128,128,0.10)"}}
-                            >
-                                {f.mime?.startsWith("image/") && src ? (
-                                    <img src={src} alt="" className="w-5 h-5 rounded-[var(--radius-xs)] object-cover shrink-0"/>
-                                ) : (
-                                    <img src={fileIconUrl(f.name ?? "file")} alt="" className="w-4 h-4 shrink-0"/>
-                                )}
-                                <span className="text-xs truncate leading-normal">{f.name ?? "file"}</span>
-                            </span>
-                        );
-                    })}
-                </div>
-            )}
+            {files.length > 0 && <AttachmentChips files={files}/>}
             {message.text && (
                 // A slash-command submission hovers to reveal the expanded
                 // template (the wrapper carries the width cap while the
@@ -141,8 +165,11 @@ function UserBubble({message, enter}: {message: ChatUserMessage; enter: boolean}
                      * to the cap); a command bubble fills its fit-content
                      * wrapper either way. */}
                     <div
-                        className={`${message.command ? "" : "max-w-[85%]"} rounded-[var(--radius-lg)] px-4 py-2.5 text-sm`}
-                        style={{background: colors.accentOverlay}}
+                        className={`${message.command ? "" : "max-w-[85%]"} rounded-[var(--radius-lg)] px-4 py-2.5 text-sm${editing ? " ring-1 ring-[var(--lum-edit-ring)]" : ""}`}
+                        style={{
+                            background: colors.accentOverlay,
+                            ...(editing ? {"--lum-edit-ring": colors.focusRing} as CSSProperties : {}),
+                        }}
                     >
                         {/* The clamp + fade live on this inner wrapper, not the
                          * bubble: a mask would dissolve the bubble's own
@@ -196,6 +223,21 @@ function UserBubble({message, enter}: {message: ChatUserMessage; enter: boolean}
                                 : <Copy size={14} className="shrink-0"/>}
                         </button>
                     </Hint>
+                    {/* Edit the last sent message: loads its text +
+                        attachments into the composer (see ChatView's
+                        edit wiring + useSessionMessages.editResend).
+                        Same quiet-button chrome as copy. */}
+                    {editable && (
+                        <Hint label={t["Edit"]}>
+                            <button
+                                type="button"
+                                onClick={() => onStartEdit?.(message)}
+                                className="inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none lum-wash transition-opacity duration-[var(--duration-fast)] transform-gpu opacity-0 group-hover/msg:opacity-50 hover:opacity-100"
+                            >
+                                <Pencil size={14} className="shrink-0"/>
+                            </button>
+                        </Hint>
+                    )}
                     {clipped && (
                         <motion.button
                             type="button"
@@ -209,6 +251,35 @@ function UserBubble({message, enter}: {message: ChatUserMessage; enter: boolean}
                     )}
                 </div>
             )}
+        </div>
+    );
+}
+
+/** A user message's attachments, floated above the bubble — the prompt
+ *  text keeps a clean single-surface read and the files read as
+ *  accompanying material rather than bubble content. */
+function AttachmentChips({files}: {files: UserMessageFile[]}) {
+    return (
+        <div className="flex flex-wrap justify-end gap-1.5 mb-1.5 max-w-[85%]">
+            {files.map((f, i) => {
+                const src = typeof f.uri === "string" ? f.uri
+                    : f.data && f.mime ? `data:${f.mime};base64,${f.data}`
+                    : null;
+                return (
+                    <span
+                        key={i}
+                        className="inline-flex items-center gap-1.5 h-7 pl-2.5 pr-2.5 rounded-[var(--radius-lg)] max-w-56"
+                        style={{background: "rgba(128,128,128,0.10)"}}
+                    >
+                        {f.mime?.startsWith("image/") && src ? (
+                            <img src={src} alt="" className="w-5 h-5 rounded-[var(--radius-xs)] object-cover shrink-0"/>
+                        ) : (
+                            <img src={fileIconUrl(f.name ?? "file")} alt="" className="w-4 h-4 shrink-0"/>
+                        )}
+                        <span className="text-xs truncate leading-normal">{f.name ?? "file"}</span>
+                    </span>
+                );
+            })}
         </div>
     );
 }

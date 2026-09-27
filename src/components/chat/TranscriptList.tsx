@@ -1,6 +1,6 @@
 import {Fragment, memo, useEffect, useRef, type ReactNode} from "react";
 import {isAssistantMessage, isUserMessage, type ChatMessage, type OpencodeModel} from "../../opencode/types.ts";
-import MessageItem from "./MessageItem.tsx";
+import MessageItem, {type TranscriptEditProps} from "./MessageItem.tsx";
 import ActivityGroup from "./ActivityGroup.tsx";
 import ModelChangeDivider from "./ModelChangeDivider.tsx";
 import {effectiveTailPart, type ActivityEntry, type ActivityPart} from "./messageParts.ts";
@@ -37,6 +37,7 @@ const TranscriptList = memo(function TranscriptList({
     directory,
     models,
     waitingForUser = false,
+    edit,
 }: {
     /** The window of messages currently mounted (newest N). */
     messages: ChatMessage[];
@@ -50,6 +51,9 @@ const TranscriptList = memo(function TranscriptList({
     /** The session is blocked on a user decision (permission / question /
      *  plan approval) — the tail's working dots stand down for it. */
     waitingForUser?: boolean;
+    /** Edit-flow bundle (see MessageItem.TranscriptEditProps); absent in
+     *  subagent transcripts — no row is editable there. */
+    edit?: TranscriptEditProps;
 }) {
     // An assistant message still lacks its completion stamp while the
     // session is working — that's the streaming state (caret / thinking).
@@ -115,6 +119,7 @@ const TranscriptList = memo(function TranscriptList({
                             streaming={isStreaming(block.message)}
                             directory={directory}
                             enter={enterIds.has(block.message.id)}
+                            edit={edit}
                         />
                     );
                     if (isAssistantMessage(block.message)) runEndId = block.message.id;

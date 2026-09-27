@@ -232,7 +232,13 @@ src/
 │   │                      #   ignored); `?roots=true` doesn't work (root sessions are
 │   │                      #   filtered client-side); questions are forms on this
 │   │                      #   server generation; GET /api/session/active seeds busy
-│   │                      #   state predating the event stream.
+│   │                      #   state predating the event stream. Also the session
+│   │                      #   REVERT trio (stage/clear/commit — the
+│   │                      #   edit-last-message primitive, v2.0.11): staging
+│   │                      #   at message M undoes the file changes of the
+│   │                      #   turns after M immediately, committing deletes
+│   │                      #   M AND everything after it, and clearing
+│   │                      #   re-applies the undone files.
 │   ├── configFiles.ts     # globalConfigTarget — where the global opencode.json
 │   │                      #   lives, derived from GET /api/config (pure; shared
 │   │                      #   by the settings config editor and the attachment
@@ -292,6 +298,12 @@ src/
 │   │                      #   on the event bus (the server persists a part when it
 │   │                      #   ENDS, carrying "" until then), so a list must never be
 │   │                      #   rebuilt from a server snapshot alone.
+│   │                      #   EDIT-LAST-MESSAGE: dropFromBoundary + the
+│   │                      #   session.revert.committed event case truncate a
+│   │                      #   list at the first id >= boundary (the TUI's
+│   │                      #   cache rule; `local-` bubbles sort before
+│   │                      #   `msg_` ids and survive) — the revert commit
+│   │                      #   emits no per-message removal events.
 │   ├── pendingCommands.ts # Pure registry of pending slash-command submissions
 │   │                      #   (compact `/name args` forms stamped onto the
 │   │                      #   confirming enqueue event; per-session FIFO + undo).
@@ -366,6 +378,18 @@ src/
 │   │                      #   a session.model.selected event re-pulls the newest
 │   │                      #   page — the model-switch marker it persists has no
 │   │                      #   message frame, so the divider lands live.
+│   │                      #   EDIT-LAST-MESSAGE: editResend(message,
+│   │                      #   text, editFiles?) is the whole flow — stage
+│   │                      #   the revert AT the message, commit (deletes
+│   │                      #   it + the turn after, undoing their file
+│   │                      #   changes), drop the range from the store
+│   │                      #   EAGERLY (the confirming bus event is then
+│   │                      #   a no-op), then re-send the edited text
+│   │                      #   with the composer's staged attachments or
+│   │                      #   the ORIGINAL ones (no vision-diversion
+│   │                      #   rerun — its note is already in the text).
+│   │                      #   A failed commit unwinds via clearRevert
+│   │                      #   and returns false.
 │   ├── useSessionFlow.ts  # App-level session flow: active session id + composer
 │   │                      #   staging (pendingModel/pendingAgent/pendingDirectory
 │   │                      #   seeded from lib/persist.ts), changeModel/changeAgent/
@@ -670,7 +694,18 @@ src/
     │   │                  #   pending payload from the transcript, and
     │   │                  #   PlanApprovalCard pins above the composer
     │   │                  #   (approve = switchAgent + plan-file save;
-    │   │                  #   reject = interrupt).
+    │   │                  #   reject = interrupt). And the EDIT-LAST-
+    │   │                  #   MESSAGE state: editingMessageId +
+    │   │                  #   lastEditableId (the last plain user message
+    │   │                  #   while idle + connected) fed to
+    │   │                  #   TranscriptList as one stable edit bundle
+    │   │                  #   (which bubble shows the pencil / the
+    │   │                  #   highlight ring); the COMPOSER is the edit
+    │   │                  #   surface — ChatView passes editMessage +
+    │   │                  #   cancel/submit callbacks to ChatInput;
+    │   │                  #   submit = editResend (revert + resend),
+    │   │                  #   success snaps to bottom and ends the
+    │   │                  #   edit, failure keeps the composer editing.
     │   ├── transcript.ts  # Pure blockify(): folds runs of activity-only
     │   │                  #   assistant messages into TranscriptBlocks; a persisted
     │   │                  #   model-switched marker becomes its own model-change
@@ -690,6 +725,18 @@ src/
     │   ├── MessageItem.tsx # One message: user bubble or assistant document
     │   │                  #   (segmented via messageParts.ts); `enter` prop =
     │   │                  #   apply this message's .lum-enter CSS entrance or not.
+    │   │                  #   The user bubble also carries the EDIT-LAST-
+    │   │                  #   MESSAGE entry point: a pencil in the quiet
+    │   │                  #   actions row (only the row whose id matches
+    │   │                  #   the edit bundle's editableMessageId —
+    │   │                  #   ChatView derives "last plain prompt while
+    │   │                  #   idle") loads the message into the COMPOSER
+    │   │                  #   (ChatInput's edit mode); the row being
+    │   │                  #   edited wears a focusRing highlight. The
+    │   │                  #   bundle rides TranscriptList
+    │   │                  #   → MessageItem as ONE stable prop so memoized
+    │   │                  #   rows skip re-renders; subagent transcripts
+    │   │                  #   pass none of it.
     │   ├── messageParts.ts # Pure part segmentation: segmentContent,
     │   │                  #   effectiveTailPart, stable part keys.
     │   ├── ActivityGroup.tsx # Folded run of tool calls / thoughts
@@ -923,10 +970,27 @@ src/
     ├── composer/          # The prompt composer
         ├── ChatInput.tsx  # Composer shell: staged attachments (chips),
         │                  #   slash-command fetch (per-directory, retried),
-        │                  #   LexicalComposer wiring, toolbar.
+        │                  #   LexicalComposer wiring, toolbar. ALSO THE
+        │                  #   EDIT-LAST-MESSAGE surface: editMessage prop
+        │                  #   (from ChatView) enters edit mode — the
+        │                  #   message's text loads via the editor handle,
+        │                  #   its attachments become removable chips, an
+        │                  #   "Editing message" banner offers cancel, and
+        │                  #   the in-progress draft is STASHED and
+        │                  #   restored when the edit ends without a
+        │                  #   submit (written back into the draft store
+        │                  #   on mid-edit unmount); submit routes to
+        │                  #   onSubmitEdit, whose false (revert failed)
+        │                  #   keeps the whole buffer.
         ├── ComposerCore.tsx # Editor internals: trigger-driven suggestions,
         │                  #   keyboard routing (Enter/arrows/Tab/Esc, IME-safe),
         │                  #   submit serialization, paste-to-attach.
+        │                  #   Exposes the imperative handle (submit,
+        │                  #   setText/setState — edit-mode entry and
+        │                  #   full-fidelity draft restore); onSubmit may
+        │                  #   resolve false to KEEP the buffer (edit's
+        │                  #   revert failed); Esc with no popup open
+        │                  #   cancels an active edit.
         ├── ComposerToolbar.tsx # Bottom toolbar: attach/mode/project on the
         │                  #   left; usage ring, model, thinking depth,
         │                  #   send/stop on the right. Owns the catalog →

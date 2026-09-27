@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useRef, useState, useSyncExternalStore} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import {OpencodeApi} from "./api.ts";
-import {applyEvent, applyOlderPage, applySeedPage} from "./messageStore.ts";
+import {applyEvent, applyOlderPage, applySeedPage, dropFromBoundary} from "./messageStore.ts";
 import {dropPendingCommands, recordPendingCommand} from "./pendingCommands.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {
@@ -11,6 +11,7 @@ import type {
     ComposerFileRef,
     EventMap,
     PendingCommand,
+    UserMessageFile,
 } from "./types.ts";
 
 /**
@@ -58,6 +59,24 @@ function entryOf(sessionId: string): SessionEntry {
 
 function notify(sessionId: string) {
     for (const listener of listeners) listener(sessionId);
+}
+
+/** Append an optimistic user bubble to a session's store entry and
+ *  notify — shared by send() and the edit-resend flow. */
+function appendOptimisticBubble(sessionId: string, optimistic: ChatUserMessage): void {
+    const entry = entries.get(sessionId);
+    if (!entry) return;
+    entry.messages = [...entry.messages, optimistic];
+    notify(sessionId);
+}
+
+/** Drop an optimistic bubble whose delivery failed — the failure must be
+ *  a visible absence, not a phantom row. */
+function dropOptimisticBubble(sessionId: string, id: string): void {
+    const current = entries.get(sessionId);
+    if (!current) return;
+    current.messages = current.messages.filter((m) => m.id !== id);
+    notify(sessionId);
 }
 
 /** Pull the newest server page and merge it into a session's store —
@@ -214,6 +233,15 @@ export function useSessionMessages(
         fileRefs?: ComposerFileRef[],
         command?: PendingCommand | null,
     ) => Promise<void>;
+    /** Edit-and-resend the session's last user message (revert + fresh
+     *  prompt; `editFiles` = the composer's staged attachments, falling
+     *  back to the message's originals). False = the revert failed and
+     *  nothing changed. */
+    editResend: (
+        message: ChatUserMessage,
+        text: string,
+        editFiles?: ComposerAttachment[],
+    ) => Promise<boolean>;
     interrupt: () => Promise<void>;
 } {
     // Seeded from the store at FIRST RENDER (not first effect): a session
@@ -358,11 +386,7 @@ export function useSessionMessages(
             ],
             ...(command ? {command} : {}),
         };
-        const entry = entries.get(sid);
-        if (entry) {
-            entry.messages = [...entry.messages, optimistic];
-            notify(sid);
-        }
+        appendOptimisticBubble(sid, optimistic);
         // The stamp applies only when the command itself runs — a fallback
         // prompt must enqueue UNstamped (its text is the raw `/name args`).
         const undoPending = command ? recordPendingCommand(sid, command) : null;
@@ -388,12 +412,84 @@ export function useSessionMessages(
             }
             logError(`Failed to send prompt: ${e}`).catch(() => {});
             // Drop the optimistic bubble so the failure is visible.
-            const current = entries.get(sid);
-            if (current) {
-                current.messages = current.messages.filter((m) => m.id !== optimistic.id);
+            dropOptimisticBubble(sid, optimistic.id);
+        }
+    }, []);
+
+    /** Edit-and-resend for the session's LAST user message (the UI
+     *  derives which message qualifies; the server enforces idleness
+     *  with 409): stage a revert at the message, commit it — deleting
+     *  the message and everything after it, and undoing the file
+     *  changes those turns made (staging's default; see api.ts) — then
+     *  deliver the edited text as a fresh prompt. `editFiles` are the
+     *  composer's staged attachments (editable during the edit); without
+     *  them the ORIGINAL attachments ride back unchanged. The deleted
+     *  range is dropped from the
+     *  store EAGERLY so the resent bubble appends in place; the
+     *  confirming `session.revert.committed` bus event is then a no-op
+     *  (dropFromBoundary's `local-` id rule keeps the pending bubble).
+     *  Returns false when the revert itself failed — the message and
+     *  the workspace stay untouched and the editor stays open. */
+    const editResend = useCallback(async (message: ChatUserMessage, text: string, editFiles?: ComposerAttachment[]): Promise<boolean> => {
+        const trimmed = text.trim();
+        const a = apiRef.current;
+        const sid = sessionRef.current;
+        if (!a || !sid || !trimmed) return false;
+        try {
+            await a.stageSessionRevert(sid, message.id);
+            try {
+                await a.commitSessionRevert(sid);
+            } catch (commitErr) {
+                // Unwind the stage: clear re-applies the files staging
+                // undid and lifts the staged state (best-effort).
+                await a.clearSessionRevert(sid).catch((clearErr) => {
+                    logError(`Failed to clear staged revert: ${clearErr}`).catch(() => {});
+                });
+                throw commitErr;
+            }
+        } catch (e) {
+            logError(`Failed to revert session for edit: ${e}`).catch(() => {});
+            return false;
+        }
+        const entry = entries.get(sid);
+        if (entry) {
+            const kept = dropFromBoundary(entry.messages, message.id);
+            if (kept !== entry.messages) {
+                entry.messages = kept;
                 notify(sid);
             }
         }
+        // Re-send with the edited attachments (or the ORIGINAL ones when
+        // the composer staged none): stored files ride back as prompt
+        // files (inlined base64 reconstructed as data: URIs). No
+        // vision-diversion re-run — a text-only model's note from the
+        // original send is already part of the text.
+        const files: UserMessageFile[] = editFiles
+            ? editFiles.map((f) => ({name: f.name, mime: f.mime, uri: f.uri}))
+            : (message.files ?? []);
+        const promptFiles = files
+            .filter((f) => typeof f.uri === "string" || (f.data != null && f.mime != null))
+            .map((f) => ({
+                uri: typeof f.uri === "string" ? f.uri : `data:${f.mime};base64,${f.data}`,
+                name: f.name ?? "file",
+            }));
+        const localId = `local-${Date.now()}`;
+        appendOptimisticBubble(sid, {
+            id: localId,
+            type: "user",
+            text: trimmed,
+            localKey: localId,
+            files,
+        });
+        try {
+            await a.sendPrompt(sid, trimmed, promptFiles);
+        } catch (e) {
+            // The edit DID happen (the old message is gone server-side) —
+            // only the delivery failed; surface it like a failed send.
+            logError(`Failed to send edited prompt: ${e}`).catch(() => {});
+            dropOptimisticBubble(sid, localId);
+        }
+        return true;
     }, []);
 
     const interrupt = useCallback(async () => {
@@ -407,5 +503,5 @@ export function useSessionMessages(
         }
     }, []);
 
-    return {messages, hasMore, loadingOlder, seeding, loadOlder, send, interrupt};
+    return {messages, hasMore, loadingOlder, seeding, loadOlder, send, editResend, interrupt};
 }

@@ -194,6 +194,45 @@ export class OpencodeApi {
         ).then((r) => r?.interrupted ?? false);
     }
 
+    // --- Session revert (verified against server v2.0.11) ---
+    //
+    // Revert is the server's "edit a sent message" primitive (the TUI's
+    // message action does the same): stage a boundary at a message, then
+    // commit deletes that message AND everything after it (the projector
+    // removes seq >= boundary — the boundary itself dies too), so the
+    // client re-sends the edited text as a fresh prompt.
+    //
+    // Staging has a FILE side effect: unless `files: false` is passed, it
+    // immediately restores every file the assistant turns AFTER the
+    // boundary touched to their pre-turn snapshot states (the TUI stages
+    // without the flag — "undo messages and file changes"). Clearing a
+    // staged revert re-applies those files. Staging while the session is
+    // executing fails with 409 BusyError — only idle sessions can revert.
+
+    /** Stage a revert boundary at a message (deleting happens on commit;
+     *  the file undo happens NOW — see the block comment above). */
+    stageSessionRevert(sessionId: string, messageID: string): Promise<unknown> {
+        return this.request(`/api/session/${encodeURIComponent(sessionId)}/revert/stage`, {
+            method: "POST",
+            body: JSON.stringify({messageID}),
+        });
+    }
+
+    /** Clear a staged revert and re-apply the files staging had undone. */
+    clearSessionRevert(sessionId: string): Promise<void> {
+        return this.request<void>(`/api/session/${encodeURIComponent(sessionId)}/revert`, {
+            method: "DELETE",
+        });
+    }
+
+    /** Commit the staged revert: deletes the boundary message and
+     *  everything after it (announced as `session.revert.committed`). */
+    commitSessionRevert(sessionId: string): Promise<void> {
+        return this.request<void>(`/api/session/${encodeURIComponent(sessionId)}/revert/commit`, {
+            method: "POST",
+        });
+    }
+
     // --- Workspace activity (stats card) — verified against server v2.0.11 ---
     //
     // The shells are location-scoped services: a session whose directory
