@@ -201,8 +201,12 @@ jobs:
       - name: Install inspection tools
         run: |
           sudo apt-get update
-          # libarchive-tools provides bsdtar (not on ubuntu runners by default).
-          sudo apt-get install -y libarchive-tools rpm2cpio cpio
+          # libarchive-tools provides bsdtar (not on ubuntu runners by
+          # default). bsdtar reads BOTH .deb and .rpm payloads (libarchive
+          # handles rpm incl. zstd) — no rpm2cpio/cpio: Ubuntu's rpm2cpio
+          # is an ancient script without zstd support, and cpio exits
+          # non-zero on warnings, which pipefail turns into silent deaths.
+          sudo apt-get install -y libarchive-tools
 
       - name: Read the pinned OpenCode version
         id: pin
@@ -298,17 +302,12 @@ jobs:
               fail=1
               continue
             fi
-            # rpm2cpio STREAMS the payload; cpio stops reading at the cpio
-            # TRAILER and closes the pipe, killing rpm2cpio with SIGPIPE
-            # (exit 141) — fatal under `set -o pipefail` and silent with
-            # stderr hidden. Stage the cpio payload to a file first and
-            # feed cpio from it (verified: the pipe form dies 141 locally).
-            rpm2cpio "${f}" > "${work}/rpm-${arch}.cpio"
-            cpio -itv --quiet < "${work}/rpm-${arch}.cpio" > "${work}/rpm-${arch}.list" 2>/dev/null
+            # bsdtar reads the rpm payload directly (modes preserved).
+            bsdtar -tvf "${f}" > "${work}/rpm-${arch}.list"
             verify_layout "rpm ${arch}" "${work}/rpm-${arch}.list" ""
             d="${work}/rpm-${arch}"
             mkdir -p "${d}"
-            (cd "${d}" && cpio -idm --quiet < "${work}/rpm-${arch}.cpio")
+            (cd "${d}" && bsdtar -xf "${f}")
             if [ ! -f "${d}/usr/lib/Lumina Code/opencode" ]; then
               echo "FAIL: rpm ${arch} extraction missing sidecar"
               fail=1
