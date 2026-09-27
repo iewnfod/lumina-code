@@ -278,11 +278,17 @@ jobs:
             gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
               --pattern "Lumina.Code-*${arch}.rpm" --dir "${work}" --clobber
             f="${work}/${asset}"
-            rpm2cpio "${f}" | cpio -itv --quiet > "${work}/rpm-${arch}.list" 2>/dev/null
+            # rpm2cpio STREAMS the payload; cpio stops reading at the cpio
+            # TRAILER and closes the pipe, killing rpm2cpio with SIGPIPE
+            # (exit 141) — fatal under `set -o pipefail` and silent with
+            # stderr hidden. Stage the cpio payload to a file first and
+            # feed cpio from it (verified: the pipe form dies 141 locally).
+            rpm2cpio "${f}" > "${work}/rpm-${arch}.cpio"
+            cpio -itv --quiet < "${work}/rpm-${arch}.cpio" > "${work}/rpm-${arch}.list" 2>/dev/null
             verify_layout "rpm ${arch}" "${work}/rpm-${arch}.list" ""
             d="${work}/rpm-${arch}"
             mkdir -p "${d}"
-            (cd "${d}" && rpm2cpio "${f}" | cpio -idm --quiet)
+            (cd "${d}" && cpio -idm --quiet < "${work}/rpm-${arch}.cpio")
             if [ ! -f "${d}/usr/lib/Lumina Code/opencode" ]; then
               echo "FAIL: rpm ${arch} extraction missing sidecar"
               fail=1
