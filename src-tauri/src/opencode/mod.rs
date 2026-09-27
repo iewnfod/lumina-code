@@ -155,9 +155,10 @@ pub fn opencode_start(
     // provider/model reads).
     reap_orphaned_servers(&app);
 
-    let (bin, bundled) = resolve_opencode().ok_or_else(|| {
+    let (bin, bundled) = resolve_opencode(&app).ok_or_else(|| {
         "opencode binary not found: bundled sidecar missing and none on PATH \
-         (run `pnpm fetch:opencode`, or set OPENCODE_BIN to override)"
+         (reinstall Lumina Code; in dev run `pnpm fetch:opencode`; set \
+         OPENCODE_BIN to override)"
             .to_string()
     })?;
     let port = probe::free_port()?;
@@ -172,15 +173,16 @@ pub fn opencode_start(
         .unwrap_or_else(|| PathBuf::from("."));
     let version = resolve::opencode_version(&bin);
 
-    // The bundled sidecar is app-controlled: any version drift means the
-    // binary was replaced out from under us (e.g. a stray self-update) and
-    // must be re-fetched before we run it. External binaries (OPENCODE_BIN
-    // or a user install) are merely warned about — dev overrides may
-    // legitimately pin something else.
+    // The bundled resource sidecar is app-controlled: any version drift
+    // means the shipped binary was replaced out from under us (stray
+    // self-update, tampered package) and the app must refuse to run it.
+    // External binaries (OPENCODE_BIN or a user install) are merely warned
+    // about — dev overrides may legitimately pin something else.
     if bundled && version != EXPECTED_OPENCODE_VERSION {
         let msg = format!(
             "bundled OpenCode is v{version} but this build pins \
-             v{EXPECTED_OPENCODE_VERSION}; re-run `pnpm fetch:opencode` and rebuild"
+             v{EXPECTED_OPENCODE_VERSION}; reinstall Lumina Code \
+             (packaged install) or re-run `pnpm fetch:opencode` (dev build)"
         );
         emit_status(&app, "error", msg.clone());
         return Err(msg);

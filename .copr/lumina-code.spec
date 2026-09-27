@@ -17,7 +17,8 @@
 # side, so each chroot build finishes in well under a minute.
 #
 # NOTE on the bundled OpenCode server: the upstream .rpm carries a
-# self-contained sidecar binary under /usr/lib/Lumina.Code/ — a statically
+# self-contained sidecar binary under /usr/lib/Lumina Code/opencode (a
+# Tauri resource — see the resolve.rs note in AGENTS.md §2) — a statically
 # linked single-file executable that adds NO extra runtime Requires.
 
 # The payload ships as-built: keep Fedora's build-root scripts from stripping
@@ -77,7 +78,7 @@ rpm2cpio %{SOURCE1} | cpio -idm --quiet
 %{_bindir}/lumina-code
 # Tauri's bundler places resources under plain /usr/lib on every arch —
 # never rpm's libdir (lib64 on 64-bit Fedora) — so glob the prefix path.
-# The bundled OpenCode sidecar rides under the same /usr/lib/Lumina.Code/
+# The bundled OpenCode sidecar rides under the same /usr/lib/Lumina Code/
 # tree.
 %{_prefix}/lib/Lumina*
 %{_datadir}/applications/Lumina*.desktop

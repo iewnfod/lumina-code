@@ -19,9 +19,11 @@
 # are published from a single PKGBUILD via per-arch source/checksum arrays.
 #
 # NOTE on the bundled OpenCode server: the .deb carries a self-contained
-# sidecar binary (usr/lib/Lumina.Code/opencode-<triple> inside the payload),
-# which adds NO extra system dependencies — it is a statically linked
-# single-file executable.
+# sidecar binary under usr/lib/Lumina Code/opencode (a Tauri RESOURCE, not
+# externalBin — the old externalBin layout installed it as /usr/bin/opencode,
+# polluting PATH and colliding with any user-installed opencode). It adds NO
+# extra system dependencies — it is a statically linked single-file
+# executable, and the app resolves it through its private resource dir.
 
 pkgname=lumina-code-bin
 pkgver=${PKGVER}
@@ -85,8 +87,8 @@ package() {
 	# the .deb (verified against the lumina-terminal v0.1.5 release payload).
 	#
 	# The payload already lays out usr/{bin,lib,share/applications,share/icons/...}
-	# exactly as pacman expects it (the sidecar rides under usr/lib/Lumina.Code/),
-	# so we have nothing to reassemble here.
+	# exactly as pacman expects it (the sidecar resource rides under
+	# usr/lib/Lumina Code/), so we have nothing to reassemble here.
 	bsdtar -xOf "${deb}" 'data.tar.*' | bsdtar -xf - -C "${scratch}"
 
 	# Relocate the extracted tree into $pkgdir verbatim, preserving mode,

@@ -1,6 +1,11 @@
 #!/usr/bin/env node
-// Fetches the pinned OpenCode server binary into src-tauri/binaries/ for
-// Tauri's `externalBin` sidecar (see tauri.conf.json → bundle.externalBin).
+// Fetches the pinned OpenCode server binary into src-tauri/binaries/ under a
+// stable per-platform name (`opencode` / `opencode.exe`), referenced by the
+// `resources` maps in tauri.linux/macos/windows.conf.json. Shipping it as a
+// resource (NOT externalBin) keeps it in the app's PRIVATE resource dir —
+// /usr/lib/Lumina Code/ on Linux packages, Contents/Resources on macOS, the
+// install dir on Windows — instead of next to the main executable, where
+// deb/rpm would install it as /usr/bin/opencode and pollute the user's PATH.
 //
 // OpenCode v2 distributes its binaries as versioned npm packages
 // (`@opencode/cli-<target>`; older releases under `@opencode-ai`), so the
@@ -107,7 +112,14 @@ async function fetchOne(triple) {
     if (!extracted) throw new Error(`tarball for ${target} has no package/bin/opencode${exeSuffix}`);
 
     await mkdir(BINARIES_DIR, { recursive: true });
-    const dest = join(BINARIES_DIR, `opencode-${triple}${exeSuffix}`);
+    // Stable (triple-less) name: the resources maps reference one fixed
+    // filename per platform. The exec bit is preserved by the bundlers
+    // (tauri-bundler copies resource modes from disk), so 0755 here means
+    // 0755 inside the deb/rpm.
+    const dest = join(BINARIES_DIR, `opencode${exeSuffix}`);
+    // Clear the legacy externalBin layout (triple-suffixed name) so stale
+    // files never masquerade as the current sidecar.
+    await rm(join(BINARIES_DIR, `opencode-${triple}${exeSuffix}`), { force: true });
     await rm(dest, { force: true });
     // copyFile, not rename: the temp dir may live on another filesystem.
     await copyFile(join(binDir, extracted), dest);
@@ -118,6 +130,12 @@ async function fetchOne(triple) {
   }
 }
 
-for (const triple of parseArgs(process.argv.slice(2))) {
+const triples = parseArgs(process.argv.slice(2));
+if (triples.length > 1) {
+  console.warn(
+    `warning: ${triples.length} targets requested; they share one stable sidecar filename, so the LAST target wins (CI passes exactly one triple per job)`
+  );
+}
+for (const triple of triples) {
   await fetchOne(triple);
 }

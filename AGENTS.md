@@ -34,8 +34,10 @@ or ask the user to enter the plan mode for you.
 | Regenerate Material file-type icons (after bumping `material-icon-theme`) | `pnpm gen:icons` (output is committed) |
 
 - `pnpm fetch:opencode` is a **prerequisite** for `tauri dev`/`tauri build`:
-  Tauri's `externalBin` (`src-tauri/binaries/opencode`) must exist or the
-  bundle step fails. Binaries are gitignored. The sidecar is also a hard
+  the `resources` maps in `tauri.linux/macos/windows.conf.json` reference
+  `src-tauri/binaries/opencode` (stable name, fetched per platform), and the
+  file must exist or the bundle step — even `cargo check` — fails. Binaries
+  are gitignored. The sidecar is also a hard
   dependency of the BUILD SCRIPT — `cargo check` alone fails without it, and
   every CI job fetches it first.
 - There is no lint/format config; `pnpm build` is the
@@ -1015,8 +1017,17 @@ src-tauri/src/
     │              #   generated password + OPENCODE_SERVER_PASSWORD, the webview
     │              #   origin to --cors, version-pin enforcement, monitor thread
     │              #   emitting "opencode-status") and shutdown.
-    ├── resolve.rs # Binary discovery ($OPENCODE_BIN → bundled sidecar → PATH →
-    │              #   ~/.opencode/bin) + `--version` parsing.
+    ├── resolve.rs # Binary discovery ($OPENCODE_BIN → RESOURCE sidecar →
+    │              #   dev checkout → PATH → ~/.opencode/bin) +
+    │              #   `--version` parsing. The sidecar ships as a Tauri
+    │              #   RESOURCE (maps in tauri.*.conf.json) in the app's
+    │              #   PRIVATE dir (/usr/lib/Lumina Code/ on Linux
+    │              #   packages, Contents/Resources on macOS, install dir
+    │              #   on Windows) — NEVER externalBin, whose next-to-exe
+    │              #   layout becomes /usr/bin/opencode on deb/rpm (PATH
+    │              #   pollution + collision with a user-installed
+    │              #   opencode) and whose "next to exe" probe mistook any
+    │              #   /usr/bin/opencode for the bundled sidecar.
     ├── probe.rs   # Spawn prerequisites + readiness: free_port, base64,
     │              #   generate_password, and the minimal HTTP GET that polls
     │              #   /api/session WITH auth (unknown routes serve the SPA HTML

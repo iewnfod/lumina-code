@@ -3,18 +3,32 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+use tauri::{AppHandle, Manager};
+
 /// Locate the opencode server binary, in order:
 /// 1. `$OPENCODE_BIN` (explicit override — takes precedence so dev can run
 ///    any version)
-/// 2. the sidecar bundled next to the app executable (Tauri `externalBin`;
-///    fetched per platform by `pnpm fetch:opencode`)
-/// 3. a PATH scan
-/// 4. well-known installer locations (`~/.opencode/bin` is the official
+/// 2. the app's resource dir — the `resources` maps in
+///    tauri.linux/macos/windows.conf.json ship the sidecar PRIVATELY
+///    (`/usr/lib/Lumina Code/` on Linux packages, `Contents/Resources` on
+///    macOS, the install dir on Windows): never on PATH, never colliding
+///    with a user-installed opencode
+/// 3. the dev checkout layout (`<repo>/src-tauri/binaries/opencode[.exe]`,
+///    two levels above the debug executable `tauri dev` builds — the
+///    resources map's source path)
+/// 4. a PATH scan
+/// 5. well-known installer locations (`~/.opencode/bin` is the official
 ///    curl-installer path and is often not on PATH)
 ///
 /// Returns the path and whether it is the bundled sidecar (whose version is
-/// pinned to EXPECTED_OPENCODE_VERSION).
-pub(super) fn resolve_opencode() -> Option<(PathBuf, bool)> {
+/// pinned to EXPECTED_OPENCODE_VERSION). Only 2 and 3 are "bundled";
+/// everything else is an external override/fallback whose version drift
+/// merely warns. The old "next to the executable" probe is deliberately
+/// GONE: on Linux system packages the executable lives in /usr/bin, and
+/// that probe mistook ANY user-installed /usr/bin/opencode for our sidecar
+/// (hard-failing on its version). The private resource layout makes the
+/// app immune to whatever sits in the system bin dirs.
+pub(super) fn resolve_opencode(app: &AppHandle) -> Option<(PathBuf, bool)> {
     if let Ok(bin) = std::env::var("OPENCODE_BIN") {
         let p = PathBuf::from(&bin);
         if p.is_file() {
@@ -22,7 +36,10 @@ pub(super) fn resolve_opencode() -> Option<(PathBuf, bool)> {
         }
         log::warn!("OPENCODE_BIN={bin} does not exist, falling back to search");
     }
-    if let Some(p) = bundled_sidecar() {
+    if let Some(p) = resource_sidecar(app) {
+        return Some((p, true));
+    }
+    if let Some(p) = dev_sidecar() {
         return Some((p, true));
     }
     if let Some(found) = scan_path_for_opencode() {
@@ -31,29 +48,35 @@ pub(super) fn resolve_opencode() -> Option<(PathBuf, bool)> {
     well_known_opencode().map(|p| (p, false))
 }
 
-/// The bundled sidecar, if present. Tauri's `externalBin` places the binary
-/// next to the app executable with the target-triple suffix stripped; some
-/// layouts keep the suffixed name, so accept either.
-fn bundled_sidecar() -> Option<PathBuf> {
-    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    let suffix = if cfg!(windows) { ".exe" } else { "" };
-    let mut candidates = vec![exe_dir.join(format!("opencode{suffix}"))];
-    if let Some(triple) = target_triple() {
-        candidates.push(exe_dir.join(format!("opencode-{triple}{suffix}")));
+/// The sidecar's name inside the resource dir / the fetch script's stable
+/// output name (see scripts/fetch-opencode.mjs).
+fn sidecar_name() -> &'static str {
+    if cfg!(windows) {
+        "opencode.exe"
+    } else {
+        "opencode"
     }
-    candidates.into_iter().find(|p| p.is_file())
 }
 
-/// The Rust target triple this build is for, matching the file suffix
-/// `pnpm fetch:opencode` uses for sidecars.
-fn target_triple() -> Option<String> {
-    let arch = std::env::consts::ARCH;
-    Some(match std::env::consts::OS {
-        "linux" => format!("{arch}-unknown-linux-gnu"),
-        "macos" => format!("{arch}-apple-darwin"),
-        "windows" => format!("{arch}-pc-windows-msvc"),
-        _ => return None,
-    })
+/// The packaged sidecar, shipped as a Tauri resource:
+/// `<resource_dir>/opencode[.exe]`.
+fn resource_sidecar(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().resource_dir().ok()?;
+    let p = dir.join(sidecar_name());
+    p.is_file().then_some(p)
+}
+
+/// The dev sidecar: `tauri dev` compiles into `<repo>/src-tauri/target/<profile>/`
+/// while the fetched binary sits at `<repo>/src-tauri/binaries/opencode`
+/// (the resources map's source path) — two levels above the executable.
+/// Dev-mode resource resolution does not reliably map through to the source
+/// tree, so probe the checkout layout directly. Harmless in packaged builds
+/// (the probe path simply doesn't exist there).
+fn dev_sidecar() -> Option<PathBuf> {
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    let p = exe_dir.join("../../binaries").join(sidecar_name());
+    let canonical = p.canonicalize().unwrap_or(p);
+    canonical.is_file().then_some(canonical)
 }
 
 /// Well-known user-installed opencode locations.

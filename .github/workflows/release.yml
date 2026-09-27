@@ -176,3 +176,127 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+  # Post-publish tripwire (added after a v0.1.1 incident where a Linux
+  # package ended up with a WRONG binary as its "opencode"): assert the
+  # shipped layout is exactly the private-resource design —
+  #   ① NO usr/bin/opencode member (the old externalBin layout: installing
+  #     it pollutes PATH and collides with a user-installed opencode),
+  #   ② the private sidecar usr/lib/Lumina Code/opencode IS present,
+  #     executable (0755) and an ELF,
+  #   ③ on the runner-matching arch (amd64) the sidecar actually runs and
+  #     reports the pinned version.
+  # Any violation fails the release run loudly instead of shipping broken
+  # packages to AUR/COPR users.
+  verify-linux-assets:
+    needs: publish-tauri
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install inspection tools
+        run: |
+          sudo apt-get update
+          # libarchive-tools provides bsdtar (not on ubuntu runners by default).
+          sudo apt-get install -y libarchive-tools rpm2cpio cpio
+
+      - name: Read the pinned OpenCode version
+        id: pin
+        run: |
+          pin="$(grep -oP '(?<=const EXPECTED_OPENCODE_VERSION: &str = ")[^"]+' src-tauri/src/opencode/mod.rs)"
+          echo "pin=${pin}" >> "$GITHUB_OUTPUT"
+          echo "pinned OpenCode version: ${pin}"
+
+      - name: Download and verify Linux assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          pin="${{ steps.pin.outputs.pin }}"
+          work="${RUNNER_TEMP}/verify"
+          mkdir -p "${work}"
+          fail=0
+
+          verify_layout() {
+            # $1 = label, $2 = listing with modes (one line per member),
+            # $3 = sidecar path prefix as it appears in the listing
+            local label="$1" listing="$2" prefix="$3"
+            echo "::group::layout: ${label}"
+            if grep -qE '(^|[[:space:]])\./?usr/bin/opencode([[:space:]]|$)' "${listing}"; then
+              echo "FAIL: ${label} installs usr/bin/opencode — PATH pollution regression"
+              fail=1
+            fi
+            if ! grep -F "usr/lib/Lumina Code/opencode" "${listing}"; then
+              echo "FAIL: ${label} is missing the private sidecar usr/lib/Lumina Code/opencode"
+              fail=1
+            else
+              mode="$(grep -F 'usr/lib/Lumina Code/opencode' "${listing}" | head -1 | awk '{print $1}')"
+              if [ "${mode#-}" != "rwxr-xr-x" ]; then
+                echo "FAIL: ${label} sidecar mode is ${mode#-}, expected rwxr-xr-x"
+                fail=1
+              else
+                echo "ok: private sidecar present, mode ${mode#-}"
+              fi
+            fi
+            echo "::endgroup::"
+          }
+
+          for arch in amd64 arm64; do
+            asset="Lumina.Code_${RELEASE_TAG#v}_${arch}.deb"
+            gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+              --pattern "Lumina.Code*${arch}.deb" --dir "${work}" --clobber
+            f="${work}/${asset}"
+            bsdtar -xOf "${f}" 'data.tar.*' | bsdtar -tvf - > "${work}/deb-${arch}.list"
+            verify_layout "deb ${arch}" "${work}/deb-${arch}.list" ""
+            # Extract the sidecar for ELF/exec checks.
+            bsdtar -xOf "${f}" 'data.tar.*' \
+              | bsdtar -xOf - 'usr/lib/Lumina Code/opencode' > "${work}/sidecar-${arch}"
+            magic="$(head -c4 "${work}/sidecar-${arch}" | od -An -tx1 | tr -d '[:space:]')"
+            if [ "${magic}" != "7f454c46" ]; then
+              echo "FAIL: deb ${arch} sidecar is not an ELF (magic ${magic})"
+              fail=1
+            fi
+            # Only the runner-matching arch can actually execute here.
+            if [ "${arch}" = "amd64" ]; then
+              chmod +x "${work}/sidecar-${arch}"
+              got="$("${work}/sidecar-${arch}" --version)"
+              if [ "${got}" != "opencode v${pin}" ]; then
+                echo "FAIL: deb amd64 sidecar reports '${got}', expected 'opencode v${pin}'"
+                fail=1
+              else
+                echo "ok: deb amd64 sidecar runs, ${got}"
+              fi
+            fi
+          done
+
+          for arch in x86_64 aarch64; do
+            asset="Lumina.Code-${RELEASE_TAG#v}-1.${arch}.rpm"
+            gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+              --pattern "Lumina.Code-*${arch}.rpm" --dir "${work}" --clobber
+            f="${work}/${asset}"
+            rpm2cpio "${f}" | cpio -itv --quiet > "${work}/rpm-${arch}.list" 2>/dev/null
+            verify_layout "rpm ${arch}" "${work}/rpm-${arch}.list" ""
+            d="${work}/rpm-${arch}"
+            mkdir -p "${d}"
+            (cd "${d}" && rpm2cpio "${f}" | cpio -idm --quiet)
+            if [ ! -f "${d}/usr/lib/Lumina Code/opencode" ]; then
+              echo "FAIL: rpm ${arch} extraction missing sidecar"
+              fail=1
+            else
+              mode="$(stat -c '%A' "${d}/usr/lib/Lumina Code/opencode")"
+              if [ "${mode}" != "-rwxr-xr-x" ]; then
+                echo "FAIL: rpm ${arch} sidecar mode is ${mode}, expected -rwxr-xr-x"
+                fail=1
+              fi
+            fi
+          done
+
+          if [ "${fail}" -ne 0 ]; then
+            echo "::error::Linux asset layout verification FAILED — see the FAIL lines above"
+            exit 1
+          fi
+          echo "All Linux assets verified: private sidecar layout intact."
