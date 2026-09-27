@@ -44,6 +44,15 @@ depends=(
 )
 provides=("${pkgname%-bin}=${pkgver}")
 conflicts=("${pkgname%-bin}")
+# CRITICAL: never let makepkg's tidy 'strip' step touch the payload. The
+# bundled OpenCode server is a `bun build --compile` binary — `strip
+# --strip-all` removes symbols its runtime needs to locate the embedded
+# app, and the binary silently degrades to the bare bun CLI: `--version`
+# prints the embedded bun runtime's version (e.g. "1.4.2") instead of
+# "opencode v2.0.11" (verified byte-for-byte: stripped size 200457504 ==
+# the "corrupted" binary from the v0.1.1/v0.1.2 incidents). The main Rust
+# binary ships already-stripped, so skipping strip changes nothing else.
+options=('!strip' '!debug')
 optdepends=(
 	'xdg-utils: open files/URLs from the app'
 )
