@@ -3,6 +3,8 @@ import {error as logError} from "@tauri-apps/plugin-log";
 import {OpencodeApi} from "./api.ts";
 import {applyEvent, applyOlderPage, applySeedPage, dropFromBoundary} from "./messageStore.ts";
 import {dropPendingCommands, recordPendingCommand} from "./pendingCommands.ts";
+import {clearSessionStopping, markSessionStopping} from "./sessionStopping.ts";
+import {attachmentNoteLine, splitAttachmentNote} from "./visionAttachments.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {
     ChatMessage,
@@ -462,8 +464,13 @@ export function useSessionMessages(
         // Re-send with the edited attachments (or the ORIGINAL ones when
         // the composer staged none): stored files ride back as prompt
         // files (inlined base64 reconstructed as data: URIs). No
-        // vision-diversion re-run — a text-only model's note from the
-        // original send is already part of the text.
+        // vision-diversion re-run — the composer strips the note for
+        // editing, so the ORIGINAL message's note (parsed back out of
+        // its text; the disk files persist, paths unchanged) is
+        // re-appended to the edited text and a text-only model keeps
+        // its image paths.
+        const {diverted} = splitAttachmentNote(message.text);
+        const delivered = diverted ? `${trimmed}\n\n${attachmentNoteLine(diverted)}` : trimmed;
         const files: UserMessageFile[] = editFiles
             ? editFiles.map((f) => ({name: f.name, mime: f.mime, uri: f.uri}))
             : (message.files ?? []);
@@ -477,12 +484,12 @@ export function useSessionMessages(
         appendOptimisticBubble(sid, {
             id: localId,
             type: "user",
-            text: trimmed,
+            text: delivered,
             localKey: localId,
             files,
         });
         try {
-            await a.sendPrompt(sid, trimmed, promptFiles);
+            await a.sendPrompt(sid, delivered, promptFiles);
         } catch (e) {
             // The edit DID happen (the old message is gone server-side) —
             // only the delivery failed; surface it like a failed send.
@@ -496,9 +503,22 @@ export function useSessionMessages(
         const a = apiRef.current;
         const sid = sessionRef.current;
         if (!a || !sid) return;
+        // The stopping marker goes up the MOMENT the button is pressed:
+        // the server takes a moment to actually unwind the run, and the
+        // tail's indicator must say "Stopping" through that window (see
+        // sessionStopping.ts). The bus fold settles it when the run-end
+        // event arrives; the branches below only cover the cases where
+        // no such event will come — a false response means nothing was
+        // running, a throw means the request itself failed. A true
+        // response does nothing: the end event may already have cleared
+        // the marker (either order is safe — clearing is idempotent and
+        // never resurrected here).
+        markSessionStopping(sid);
         try {
-            await a.interruptSession(sid);
+            const interrupted = await a.interruptSession(sid);
+            if (!interrupted) clearSessionStopping(sid);
         } catch (e) {
+            clearSessionStopping(sid);
             logError(`Failed to interrupt session: ${e}`).catch(() => {});
         }
     }, []);

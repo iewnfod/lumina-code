@@ -74,6 +74,8 @@ const enUs = {
     "Tool failed": "Tool failed",
     "Subagent failed": "Subagent failed",
     "Request failed": "Request failed",
+    /** The tail's pending-stop label: stop pressed, run not yet unwound. */
+    "Stopping": "Stopping",
     "Thinking...": "Thinking...",
     /** Tail-working label (no ellipsis — the pulsing dots beside it are
      *  the ongoing signal; the "..." variants belong to ThinkingBlock /

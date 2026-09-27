@@ -15,6 +15,7 @@ import type {
 } from "../../opencode/types.ts";
 import type {ContextUsage} from "../chat/usageStats.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
+import {splitAttachmentNote} from "../../opencode/visionAttachments.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import ComposerCore, {type ComposerHandle} from "./ComposerCore.tsx";
 import ComposerToolbar from "./ComposerToolbar.tsx";
@@ -138,7 +139,10 @@ const ChatInput = memo(function ChatInput({
     useEffect(() => {
         if (editMessage) {
             stashRef.current = takeInitialDraft(draftKey) ?? {editorState: "", attachments: []};
-            composerApiRef.current?.setText(editMessage.text);
+            // The vision-divert note is protocol, not the user's words —
+            // edit the clean prompt; editResend re-appends the note from
+            // the ORIGINAL message so the model keeps its image paths.
+            composerApiRef.current?.setText(splitAttachmentNote(editMessage.text).text);
             setAttachments(filesFromMessage(editMessage));
             return () => {
                 const pending = stashRef.current;

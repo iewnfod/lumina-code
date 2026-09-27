@@ -700,3 +700,27 @@ body {
         width: 40rem;
     }
 }
+
+/*
+ * Rounded hairline dividers BETWEEN the expanded panel's overview
+ * sections — a pseudo-element PILL (2px, fully rounded caps, half
+ * alpha) inside the FOLLOWING section, not a border: softer than a
+ * hard 1px rule while the caps stay visibly round. The adjacent-
+ * sibling combinator does the conditional work — an empty section is
+ * absent from the DOM, so a line exists only between two
+ * actually-rendered sections (never above the first, never dangling).
+ * The card seeds --lum-stats-divider from SurfaceColors (the same
+ * glassBorder hairline the card frame and the model-change divider
+ * use). Spacing stays symmetric: the body's gap-3 (12px) above the
+ * line; margin-bottom 8px + the section's own gap-1 (4px) below it.
+ * Drill bodies aren't <section>s, so they never pick the rule up.
+ */
+.lum-stats-body > section + section::before {
+    content: "";
+    flex-shrink: 0;
+    height: 2px;
+    border-radius: 9999px;
+    background: var(--lum-stats-divider);
+    opacity: 0.6;
+    margin-bottom: 0.5rem;
+}

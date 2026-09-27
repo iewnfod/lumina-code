@@ -37,6 +37,7 @@ const TranscriptList = memo(function TranscriptList({
     directory,
     models,
     waitingForUser = false,
+    stopping = false,
     edit,
 }: {
     /** The window of messages currently mounted (newest N). */
@@ -51,6 +52,9 @@ const TranscriptList = memo(function TranscriptList({
     /** The session is blocked on a user decision (permission / question /
      *  plan approval) — the tail's working dots stand down for it. */
     waitingForUser?: boolean;
+    /** Stop requested, run not yet unwound — the tail's dots force-show
+     *  "Stopping" (subagent transcripts never pass this). */
+    stopping?: boolean;
     /** Edit-flow bundle (see MessageItem.TranscriptEditProps); absent in
      *  subagent transcripts — no row is editable there. */
     edit?: TranscriptEditProps;
@@ -199,8 +203,9 @@ const TranscriptList = memo(function TranscriptList({
             {/* The tail's "still working" loop — covers the busy-but-
              * silent gaps (first-token wait, step boundaries, stalls);
              * see TailWorking. Subagent transcripts pass busy and get
-             * it too; waitingForUser only exists for the active view. */}
-            <TailWorking messages={messages} busy={busy} waiting={waitingForUser}/>
+             * it too; waitingForUser/stopping only exist for the active
+             * view. */}
+            <TailWorking messages={messages} busy={busy} waiting={waitingForUser} stopping={stopping}/>
         </>
     );
 });

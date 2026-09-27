@@ -5,6 +5,7 @@ import {useI18n} from "../../hooks/i18n.tsx";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {usePendingRequests, useSessionData, useSessionTranscript} from "../../opencode/sessionDataContext.tsx";
+import {useSessionStopping} from "../../opencode/sessionStopping.ts";
 import {planApprovalPending} from "../../opencode/sessionActivity.ts";
 import {composePlanDocument, planFileName} from "../../lib/planFiles.ts";
 import {divertAttachmentsForSend, modelAcceptsImages} from "../../opencode/visionAttachments.ts";
@@ -88,6 +89,9 @@ const ChatView = memo(function ChatView({
     const {messages, hasMore, loadingOlder, loadOlder, send, editResend, interrupt} =
         useSessionTranscript(sessionId);
     const {permissions: pendingPermissions, forms: pendingForms} = usePendingRequests(sessionId);
+    // Stop pressed, run not yet unwound — the tail's indicator says
+    // "Stopping" through the interrupt latency window (sessionStopping.ts).
+    const stopping = useSessionStopping(sessionId);
 
     const sentinelRef = useRef<HTMLDivElement>(null);
     const [renderLimit, setRenderLimit] = useState(RENDER_LIMIT);
@@ -370,6 +374,7 @@ const ChatView = memo(function ChatView({
                         directory={directory}
                         models={models}
                         waitingForUser={waitingForUser}
+                        stopping={stopping}
                         edit={editProps}
                     />
                 </div>

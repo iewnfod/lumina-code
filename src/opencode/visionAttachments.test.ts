@@ -4,8 +4,10 @@ import {
     attachmentDiskName,
     attachmentNoteLine,
     dataUriToBytes,
+    divertedDisplayName,
     modelAcceptsImages,
     planAttachmentDivert,
+    splitAttachmentNote,
 } from "./visionAttachments.ts";
 import type {ComposerAttachment, OpencodeModel, SessionModelRef} from "./types.ts";
 
@@ -39,12 +41,54 @@ test("planAttachmentDivert: images divert only for known text-only models", () =
     assert.deepEqual(planAttachmentDivert([], false), {inline: [], diverted: []});
 });
 
-test("attachmentNoteLine lists paths, null when nothing diverted", () => {
+test("attachmentNoteLine maps original names to saved paths, null when nothing diverted", () => {
     assert.equal(attachmentNoteLine([]), null);
-    const note = attachmentNoteLine(["/a/b/1.png", "/a/b/2.jpg"])!;
-    assert.ok(note.includes("/a/b/1.png"));
-    assert.ok(note.includes("/a/b/2.jpg"));
+    const note = attachmentNoteLine([
+        {name: "截图 1.png", path: "/a/b/attachments/m1-ab3f-__.png"},
+        {name: "shot.png", path: "/a/b/attachments/m1-cd9a-shot.png"},
+    ])!;
     assert.ok(note.startsWith("[image attachments"));
+    assert.ok(note.includes("截图 1.png")); // original names ride along, CJK intact
+    assert.ok(note.includes("/a/b/attachments/m1-cd9a-shot.png"));
+    assert.ok(note.endsWith("]"));
+});
+
+test("splitAttachmentNote round-trips the note off a sent text", () => {
+    const items = [
+        {name: "截图 1.png", path: "/cfg/attachments/m8xk2-ab3f-__.png"},
+        {name: "shot.png", path: "/cfg/attachments/m8xk2-cd9a-shot.png"},
+    ];
+    const note = attachmentNoteLine(items)!;
+    const split = splitAttachmentNote(`看看这张图\n\n${note}`);
+    assert.equal(split.text, "看看这张图");
+    assert.deepEqual(split.diverted, items);
+    // Image-only send: the whole persisted text IS the note.
+    const bare = splitAttachmentNote(note);
+    assert.equal(bare.text, "");
+    assert.deepEqual(bare.diverted, items);
+});
+
+test("splitAttachmentNote leaves texts without a trailing note untouched", () => {
+    assert.deepEqual(splitAttachmentNote("plain [brackets] text"), {text: "plain [brackets] text", diverted: null});
+    // A note that is NOT trailing (user typed after a pasted line) stays visible.
+    const note = attachmentNoteLine([{name: "a.png", path: "/a/a.png"}])!;
+    assert.equal(splitAttachmentNote(`${note}\ntyped after`).diverted, null);
+});
+
+test("splitAttachmentNote parses the legacy comma-joined format", () => {
+    const split = splitAttachmentNote(
+        "hi\n\n[image attachments saved as files — view them with the vision tool: /a/b/m9k2-ab3f-shot.png, /a/b/m9k2-cdef-__.jpg]",
+    );
+    assert.equal(split.text, "hi");
+    assert.deepEqual(split.diverted, [
+        {name: "shot.png", path: "/a/b/m9k2-ab3f-shot.png"},
+        {name: "__.jpg", path: "/a/b/m9k2-cdef-__.jpg"},
+    ]);
+});
+
+test("divertedDisplayName strips the generated disk prefix", () => {
+    assert.equal(divertedDisplayName("/a/b/m8xk2-ab3f-my-shot.png"), "my-shot.png");
+    assert.equal(divertedDisplayName("/a/b/m8xk2-ab3f-__.png"), "__.png");
 });
 
 test("attachmentDiskName sanitizes and uniquifies", () => {

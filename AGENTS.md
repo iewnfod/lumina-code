@@ -167,7 +167,14 @@ src/
 │                          #   vision (识图) — a text-only model asks a
 │                          #   configured vision model about an image file via
 │                          #   a transient helper session (askModel), gated on
-│                          #   its model option — and plan_mode (always-on
+│                          #   its model option; the description is
+│                          #   FALLBACK-FIRST — a model that can already see
+│                          #   inline image content must read it directly and
+│                          #   NOT call the tool (priority decided by the
+│                          #   model's own vision ability), the call being
+│                          #   reserved for path-referenced images (the
+│                          #   attachments note's name→path map) and workspace
+│                          #   images it cannot view — and plan_mode (always-on
 │                          #   while the plugin loads): the model switches ITS
 │                          #   OWN session into OpenCode's Plan Mode (the
 │                          #   builtin `plan` agent) via ctx.session.switchAgent
@@ -277,10 +284,20 @@ src/
 │   │                      #   regression), image attachments are NOT inlined as
 │   │                      #   prompt parts but written under the global
 │   │                      #   config's attachments/ (api.writeBinaryFile) and a
-│   │                      #   one-line note with the saved paths is appended to
-│   │                      #   the prompt — the model then calls the vision tool
-│   │                      #   on them. A failed write falls back to inline.
-│   │                      #   Wired into BOTH send paths (ChatView.handleSend,
+│   │                      #   one-line note is appended to the prompt mapping
+│   │                      #   each image's ORIGINAL name to its saved path (a
+│   │                      #   JSON {name, path} array — the disk name sanitizes
+│   │                      #   CJK away, so the note is the model's only way to
+│   │                      #   match "看看 截图.png" to a file) — the model then
+│   │                      #   calls the vision tool on them. The note is
+│   │                      #   PROTOCOL, hidden from the user: UserBubble
+│   │                      #   strips it (splitAttachmentNote, pure — also
+│   │                      #   parses the legacy comma-joined format) and shows
+│   │                      #   the diverted images as attachment chips instead;
+│   │                      #   editResend re-appends the original note so an
+│   │                      #   edited prompt keeps its image paths. A failed
+│   │                      #   write falls back to inline. Wired into BOTH send
+│   │                      #   paths (ChatView.handleSend,
 │   │                      #   useSessionFlow.sendFirst). node-testable.
 │   ├── eventStream.ts     # SSE transport: OpencodeEvent envelope +
 │   │                      #   streamServerEvents (fetch-based; the Authorization
@@ -307,6 +324,27 @@ src/
 │   ├── pendingCommands.ts # Pure registry of pending slash-command submissions
 │   │                      #   (compact `/name args` forms stamped onto the
 │   │                      #   confirming enqueue event; per-session FIFO + undo).
+│   ├── sessionStopping.ts # The per-session STOPPING marker (module store +
+│   │                      #   useSyncExternalStore binding, the
+│   │                      #   useSessionMessages snapshot pattern):
+│   │                      #   OpenCode's interrupt is NOT instantaneous —
+│   │                      #   the POST returns once the abort is REQUESTED,
+│   │                      #   the run-end event only when it unwinds — so
+│   │                      #   useSessionMessages.interrupt() marks the
+│   │                      #   session the moment the button is pressed and
+│   │                      #   the tail's working indicator force-shows
+│   │                      #   "Stopping" through the gap. The bus fold
+│   │                      #   (applyStoppingBusEvent, called from
+│   │                      #   useSessions' global handler) settles it on
+│   │                      #   execution.succeeded/failed/interrupted /
+│   │                      #   started (superseded) / session.deleted; the
+│   │                      #   interrupt call itself clears on a false
+│   │                      #   response (idle session — no end event would
+│   │                      #   come) or a throw. Event-vs-response order is
+│   │                      #   safe both ways (clearing is idempotent, a
+│   │                      #   true response never re-marks); a stale
+│   │                      #   marker is inert — the indicator also needs
+│   │                      #   busy, and the next execution.started clears.
 │   ├── connectionContext.tsx # THE CONTEXT SPLIT, base layer: ConnectionProvider
 │   │                      #   + useConnection() distribute useOpencode's api/
 │   │                      #   subscribe/status to anything needing a raw handle
@@ -387,7 +425,10 @@ src/
 │   │                      #   a no-op), then re-send the edited text
 │   │                      #   with the composer's staged attachments or
 │   │                      #   the ORIGINAL ones (no vision-diversion
-│   │                      #   rerun — its note is already in the text).
+│   │                      #   rerun — the composer edits the note-free
+│   │                      #   text, so the ORIGINAL message's note is
+│   │                      #   parsed back out and re-appended, keeping
+│   │                      #   a text-only model's image paths).
 │   │                      #   A failed commit unwinds via clearRevert
 │   │                      #   and returns false.
 │   ├── useSessionFlow.ts  # App-level session flow: active session id + composer
@@ -728,7 +769,14 @@ src/
     │   ├── MessageItem.tsx # One message: user bubble or assistant document
     │   │                  #   (segmented via messageParts.ts); `enter` prop =
     │   │                  #   apply this message's .lum-enter CSS entrance or not.
-    │   │                  #   The user bubble also carries the EDIT-LAST-
+    │   │                  #   The user bubble STRIPS the vision-divert note
+    │   │                  #   (splitAttachmentNote): it's protocol for a
+    │   │                  #   text-only model, never shown — the diverted
+    │   │                  #   images surface as attachment chips (original
+    │   │                  #   name + file-type icon, hover shows the saved
+    │   │                  #   path) and copy/edits work on the clean text;
+    │   │                  #   an image-only divert renders chips and no
+    │   │                  #   bubble at all. The user bubble also carries the EDIT-LAST-
     │   │                  #   MESSAGE entry point: a pencil in the quiet
     │   │                  #   actions row (only the row whose id matches
     │   │                  #   the edit bundle's editableMessageId —
@@ -830,9 +878,17 @@ src/
     │   │                  #   the run has output — no ellipsis; the
     │   │                  #   pulsing dots are the ongoing signal, and
     │   │                  #   the "..." variants belong to ThinkingBlock
-    │   │                  #   / ActivityGroup, which have no dots).
+    │   │                  #   / ActivityGroup, which have no dots). A
+    │   │                  #   PENDING STOP overrides everything: while the
+    │   │                  #   sessionStopping marker is up (busy &&
+    │   │                  #   stopping), the row force-shows IMMEDIATELY —
+    │   │                  #   skipping TAIL_QUIET_MS and the
+    │   │                  #   self-animation/waiting suppressions (a running
+    │   │                  #   tool is exactly when users press stop) — as
+    │   │                  #   "Stopping" instead of the derived label.
     │   │                  #   Subagent transcripts pass busy and
-    │   │                  #   get the dots too (SubagentsSection).
+    │   │                  #   get the dots too (SubagentsSection); they
+    │   │                  #   never pass stopping.
     │   │                  #   tailActivity.ts is pure + node-testable.
     │   ├── UsageRing.tsx + usageStats.ts # Context/cost ring (pure math in usageStats.ts)
     │   ├── Markdown.tsx   # Shared react-markdown + remark-gfm; links via plugin-opener.

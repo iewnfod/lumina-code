@@ -12,6 +12,7 @@ import type {
 import {isAssistantMessage, isUserMessage} from "../../opencode/types.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
+import {splitAttachmentNote, type DivertedAttachment} from "../../opencode/visionAttachments.ts";
 import {useCopy} from "../../hooks/useCopy.ts";
 import {COMMAND_MENTION_COLOR} from "../composer/CommandMentionNode.tsx";
 import Markdown from "./Markdown.tsx";
@@ -131,6 +132,12 @@ function UserBubble({
     const t = useI18n();
     const {copied, copy} = useCopy();
     const files = message.files ?? [];
+    // The vision-divert note is protocol for a text-only model, not the
+    // user's words: strip it from the bubble and surface the diverted
+    // images as attachment chips instead (the note's name→path pairs
+    // feed them; editResend re-appends the note when the prompt is
+    // edited, so the model keeps its image paths).
+    const {text: displayText, diverted} = splitAttachmentNote(message.text);
     const {expanded, toggle} = useExpansion(`user-bubble:${message.id}`, false);
     const [clipped, setClipped] = useState(false);
     const textRef = useRef<HTMLDivElement>(null);
@@ -157,13 +164,17 @@ function UserBubble({
         // carried by the quiet actions row under the bubble instead of raw
         // margin (files-only bubbles keep the full bottom margin).
         <div
-            className={`group/msg flex flex-col items-end mt-4 ${message.text ? "mb-1" : "mb-4"}${enter ? " lum-enter" : ""}`}
+            className={`group/msg flex flex-col items-end mt-4 ${displayText ? "mb-1" : "mb-4"}${enter ? " lum-enter" : ""}`}
         >
             {/* Attachments float ABOVE the bubble, outside it — the prompt
                 text keeps a clean single-surface read and the files read as
-                accompanying material rather than bubble content. */}
-            {files.length > 0 && <AttachmentChips files={files}/>}
-            {message.text && (
+                accompanying material rather than bubble content. Diverted
+                images (saved to disk for a text-only model's vision tool)
+                join the row as chips with no thumbnail to show. */}
+            {(files.length > 0 || (diverted?.length ?? 0) > 0) && (
+                <AttachmentChips files={files} diverted={diverted}/>
+            )}
+            {displayText && (
                 // A slash-command submission hovers to reveal the expanded
                 // template (the wrapper carries the width cap while the
                 // Hint is mounted); plain prompts render the bare bubble.
@@ -205,7 +216,7 @@ function UserBubble({
                                         <span> {message.command.arguments}</span>
                                     )}
                                 </>
-                            ) : message.text}
+                            ) : displayText}
                         </div>
                     </div>
                 </Hint>
@@ -214,16 +225,17 @@ function UserBubble({
                 beside the clamp expander (hover-revealed like the sidebar's
                 row actions; stays lit while the ✓ lingers so the
                 confirmation isn't hidden by the pointer leaving). Copies
-                the full prompt — for a slash-command submission that's the
-                expanded template, matching the bubble's hover hint.
-                transform-gpu for the same WebKitGTK compositing reason as
-                RunFooter. */}
-            {message.text && (
+                the full prompt — the divert note stripped above stays out
+                (it's protocol, not prose); for a slash-command submission
+                that's the expanded template, matching the bubble's hover
+                hint. transform-gpu for the same WebKitGTK compositing
+                reason as RunFooter. */}
+            {displayText && (
                 <div className="flex items-center gap-1 mt-1">
                     <Hint label={copied ? t["Copied"] : t["Copy"]}>
                         <button
                             type="button"
-                            onClick={() => void copy(message.text)}
+                            onClick={() => void copy(displayText)}
                             className={`inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none lum-wash transition-opacity duration-[var(--duration-fast)] transform-gpu ${copied ? "opacity-100" : "opacity-0 group-hover/msg:opacity-50 hover:opacity-100"}`}
                         >
                             {copied
@@ -278,8 +290,11 @@ function UserBubble({
 
 /** A user message's attachments, floated above the bubble — the prompt
  *  text keeps a clean single-surface read and the files read as
- *  accompanying material rather than bubble content. */
-function AttachmentChips({files}: {files: UserMessageFile[]}) {
+ *  accompanying material rather than bubble content. `diverted` are the
+ *  images saved to disk for a text-only model's vision tool: they ride
+ *  no thumbnail on the message, so their chips carry the file-type icon
+ *  and the ORIGINAL name, hover revealing where the file landed. */
+function AttachmentChips({files, diverted}: {files: UserMessageFile[]; diverted?: DivertedAttachment[] | null}) {
     return (
         <div className="flex flex-wrap justify-end gap-1.5 mb-1.5 max-w-[85%]">
             {files.map((f, i) => {
@@ -301,6 +316,17 @@ function AttachmentChips({files}: {files: UserMessageFile[]}) {
                     </span>
                 );
             })}
+            {diverted?.map((d) => (
+                <Hint key={d.path} label={d.path}>
+                    <span
+                        className="inline-flex items-center gap-1.5 h-7 pl-2.5 pr-2.5 rounded-[var(--radius-lg)] max-w-56"
+                        style={{background: "rgba(128,128,128,0.10)"}}
+                    >
+                        <img src={fileIconUrl(d.name)} alt="" className="w-4 h-4 shrink-0"/>
+                        <span className="text-xs truncate leading-normal">{d.name}</span>
+                    </span>
+                </Hint>
+            ))}
         </div>
     );
 }

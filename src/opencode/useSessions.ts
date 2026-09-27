@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from "react";
 import {error as logError, info, warn as logWarn} from "@tauri-apps/plugin-log";
 import type {OpencodeApi} from "./api.ts";
+import {applyStoppingBusEvent} from "./sessionStopping.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {EventMap, OpencodeSession} from "./types.ts";
 
@@ -169,6 +170,10 @@ export function useSessions(
     // patch in place.
     useEffect(() => {
         return subscribe((event) => {
+            // Settle any pending stop marker first — the run-end events
+            // below are exactly what it waits for (see sessionStopping.ts;
+            // unrelated types no-op inside the fold).
+            applyStoppingBusEvent(event);
             switch (event.type) {
                 case "session.created": {
                     void relist();

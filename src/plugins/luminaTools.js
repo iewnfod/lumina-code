@@ -163,11 +163,15 @@ const vision = {
     return {
       name: "vision",
       description:
-        "Ask a vision-capable model about an image file and get its answer as text — your way to " +
-        "'see' images (screenshots, photos, diagrams, charts). Use it whenever a question needs the " +
-        "visual content of an image, e.g. a path the user's message notes as an attached image, or any " +
-        "image file you find in the workspace. Pass a focused question; the tool returns the other " +
-        "model's answer.",
+        "Ask a vision-capable model about an image file and get its answer as text — a FALLBACK 'eye' " +
+        "for models that cannot see images themselves (screenshots, photos, diagrams, charts). " +
+        "Priority: if image content is already visible to you in this conversation, read it directly " +
+        "and do NOT call this tool for it; decide by your own ability to view images. Call it only for " +
+        "images you cannot view yourself: one referenced by path in the user's message — the note " +
+        "'[image attachments saved as files — view them with the vision tool: [{\"name\": …, " +
+        "\"path\": …}]]' maps each attached image's ORIGINAL name (what the user called it) to its " +
+        "saved file — or an image file you find in the workspace. Pass a focused question; the tool " +
+        "returns the other model's answer.",
       input: {
         type: "object",
         properties: {

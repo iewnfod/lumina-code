@@ -22,7 +22,11 @@ import {
  * Suppressed where the tail already animates on its own (a pending/
  * running tool's pulsing icon — that includes permission-gated tools) or
  * when the session waits on the USER (permission / question / plan
- * approval cards — that's a decision, not work). Derivations and the
+ * approval cards — that's a decision, not work). A pending STOP overrides
+ * both suppressions and the quiet delay: the row shows immediately as
+ * "Stopping", because the interrupt is not instantaneous and the button
+ * press must be answered (the marker lives in sessionStopping.ts).
+ * Derivations and the
  * timing constants live in tailActivity.ts (pure, tested); this file is
  * the timer state machine plus the row.
  *
@@ -37,6 +41,7 @@ export default function TailWorking({
     messages,
     busy,
     waiting,
+    stopping,
 }: {
     /** The rendered transcript slice (the tail is what matters). */
     messages: ChatMessage[];
@@ -44,10 +49,13 @@ export default function TailWorking({
     busy: boolean;
     /** The session is blocked on a user decision — not working. */
     waiting: boolean;
+    /** Stop requested but the run hasn't unwound yet (the interrupt
+     * latency window) — force-show "Stopping". */
+    stopping: boolean;
 }) {
     const t = useI18n();
-    const shown = useTailWorking(messages, busy, waiting);
-    const label = tailWorkLabel(messages);
+    const shown = useTailWorking(messages, busy, waiting, stopping);
+    const label = stopping ? "Stopping" : tailWorkLabel(messages);
     return (
         <ExitPresence present={shown} exitMs={300} exit={{animation: "lum-row-exit"}}>
             {(closing, bind) =>
@@ -71,14 +79,26 @@ export default function TailWorking({
 }
 
 /** The quiet-tail state machine: when to show the dots. */
-function useTailWorking(messages: ChatMessage[], busy: boolean, waiting: boolean): boolean {
+function useTailWorking(messages: ChatMessage[], busy: boolean, waiting: boolean, stopping: boolean): boolean {
     const [shown, setShown] = useState(false);
     const shownAtRef = useRef(0);
     const signature = tailProgressSignature(messages);
-    const want = busy && !waiting && !tailSelfAnimating(messages);
+    // A pending stop overrides every suppression — the waiting cards and
+    // the self-animating tail (a running tool is exactly when users press
+    // stop) still get the row, because "Stopping" is the truthful state.
+    const want = busy && (stopping || (!waiting && !tailSelfAnimating(messages)));
 
     useEffect(() => {
         if (want) {
+            // A pending stop shows IMMEDIATELY — the row exists to answer
+            // the button press, not to measure out a quiet spell. Stamping
+            // shownAt only on the transition keeps the stand-down minimum
+            // anchored to the row's first appearance.
+            if (stopping) {
+                if (!shown) shownAtRef.current = performance.now();
+                setShown(true);
+                return;
+            }
             // Appear only after the tail stays quiet past the threshold.
             // Any progress changes the signature, which re-runs this
             // effect and re-arms the timer (the cleanup cancels the old
@@ -102,7 +122,7 @@ function useTailWorking(messages: ChatMessage[], busy: boolean, waiting: boolean
         }
         const timer = window.setTimeout(() => setShown(false), remaining);
         return () => window.clearTimeout(timer);
-    }, [want, signature, shown]);
+    }, [want, signature, shown, stopping]);
 
     return shown;
 }

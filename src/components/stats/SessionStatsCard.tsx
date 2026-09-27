@@ -189,6 +189,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
         color: colors.dark ? "rgba(255,255,255,0.88)" : "rgba(0,0,0,0.88)",
         boxShadow: "var(--lum-stats-shadow)",
         "--lum-stats-shadow": expanded ? colors.elevationShadow : "0 1px 3px rgba(0,0,0,0.06)",
+        "--lum-stats-divider": colors.glassBorder,
         "--lum-wash": colors.hoverOverlay,
     } as React.CSSProperties;
 
@@ -369,7 +370,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
                     </div>
                     {/* Views swap directly; entering content fades itself
                         in (.lum-enter on the drill bodies / rows). */}
-                    <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-3">
+                    <div className="lum-stats-body min-h-0 flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-3">
                         {view.kind === "overview" && (
                             <>
                                 {todos && todos.items.length > 0 && (

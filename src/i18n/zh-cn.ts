@@ -76,6 +76,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Tool failed": "工具执行失败",
     "Subagent failed": "子代理执行失败",
     "Request failed": "请求失败",
+    "Stopping": "停止中",
     "Thinking...": "思考中...",
     "Thinking": "思考中",
     "Thought process": "思考过程",
