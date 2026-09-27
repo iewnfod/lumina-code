@@ -9,10 +9,16 @@ import {useEffect, useLayoutEffect, useRef, type RefObject} from "react";
  *   switch, first render) and streaming deltas jump instantly — frames
  *   land every ~16ms and each would restart the eased animation from
  *   scratch, which reads as stutter, not motion.
+ * - Unpins ONLY on genuine upward reader input: a scrollTop drop that
+ *   coincides with content shrinkage is the browser's scroll anchoring
+ *   compensating a collapse above (an error ToolCard self-folding, an
+ *   exiting row) — those stay pinned and the view rides down to the new
+ *   bottom instead of the follow dying mid-stream.
  * - Keeps the viewport steady while older content is prepended above it
  *   (scroll anchoring around window expansions).
  * - Re-pins on geometry changes that arrive after the follow effect ran
- *   (composer growing, images loading late).
+ *   (composer growing, images loading late); programmatic jumps never
+ *   count as reader gestures, so the re-pin stays armed while streaming.
  *
  * `expansionToken` (ChatView's render limit) re-runs the anchor restore
  * after the caller grows the render window — call {@link pinAnchor}
@@ -36,12 +42,21 @@ export function useTranscriptScroll({
     /** Capture the current scrollHeight; restored (+delta) after the
      *  window expansion commits, so prepended content doesn't jump. */
     pinAnchor: () => void;
+    /** Re-arm the follow and jump to the bottom right now — the user just
+     *  acted (sent a message from mid-history, answered a request), so the
+     *  answer and everything it triggers must scroll into view even though
+     *  they had scrolled up to read. */
+    snapToBottom: () => void;
 } {
     const scrollRef = useRef<HTMLDivElement>(null);
     const atBottomRef = useRef(true);
     // Timestamp until which scroll events are treated as our own follow
     // animation rather than user intent (see the follow effect below).
     const programmaticUntilRef = useRef(0);
+    // When the last follow ran — bursts (streaming frames arriving faster
+    // than the busy flag can flip) jump instead of restarting the eased
+    // glide, which would read as a crawl.
+    const lastFollowAtRef = useRef(0);
     // Scroll anchor: scrollHeight captured right before a window expansion
     // commits, restored (+delta) after, so prepended content doesn't jump.
     const anchorHeightRef = useRef<number | null>(null);
@@ -60,15 +75,30 @@ export function useTranscriptScroll({
         const el = scrollRef.current;
         if (el && atBottomRef.current) {
             const delta = el.scrollHeight - el.scrollTop - el.clientHeight;
-            if (delta > el.clientHeight || busy) {
+            const now = performance.now();
+            // A burst is a burst even before `busy` says so: frames landing
+            // within 250ms of the previous follow jump — chained eased
+            // glides restart from scratch each frame and crawl.
+            const streaming = busy || now - lastFollowAtRef.current < 250;
+            lastFollowAtRef.current = now;
+            if (delta > el.clientHeight || streaming) {
                 el.scrollTop = el.scrollHeight;
             } else {
                 // The smooth animation emits intermediate scroll events that
                 // are nowhere near the bottom yet — tell onScroll to
                 // ignore everything until it settles (or until this window
                 // is refreshed by the next follow-scroll).
-                programmaticUntilRef.current = performance.now() + 600;
+                programmaticUntilRef.current = now + 600;
                 el.scrollTo({top: el.scrollHeight, behavior: "smooth"});
+                // Content that grows DURING the glide finds the ResizeObserver
+                // re-pin stood down (the programmatic window suppresses it),
+                // and no resize event fires after the window closes — one
+                // deferred snap once it expires finishes the job.
+                window.setTimeout(() => {
+                    if (el.isConnected && atBottomRef.current) {
+                        el.scrollTop = el.scrollHeight;
+                    }
+                }, 650);
             }
         }
     }, [messages, busy]);
@@ -108,6 +138,10 @@ export function useTranscriptScroll({
     // timestamp below stands the re-pin down until the reader settles.
     const lastGestureAtRef = useRef(0);
     const lastScrollTopRef = useRef<number | null>(null);
+    // Baseline scrollHeight, so a scrollTop drop can be told apart from
+    // content shrinkage (see onScroll): the browser lowers scrollTop when
+    // content above collapses — that is not the reader leaving.
+    const lastScrollHeightRef = useRef<number | null>(null);
     useEffect(() => {
         const el = scrollRef.current;
         const content = el?.firstElementChild;
@@ -126,26 +160,48 @@ export function useTranscriptScroll({
     const onScroll = useRef(() => {
         const el = scrollRef.current;
         if (!el) return;
+        // Refresh the direction baselines first — even for events inside the
+        // programmatic window, so the first user event afterwards compares
+        // against where the glide actually is, not where it started.
+        const prevTop = lastScrollTopRef.current;
+        const prevHeight = lastScrollHeightRef.current;
+        lastScrollTopRef.current = el.scrollTop;
+        lastScrollHeightRef.current = el.scrollHeight;
         // Mid-flight frames of our own follow-scroll aren't "the user left
         // the bottom" — without this guard, fast streaming content unpins
         // the view and the follow stops partway.
         if (performance.now() < programmaticUntilRef.current) return;
-        lastGestureAtRef.current = performance.now();
         // An UPWARD user delta always unpins the follow — immediately,
         // not after fighting the 80px stickiness zone. While a run
         // streams, the follow effect fires per frame and yanks back to
         // the bottom as long as atBottomRef says true; with trackpad
         // smoothing (many small deltas) the reader could never cross
         // 80px in one gesture and was trapped bouncing. Distance alone
-        // can't tell intent from noise; direction can: content growth
-        // under a pinned view doesn't move scrollTop (no event), so any
-        // real upward delta is the reader.
-        const goingUp = el.scrollTop < (lastScrollTopRef.current ?? el.scrollTop) - 1;
-        lastScrollTopRef.current = el.scrollTop;
+        // can't tell intent from noise; direction can — but ONLY when the
+        // content didn't shrink. Collapsing content above the viewport
+        // (an error ToolCard self-folding, an exiting row, a regrouped
+        // activity run) makes the browser's scroll anchoring LOWER
+        // scrollTop to keep the visible content stable, or clamps it to
+        // the new maximum — scroll events with every hallmark of a user
+        // going up. Unpinning on those killed the follow mid-stream for
+        // good; instead stay pinned and let the ResizeObserver ride the
+        // view down to the new bottom. A real wheel-up with coincidental
+        // shrinkage is caught by its next delta (scrollHeight settles,
+        // scrollTop keeps dropping).
+        const goingUp = prevTop !== null && el.scrollTop < prevTop - 1;
+        const contentShrunk = prevHeight !== null && el.scrollHeight < prevHeight - 4;
         if (goingUp) {
+            if (contentShrunk) return;
+            lastGestureAtRef.current = performance.now();
             atBottomRef.current = false;
             return;
         }
+        // Downward deltas are never stamped as gestures: while parked at
+        // the bottom the only source is our own follow jump settling, and
+        // that stamp stood the re-pin down for 300ms after EVERY frame —
+        // permanently, while streaming — leaving late growth (fold
+        // expansion transitions, images, markdown re-layout) unfollowed
+        // and the view short of the bottom.
         atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     }).current;
 
@@ -154,6 +210,22 @@ export function useTranscriptScroll({
     const onWheel = useRef(() => {
         programmaticUntilRef.current = 0;
         lastGestureAtRef.current = performance.now();
+    }).current;
+
+    const snapToBottom = useRef(() => {
+        const el = scrollRef.current;
+        // Clear any stand-down so the re-pin is armed immediately, and
+        // shield the snap's own scroll event from being misread.
+        programmaticUntilRef.current = performance.now() + 100;
+        lastGestureAtRef.current = 0;
+        // A user action doubles as a burst marker: the follow frames it
+        // triggers (the optimistic bubble, the adoption id-swap, the
+        // run's first parts) jump instead of starting a 600ms glide that
+        // the next frame interrupts mid-flight — eased-then-snapped
+        // reads as the view fighting itself.
+        lastFollowAtRef.current = performance.now();
+        atBottomRef.current = true;
+        if (el) el.scrollTop = el.scrollHeight;
     }).current;
 
     // While the tab/webview is hidden the browser pauses rendering:
@@ -173,5 +245,5 @@ export function useTranscriptScroll({
         return () => document.removeEventListener("visibilitychange", onVisible);
     }, []);
 
-    return {scrollRef, onScroll, onWheel, pinAnchor};
+    return {scrollRef, onScroll, onWheel, pinAnchor, snapToBottom};
 }

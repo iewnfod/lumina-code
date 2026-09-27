@@ -371,6 +371,71 @@ test("plain-prompt fallback enqueues unstamped", () => {
     assert.equal(m.text, "/init x");
 });
 
+test("rapid double-send adopts each bubble in place, never duplicates", () => {
+    // Two sends before the first enqueued event lands: the list holds TWO
+    // optimistic bubbles. A last-slot-only probe would miss the first
+    // (the last bubble is the SECOND send) and append past both — the
+    // message visibly duplicates and the follow scrolls past the
+    // original. Adoption scans from the end and replaces in place.
+    let list: ChatMessage[] = [
+        {id: "local-1", type: "user", text: "first", localKey: "local-1"},
+        {id: "local-2", type: "user", text: "second", localKey: "local-2"},
+    ];
+    list = applyEvent(list, enqueue("first", "msg_user_1"));
+    assert.equal(list.length, 2, "first bubble adopted, not duplicated");
+    assert.deepEqual(
+        list.map((m) => m.id),
+        ["msg_user_1", "local-2"],
+        "adopted in place — order preserved",
+    );
+    list = applyEvent(list, enqueue("second", "msg_user_2"));
+    assert.equal(list.length, 2);
+    assert.deepEqual(
+        list.map((m) => m.id),
+        ["msg_user_1", "msg_user_2"],
+    );
+    assert.equal(
+        (list[1] as ChatUserMessage).localKey,
+        "local-2",
+        "localKey carried onto the second adopted message",
+    );
+});
+
+test("adoption replaces a bubble even when a later assistant shell raced it", () => {
+    // A step.started for the RESPONSE can append after the optimistic
+    // bubble; the enqueued event must still find the bubble under it
+    // instead of appending the real message below the response.
+    let list: ChatMessage[] = [
+        {id: "msg_user_prev", type: "user", text: "earlier"},
+        {id: "local-1", type: "user", text: "hi"},
+    ];
+    list = applyEvent(list, stepStarted());
+    assert.equal(list.length, 3, "assistant shell appended after the bubble");
+    list = applyEvent(list, enqueue("hi", "msg_user_real"));
+    assert.equal(list.length, 3, "adopted under the assistant shell, not appended");
+    assert.deepEqual(
+        list.map((m) => m.id),
+        ["msg_user_prev", "msg_user_real", MID],
+    );
+});
+
+test("re-seed drops an optimistic bubble whose real copy the page carries", () => {
+    // Event-stream gap: the enqueued event was missed, the optimistic
+    // bubble stayed, and the next seed page already holds the persisted
+    // message. The bubble must not survive as a duplicate tail entry
+    // (it would land BELOW the real message and steal the follow).
+    const list: ChatMessage[] = [
+        {id: "msg_user_real", type: "user", text: "hi"},
+        {id: "local-1", type: "user", text: "hi"},
+    ];
+    const page: MessagesPage = {
+        data: [{id: "msg_user_real", type: "user", text: "hi"}],
+    };
+    const seeded = applySeedPage(list, page);
+    assert.equal(seeded.messages.length, 1, "local duplicate dropped");
+    assert.equal(seeded.messages[0].id, "msg_user_real");
+});
+
 test("seed merge keeps the compact command stamp on user messages", () => {
     // Switching sessions reconciles against the server page, which knows
     // only the expanded template — the locally stamped compact form wins.

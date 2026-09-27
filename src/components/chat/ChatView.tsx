@@ -93,7 +93,7 @@ const ChatView = memo(function ChatView({
         setRenderLimit(RENDER_LIMIT);
     }, [sessionId]);
 
-    const {scrollRef, onScroll, onWheel, pinAnchor} = useTranscriptScroll({
+    const {scrollRef, onScroll, onWheel, pinAnchor, snapToBottom} = useTranscriptScroll({
         messages,
         busy,
         expansionToken: renderLimit,
@@ -136,6 +136,9 @@ const ChatView = memo(function ChatView({
             fileRefs: ComposerFileRef[],
             command: PendingCommand | null,
         ) => {
+            // The reader may have scrolled up into history before sending —
+            // their message (and the run it starts) must scroll into view.
+            snapToBottom();
             // Text-only model + image attachments: divert them to disk and
             // append the vision-tool note instead of inlining (which the
             // provider would drop or reject). Falls back to inline on any
@@ -148,7 +151,7 @@ const ChatView = memo(function ChatView({
                 void send(note ? `${text}\n\n${note}` : text, inline, fileRefs, command);
             });
         },
-        [send, api, models, model],
+        [send, api, models, model, snapToBottom],
     );
     const handleInterrupt = useCallback(() => void interrupt(), [interrupt]);
 
@@ -177,6 +180,9 @@ const ChatView = memo(function ChatView({
                 void interrupt();
                 return;
             }
+            // Approving resumes execution at the tail — follow it down even
+            // if the reader had scrolled up through the plan text.
+            snapToBottom();
             void (async () => {
                 if (directory && api) {
                     try {
@@ -207,7 +213,7 @@ const ChatView = memo(function ChatView({
                 await api?.switchAgent(sessionId, "build");
             })();
         },
-        [pendingPlan, directory, api, sessionId, interrupt],
+        [pendingPlan, directory, api, sessionId, interrupt, snapToBottom],
     );
 
     // Grow the render window / fetch an older page (both directions of
@@ -325,7 +331,12 @@ const ChatView = memo(function ChatView({
                     {(request) => (
                         <PermissionCard
                             request={request}
-                            onDecision={(req, decision) => void replyPermission(req, decision)}
+                            onDecision={(req, decision) => {
+                                // Answering resumes execution at the tail —
+                                // follow it down from wherever the reader is.
+                                snapToBottom();
+                                void replyPermission(req, decision);
+                            }}
                         />
                     )}
                 </ExitList>
@@ -338,7 +349,10 @@ const ChatView = memo(function ChatView({
                     {(form) => (
                         <QuestionCard
                             form={form}
-                            onReply={(f, answer) => void replyForm(f, answer)}
+                            onReply={(f, answer) => {
+                                snapToBottom();
+                                void replyForm(f, answer);
+                            }}
                             onCancel={cancelForm}
                         />
                     )}

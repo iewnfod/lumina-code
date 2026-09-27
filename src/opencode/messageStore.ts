@@ -53,17 +53,22 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
             // server id): by text for plain prompts, or by the pending
             // command for command submissions — the optimistic text is
             // the compact form and the event text the expanded template,
-            // so they can never match by content.
-            const last = list[list.length - 1];
-            if (
-                last && isUserMessage(last) && last.id.startsWith("local-") &&
-                (last.text === text || (command != null && last.command?.name === command.name))
-            ) {
-                // Carry the optimistic bubble's localKey onto the adopted
-                // message so the transcript row's React key survives the id
-                // swap (no remount → no replayed entrance animation).
-                if (last.localKey) incoming.localKey = last.localKey;
-                return [...list.slice(0, -1), incoming];
+            // so they can never match by content. Scanned from the END,
+            // not just the last slot: a second send before the first
+            // enqueued event lands leaves TWO local bubbles in the list,
+            // and a last-only probe would append past both — duplicating
+            // the first message and dragging the follow past the
+            // original ("my message got scrolled down").
+            for (let i = list.length - 1; i >= 0; i--) {
+                const m = list[i];
+                if (!isUserMessage(m) || !m.id.startsWith("local-")) continue;
+                if (m.text === text || (command != null && m.command?.name === command.name)) {
+                    // Carry the optimistic bubble's localKey onto the adopted
+                    // message so the transcript row's React key survives the id
+                    // swap (no remount → no replayed entrance animation).
+                    if (m.localKey) incoming.localKey = m.localKey;
+                    return [...list.slice(0, i), incoming, ...list.slice(i + 1)];
+                }
             }
             // …or append when the prompt came from another client.
             return [...list, incoming];
@@ -221,6 +226,17 @@ export function applySeedPage(
     const newer: ChatMessage[] = [];
     list.forEach((m, i) => {
         if (pageIds.has(m.id)) return;
+        // An optimistic bubble whose real copy the page already carries
+        // (its enqueued event was missed across an event-stream gap)
+        // would duplicate it — and as a local-only entry classified by
+        // time it lands BELOW the real message at the tail. Keep bubbles
+        // the page doesn't know: those are prompts still in flight.
+        if (
+            isUserMessage(m) && m.id.startsWith("local-") &&
+            ascending.some((pm) => isUserMessage(pm) && pm.text === m.text)
+        ) {
+            return;
+        }
         const beforeWindow = anchorIndex >= 0
             ? i < anchorIndex
             : windowStart !== undefined && (m.time?.created ?? windowStart) < windowStart;

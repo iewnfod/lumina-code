@@ -579,7 +579,11 @@ src/
 │   └── useTranscriptScroll.ts # ChatView's scroll machinery: bottom-follow with
 │                              #   programmatic-scroll guards, prepend anchoring
 │                              #   around render-window growth, geometry re-pin,
-│                              #   visibilitychange catch-up.
+│                              #   visibilitychange catch-up, content-shrink-aware
+│                              #   unpin (fold collapses above must not read as
+│                              #   the reader leaving — the follow used to die
+│                              #   mid-stream), and snapToBottom (user actions
+│                              #   from mid-history re-arm the follow).
 │
 └── components/
     ├── TitleBar.tsx       # Drag region + chrome buttons (window controls in
