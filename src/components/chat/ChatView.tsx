@@ -167,21 +167,23 @@ const ChatView = memo(function ChatView({
     const handleInterrupt = useCallback(() => void interrupt(), [interrupt]);
 
     // --- Edit-last-message wiring ---
-    // Only the session's LAST user message is editable, and only while
-    // idle (the server enforces it too — revert stage answers 409 to a
-    // busy session) and connected. A slash-command submission is not: the
-    // stored text is the EXPANDED template, not what the user typed. An
-    // optimistic local bubble can't be the last editable row either (it
-    // only exists mid-send, which busy already excludes).
+    // Only the session's LAST user message is editable (and it needs a
+    // connection). The pencil is hover-revealed like copy even while
+    // the session runs — hiding it made the feature undiscoverable —
+    // but it is DISABLED mid-run (a revert needs an idle session, the
+    // server enforces it with 409). A slash-command submission is not
+    // editable: the stored text is the EXPANDED template, not what the
+    // user typed. An optimistic local bubble can't be it either (it
+    // only exists mid-send).
     const lastEditableId = useMemo(() => {
-        if (busy || disabled) return null;
+        if (disabled) return null;
         for (let i = messages.length - 1; i >= 0; i--) {
             const m = messages[i];
             if (!isUserMessage(m)) continue;
             return m.command || m.id.startsWith("local-") ? null : m.id;
         }
         return null;
-    }, [messages, busy, disabled]);
+    }, [messages, disabled]);
     const handleStartEdit = useCallback((message: ChatUserMessage) => {
         setEditingMessageId(message.id);
     }, []);
@@ -219,9 +221,11 @@ const ChatView = memo(function ChatView({
         () => ({
             editableMessageId: lastEditableId,
             editingMessageId,
+            // Mid-run the pencil renders DISABLED (revert needs idle).
+            editDisabled: busy,
             onStartEdit: handleStartEdit,
         }),
-        [lastEditableId, editingMessageId, handleStartEdit],
+        [lastEditableId, editingMessageId, busy, handleStartEdit],
     );
 
     // Plan-workflow approval (Route A): the plan_submit executor BLOCKS

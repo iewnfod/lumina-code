@@ -42,14 +42,17 @@ import Hint from "../ui/Hint.tsx";
  *  editable/editing flags from the ids). All optional so subagent
  *  transcripts render MessageItem without any of this. */
 export interface TranscriptEditProps {
-    /** The id of the session's last plain user message while idle — the
-     *  only row that grows the edit affordance (null = none). */
+    /** The id of the session's last plain user message — the only row
+     *  that grows the edit affordance (null = none). */
     editableMessageId: string | null;
     /** The id of the message being edited in the COMPOSER right now
      *  (null = none) — that bubble wears a highlight ring so the edit
      *  target stays visible while the typing happens down in the
      *  composer. */
     editingMessageId: string | null;
+    /** Mid-run the pencil renders DISABLED — a revert needs an idle
+     *  session (the server answers 409 to a busy one). */
+    editDisabled: boolean;
     /** Load the message's text + attachments into the composer. */
     onStartEdit: (message: ChatUserMessage) => void;
 }
@@ -78,6 +81,7 @@ const MessageItem = memo(function MessageItem({
                 enter={enter}
                 editable={edit != null && edit.editableMessageId === message.id}
                 editing={edit != null && edit.editingMessageId === message.id}
+                editDisabled={edit?.editDisabled ?? false}
                 onStartEdit={edit?.onStartEdit}
             />
         );
@@ -107,6 +111,7 @@ function UserBubble({
     enter,
     editable = false,
     editing = false,
+    editDisabled = false,
     onStartEdit,
 }: {
     message: ChatUserMessage;
@@ -117,6 +122,9 @@ function UserBubble({
      *  the target of the edit stays visible while typing happens in
      *  the composer below. */
     editing?: boolean;
+    /** Mid-run the pencil renders DISABLED (revert needs an idle
+     *  session) — still hover-revealed, just inert. */
+    editDisabled?: boolean;
     onStartEdit?: (message: ChatUserMessage) => void;
 }) {
     const colors = useColors();
@@ -226,13 +234,26 @@ function UserBubble({
                     {/* Edit the last sent message: loads its text +
                         attachments into the composer (see ChatView's
                         edit wiring + useSessionMessages.editResend).
-                        Same quiet-button chrome as copy. */}
+                        Hover-revealed like copy — including mid-run,
+                        where it renders DISABLED (dimmer, inert; the
+                        tooltip says the AI must be stopped first): a
+                        revert needs an idle session. The inertness is
+                        an onClick guard, NOT the native disabled
+                        attribute — a disabled button swallows pointer
+                        events and would kill the tooltip. */}
                     {editable && (
-                        <Hint label={t["Edit"]}>
+                        <Hint label={editDisabled ? t["Stop the AI to edit"] : t["Edit"]}>
                             <button
                                 type="button"
-                                onClick={() => onStartEdit?.(message)}
-                                className="inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none lum-wash transition-opacity duration-[var(--duration-fast)] transform-gpu opacity-0 group-hover/msg:opacity-50 hover:opacity-100"
+                                onClick={() => {
+                                    if (editDisabled) return;
+                                    onStartEdit?.(message);
+                                }}
+                                className={`inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] select-none transition-opacity duration-[var(--duration-fast)] transform-gpu ${
+                                    editDisabled
+                                        ? "opacity-0 group-hover/msg:opacity-25 cursor-not-allowed"
+                                        : "opacity-0 group-hover/msg:opacity-50 hover:opacity-100 cursor-pointer lum-wash"
+                                }`}
                             >
                                 <Pencil size={14} className="shrink-0"/>
                             </button>

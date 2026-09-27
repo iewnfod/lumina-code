@@ -179,6 +179,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Model name": "模型名称",
     "Save": "保存",
     "Editing message": "正在编辑消息",
+    "Stop the AI to edit": "停止 AI 后才能编辑",
     "Saving...": "保存中...",
     "Custom provider ID, Base URL and at least one model are required": "需要填写供应商标识、接口地址和至少一个模型",
     "The config file uses JSONC (comments) and cannot be edited here. Open it to edit manually.": "配置文件含注释（JSONC），无法在此自动修改，请打开文件手动编辑。",

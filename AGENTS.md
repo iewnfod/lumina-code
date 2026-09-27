@@ -696,8 +696,11 @@ src/
     │   │                  #   (approve = switchAgent + plan-file save;
     │   │                  #   reject = interrupt). And the EDIT-LAST-
     │   │                  #   MESSAGE state: editingMessageId +
-    │   │                  #   lastEditableId (the last plain user message
-    │   │                  #   while idle + connected) fed to
+    │   │                  #   lastEditableId (the last plain user
+    │   │                  #   message, connected — the pencil is
+    │   │                  #   hover-revealed even while BUSY for
+    │   │                  #   discoverability but DISABLED mid-run:
+    │   │                  #   a revert needs an idle session) fed to
     │   │                  #   TranscriptList as one stable edit bundle
     │   │                  #   (which bubble shows the pencil / the
     │   │                  #   highlight ring); the COMPOSER is the edit
@@ -729,11 +732,17 @@ src/
     │   │                  #   MESSAGE entry point: a pencil in the quiet
     │   │                  #   actions row (only the row whose id matches
     │   │                  #   the edit bundle's editableMessageId —
-    │   │                  #   ChatView derives "last plain prompt while
-    │   │                  #   idle") loads the message into the COMPOSER
-    │   │                  #   (ChatInput's edit mode); the row being
-    │   │                  #   edited wears a focusRing highlight. The
-    │   │                  #   bundle rides TranscriptList
+    │   │                  #   ChatView derives "last plain prompt"),
+    │   │                  #   hover-revealed like copy INCLUDING mid-run
+    │   │                  #   (where it renders disabled: dimmer,
+    │   │                  #   inert via an onClick guard — a native
+    │   │                  #   disabled button would kill the tooltip —
+    │   │                  #   and the tooltip says the AI must be
+    │   │                  #   stopped first) — it loads the message
+    │   │                  #   into the
+    │   │                  #   COMPOSER (ChatInput's edit mode); the row
+    │   │                  #   being edited wears a focusRing highlight.
+    │   │                  #   The bundle rides TranscriptList
     │   │                  #   → MessageItem as ONE stable prop so memoized
     │   │                  #   rows skip re-renders; subagent transcripts
     │   │                  #   pass none of it.
