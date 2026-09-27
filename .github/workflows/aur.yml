@@ -64,11 +64,20 @@ jobs:
         run: |
           tag="${INPUT_TAG:-${PAYLOAD_TAG}}"
           [[ -n "${tag}" ]] || { echo "No release tag resolved" >&2; exit 1; }
-          # AUR pkgver is the version without the leading "v".
-          case "${tag}" in
-            v*) ver="${tag#v}" ;;
-            *)  ver="${tag}" ;;
-          esac
+          # The package version is what the release ASSETS actually say,
+          # NOT the tag: tags sometimes carry a republish suffix (e.g.
+          # v0.1.2-2) while the app version inside the assets stays
+          # "0.1.2" — deriving from the tag builds source URLs that 404.
+          # Parse the version out of the amd64 deb's asset name.
+          deb_name="$(gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" \
+            --json assets \
+            --jq '[.assets[].name] | map(select(endswith("_amd64.deb"))) | first // empty')"
+          if [[ -z "${deb_name}" ]]; then
+            echo "::error::release ${tag} has no *_amd64.deb asset" >&2
+            exit 1
+          fi
+          ver="${deb_name#Lumina.Code_}"
+          ver="${ver%_amd64.deb}"
           {
             echo "tag=${tag}"
             echo "pkgver=${ver}"
@@ -117,7 +126,10 @@ jobs:
       - name: Render PKGBUILD
         env:
           PKGVER: ${{ steps.rel.outputs.pkgver }}
-          PKGREL: "1"
+          # Bumped per republish of the SAME app version so yay offers the
+          # update (0.1.2-2 ships options=(!strip) — makepkg's strip broke
+          # the bun-compiled sidecar). Reset to "1" on the next version.
+          PKGREL: "2"
           SHA256_AMD64: ${{ steps.sums.outputs.SHA256_AMD64 }}
           SHA256_ARM64: ${{ steps.sums.outputs.SHA256_ARM64 }}
         run: |

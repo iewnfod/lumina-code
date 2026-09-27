@@ -246,10 +246,21 @@ jobs:
           }
 
           for arch in amd64 arm64; do
-            asset="Lumina.Code_${RELEASE_TAG#v}_${arch}.deb"
             gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
               --pattern "Lumina.Code*${arch}.deb" --dir "${work}" --clobber
-            f="${work}/${asset}"
+            # The asset filename carries the APP version, which can differ
+            # from the tag (republish suffixes like v0.1.2-2 vs assets named
+            # ..._0.1.2_...) — resolve the downloaded file by glob instead
+            # of computing the name from the tag.
+            f=""
+            for candidate in "${work}"/*"${arch}.deb"; do
+              if [ -f "${candidate}" ]; then f="${candidate}"; break; fi
+            done
+            if [ -z "${f}" ]; then
+              echo "FAIL: no ${arch} deb asset found on ${RELEASE_TAG}"
+              fail=1
+              continue
+            fi
             bsdtar -xOf "${f}" 'data.tar.*' | bsdtar -tvf - > "${work}/deb-${arch}.list"
             verify_layout "deb ${arch}" "${work}/deb-${arch}.list" ""
             # Extract the sidecar for ELF/exec checks.
@@ -274,10 +285,19 @@ jobs:
           done
 
           for arch in x86_64 aarch64; do
-            asset="Lumina.Code-${RELEASE_TAG#v}-1.${arch}.rpm"
             gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
               --pattern "Lumina.Code-*${arch}.rpm" --dir "${work}" --clobber
-            f="${work}/${asset}"
+            # Same as the deb loop: resolve the downloaded file by glob —
+            # the asset's embedded version may differ from the tag.
+            f=""
+            for candidate in "${work}"/*"${arch}.rpm"; do
+              if [ -f "${candidate}" ]; then f="${candidate}"; break; fi
+            done
+            if [ -z "${f}" ]; then
+              echo "FAIL: no ${arch} rpm asset found on ${RELEASE_TAG}"
+              fail=1
+              continue
+            fi
             # rpm2cpio STREAMS the payload; cpio stops reading at the cpio
             # TRAILER and closes the pipe, killing rpm2cpio with SIGPIPE
             # (exit 141) — fatal under `set -o pipefail` and silent with

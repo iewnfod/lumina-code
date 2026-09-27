@@ -72,6 +72,7 @@ jobs:
       - name: Resolve release tag
         id: rel
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # tag arrives differently depending on the trigger:
           #   workflow_dispatch    → inputs.tag
           #   repository_dispatch  → github.event.client_payload.tag
@@ -84,11 +85,20 @@ jobs:
             echo "::error::No release tag found (tag=${tag}); aborting" >&2
             exit 1
           fi
-          # The RPM Version drops the leading "v" (as AUR pkgver does).
-          case "${tag}" in
-            v*) ver="${tag#v}" ;;
-            *)  ver="${tag}" ;;
-          esac
+          # The RPM Version is what the release ASSETS actually say, NOT
+          # the tag: tags sometimes carry a republish suffix (e.g.
+          # v0.1.2-2) while the app version inside the assets stays
+          # "0.1.2" — deriving from the tag builds Source URLs that 404.
+          # Parse the version out of the x86_64 rpm's asset name.
+          rpm_name="$(gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" \
+            --json assets \
+            --jq '[.assets[].name] | map(select(endswith(".x86_64.rpm"))) | first // empty')"
+          if [[ -z "${rpm_name}" ]]; then
+            echo "::error::release ${tag} has no *.x86_64.rpm asset" >&2
+            exit 1
+          fi
+          ver="${rpm_name#Lumina.Code-}"
+          ver="${ver%-1.x86_64.rpm}"
           {
             echo "tag=${tag}"
             echo "pkgver=${ver}"
