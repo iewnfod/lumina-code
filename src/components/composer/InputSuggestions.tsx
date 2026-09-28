@@ -3,6 +3,7 @@ import {Terminal} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeCommand} from "../../opencode/types.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
+import {folderLabel} from "../../lib/path.ts";
 import type {FileMentionData} from "./FileMentionNode.tsx";
 import {COMMAND_MENTION_COLOR} from "./CommandMentionNode.tsx";
 
@@ -80,7 +81,7 @@ export default function InputSuggestions({
                                 <img src={fileIconUrl(item.file.relative)} alt="" className="w-4 h-4 shrink-0"/>
                             )}
                             <span className="shrink-0 font-medium">
-                                {item.kind === "command" ? `/${item.command.name}` : fileName(item.file.relative)}
+                                {item.kind === "command" ? `/${item.command.name}` : folderLabel(item.file.relative)}
                             </span>
                             <span className="truncate opacity-50 leading-normal">
                                 {item.kind === "command" ? item.command.description ?? "" : dirName(item.file.relative)}
@@ -91,11 +92,6 @@ export default function InputSuggestions({
             )}
         </div>
     );
-}
-
-function fileName(path: string): string {
-    const base = path.split("/").pop() ?? path;
-    return base || path;
 }
 
 function dirName(path: string): string {

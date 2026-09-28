@@ -1,6 +1,16 @@
-import {$getSelection, $isRangeSelection, $isTextNode, type LexicalEditor, type LexicalNode} from "lexical";
-import {$isCommandMentionNode, type CommandMentionNode} from "./CommandMentionNode.tsx";
-import {$isFileMentionNode, type FileMentionNode} from "./FileMentionNode.tsx";
+import {
+    $createTextNode,
+    $getSelection,
+    $isElementNode,
+    $isLineBreakNode,
+    $isRangeSelection,
+    $isTextNode,
+    mergeRegister,
+    type LexicalEditor,
+    type LexicalNode,
+} from "lexical";
+import {CommandMentionNode, $isCommandMentionNode} from "./CommandMentionNode.tsx";
+import {FileMentionNode, $isFileMentionNode} from "./FileMentionNode.tsx";
 
 /**
  * Composer trigger detection + mention navigation — everything that works
@@ -34,6 +44,41 @@ export function triggerId(t: TriggerState): string {
  *  step over and the trigger detector must not read as plain text. */
 function $isMentionNode(node: LexicalNode | null | undefined): node is FileMentionNode | CommandMentionNode {
     return $isFileMentionNode(node) || $isCommandMentionNode(node);
+}
+
+/** The mention a COLLAPSED caret would move INTO when moving `direction` —
+ *  null when the immediate neighbor isn't a mention. Covers every resting
+ *  geometry the caret can take around a token: inside its text, at a
+ *  text-node boundary, at a line break (offset 0/1 = before/after it),
+ *  and at an element path selection (anchor.offset = child index — the
+ *  paragraph start/end geometry). The last two matter because Lexical's
+ *  native move ENTERS token text from there, parking the caret between
+ *  the icon and the name. */
+function $mentionAcross(direction: -1 | 1): FileMentionNode | CommandMentionNode | null {
+    const sel = $getSelection();
+    if (!$isRangeSelection(sel) || !sel.isCollapsed()) return null;
+    const anchor = sel.anchor;
+    const node = anchor.getNode();
+    if ($isMentionNode(node)) return node;
+    if ($isElementNode(node)) {
+        // Path selection: the child the caret would move into is the one
+        // at anchor.offset (moving right) / offset - 1 (moving left).
+        const child = node.getChildren()[direction === -1 ? anchor.offset - 1 : anchor.offset];
+        return child !== undefined && $isMentionNode(child) ? child : null;
+    }
+    // Text nodes (offset 0..size) and line breaks (offset 0/1): only a
+    // caret resting AT the boundary edge would cross into the neighbor.
+    if ($isTextNode(node)) {
+        const atEdge = direction === -1 ? anchor.offset === 0 : anchor.offset === node.getTextContentSize();
+        if (!atEdge) return null;
+    } else if ($isLineBreakNode(node)) {
+        const atEdge = direction === -1 ? anchor.offset === 0 : anchor.offset === 1;
+        if (!atEdge) return null;
+    } else {
+        return null;
+    }
+    const neighbor = direction === -1 ? node.getPreviousSibling() : node.getNextSibling();
+    return neighbor !== null && $isMentionNode(neighbor) ? neighbor : null;
 }
 
 /** Chars that make a preceding `/` read as part of a path, URL or
@@ -106,40 +151,85 @@ export function $detectTrigger(): TriggerState | null {
 
 
 /** Atomic ←/→ across a mention (file or command): when the caret sits
- *  inside one (the native caret can land in token text) or right next to
- *  one, land the selection on the FAR side of the whole mention in a
- *  single step. Returns whether it handled the key. */
+ *  inside one (the native caret can land in token text) or would move
+ *  into one — from a text edge, a line break or a path selection — land
+ *  the selection on the FAR side of the WHOLE mention (its icon region
+ *  included) in a single step. Returns whether it handled the key. */
 export function $skipMention(editor: LexicalEditor, direction: -1 | 1): boolean {
-    const jump = editor.getEditorState().read((): -1 | 1 | null => {
-        const sel = $getSelection();
-        if (!$isRangeSelection(sel) || !sel.isCollapsed()) return null;
-        const anchor = sel.anchor;
-        const node = anchor.getNode();
-        if ($isMentionNode(node)) return direction;
-        if ($isTextNode(node)) {
-            if (direction === -1 && anchor.offset === 0) {
-                return $isMentionNode(node.getPreviousSibling()) ? -1 : null;
-            }
-            if (direction === 1 && anchor.offset === node.getTextContentSize()) {
-                return $isMentionNode(node.getNextSibling()) ? 1 : null;
-            }
-        }
-        return null;
-    });
-    if (jump === null) return false;
+    if (editor.getEditorState().read(() => $mentionAcross(direction)) === null) return false;
     let handled = false;
     editor.update(() => {
-        const sel = $getSelection();
-        if (!$isRangeSelection(sel)) return;
-        let node = sel.anchor.getNode();
-        if (!$isMentionNode(node)) {
-            const sibling = direction === -1 ? node.getPreviousSibling() : node.getNextSibling();
-            if (!sibling || !$isMentionNode(sibling)) return;
-            node = sibling;
-        }
-        if (direction === -1) node.selectPrevious();
-        else node.selectNext();
+        const mention = $mentionAcross(direction);
+        if (mention === null) return;
+        if (direction === -1) mention.selectPrevious();
+        // Explicit (0, 0) = the point just AFTER the mention. A bare
+        // selectNext() passes undefined offsets, which TextNode.select
+        // defaults to the node's END — the caret would skip the entire
+        // following text run, not just the mention.
+        else mention.selectNext(0, 0);
         handled = true;
     });
     return handled;
+}
+
+/** A collapsed caret resting INSIDE a mention (click on the icon region,
+ *  Home/word jumps the arrow interception can't see) — it renders between
+ *  the icon and the name, inside the token's box. */
+function $restingInsideMention(): {node: FileMentionNode | CommandMentionNode; offset: number} | null {
+    const sel = $getSelection();
+    if (!$isRangeSelection(sel) || !sel.isCollapsed()) return null;
+    const anchor = sel.anchor;
+    const node = anchor.getNode();
+    return $isMentionNode(node) ? {node, offset: anchor.offset} : null;
+}
+
+/** Keeps a collapsed caret from ever RESTING inside a mention's token
+ *  text: $skipMention intercepts arrow crossings, this clamp catches the
+ *  remaining entry paths (mouse clicks on the icon area, Home/word
+ *  jumps) and snaps the caret out to the NEAREST edge of the whole
+ *  token. Selections SPANNING a mention are left alone (selecting
+ *  across a token is legitimate), and so is IME composition. */
+export function registerMentionCaretClamp(editor: LexicalEditor): () => void {
+    return editor.registerUpdateListener(() => {
+        if (editor.isComposing()) return;
+        if (editor.getEditorState().read(() => $restingInsideMention()) === null) return;
+        editor.update(() => {
+            const resting = $restingInsideMention();
+            if (resting === null) return;
+            // Nearest edge of the WHOLE token: the left half (a click on
+            // the icon maps to offset 0) lands before the box, the right
+            // half after it.
+            if (resting.offset * 2 <= resting.node.getTextContentSize()) resting.node.selectPrevious();
+            else resting.node.selectNext(0, 0);
+        });
+    });
+}
+
+/**
+ * A LEADING mention (first child of its paragraph) has no stable caret
+ * position before its box: mentions are TextNodes, so Lexical's selection
+ * normalization funnels every "before it" point — element selections
+ * ($normalizePoint pushes them into adjacent text children) and clicks
+ * WebKit resolves into the token — down to text offset 0, which renders
+ * BETWEEN the icon and the name. With text in front ("fewa @file") the
+ * same normalization instead hops to that text's end, which is why the
+ * mid-line geometry already works. The fix mirrors it: a leading mention
+ * keeps an invisible EMPTY text anchor in front of it (a real text
+ * position for the caret to rest at — the same anchor `accept() creates
+ * when splicing in the token, which $normalizeTextNode eats again unless
+ * it is marked unmergeable). Maintained by node transforms: added when a
+ * mention becomes the paragraph's first child, and simply absorbed by
+ * typing (text goes into the anchor node, turning it into the regular
+ * text node). */
+export function registerMentionAnchors(editor: LexicalEditor): () => void {
+    const maintain = (mention: FileMentionNode | CommandMentionNode) => {
+        if (mention.getPreviousSibling() !== null) return;
+        const anchor = $createTextNode("");
+        anchor.toggleUnmergeable(); // survive $normalizeTextNode's empty-node sweep
+        mention.insertBefore(anchor);
+    };
+    return mergeRegister(
+        editor.registerNodeTransform(FileMentionNode, maintain),
+        editor.registerNodeTransform(CommandMentionNode, maintain),
+    );
 }

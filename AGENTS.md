@@ -823,15 +823,31 @@ src/
     │   │                  #   on unmount/swap; text via readTextFile) with
     │   │                  #   .lum-loading / error states. Text/code
     │   │                  #   borrows the WORKSPACE display: the whole
-    │   │                  #   file as context rows through fragmentHunks →
-    │   │                  #   DiffViewBody (numbered, highlighted, no diff
-    │   │                  #   wash) inside the recessed reading box,
-    │   │                  #   truncated past the line cap with a
-    │   │                  #   footnote. Mounted KEYED per chip (MessageItem)
-    │   │                  #   so switches remount fresh; entrance/exit
-    │   │                  #   animation is the parent's ExitPresence.
+    │   │                  #   file through fragmentHunks → DiffViewBody —
+    │   │                  #   as ADDED rows (git-diff-view DROPS
+    │   │                  #   all-context hunks: no add/del ⇒ zero rows,
+    │   │                  #   verified vs 0.1.7), with the diff semantics
+    │   │                  #   (green wash, "+" signs, marker strips, the
+    │   │                  #   synthesized hunk header) neutralized by the
+    │   │                  #   .lum-attachment-diff scope in diffView.css —
+    │   │                  #   plain numbered, highlighted code; truncated
+    │   │                  #   past the line cap with a footnote. Mounted
+    │   │                  #   KEYED per chip (MessageItem) so switches
+    │   │                  #   remount fresh; entrance/exit animation is
+    │   │                  #   the parent's ExitPresence.
     │   ├── messageParts.ts # Pure part segmentation: segmentContent,
     │   │                  #   effectiveTailPart, stable part keys.
+    │   ├── userMentions.ts # Pure `@path` segmentation of a SENT user
+    │   │                  #   prompt (splitUserMentions): the wire text
+    │   │                  #   keeps the "@relative" form the server
+    │   │                  #   resolves, but the user bubble renders the
+    │   │                  #   mentions like the composer's token —
+    │   │                  #   icon + file name, no "@" (UserMentionText
+    │   │                  #   in MessageItem, the shared
+    │   │                  #   .lum-file-mention chrome). CJK-aware
+    │   │                  #   boundary + path-shape rules keep emails and
+    │   │                  #   plain @words plain; ASCII/CJK punctuation
+    │   │                  #   closes a token. node-testable.
     │   ├── ActivityGroup.tsx # Folded run of tool calls / thoughts
     │   ├── ThinkingBlock.tsx # Reasoning disclosure (live while streaming)
     │   ├── ToolCard.tsx   # One tool call as a FoldRow (detail/accent lines;

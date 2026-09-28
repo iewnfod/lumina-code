@@ -8,6 +8,7 @@ import {
     type Spread,
 } from "lexical";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
+import {folderLabel} from "../../lib/path.ts";
 
 /** What a `@`-picked file carries: the short display path (relative to the
  *  session directory) and the absolute path used when sending. */
@@ -22,12 +23,16 @@ export type SerializedFileMentionNode = Spread<
 >;
 
 /**
- * Inline file mention rendered as a TOKEN TextNode: the text is `@relative`,
- * styled as medium-weight text with a small colorful file-type icon (see
+ * Inline file mention rendered as a TOKEN TextNode: the text is the bare
+ * FILE NAME (icon + name, no `@` — matching the suggestion row that
+ * previews it; the full path stays in `data` and the tooltip), styled as
+ * medium-weight text with a small colorful file-type icon (see
  * `.lum-file-mention` in main.css) — deliberately not a chip/pill, which
- * reads too heavy inline. The icon (a background-image URL resolved from
- * the Material Icon Theme via lib/fileIcons.ts) is set inline in
- * `createDOM`, so no extra DOM nodes exist and text metrics
+ * reads too heavy inline. Submit serialization (ComposerCore) re-prefixes
+ * the `@` from `data.relative`, so the SENT prompt keeps the `@relative`
+ * mention form the server resolves. The icon (a background-image URL
+ * resolved from the Material Icon Theme via lib/fileIcons.ts) is set
+ * inline in `createDOM`, so no extra DOM nodes exist and text metrics
  * stay native. Token mode keeps the mention atomic — the caret skips it as
  * one character and Backspace deletes it whole — while movement, selection
  * and undo stay 100% native, including on WebKitGTK where non-editable
@@ -54,7 +59,7 @@ export class FileMentionNode extends TextNode {
     }
 
     constructor(data: FileMentionData, key?: NodeKey) {
-        super(`@${data.relative}`, key);
+        super(folderLabel(data.relative), key);
         this.__data = data;
     }
 

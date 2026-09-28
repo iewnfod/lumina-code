@@ -21,6 +21,7 @@ import ThinkingBlock from "./ThinkingBlock.tsx";
 import ActivityGroup from "./ActivityGroup.tsx";
 import {useExpansion} from "./useExpansion.ts";
 import {effectiveTailPart, partKey, segmentContent, visibleStepError, type ActivityPart} from "./messageParts.ts";
+import {splitUserMentions, type UserMentionSegment} from "./userMentions.ts";
 import {ERROR_TEXT} from "./toolMeta.ts";
 import {
     attachmentChips,
@@ -207,20 +208,29 @@ function UserBubble({
                     onToggle={(key) => setPreviewKey((k) => (k === key ? null : key))}
                 />
             )}
-            {/* The expanded preview, held through its fade-out by the exit
-                engine (self-stretch: a code reading surface wants the
-                column's width, unlike the shrink-wrapped bubble). */}
-            <ExitPresence present={active != null} exitMs={150} exit={{animation: "lum-fade-exit"}}>
-                {(closing, bind) => held != null && (
-                    <div
-                        key={held.key}
-                        {...bind}
-                        className={`self-stretch mb-2${closing ? " lum-fade-exit" : " lum-enter"}`}
-                    >
-                        <AttachmentPreview source={held.source}/>
+            {/* The expanded preview folds open/closed through the .lum-fold
+                grid-rows pattern (the app's height-animation primitive —
+                the browser interpolates the content height, no JS): the
+                fold container mounts as soon as any chip is previewable,
+                so the FIRST expansion toggles data-open after mount and
+                animates; content swaps between chips crossfade inside the
+                open fold (.lum-enter keyed per chip), and closing shrinks
+                the rows while ExitPresence holds the children (timer-
+                driven, budget-exempt — the container runs the transition;
+                see FoldRow for the anatomy). */}
+            {chips.some((c) => c.source != null) && (
+                <div className="lum-fold self-stretch" data-open={active != null}>
+                    <div>
+                        <ExitPresence present={active != null} exitMs={300} budget={false}>
+                            {() => held != null && (
+                                <div key={held.key} className="mb-2 lum-enter">
+                                    <AttachmentPreview source={held.source}/>
+                                </div>
+                            )}
+                        </ExitPresence>
                     </div>
-                )}
-            </ExitPresence>
+                </div>
+            )}
             {displayText && (
                 // A slash-command submission hovers to reveal the expanded
                 // template (the wrapper carries the width cap while the
@@ -263,7 +273,9 @@ function UserBubble({
                                         <span> {message.command.arguments}</span>
                                     )}
                                 </>
-                            ) : displayText}
+                            ) : (
+                                <UserMentionText text={displayText}/>
+                            )}
                         </div>
                     </div>
                 </Hint>
@@ -332,6 +344,33 @@ function UserBubble({
                 </div>
             )}
         </div>
+    );
+}
+
+/** A user prompt's text with its `@path` file mentions rendered exactly
+ *  like the composer's inline token — icon + file name, no `@` (the
+ *  shared `.lum-file-mention` chrome; the icon URL resolves per path the
+ *  same way FileMentionNode does). The wire text keeps the `@relative`
+ *  form the server resolves; this is display-only. */
+function UserMentionText({text}: {text: string}) {
+    const segments = useMemo(() => splitUserMentions(text), [text]);
+    return (
+        <>
+            {segments.map((segment, i) => renderSegment(segment, i))}
+        </>
+    );
+}
+
+function renderSegment(segment: UserMentionSegment, i: number) {
+    if (segment.kind === "text") return segment.text;
+    return (
+        <span
+            key={i}
+            className="lum-file-mention"
+            style={{backgroundImage: `url("${fileIconUrl(segment.relative)}")`}}
+        >
+            {segment.name}
+        </span>
     );
 }
 

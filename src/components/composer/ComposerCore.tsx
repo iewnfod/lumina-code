@@ -36,7 +36,14 @@ import {useI18n} from "../../hooks/i18n.tsx";
 import InputSuggestions, {type SuggestionItem} from "./InputSuggestions.tsx";
 import {$createFileMentionNode, $isFileMentionNode} from "./FileMentionNode.tsx";
 import {$createCommandMentionNode} from "./CommandMentionNode.tsx";
-import {$detectTrigger, $skipMention, triggerId, type TriggerState} from "./composerTriggers.ts";
+import {
+    $detectTrigger,
+    $skipMention,
+    registerMentionAnchors,
+    registerMentionCaretClamp,
+    triggerId,
+    type TriggerState,
+} from "./composerTriggers.ts";
 
 /** Editable metrics (must stay in lockstep with the ContentEditable's
  *  classes): one text line = 20px, vertical padding = 12 + 6, growth
@@ -244,12 +251,14 @@ export default function ComposerCore({
         [editor],
     );
 
-    /** Serialize the buffer for sending: plain text (mentions contribute
-     *  "@relative", blocks joined by newlines) + the absolute paths of all
-     *  mentions. Enter with a non-empty buffer sends; a leading `/name`
-     *  that matches a known command runs server-side instead. A pending
-     *  async submit blocks re-entry (an edit's revert round-trip must not
-     *  be doubled by a second Enter). */
+    /** Serialize the buffer for sending: plain text (file mentions
+     *  contribute "@relative" — reconstructed from the node's data, the
+     *  token itself displays the bare file name — blocks joined by
+     *  newlines) + the absolute paths of all mentions. Enter with a
+     *  non-empty buffer sends; a leading `/name` that matches a known
+     *  command runs server-side instead. A pending async submit blocks
+     *  re-entry (an edit's revert round-trip must not be doubled by a
+     *  second Enter). */
     const submitInFlightRef = useRef(false);
     const clearAfterSend = useCallback(() => {
         // Sent: drop the whole draft (editor state + attachments) for
@@ -274,9 +283,14 @@ export default function ComposerCore({
                 for (const child of $isElementNode(block) ? block.getChildren() : []) {
                     if ($isFileMentionNode(child)) {
                         paths.push(child.getAbsolute());
+                        // The token displays icon + bare file name; the
+                        // SENT text re-prefixes the "@" so the server
+                        // resolves the "@relative" mention form.
+                        text += `@${child.getRelative()}`;
+                        continue;
                     }
-                    // LineBreakNodes (Shift+Enter) contribute "\n"; mentions
-                    // contribute "@relative" — both via getTextContent.
+                    // LineBreakNodes (Shift+Enter) contribute "\n" via
+                    // getTextContent.
                     text += child.getTextContent();
                 }
             });
@@ -421,8 +435,9 @@ export default function ComposerCore({
                 },
                 COMMAND_PRIORITY_HIGH,
             ),
-            // Mentions are atomic: ←/→ jump over the WHOLE mention instead
-            // of walking its characters (the native caret can land inside
+            // Mentions are atomic: ←/→ jump over the WHOLE mention — its
+            // icon region included, not just the text — instead of
+            // walking its characters (the native caret can land inside
             // token text on WebKit).
             editor.registerCommand(
                 KEY_ARROW_LEFT_COMMAND,
@@ -446,6 +461,14 @@ export default function ComposerCore({
                 },
                 COMMAND_PRIORITY_HIGH,
             ),
+            // …and the caret never RESTS inside a mention either: clicks
+            // on the icon area snap out to the nearest edge of the token.
+            registerMentionCaretClamp(editor),
+            // A mention at the START of a line keeps an invisible empty
+            // text anchor in front of it — without one, every caret
+            // position "before" the token normalizes into its text
+            // (rendering between the icon and the name).
+            registerMentionAnchors(editor),
         );
         function navigate(event: KeyboardEvent | null, delta: 1 | -1): boolean {
             if (!event || event.isComposing) return false;

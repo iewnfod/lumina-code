@@ -51,10 +51,15 @@ const AttachmentPreview = memo(function AttachmentPreview({source}: {source: Att
         () => (textContent == null ? {lines: [] as string[], truncated: false} : capPreviewLines(textContent)),
         [textContent],
     );
-    // Whole file as context rows: numbered, highlighted, no diff wash.
+    // Whole file as ADDED rows. NOTE: git-diff-view drops all-context
+    // hunks — a hunk with no add/del builds ZERO rows (verified against
+    // @git-diff-view 0.1.7) — so the diff semantics (green wash, "+"
+    // signs, marker strips) are neutralized for this surface in
+    // diffView.css (.lum-attachment-diff), leaving plain numbered,
+    // highlighted code: the workspace file view's look.
     const hunks = useMemo(
         () => lines.length > 0 && !(lines.length === 1 && lines[0] === "")
-            ? fragmentHunks(lines.map((text) => ({kind: "same" as const, text})), source.name)
+            ? fragmentHunks(lines.map((text) => ({kind: "add" as const, text})), source.name)
             : [],
         [lines, source.name],
     );
@@ -98,11 +103,14 @@ const AttachmentPreview = memo(function AttachmentPreview({source}: {source: Att
 
     if (imageSrc != null) {
         return (
-            <div className="flex justify-center">
+            // Right-aligned with the chips row / bubble above (the user
+            // column is items-end); height-capped so a screenshot
+            // doesn't swallow the transcript.
+            <div className="flex justify-end">
                 <img
                     src={imageSrc}
                     alt={source.name}
-                    className="max-h-[55vh] rounded-[var(--radius-lg)]"
+                    className="max-h-[min(55vh,400px)] rounded-[var(--radius-lg)]"
                     style={{border: `1px solid ${colors.glassBorder}`}}
                 />
             </div>
@@ -112,14 +120,38 @@ const AttachmentPreview = memo(function AttachmentPreview({source}: {source: Att
         return (
             <div className="flex flex-col gap-1">
                 {/* The workspace display's recessed reading surface (the
-                    stats panel's BodyBox shape, ToolCard's box pattern). */}
+                    stats panel's BodyBox shape) with the transcript's EDGE
+                    FADE (ChatView's scroller mask): the mask rides the INNER
+                    scroller — viewport-fixed, so rows dissolve as they cross
+                    the scroll boundary — while the fill + rounded clip stay
+                    on the outer box, because masks multiply into backgrounds
+                    (the .lum-clamp-fade lesson: never mask the painted
+                    surface itself). The 12px fade band is covered by the
+                    same-sized padding, so resting content starts where the
+                    mask is already solid — nothing fades until you scroll. */}
                 <div
-                    className="rounded-[var(--radius-sm)] max-h-[55vh] overflow-auto px-3 py-2"
+                    className="rounded-[var(--radius-lg)] max-h-[55vh] overflow-hidden"
                     style={{background: colors.recessedBg}}
                 >
-                    {hunks.length > 0
-                        ? <DiffViewBody hunks={hunks} fileName={source.name}/>
-                        : <span className="opacity-40 text-sm select-none">{t["Preview unavailable"]}</span>}
+                    <div
+                        className="max-h-[55vh] overflow-auto"
+                        style={{
+                            WebkitMaskImage:
+                                "linear-gradient(to bottom, transparent 0, black 12px, black calc(100% - 12px), transparent 100%)",
+                            maskImage:
+                                "linear-gradient(to bottom, transparent 0, black 12px, black calc(100% - 12px), transparent 100%)",
+                        }}
+                    >
+                        <div className="px-3 py-3">
+                            {hunks.length > 0
+                                ? (
+                                    <div className="lum-attachment-diff">
+                                        <DiffViewBody hunks={hunks} fileName={source.name}/>
+                                    </div>
+                                )
+                                : <span className="opacity-40 text-sm select-none">{t["Preview unavailable"]}</span>}
+                        </div>
+                    </div>
                 </div>
                 {truncated && (
                     <span className="text-[11px] opacity-40 select-none">

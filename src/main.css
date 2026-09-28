@@ -196,20 +196,32 @@ body {
 }
 
 /*
- * Composer file mentions (FileMentionNode — a token TextNode). Rendered as
- * plain medium-weight text with a small colorful file-type icon (Material
- * Icon Theme): the icon URL is set per node in createDOM (background-image
- * pointing at the generated /icons/files assets); this class carries the
- * shared chrome only. No chip/pill — inline chrome reads too heavy next to
- * normal text. white-space: nowrap keeps a mention on one line. Command
- * mentions (CommandMentionNode) share the same chrome with a terminal
- * glyph.
+ * File mentions rendered as plain medium-weight text with a small
+ * colorful file-type icon (Material Icon Theme): the icon URL is set per
+ * instance (background-image pointing at the generated /icons/files
+ * assets — FileMentionNode.createDOM in the composer, UserMentionText in
+ * the user bubble); this class carries the shared chrome only, so a sent
+ * message's mentions look identical to the composer token. No chip/pill —
+ * inline chrome reads too heavy next to normal text. white-space: nowrap
+ * keeps a mention on one line. Command mentions (CommandMentionNode)
+ * share the same chrome with a terminal glyph.
+ *
+ * Mentions are INLINE-BLOCKS so the icon's background-position has a
+ * deterministic positioning area (the element's own box, height driven by
+ * the inherited line-height) — `center` then keeps the 16px glyph on the
+ * text's visual midline at any font size. A plain inline box positions
+ * backgrounds against a font-metric-dependent content area whose height
+ * differs per engine (WebKitGTK!), which is why a hand-tuned percentage
+ * drifted out of alignment. Baseline alignment is unaffected: an
+ * inline-block with in-flow text sits its last line's baseline on the
+ * surrounding baseline.
  */
 .lum-file-mention,
 .lum-command-mention {
+    display: inline-block;
     padding-left: 19px;
     background-repeat: no-repeat;
-    background-position: 0 58%;
+    background-position: 0 center;
     background-size: 16px 16px;
     font-weight: 500;
     white-space: nowrap;

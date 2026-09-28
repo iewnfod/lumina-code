@@ -120,3 +120,32 @@
 .lum-diff-view .diff-line-content-operator[data-operator="-"] {
     color: rgba(248, 81, 73, 0.85);
 }
+
+/*
+ * Attachment-chip text preview (.lum-attachment-diff in
+ * AttachmentPreview.tsx): the whole file rides as ADDED rows — the lib
+ * drops all-context hunks (no add/del ⇒ zero rows, verified against
+ * @git-diff-view 0.1.7) — so this scope NEUTRALIZES the diff semantics
+ * the all-add encoding would paint: no green wash (content or gutter),
+ * no "+" signs, no marker strips. What survives is exactly the
+ * workspace file view's look: numbered, syntax-highlighted, wrapped
+ * code on the recessed surface.
+ */
+.lum-attachment-diff .lum-diff-view .diff-tailwindcss-wrapper .diff-style-root {
+    --diff-add-content--: transparent;
+    --diff-add-lineNumber--: transparent;
+}
+
+.lum-attachment-diff .lum-diff-view tr:has([data-operator]) > td:first-child::before {
+    content: none;
+}
+
+.lum-attachment-diff .lum-diff-view .diff-line-content-operator {
+    display: none;
+}
+
+/* The synthesized single hunk's "@@ -0,0 +1,N @@" header row is noise
+ * here — the file starts at line 1 by construction. */
+.lum-attachment-diff .lum-diff-view tr.diff-line-hunk {
+    display: none;
+}
