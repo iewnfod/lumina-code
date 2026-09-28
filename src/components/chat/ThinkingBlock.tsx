@@ -13,7 +13,7 @@ import FoldRow from "./FoldRow.tsx";
 export default function ThinkingBlock({part, stateKey, live}: {part: AssistantReasoningPart; stateKey: string; live: boolean}) {
     const t = useI18n();
     const {expanded, toggle} = useExpansion(stateKey, live, AUTO_EXPAND_MIN_DWELL_MS);
-    const {ref: thinkScroll, onScroll: thinkScrollHandler, scrolled: tailScrolled} =
+    const {ref: thinkScroll, onScroll: thinkScrollHandler, top: tailTop, bottom: tailBottom} =
         useFollowBottom<HTMLDivElement>(live);
 
     // Collapsed rows carry the thought's first line as a preview.
@@ -29,10 +29,14 @@ export default function ThinkingBlock({part, stateKey, live}: {part: AssistantRe
             expanded={expanded}
             onToggle={toggle}
         >
+            {/* Naked scroller (no painted chrome of its own) — the mask
+             * rides it directly; lg tier (the thinking stream is a big
+             * reading block), fades only while a side has hidden content
+             * (useFollowBottom's edge flags). */}
             <div
                 ref={thinkScroll}
                 onScroll={thinkScrollHandler}
-                className={`ml-5 mt-0.5 mb-1 text-sm whitespace-pre-wrap break-words max-h-64 overflow-y-auto opacity-60 leading-relaxed${tailScrolled ? " lum-tail-fade" : ""}`}
+                className={`ml-5 mt-0.5 mb-1 text-sm whitespace-pre-wrap break-words max-h-64 overflow-y-auto opacity-60 leading-relaxed lum-fade-lg${tailTop ? " lum-fade-top" : ""}${tailBottom ? " lum-fade-bottom" : ""}`}
             >
                 {part.text}
             </div>

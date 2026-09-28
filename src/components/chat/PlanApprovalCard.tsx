@@ -1,6 +1,7 @@
 import {memo} from "react";
 import {ClipboardCheck} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import type {PlanSubmitPayload} from "../../opencode/sessionActivity.ts";
 import {Card, CardButton} from "./RequestCardChrome.tsx";
 import Markdown from "./Markdown.tsx";
@@ -31,6 +32,10 @@ export const PlanApprovalCard = memo(function PlanApprovalCard({
     onReject: () => void;
 }) {
     const t = useI18n();
+    // Conditional edge fades: the reading area is flush (pl-6, no vertical
+    // padding), so fades appear only while a side has hidden content — a
+    // short plan renders fade-free.
+    const edges = useScrollEdges<HTMLDivElement>();
     return (
         <Card>
             <div className="flex items-center gap-2 text-sm font-medium">
@@ -44,7 +49,11 @@ export const PlanApprovalCard = memo(function PlanApprovalCard({
                 // long plans need real reading room, short ones stay
                 // content-sized. No `live` — static content, no
                 // entrance animations.
-                <div className="pl-6 max-h-[45vh] overflow-y-auto">
+                <div
+                    ref={edges.ref}
+                    onScroll={edges.onScroll}
+                    className={`pl-6 max-h-[45vh] overflow-y-auto lum-fade-lg${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
+                >
                     <Markdown>{payload.plan}</Markdown>
                 </div>
             ) : (

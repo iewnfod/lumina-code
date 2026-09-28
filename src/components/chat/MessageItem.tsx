@@ -249,10 +249,12 @@ function UserBubble({
                     >
                         {/* The clamp + fade live on this inner wrapper, not the
                          * bubble: a mask would dissolve the bubble's own
-                         * translucent fill and rounded corners with it. */}
+                         * translucent fill and rounded corners with it.
+                         * .lum-fade-bottom with the original 24px band (see
+                         * main.css's fade-system docs). */}
                         <div
                             ref={textRef}
-                            className={`whitespace-pre-wrap break-words${clamped ? " overflow-hidden lum-clamp-fade" : ""}`}
+                            className={`whitespace-pre-wrap break-words${clamped ? " overflow-hidden lum-fade-bottom lum-fade-md" : ""}`}
                             style={clamped ? {maxHeight: USER_BUBBLE_MAX_PX} : undefined}
                         >
                             {message.command ? (

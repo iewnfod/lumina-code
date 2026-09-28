@@ -1,6 +1,7 @@
 import type {ReactNode, RefObject} from "react";
 import {ChevronRight} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
+import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
 import RollingTitle from "../ui/RollingTitle.tsx";
 import type {CSSProperties} from "react";
@@ -116,7 +117,13 @@ export function FinishedTotal({finished, total}: {finished: number; total: numbe
 /** The recessed surface every drill body renders in (diff patch,
  *  terminal output, subagent transcript) — one shape instead of
  *  hand-rolled copies drifting apart. Long reading surfaces read best
- *  as a quiet borderless wash inside the panel. */
+ *  as a quiet borderless wash inside the panel.
+ *
+ *  Fade-system chrome/scroller split: the wash + rounded clip stay on
+ *  the outer div; the inner div is the scroller wearing the CONDITIONAL
+ *  edge fades (self-tracked via useScrollEdges — drill content sits
+ *  flush inside the caller's padding, so a fade shows only while a side
+ *  has hidden content). A mask must never ride the painted surface. */
 export function BodyBox({
     className = "",
     mono = false,
@@ -137,17 +144,32 @@ export function BodyBox({
     children: ReactNode;
 }) {
     const colors = useColors();
+    const edges = useScrollEdges<HTMLDivElement>();
     return (
         <div
-            ref={scrollRef}
-            onScroll={onScroll}
-            className={`rounded-[var(--radius-sm)] ${fill ? "h-full" : "max-h-[55vh]"} overflow-auto ${className}`}
+            className={`rounded-[var(--radius-sm)] ${fill ? "h-full" : "max-h-[55vh]"} overflow-hidden`}
             style={{
                 ...(mono ? MONO_STYLE : null),
                 background: colors.recessedBg,
             }}
         >
-            {children}
+            <div
+                // Both the edge tracker and the caller's follow-bottom
+                // (scrollRef/onScroll) ride this one scroller.
+                ref={(el) => {
+                    edges.ref.current = el;
+                    if (scrollRef) scrollRef.current = el;
+                }}
+                onScroll={() => {
+                    edges.onScroll();
+                    onScroll?.();
+                }}
+                className={`${fill ? "h-full" : "max-h-[55vh]"} overflow-auto lum-fade-md${
+                    edges.top ? " lum-fade-top" : ""
+                }${edges.bottom ? " lum-fade-bottom" : ""} ${className}`}
+            >
+                {children}
+            </div>
         </div>
     );
 }

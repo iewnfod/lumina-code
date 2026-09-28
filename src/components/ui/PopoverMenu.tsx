@@ -1,6 +1,7 @@
 import {useEffect, useRef, useState, type ReactNode} from "react";
 import {Check} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
+import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import ExitPresence from "./ExitPresence.tsx";
 
 /**
@@ -34,6 +35,10 @@ export default function PopoverMenu({
     const colors = useColors();
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
+    // Conditional edge fades for the scrolling panel body: menu rows sit
+    // flush (py-1), so a fade shows only while that side actually has rows
+    // hidden beyond it — short menus render fade-free.
+    const edges = useScrollEdges<HTMLDivElement>();
 
     useEffect(() => {
         if (!open) return;
@@ -88,7 +93,11 @@ export default function PopoverMenu({
                         style={panelStyle}
                     >
                         {/* The whole panel body scrolls as one list. */}
-                        <div className="min-h-0 overflow-y-auto">
+                        <div
+                            ref={edges.ref}
+                            onScroll={edges.onScroll}
+                            className={`min-h-0 overflow-y-auto lum-fade-md${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
+                        >
                             {children(() => setOpen(false))}
                         </div>
                     </div>

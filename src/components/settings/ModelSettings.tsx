@@ -4,6 +4,7 @@ import {ArrowLeft, Globe, ScanEye, Search, Trash2} from "lucide-react";
 import {openPath, openUrl} from "@tauri-apps/plugin-opener";
 import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
+import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
 import type {
@@ -68,6 +69,10 @@ export default function ModelSettings({
     const colors = useColors();
     const t = useI18n();
     const [tab, setTab] = useState<"providers" | "custom" | "tools">("providers");
+    // Conditional edge fades for the pane's scroller: the providers list
+    // renders flush at the top (pt-3 only on the other views), so fades
+    // appear only while a side has hidden content.
+    const paneEdges = useScrollEdges<HTMLDivElement>();
 
     // --- Providers tab ---
     const [integrations, setIntegrations] = useState<IntegrationInfo[] | null>(null);
@@ -298,7 +303,13 @@ export default function ModelSettings({
                         </label>
                     </div>
                 )}
-                <div className={`min-h-0 flex-1 overflow-y-auto px-4 pb-3 ${tab === "providers" && !inDetail ? "" : "pt-3"}`}>
+                <div
+                    ref={paneEdges.ref}
+                    onScroll={paneEdges.onScroll}
+                    className={`min-h-0 flex-1 overflow-y-auto px-4 pb-3 lum-fade-md ${tab === "providers" && !inDetail ? "" : "pt-3"}${
+                        paneEdges.top ? " lum-fade-top" : ""
+                    }${paneEdges.bottom ? " lum-fade-bottom" : ""}`}
+                >
                 {tab === "providers" && (
                     selected ? (
                         <ProviderDetail

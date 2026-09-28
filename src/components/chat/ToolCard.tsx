@@ -7,6 +7,7 @@ import type {AssistantToolPart} from "../../opencode/types.ts";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n, type TranslationKey} from "../../hooks/i18n.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
+import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
 import {errorText, inputFilePath, inputObject, inputStr, metaFor, ERROR_TEXT} from "./toolMeta.ts";
@@ -17,23 +18,28 @@ import DiffViewBody from "./DiffViewBody.tsx";
 import {MONO_ROW_STYLE, MONO_STYLE} from "./RequestCardChrome.tsx";
 
 /** The shared expanded-body panel: recessed card chrome for tool output,
- *  error notes and diff views alike. */
-function ToolBodyBox({color, scrollRef, onScroll, tailFade, wrap = true, children}: {
+ *  error notes and diff views alike.
+ *
+ *  Fade-system chrome/scroller split: the wash, hairline border and
+ *  rounded clip stay on the outer box; the inner div is the scroller
+ *  wearing the CONDITIONAL edge fades (self-tracked — diffs/errors are
+ *  static content, and the streamed raw-output instance rides the same
+ *  flags while useFollowBottom pins its tail through scrollRef/
+ *  onScroll). A mask must never ride a painted surface. */
+function ToolBodyBox({color, scrollRef, onScroll, wrap = true, children}: {
     color: string;
     scrollRef?: RefObject<HTMLDivElement | null>;
     onScroll?: () => void;
-    tailFade?: boolean;
     /** Pre-wrap the plain-text surfaces (raw output, errors). The diff
      *  view manages its own wrapping and must not inherit it. */
     wrap?: boolean;
     children: ReactNode;
 }) {
     const colors = useColors();
+    const edges = useScrollEdges<HTMLDivElement>();
     return (
         <div
-            ref={scrollRef}
-            onScroll={onScroll}
-            className={`ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2 max-h-64 overflow-y-auto${wrap ? " whitespace-pre-wrap break-words" : ""}${tailFade ? " lum-tail-fade" : ""}`}
+            className="ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] max-h-64 overflow-hidden"
             style={{
                 ...MONO_STYLE,
                 background: colors.recessedBg,
@@ -41,7 +47,23 @@ function ToolBodyBox({color, scrollRef, onScroll, tailFade, wrap = true, childre
                 color,
             }}
         >
-            {children}
+            <div
+                // Both the edge tracker and the caller's follow-bottom
+                // (scrollRef/onScroll) ride this one scroller.
+                ref={(el) => {
+                    edges.ref.current = el;
+                    if (scrollRef) scrollRef.current = el;
+                }}
+                onScroll={() => {
+                    edges.onScroll();
+                    onScroll?.();
+                }}
+                className={`max-h-64 overflow-y-auto px-3 py-2 lum-fade-md${
+                    wrap ? " whitespace-pre-wrap break-words" : ""
+                }${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
+            >
+                {children}
+            </div>
         </div>
     );
 }
@@ -270,7 +292,7 @@ const ToolCard = memo(function ToolCard({
         0,
         ERROR_DISCLOSURE_MS,
     );
-    const {ref: outputScroll, onScroll: outputScrollHandler, scrolled: tailScrolled} =
+    const {ref: outputScroll, onScroll: outputScrollHandler} =
         useFollowBottom<HTMLDivElement>(status === "running");
 
     const t = useI18n();
@@ -357,7 +379,6 @@ const ToolCard = memo(function ToolCard({
                     color={colors.inactiveText}
                     scrollRef={outputScroll}
                     onScroll={outputScrollHandler}
-                    tailFade={tailScrolled}
                 >
                     {output}
                 </ToolBodyBox>

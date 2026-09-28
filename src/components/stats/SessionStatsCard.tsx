@@ -2,6 +2,7 @@ import {memo, useCallback, useEffect, useLayoutEffect, useRef, useState} from "r
 import {Bot, ChevronLeft, ChevronUp, Diff, ListChecks, Square, SquareTerminal} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
+import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {useStatsExpanded, useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import type {SessionShellRef, SessionSubagentRef, SessionTodos} from "../../opencode/sessionActivity.ts";
@@ -66,6 +67,9 @@ const SessionStatsCard = memo(function SessionStatsCard({
     const t = useI18n();
     const colors = useColors();
     const panelMode = useStatsPanelMode();
+    // Conditional edge fades for the detail body's scrollport (see the
+    // .lum-stats-body div below).
+    const bodyEdges = useScrollEdges<HTMLDivElement>();
     // The manual expansion lives in a MODULE store (useStatsExpanded):
     // App keys this card by directory, so a cross-directory session
     // switch remounts it — a local useState would reset the panel to
@@ -369,8 +373,17 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         </IconButton>
                     </div>
                     {/* Views swap directly; entering content fades itself
-                        in (.lum-enter on the drill bodies / rows). */}
-                    <div className="lum-stats-body min-h-0 flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-3">
+                        in (.lum-enter on the drill bodies / rows). The
+                        scrollport wears CONDITIONAL edge fades — sections
+                        sit flush at the top (px-3 pb-3), so a fade shows
+                        only while a side has hidden content. */}
+                    <div
+                        ref={bodyEdges.ref}
+                        onScroll={bodyEdges.onScroll}
+                        className={`lum-stats-body min-h-0 flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-3 lum-fade-md${
+                            bodyEdges.top ? " lum-fade-top" : ""
+                        }${bodyEdges.bottom ? " lum-fade-bottom" : ""}`}
+                    >
                         {view.kind === "overview" && (
                             <>
                                 {todos && todos.items.length > 0 && (

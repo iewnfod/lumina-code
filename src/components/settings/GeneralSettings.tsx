@@ -156,7 +156,11 @@ export default function GeneralSettings() {
     ];
 
     return (
-        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 lum-fade-top lum-fade-bottom lum-fade-md">
+            {/* Static edge fade (both single-edge classes, always on): the
+             * py-5 padding covers the 28px-tier band's solid reach, so
+             * resting content stays crisp — no scroll tracking needed
+             * (see main.css's fade-system docs). */}
             <div className="flex flex-col gap-5">
                 <OptionRow
                     label={t["Language"]}

@@ -171,28 +171,151 @@ body {
 }
 
 /*
- * Tail-chasing scroll regions (thinking text, tool output — see
- * hooks/useFollowBottom.ts) jump to their tail on every streamed frame;
- * a one-line fade at the top edge reads as flowing rather than snapping.
- * Callers apply it only while the region is scrolled, so a box that opens
- * at the very top keeps its first line crisp.
+ * EDGE FADES for scroll regions — the app-wide "content dissolves into the
+ * chrome" language (the transcript scroller is the reference surface).
+ *
+ * Classes:
+ *   .lum-fade-top /
+ *   .lum-fade-bottom  one vertical edge each; .lum-fade-left /
+ *   .lum-fade-right   one horizontal edge each. COMPOSABLE: each axis's
+ *                     pair shares ONE six-stop gradient whose END COLORS
+ *                     are vars, and a single-edge class only flips its own
+ *                     end to transparent — so top+bottom together render
+ *                     BOTH fades (the old per-class mask-image declarations
+ *                     cascaded into "last one wins", which ate the top
+ *                     fade whenever both flags were set), each alone fades
+ *                     exactly its side, and neither means no mask at all.
+ *                     That last property is what scroll-AWARE sites exploit
+ *                     (hooks/useScrollEdges.ts, useFollowBottom): the
+ *                     class toggles per side that actually has hidden
+ *                     content, so non-overflowing regions and resting
+ *                     edges stay crisp. Static sites (a scroller whose own
+ *                     padding covers the band — settings panes, reading
+ *                     cards) simply wear BOTH classes of the axis.
+ *
+ * Rules of the system (all established by the surfaces this replaces):
+ *   - The mask rides the SCROLLER (viewport-fixed; content slides under
+ *     it), never the painted chrome around it — masks multiply into
+ *     backgrounds, so a bordered/rounded box whose scroller it is must be
+ *     split: chrome + overflow-hidden outside, scroller + fade inside.
+ *   - Eased stops (transparent → 0.65 at ~0.375×band → solid at band),
+ *     preceded by a 2px fully-transparent DEAD ZONE at the very edge:
+ *     without it the linear ramp's first pixel still carries up to ~14%
+ *     alpha at the small band tier, enough for a bright content row to
+ *     leak a one-pixel seam past a "fully hidden" edge; the dead zone
+ *     keeps the outermost 2px unconditionally clear whatever the tier or
+ *     sub-pixel rounding. The alpha then drops off quickly near the edge
+ *     instead of lingering half-visible across the whole band, so text
+ *     feels fully faded before it exits.
+ *   - Band width — THREE TIERS, by the size of the surface:
+ *       .lum-fade-lg  51px — hero surfaces: the transcript and its fellow
+ *                        big reading blocks (plan/report cards, thinking,
+ *                        full-document previews) wear the reference look.
+ *       .lum-fade-md  28px — mid-sized panels: the workspace-activity
+ *                        body, composer surfaces, menus, settings panes,
+ *                        tool/subagent output boxes.
+ *       (default)    12px — small strips (permission lists, the terminal
+ *                        command preview) where a wide band would eat the
+ *                        box.
+ *     The band var: --lum-fade-band (the tier classes just set it).
+ *   - Single-layer masks only (no mask-composite layering — WebKitGTK);
+ *     one axis per element. The CSS-only pre>code scroller re-declares the
+ *     horizontal gradient inline (utilities can't be attached from CSS).
  */
-.lum-tail-fade {
-    -webkit-mask-image: linear-gradient(to bottom, transparent, black 24px);
-    mask-image: linear-gradient(to bottom, transparent, black 24px);
+.lum-fade-lg {
+    --lum-fade-band: 51px;
 }
 
-/*
- * Clamped regions that expand on demand (the user prompt bubble — see
- * MessageItem.tsx). The inverse of .lum-tail-fade: content dissolves at the
- * BOTTOM edge where the clamp cuts it. The mask must sit on an inner text
- * wrapper, never on the bubble itself — masks multiply into backgrounds, and
- * the bubble's translucent accent fill and rounded corners have to stay
- * solid to the edge.
- */
-.lum-clamp-fade {
-    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
-    mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
+.lum-fade-md {
+    --lum-fade-band: 28px;
+}
+
+/* The vertical pair: one shared gradient. Each end contributes THREE
+ * stops driven by per-end vars, and a class that is ABSENT leaves its
+ * vars at #000/@0px defaults — the stops collapse onto the solid black
+ * run (out-of-order positions are clamped up by the gradient machine),
+ * so an inactive end stays FULLY opaque (no interpolation dip) while an
+ * active end reads transparent → transparent (2px DEAD ZONE) → 0.65 at
+ * ~0.375×band → solid at band. The dead zone is the anti-sliver guard:
+ * the outermost 2px are unconditionally transparent, so a content row
+ * scrolled just past the edge can never leak a one-pixel seam through
+ * the ramp's first stop, whatever the band tier or sub-pixel rounding. */
+.lum-fade-top,
+.lum-fade-bottom {
+    -webkit-mask-image: linear-gradient(
+        to bottom,
+        var(--lum-fade-tz, #000) 0,
+        var(--lum-fade-tz, #000) var(--lum-fade-dz, 2px),
+        var(--lum-fade-tm, #000) var(--lum-fade-tm-at, 0px),
+        #000 var(--lum-fade-band, 12px),
+        #000 calc(100% - var(--lum-fade-band, 12px)),
+        var(--lum-fade-bm, #000) calc(100% - var(--lum-fade-bm-at, 0px)),
+        var(--lum-fade-bz, #000) calc(100% - var(--lum-fade-dz, 2px)),
+        var(--lum-fade-bz, #000) 100%
+    );
+    mask-image: linear-gradient(
+        to bottom,
+        var(--lum-fade-tz, #000) 0,
+        var(--lum-fade-tz, #000) var(--lum-fade-dz, 2px),
+        var(--lum-fade-tm, #000) var(--lum-fade-tm-at, 0px),
+        #000 var(--lum-fade-band, 12px),
+        #000 calc(100% - var(--lum-fade-band, 12px)),
+        var(--lum-fade-bm, #000) calc(100% - var(--lum-fade-bm-at, 0px)),
+        var(--lum-fade-bz, #000) calc(100% - var(--lum-fade-dz, 2px)),
+        var(--lum-fade-bz, #000) 100%
+    );
+}
+
+.lum-fade-top {
+    --lum-fade-tz: transparent;
+    --lum-fade-tm: rgba(0, 0, 0, 0.65);
+    --lum-fade-tm-at: calc(var(--lum-fade-band, 12px) * 0.375);
+}
+
+.lum-fade-bottom {
+    --lum-fade-bz: transparent;
+    --lum-fade-bm: rgba(0, 0, 0, 0.65);
+    --lum-fade-bm-at: calc(var(--lum-fade-band, 12px) * 0.375);
+}
+
+/* The horizontal pair, same shape: width-aware scrollers (the md table)
+ * fade a side only while content is actually hidden beyond it. */
+.lum-fade-left,
+.lum-fade-right {
+    -webkit-mask-image: linear-gradient(
+        to right,
+        var(--lum-fade-lz, #000) 0,
+        var(--lum-fade-lz, #000) var(--lum-fade-dz, 2px),
+        var(--lum-fade-lm, #000) var(--lum-fade-lm-at, 0px),
+        #000 var(--lum-fade-band, 12px),
+        #000 calc(100% - var(--lum-fade-band, 12px)),
+        var(--lum-fade-rm, #000) calc(100% - var(--lum-fade-rm-at, 0px)),
+        var(--lum-fade-rz, #000) calc(100% - var(--lum-fade-dz, 2px)),
+        var(--lum-fade-rz, #000) 100%
+    );
+    mask-image: linear-gradient(
+        to right,
+        var(--lum-fade-lz, #000) 0,
+        var(--lum-fade-lz, #000) var(--lum-fade-dz, 2px),
+        var(--lum-fade-lm, #000) var(--lum-fade-lm-at, 0px),
+        #000 var(--lum-fade-band, 12px),
+        #000 calc(100% - var(--lum-fade-band, 12px)),
+        var(--lum-fade-rm, #000) calc(100% - var(--lum-fade-rm-at, 0px)),
+        var(--lum-fade-rz, #000) calc(100% - var(--lum-fade-dz, 2px)),
+        var(--lum-fade-rz, #000) 100%
+    );
+}
+
+.lum-fade-left {
+    --lum-fade-lz: transparent;
+    --lum-fade-lm: rgba(0, 0, 0, 0.65);
+    --lum-fade-lm-at: calc(var(--lum-fade-band, 12px) * 0.375);
+}
+
+.lum-fade-right {
+    --lum-fade-rz: transparent;
+    --lum-fade-rm: rgba(0, 0, 0, 0.65);
+    --lum-fade-rm-at: calc(var(--lum-fade-band, 12px) * 0.375);
 }
 
 /*
@@ -291,13 +414,43 @@ body {
     background: rgba(128, 128, 128, 0.1);
     padding: 0.75em 1em;
     border-radius: var(--radius-md);
-    overflow-x: auto;
     margin: 0.6em 0;
 }
+/* The CODE element is the horizontal scroller (the pre keeps its wash,
+ * radius and padding — never mask the painted surface itself). The fade
+ * band (12px) is covered by the pre's 1em side padding, so resting code
+ * starts where the mask is already solid; only scrolled content
+ * dissolves at the edges. Same shape as the .lum-fade-left/-right pair
+ * (including the 2px transparent DEAD ZONE — see the fade-system docs),
+ * re-declared because CSS can't attach a utility class. */
 .lum-md pre code {
     background: transparent;
     padding: 0;
     font-size: var(--lum-code-size);
+    display: block;
+    overflow-x: auto;
+    -webkit-mask-image: linear-gradient(
+        to right,
+        transparent 0,
+        transparent 2px,
+        rgba(0, 0, 0, 0.65) calc(var(--lum-fade-band, 12px) * 0.375),
+        #000 var(--lum-fade-band, 12px),
+        #000 calc(100% - var(--lum-fade-band, 12px)),
+        rgba(0, 0, 0, 0.65) calc(100% - var(--lum-fade-band, 12px) * 0.375),
+        transparent calc(100% - 2px),
+        transparent 100%
+    );
+    mask-image: linear-gradient(
+        to right,
+        transparent 0,
+        transparent 2px,
+        rgba(0, 0, 0, 0.65) calc(var(--lum-fade-band, 12px) * 0.375),
+        #000 var(--lum-fade-band, 12px),
+        #000 calc(100% - var(--lum-fade-band, 12px)),
+        rgba(0, 0, 0, 0.65) calc(100% - var(--lum-fade-band, 12px) * 0.375),
+        transparent calc(100% - 2px),
+        transparent 100%
+    );
 }
 .lum-md blockquote {
     border-left: 2px solid rgba(128, 128, 128, 0.4);
@@ -307,19 +460,27 @@ body {
 }
 /* Tables — card-like: rounded outer shell with a hairline border, generous
  * cell padding, horizontal-only row dividers (no vertical grid), a tinted
- * header row, and quiet zebra striping. display: block + overflow-x: auto
- * also clips the corners so the radius survives horizontal scrolling. */
-.lum-md table {
-    border-collapse: separate;
-    border-spacing: 0;
+ * header row, and quiet zebra striping. The chrome (border, radius, clip)
+ * lives on the .lum-md-table WRAP (Markdown.tsx's table override) and the
+ * .lum-md-table-scroll div inside it is the horizontal scroller wearing
+ * .lum-fade-left/-right — masks multiply into backgrounds, so the border must stay on
+ * an unmasked layer. The table itself renders chromeless at fit-content. */
+.lum-md .lum-md-table {
     margin: 1em 0;
-    font-size: 0.9em;
-    display: block;
-    width: fit-content;
     max-width: 100%;
-    overflow-x: auto;
+    overflow: hidden;
     border: 1px solid rgba(128, 128, 128, 0.15);
     border-radius: var(--radius-lg);
+}
+.lum-md .lum-md-table-scroll {
+    overflow-x: auto;
+}
+.lum-md .lum-md-table table {
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.9em;
+    display: table;
+    width: fit-content;
     background: transparent;
 }
 .lum-md th,
@@ -334,12 +495,8 @@ body {
     letter-spacing: 0.02em;
     border-bottom: 1px solid rgba(128, 128, 128, 0.2);
 }
-.lum-md th:first-child {
-    border-top-left-radius: var(--radius-lg);
-}
-.lum-md th:last-child {
-    border-top-right-radius: var(--radius-lg);
-}
+/* (The old th:first/last-child radius rules are gone — the .lum-md-table
+ * wrap's overflow-hidden + border-radius clips the header corners.) */
 .lum-md tbody tr:last-child td {
     border-bottom: none;
 }

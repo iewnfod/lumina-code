@@ -9,6 +9,7 @@ import {useGlass} from "../hooks/useGlass.ts";
 import {glassSurface} from "../lib/glass.ts";
 import {whileHoverTap} from "../lib/motion.ts";
 import {useI18n} from "../hooks/i18n.tsx";
+import {useScrollEdges} from "../hooks/useScrollEdges.ts";
 import {groupByDirectory, type SessionInfo} from "./sessionGrouping.ts";
 import SessionFolder, {MAX_VISIBLE_SESSIONS} from "./SessionFolder.tsx";
 import type {CSSProperties} from "react";
@@ -60,6 +61,10 @@ export default function SessionBar(props: SessionBarProps) {
 
     const colors = useSurfaceColors(backgroundColor);
     const {supportsGlass} = useGlass();
+    // Conditional edge fades for the session list: content sits flush at
+    // the top (px-1.5 only), so the fades must appear only while a side
+    // actually has hidden content — a short list renders fade-free.
+    const listEdges = useScrollEdges<HTMLDivElement>();
 
     // Folders the user has collapsed (by directory path). The active
     // session's folder always re-expands so the open tab can't vanish.
@@ -131,7 +136,11 @@ export default function SessionBar(props: SessionBarProps) {
             </div>
 
             <div
-                className={`flex-1 overflow-y-auto overflow-x-hidden px-1.5 ${isMacOS() ? "pt-1.5" : ""}`}
+                ref={listEdges.ref}
+                onScroll={listEdges.onScroll}
+                className={`flex-1 overflow-y-auto overflow-x-hidden px-1.5 lum-fade-md ${isMacOS() ? "pt-1.5" : ""}${
+                    listEdges.top ? " lum-fade-top" : ""
+                }${listEdges.bottom ? " lum-fade-bottom" : ""}`}
                 data-tauri-drag-region
             >
                 {groupByDirectory(sessions).map(([directory, groupSessions]) => {

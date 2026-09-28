@@ -1,6 +1,7 @@
 import {memo} from "react";
 import {BadgeCheck} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import type {WorkSubmitPayload} from "../../opencode/sessionActivity.ts";
 import {Card, CardButton} from "./RequestCardChrome.tsx";
 import Markdown from "./Markdown.tsx";
@@ -29,6 +30,9 @@ export const WorkReviewCard = memo(function WorkReviewCard({
     onReject: () => void;
 }) {
     const t = useI18n();
+    // Conditional edge fades: same reading posture as the plan approval
+    // card — flush content, fades only while a side has hidden content.
+    const edges = useScrollEdges<HTMLDivElement>();
     return (
         <Card>
             <div className="flex items-center gap-2 text-sm font-medium">
@@ -40,7 +44,11 @@ export const WorkReviewCard = memo(function WorkReviewCard({
                 // typography) in a viewport-proportional scroll area —
                 // same reading posture as the plan approval card. No
                 // `live`: static content, no entrance animations.
-                <div className="pl-6 max-h-[45vh] overflow-y-auto">
+                <div
+                    ref={edges.ref}
+                    onScroll={edges.onScroll}
+                    className={`pl-6 max-h-[45vh] overflow-y-auto lum-fade-lg${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
+                >
                     <Markdown>{payload.report}</Markdown>
                 </div>
             ) : (

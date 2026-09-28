@@ -3,6 +3,7 @@ import {AlertCircle, Bot} from "lucide-react";
 import type {AssistantToolPart} from "../../opencode/types.ts";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {useExpansion, ERROR_DISCLOSURE_MS} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 import Markdown from "./Markdown.tsx";
@@ -36,6 +37,10 @@ const SubagentCard = memo(function SubagentCard({
     const status = part.state.status;
     const t = useI18n();
     const {expanded, toggle} = useExpansion(part.id, status === "error", 0, ERROR_DISCLOSURE_MS);
+    // Conditional edge fades for the two output boxes (error / report —
+    // only one renders, but hooks must be unconditional).
+    const errorEdges = useScrollEdges<HTMLDivElement>();
+    const outputEdges = useScrollEdges<HTMLDivElement>();
 
     const input =
         part.state.input && typeof part.state.input === "object"
@@ -70,8 +75,11 @@ const SubagentCard = memo(function SubagentCard({
             onToggle={toggle}
         >
             {status === "error" ? (
+                // Fade-system chrome/scroller split: the wash, border and
+                // rounded clip stay on this outer box; the inner div is
+                // the scroller wearing the conditional edge fades.
                 <div
-                    className="ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2 whitespace-pre-wrap break-words max-h-64 overflow-y-auto"
+                    className="ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] max-h-64 overflow-hidden"
                     style={{
                         ...MONO_STYLE,
                         background: colors.recessedBg,
@@ -79,17 +87,33 @@ const SubagentCard = memo(function SubagentCard({
                         color: "#f87171",
                     }}
                 >
-                    {output || errorText(part.state.error) || t["Subagent failed"]}
+                    <div
+                        ref={errorEdges.ref}
+                        onScroll={errorEdges.onScroll}
+                        className={`max-h-64 overflow-y-auto px-3 py-2 whitespace-pre-wrap break-words${
+                            errorEdges.top ? " lum-fade-top" : ""
+                        }${errorEdges.bottom ? " lum-fade-bottom" : ""}`}
+                    >
+                        {output || errorText(part.state.error) || t["Subagent failed"]}
+                    </div>
                 </div>
             ) : output ? (
                 <div
-                    className="ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] px-3 py-2.5 max-h-80 overflow-y-auto text-sm"
+                    className="ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] max-h-80 overflow-hidden"
                     style={{
                         background: colors.recessedBg,
                         border: `1px solid ${colors.glassBorder}`,
                     }}
                 >
-                    <Markdown>{output}</Markdown>
+                    <div
+                        ref={outputEdges.ref}
+                        onScroll={outputEdges.onScroll}
+                        className={`max-h-80 overflow-y-auto px-3 py-2.5 text-sm lum-fade-md${
+                            outputEdges.top ? " lum-fade-top" : ""
+                        }${outputEdges.bottom ? " lum-fade-bottom" : ""}`}
+                    >
+                        <Markdown>{output}</Markdown>
+                    </div>
                 </div>
             ) : null}
         </FoldRow>

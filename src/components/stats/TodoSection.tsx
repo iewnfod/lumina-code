@@ -213,7 +213,7 @@ export const TodoSection = memo(function TodoSection({
                             {view.kind === "plan" ? t["Plan file not found"] : t["No report yet"]}
                         </div>
                     ) : (
-                        <div className="px-5 pt-4 pb-5 overflow-y-auto max-h-[70vh] lum-md">
+                        <div className="px-5 pt-4 pb-5 overflow-y-auto max-h-[70vh] lum-md lum-fade-top lum-fade-bottom lum-fade-lg">
                             <Markdown>{stripPlanAnchor(view.content)}</Markdown>
                         </div>
                     )}

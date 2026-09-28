@@ -4,6 +4,7 @@ import {error as logError} from "@tauri-apps/plugin-log";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
+import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import type {SessionShellRef} from "../../opencode/sessionActivity.ts";
 import IconButton from "../ui/IconButton.tsx";
@@ -191,7 +192,11 @@ export const TerminalBody = memo(function TerminalBody({
     // poll effect reads the LIVE value, so track it in a ref.
     const runningRef = useRef(shell.running);
     runningRef.current = shell.running;
-    const {ref: scrollRef, onScroll, scrolled} = useFollowBottom<HTMLDivElement>(shell.running);
+    // Follow-bottom rides BodyBox's scroller (scrollRef/onScroll); the
+    // output's edge fades are self-tracked inside BodyBox. The command
+    // strip tracks its own (it is a separate scroller).
+    const {ref: scrollRef, onScroll} = useFollowBottom<HTMLDivElement>(shell.running);
+    const cmdEdges = useScrollEdges<HTMLDivElement>();
 
     /** Keeps the latest finalText reachable from the pull closure. */
     const finalTextRef = useRef(shell.finalText);
@@ -275,14 +280,24 @@ export const TerminalBody = memo(function TerminalBody({
         // block above (commands are long; the drill header stays short).
         <div className="lum-enter flex flex-col flex-1 min-h-0 gap-2">
             {shell.command && (
+                // Same recessed surface as BodyBox, but a capped strip:
+                // wraps instead of truncating, scrolls only when a
+                // pasted script outgrows the cap. Fade-system
+                // chrome/scroller split — the inner scroller wears the
+                // conditional edge fades.
                 <div
-                    // Same recessed surface as BodyBox, but a capped strip:
-                    // wraps instead of truncating, scrolls only when a
-                    // pasted script outgrows the cap.
-                    className="shrink-0 max-h-24 overflow-auto rounded-[var(--radius-sm)] px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap break-words"
+                    className="shrink-0 max-h-24 overflow-hidden rounded-[var(--radius-sm)]"
                     style={{...MONO_STYLE, background: colors.recessedBg}}
                 >
-                    {shell.command}
+                    <div
+                        ref={cmdEdges.ref}
+                        onScroll={cmdEdges.onScroll}
+                        className={`max-h-24 overflow-auto px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap break-words${
+                            cmdEdges.top ? " lum-fade-top" : ""
+                        }${cmdEdges.bottom ? " lum-fade-bottom" : ""}`}
+                    >
+                        {shell.command}
+                    </div>
                 </div>
             )}
             <BodyBox
@@ -290,7 +305,7 @@ export const TerminalBody = memo(function TerminalBody({
                 fill
                 scrollRef={scrollRef}
                 onScroll={onScroll}
-                className={`px-3 py-2 whitespace-pre-wrap break-words${scrolled ? " lum-tail-fade" : ""}`}
+                className="px-3 py-2 whitespace-pre-wrap break-words"
             >
                 <span style={{color: colors.inactiveText}}>
                     {failed

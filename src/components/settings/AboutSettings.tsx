@@ -35,7 +35,9 @@ export default function AboutSettings({
     }, []);
 
     return (
-        <div className="flex-1 min-h-0 overflow-y-auto px-8 py-8">
+        <div className="flex-1 min-h-0 overflow-y-auto px-8 py-8 lum-fade-top lum-fade-bottom lum-fade-md">
+            {/* Static edge fade — py-8 padding covers the band; see
+             * GeneralSettings' note and main.css's fade-system docs. */}
             {/* App identity — centered hero. The version lives here (the
              * classic About layout), so the facts below don't repeat it. */}
             <div className="flex flex-col items-center gap-2.5 pb-9">

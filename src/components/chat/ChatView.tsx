@@ -338,22 +338,13 @@ const ChatView = memo(function ChatView({
                 ref={scrollRef}
                 onScroll={onScroll}
                 onWheel={onWheel}
-                className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
-                style={{
-                    // Edge fade: content dissolves into the chrome instead of
-                    // being hard-clipped at the top of the content area and
-                    // just above the composer. A CSS mask fades whichever
-                    // pixels are there — no color to match, so it reads
-                    // correctly over the glass surface in dark mode too.
-                    // Eased stops: the alpha drops off quickly near the very
-                    // edge instead of lingering half-visible across the
-                    // whole band, so text feels fully faded before it exits.
-                    WebkitMaskImage:
-                        "linear-gradient(to bottom, transparent 0, rgba(0,0,0,0.65) 19px, black 51px, black calc(100% - 51px), rgba(0,0,0,0.65) calc(100% - 19px), transparent 100%)",
-                    maskImage:
-                        "linear-gradient(to bottom, transparent 0, rgba(0,0,0,0.65) 19px, black 51px, black calc(100% - 51px), rgba(0,0,0,0.65) calc(100% - 19px), transparent 100%)",
-                }}
+                className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden lum-fade-top lum-fade-bottom lum-fade-lg"
             >
+                {/* Edge fade (main.css .lum-fade-top/-bottom .lum-fade-lg —
+                 * the reference surface of the app's fade system): content
+                 * dissolves into the chrome instead of being hard-clipped
+                 * at the top of the content area and just above the
+                 * composer. Static — both edges always faded. */}
                 {/* The transcript column. (content-visibility: auto was
                     tried here and reverted: on this WebKitGTK the
                     estimate→real materialization of never-rendered rows

@@ -1,6 +1,7 @@
 import {memo} from "react";
 import {ShieldAlert} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import type {PermissionDecision, PermissionRequest} from "../../opencode/types.ts";
 import {Card, CardButton, MONO_STYLE} from "./RequestCardChrome.tsx";
 
@@ -31,6 +32,10 @@ export const PermissionCard = memo(function PermissionCard({
     onDecision: (request: PermissionRequest, decision: PermissionDecision) => void;
 }) {
     const t = useI18n();
+    // Conditional edge fades for the resource list: rows sit flush (no
+    // vertical padding), so fades appear only while a side has hidden
+    // entries — the common few-resources case renders fade-free.
+    const edges = useScrollEdges<HTMLDivElement>();
     return (
         <Card>
             <div className="flex items-center gap-2 text-sm font-medium">
@@ -39,7 +44,9 @@ export const PermissionCard = memo(function PermissionCard({
             </div>
             {request.resources.length > 0 && (
                 <div
-                    className="flex flex-col gap-0.5 pl-6 max-h-32 overflow-y-auto"
+                    ref={edges.ref}
+                    onScroll={edges.onScroll}
+                    className={`flex flex-col gap-0.5 pl-6 max-h-32 overflow-y-auto${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
                     style={MONO_STYLE}
                 >
                     {request.resources.map((r, i) => (

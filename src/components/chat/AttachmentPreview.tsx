@@ -120,12 +120,13 @@ const AttachmentPreview = memo(function AttachmentPreview({source}: {source: Att
         return (
             <div className="flex flex-col gap-1">
                 {/* The workspace display's recessed reading surface (the
-                    stats panel's BodyBox shape) with the transcript's EDGE
-                    FADE (ChatView's scroller mask): the mask rides the INNER
-                    scroller — viewport-fixed, so rows dissolve as they cross
-                    the scroll boundary — while the fill + rounded clip stay
-                    on the outer box, because masks multiply into backgrounds
-                    (the .lum-clamp-fade lesson: never mask the painted
+                    stats panel's BodyBox shape) with the shared EDGE FADE
+                    (main.css's fade-system classes — the fade-system
+                    rules): the mask
+                    rides the INNER scroller — viewport-fixed, so rows
+                    dissolve as they cross the scroll boundary — while the
+                    fill + rounded clip stay on the outer box, because masks
+                    multiply into backgrounds (never mask the painted
                     surface itself). The 12px fade band is covered by the
                     same-sized padding, so resting content starts where the
                     mask is already solid — nothing fades until you scroll. */}
@@ -133,15 +134,7 @@ const AttachmentPreview = memo(function AttachmentPreview({source}: {source: Att
                     className="rounded-[var(--radius-lg)] max-h-[55vh] overflow-hidden"
                     style={{background: colors.recessedBg}}
                 >
-                    <div
-                        className="max-h-[55vh] overflow-auto"
-                        style={{
-                            WebkitMaskImage:
-                                "linear-gradient(to bottom, transparent 0, black 12px, black calc(100% - 12px), transparent 100%)",
-                            maskImage:
-                                "linear-gradient(to bottom, transparent 0, black 12px, black calc(100% - 12px), transparent 100%)",
-                        }}
-                    >
+                    <div className="max-h-[55vh] overflow-auto lum-fade-top lum-fade-bottom lum-fade-lg">
                         <div className="px-3 py-3">
                             {hunks.length > 0
                                 ? (

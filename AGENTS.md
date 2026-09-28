@@ -714,7 +714,35 @@ src/
 │   │                      #   (useThemePreference pattern), keys are
 │   │                      #   "providerID/modelID".
 │   ├── useDragRegionDoubleClick.ts # capture-phase mousedown + explicit maximize toggle
-│   ├── useFollowBottom.ts # stream-follow stickiness for inner scroll regions
+│   ├── useFollowBottom.ts # stream-follow stickiness for inner scroll regions;
+│   │                      #   also exposes top/bottom edge flags for the
+│   │                      #   conditional .lum-fade-* fades on its boxes
+│   ├── useScrollEdges.ts  # scroll-edge tracking (top/bottom/left/right)
+│   │                      #   for static scrollers wearing the CONDITIONAL
+│   │                      #   edge fades: lists, menus, request cards, the
+│   │                      #   shared BodyBox/ToolBodyBox/subagent boxes
+│   │                      #   self-track through it (a ResizeObserver
+│   │                      #   catches layout-driven flips). The FADE SYSTEM
+│   │                      #   (main.css .lum-fade-top/-bottom/-left/
+│   │                      #   -right — composable via end-color vars):
+│   │                      #   the mask rides the SCROLLER, never a painted
+│   │                      #   surface (bordered/washed boxes split
+│   │                      #   chrome-outside + scroller-inside); THREE
+│   │                      #   TIER classes size the band — .lum-fade-lg
+│   │                      #   (51px, transcript-strength: plan/report
+│   │                      #   cards, thinking, document previews),
+│   │                      #   .lum-fade-md (28px: stats panel, composer
+│   │                      #   surfaces, menus, settings panes, output
+│   │                      #   boxes), default 12px (small strips);
+│   │                      #   padded reading surfaces wear BOTH classes
+│   │                      #   statically (padding covers the band —
+│   │                      #   resting content stays crisp, no JS); flush
+│   │                      #   content goes CONDITIONAL (fade a side only
+│   │                      #   while it has hidden content, so short lists
+│   │                      #   render fade-free); horizontal fades are
+│   │                      #   WIDTH-AWARE (.lum-md pre>code via CSS,
+│   │                      #   tables via Markdown.tsx's MdTable — a table
+│   │                      #   that fits its column renders mask-free).
 │   ├── useCopy.ts         # copy feedback shared by run footers and the user
 │   │                      #   bubble: copied flag + ✓ linger reset
 │   └── useTranscriptScroll.ts # ChatView's scroll machinery: bottom-follow with

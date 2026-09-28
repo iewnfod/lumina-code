@@ -8,9 +8,14 @@ import {useEffect, useRef, useState} from "react";
  *
  * Jumps instantly (never smooth): these boxes are short and stream fast,
  * so a smooth animation would perpetually lag behind the tail. To keep
- * the per-frame jump from reading as a snap, callers can wear the
- * .lum-tail-fade top mask (main.css) while `scrolled` is set — content
- * then dissolves out the top instead of hard-clipping.
+ * the per-frame jump from reading as a snap, callers wear the conditional
+ * edge fades (.lum-fade-top / .lum-fade-bottom — main.css) from this
+ * hook's `top`/`bottom` flags — content dissolves at an edge only while
+ * content is actually hidden beyond it, so a box that opens at the very
+ * top keeps its first line crisp (the .lum-tail-fade behavior this
+ * replaces) and the resting bottom edge stays solid until it overflows.
+ * Static-content scrollers use useScrollEdges instead (same flags, no
+ * follow).
  *
  * The follow effect runs on every render instead of over declared deps —
  * streaming updates re-render the component as content arrives, which is
@@ -19,10 +24,22 @@ import {useEffect, useRef, useState} from "react";
 export function useFollowBottom<T extends HTMLElement>(enabled: boolean) {
     const ref = useRef<T>(null);
     const pinnedRef = useRef(true);
-    // Content sits above the viewport (tail being chased or reader is
-    // scrolled down). Same-value setState bails out, so this costs one
-    // extra render per transition, not per frame.
-    const [scrolled, setScrolled] = useState(false);
+    // Edge flags: content hidden beyond the top/bottom of the scrollport.
+    // Same-value setState bails out, so this costs one extra render per
+    // transition, not per frame.
+    const [edges, setEdges] = useState({top: false, bottom: false});
+
+    const measure = () => {
+        const el = ref.current;
+        if (!el) return;
+        setEdges((prev) => {
+            const top = el.scrollTop > 0;
+            // 1px of slop for fractional scroll geometry (see
+            // useScrollEdges' note on the same constant).
+            const bottom = el.scrollHeight - el.scrollTop - el.clientHeight > 1;
+            return prev.top === top && prev.bottom === bottom ? prev : {top, bottom};
+        });
+    };
 
     useEffect(() => {
         const el = ref.current;
@@ -30,15 +47,15 @@ export function useFollowBottom<T extends HTMLElement>(enabled: boolean) {
         if (enabled && pinnedRef.current) {
             el.scrollTop = el.scrollHeight;
         }
-        setScrolled(el.scrollTop > 0);
+        measure();
     });
 
     const onScroll = () => {
         const el = ref.current;
         if (!el) return;
         pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 16;
-        setScrolled(el.scrollTop > 0);
+        measure();
     };
 
-    return {ref, onScroll, scrolled};
+    return {ref, onScroll, top: edges.top, bottom: edges.bottom};
 }

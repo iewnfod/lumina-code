@@ -2,6 +2,7 @@ import {memo, type ReactNode} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {openUrl} from "@tauri-apps/plugin-opener";
+import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {splitMarkdownBlocks} from "./markdownBlocks.ts";
 
 /**
@@ -35,6 +36,27 @@ import {splitMarkdownBlocks} from "./markdownBlocks.ts";
  * frames; now only genuinely-live blocks animate.
  */
 
+// Tables: chrome/scroller split (the fade-system rule — masks multiply
+// into backgrounds, so the border+radius live on the .lum-md-table wrap
+// and the .lum-md-table-scroll div inside is the horizontal scroller).
+// The horizontal fades are WIDTH-AWARE: a table that fits its column
+// renders mask-free; each side fades only while content is actually
+// hidden beyond it (useScrollEdges' left/right flags).
+function MdTable({children}: {children?: ReactNode}) {
+    const edges = useScrollEdges<HTMLDivElement>();
+    return (
+        <div className="lum-md-table">
+            <div
+                ref={edges.ref}
+                onScroll={edges.onScroll}
+                className={`lum-md-table-scroll${edges.left ? " lum-fade-left" : ""}${edges.right ? " lum-fade-right" : ""}`}
+            >
+                <table>{children}</table>
+            </div>
+        </div>
+    );
+}
+
 // Module scope — stable component identities across renders (see the
 // PERFORMANCE note in the header comment).
 const mdComponents = {
@@ -51,6 +73,7 @@ const mdComponents = {
             {children}
         </a>
     ),
+    table: MdTable,
 };
 
 /** One block chunk. Memoized on its text: while a message streams only

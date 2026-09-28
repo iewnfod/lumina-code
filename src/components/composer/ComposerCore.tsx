@@ -25,6 +25,7 @@ import {
     type EditorState,
 } from "lexical";
 import {useConnection} from "../../opencode/connectionContext.tsx";
+import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {isMacOS} from "../../lib/platform.ts";
 import {clearDraft, saveDraftEditorState} from "./composerDrafts.ts";
 import type {
@@ -113,6 +114,10 @@ export default function ComposerCore({
     // Server handle from the connection context (file suggestions).
     const {api} = useConnection();
     const [editor] = useLexicalComposerContext();
+    // Conditional edge fades for the editable once the text outgrows its
+    // height cap (fades only while a side has hidden lines — the caret's
+    // line is never hidden, so typing stays crisp).
+    const inputEdges = useScrollEdges<HTMLDivElement>();
     const [suggest, setSuggest] = useState<TriggerState | null>(null);
     const [suggestItems, setSuggestItems] = useState<SuggestionItem[]>([]);
     const [suggestSelected, setSuggestSelected] = useState(0);
@@ -511,8 +516,13 @@ export default function ComposerCore({
                         // In-flow sizing: min one line (38px = 20px line +
                         // 12/6px padding), grow to MAX_LINES, scroll past
                         // that. CSS owns the geometry — nothing measures
-                        // the text from JS.
-                        className={`block w-full resize-none bg-transparent outline-none px-4 pt-3 pb-1.5 text-sm leading-5 whitespace-pre-wrap break-words overflow-y-auto min-h-[38px] ${disabled ? "opacity-50" : ""}`}
+                        // the text from JS. Once it scrolls, the md-tier
+                        // conditional edge fades mark the hidden lines
+                        // (ContentEditable forwards ref — verified against
+                        // @lexical/react's source).
+                        ref={inputEdges.ref}
+                        onScroll={inputEdges.onScroll}
+                        className={`block w-full resize-none bg-transparent outline-none px-4 pt-3 pb-1.5 text-sm leading-5 whitespace-pre-wrap break-words overflow-y-auto min-h-[38px] lum-fade-md ${disabled ? "opacity-50" : ""}${inputEdges.top ? " lum-fade-top" : ""}${inputEdges.bottom ? " lum-fade-bottom" : ""}`}
                         style={{maxHeight: MAX_LINES * LINE_HEIGHT + 18}}
                         readOnly={disabled}
                         spellCheck={false}
