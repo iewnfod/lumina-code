@@ -15,6 +15,10 @@ export default function ThinkingBlock({part, stateKey, live}: {part: AssistantRe
     const {expanded, toggle} = useExpansion(stateKey, live, AUTO_EXPAND_MIN_DWELL_MS);
     const {ref: thinkScroll, onScroll: thinkScrollHandler, top: tailTop, bottom: tailBottom} =
         useFollowBottom<HTMLDivElement>(live);
+    // The streamed-tail guard is only needed once the text actually
+    // overflows (before that nothing is pinned or cut), so the pb rides
+    // the overflow flags — a short thinking block keeps its box tight.
+    const tailGuard = tailTop || tailBottom;
 
     // Collapsed rows carry the thought's first line as a preview.
     const snippet = part.text.trim().split("\n")[0] ?? "";
@@ -32,16 +36,14 @@ export default function ThinkingBlock({part, stateKey, live}: {part: AssistantRe
             {/* Naked scroller (no painted chrome of its own) — the mask
              * rides it directly; lg tier (the thinking stream is a big
              * reading block), fades only while a side has hidden content
-             * (useFollowBottom's edge flags). pb-6: the STREAMED-TAIL
-             * padding guard — the follow pin lands the newest line one
-             * paint before its scrollTop catches up, so the bottom edge
-             * must be padding, not text (the transient lag eats the
-             * gap, never the line); scrolled up, the bottom fade covers
-             * real hidden content as usual. */}
+             * (useFollowBottom's edge flags). While the stream overflows,
+             * pb-6 keeps the follow pin's one-paint scrollTop lag over
+             * padding instead of the newest line (scrolled up, the bottom
+             * fade covers real hidden content as usual). */}
             <div
                 ref={thinkScroll}
                 onScroll={thinkScrollHandler}
-                className={`ml-5 mt-0.5 mb-1 text-sm whitespace-pre-wrap break-words max-h-64 overflow-y-auto pb-6 opacity-60 leading-relaxed lum-fade-lg${tailTop ? " lum-fade-top" : ""}${tailBottom ? " lum-fade-bottom" : ""}`}
+                className={`ml-5 mt-0.5 mb-1 text-sm whitespace-pre-wrap break-words max-h-64 overflow-y-auto${tailGuard ? " pb-6" : ""} opacity-60 leading-relaxed lum-fade-lg${tailTop ? " lum-fade-top" : ""}${tailBottom ? " lum-fade-bottom" : ""}`}
             >
                 {part.text}
             </div>

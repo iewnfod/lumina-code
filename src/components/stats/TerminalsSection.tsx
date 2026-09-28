@@ -194,8 +194,9 @@ export const TerminalBody = memo(function TerminalBody({
     runningRef.current = shell.running;
     // Follow-bottom rides BodyBox's scroller (scrollRef/onScroll); the
     // output's edge fades are self-tracked inside BodyBox. The command
-    // strip tracks its own (it is a separate scroller).
-    const {ref: scrollRef, onScroll} = useFollowBottom<HTMLDivElement>(shell.running);
+    // strip tracks its own (it is a separate scroller). The overflow
+    // flags also gate the streamed-tail pb below.
+    const {ref: scrollRef, onScroll, top: outTop, bottom: outBottom} = useFollowBottom<HTMLDivElement>(shell.running);
     const cmdEdges = useScrollEdges<HTMLDivElement>();
 
     /** Keeps the latest finalText reachable from the pull closure. */
@@ -305,11 +306,10 @@ export const TerminalBody = memo(function TerminalBody({
                 fill
                 scrollRef={scrollRef}
                 onScroll={onScroll}
-                // pb-6: the streamed-tail padding guard (see
-                // ThinkingBlock's note) — output streams in while the
-                // follow pin chases it, so the bottom edge must be
-                // padding, not text.
-                className="px-3 pt-2 pb-6 whitespace-pre-wrap break-words"
+                // pb-6 only while the output actually overflows (a short
+                // output keeps the box tight): the streamed-tail padding
+                // guard — see ThinkingBlock's note.
+                className={`px-3 pt-2${outTop || outBottom ? " pb-6" : " pb-2"} whitespace-pre-wrap break-words`}
             >
                 <span style={{color: colors.inactiveText}}>
                     {failed
