@@ -36,6 +36,26 @@ import {splitMarkdownBlocks} from "./markdownBlocks.ts";
  * frames; now only genuinely-live blocks animate.
  */
 
+// Code blocks: the PRE keeps its wash/radius/padding (chrome) and this
+// SPAN (display: block via CSS — a div would be invalid inside pre) is
+// the horizontal scroller wearing the CONDITIONAL fades — a block that
+// fits its column renders mask-free; each side fades only while code is
+// actually hidden beyond it.
+function MdPre({children}: {children?: ReactNode}) {
+    const edges = useScrollEdges<HTMLSpanElement>();
+    return (
+        <pre>
+            <span
+                ref={edges.ref}
+                onScroll={edges.onScroll}
+                className={`lum-md-pre-scroll${edges.left ? " lum-fade-left" : ""}${edges.right ? " lum-fade-right" : ""}`}
+            >
+                {children}
+            </span>
+        </pre>
+    );
+}
+
 // Tables: chrome/scroller split (the fade-system rule — masks multiply
 // into backgrounds, so the border+radius live on the .lum-md-table wrap
 // and the .lum-md-table-scroll div inside is the horizontal scroller).
@@ -74,6 +94,7 @@ const mdComponents = {
         </a>
     ),
     table: MdTable,
+    pre: MdPre,
 };
 
 /** One block chunk. Memoized on its text: while a message streams only

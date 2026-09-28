@@ -740,9 +740,10 @@ src/
 │   │                      #   content goes CONDITIONAL (fade a side only
 │   │                      #   while it has hidden content, so short lists
 │   │                      #   render fade-free); horizontal fades are
-│   │                      #   WIDTH-AWARE (.lum-md pre>code via CSS,
-│   │                      #   tables via Markdown.tsx's MdTable — a table
-│   │                      #   that fits its column renders mask-free).
+│   │                      #   WIDTH-AWARE (Markdown.tsx's MdPre/MdTable
+│   │                      #   overrides — a code block or table that
+│   │                      #   fits its column renders mask-free; the
+│   │                      #   .lum-md-table wrap hugs at fit-content).
 │   ├── useCopy.ts         # copy feedback shared by run footers and the user
 │   │                      #   bubble: copied flag + ✓ linger reset
 │   └── useTranscriptScroll.ts # ChatView's scroll machinery: bottom-follow with

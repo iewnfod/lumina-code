@@ -416,41 +416,20 @@ body {
     border-radius: var(--radius-md);
     margin: 0.6em 0;
 }
-/* The CODE element is the horizontal scroller (the pre keeps its wash,
- * radius and padding — never mask the painted surface itself). The fade
- * band (12px) is covered by the pre's 1em side padding, so resting code
- * starts where the mask is already solid; only scrolled content
- * dissolves at the edges. Same shape as the .lum-fade-left/-right pair
- * (including the 2px transparent DEAD ZONE — see the fade-system docs),
- * re-declared because CSS can't attach a utility class. */
+/* The span (display: block — a div would be invalid inside pre) inserted
+ * by Markdown.tsx's MdPre override is the horizontal scroller wearing
+ * the CONDITIONAL fades: a block that fits its column renders
+ * mask-free, each side fades only while code is actually hidden beyond
+ * it. The pre keeps its wash, radius and padding — never mask the
+ * painted surface itself. */
+.lum-md pre .lum-md-pre-scroll {
+    display: block;
+    overflow-x: auto;
+}
 .lum-md pre code {
     background: transparent;
     padding: 0;
     font-size: var(--lum-code-size);
-    display: block;
-    overflow-x: auto;
-    -webkit-mask-image: linear-gradient(
-        to right,
-        transparent 0,
-        transparent 2px,
-        rgba(0, 0, 0, 0.65) calc(var(--lum-fade-band, 12px) * 0.375),
-        #000 var(--lum-fade-band, 12px),
-        #000 calc(100% - var(--lum-fade-band, 12px)),
-        rgba(0, 0, 0, 0.65) calc(100% - var(--lum-fade-band, 12px) * 0.375),
-        transparent calc(100% - 2px),
-        transparent 100%
-    );
-    mask-image: linear-gradient(
-        to right,
-        transparent 0,
-        transparent 2px,
-        rgba(0, 0, 0, 0.65) calc(var(--lum-fade-band, 12px) * 0.375),
-        #000 var(--lum-fade-band, 12px),
-        #000 calc(100% - var(--lum-fade-band, 12px)),
-        rgba(0, 0, 0, 0.65) calc(100% - var(--lum-fade-band, 12px) * 0.375),
-        transparent calc(100% - 2px),
-        transparent 100%
-    );
 }
 .lum-md blockquote {
     border-left: 2px solid rgba(128, 128, 128, 0.4);
@@ -467,6 +446,9 @@ body {
  * an unmasked layer. The table itself renders chromeless at fit-content. */
 .lum-md .lum-md-table {
     margin: 1em 0;
+    /* fit-content: the border hugs the table instead of stretching to
+     * the column; max-width caps it so wider tables scroll inside. */
+    width: fit-content;
     max-width: 100%;
     overflow: hidden;
     border: 1px solid rgba(128, 128, 128, 0.15);
