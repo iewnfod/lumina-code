@@ -1,4 +1,5 @@
 import {
+    BadgeCheck,
     ClipboardCheck,
     ClipboardList,
     FilePen,
@@ -58,10 +59,12 @@ export const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon}
     vision: {title: "Vision", icon: ScanEye},
     plan_mode: {title: "Plan mode", icon: ClipboardList},
     // The plan workflow (same plugin): plan submission for approval,
-    // in-order task completion reports, and remaining-list amendments.
+    // in-order task completion reports, remaining-list amendments, and
+    // the completion report the user accepts before archival.
     plan_submit: {title: "Plan submission", icon: ClipboardCheck},
     task_complete: {title: "Task complete", icon: SquareCheck},
     plan_amend: {title: "Plan amend", icon: ListChecks},
+    work_submit: {title: "Work submission", icon: BadgeCheck},
 };
 
 /** Display title for a tool name (used by ActivityGroup's summary too).

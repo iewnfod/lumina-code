@@ -6,8 +6,7 @@ import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {usePendingRequests, useSessionData, useSessionTranscript} from "../../opencode/sessionDataContext.tsx";
 import {useSessionStopping} from "../../opencode/sessionStopping.ts";
-import {planApprovalPending} from "../../opencode/sessionActivity.ts";
-import {composePlanDocument, planFileName} from "../../lib/planFiles.ts";
+import {planApprovalPending, workApprovalPending} from "../../opencode/sessionActivity.ts";
 import {divertAttachmentsForSend, modelAcceptsImages} from "../../opencode/visionAttachments.ts";
 import type {
     ChatMessage,
@@ -26,6 +25,7 @@ import ExitPresence from "../ui/ExitPresence.tsx";
 import ChatInput from "../composer/ChatInput.tsx";
 import {PermissionCard} from "./PermissionCard.tsx";
 import {PlanApprovalCard} from "./PlanApprovalCard.tsx";
+import {WorkReviewCard} from "./WorkReviewCard.tsx";
 import {QuestionCard} from "./QuestionCard.tsx";
 
 /**
@@ -245,11 +245,18 @@ const ChatView = memo(function ChatView({
         () => planApprovalPending(messages as ChatMessage[]),
         [messages],
     );
+    // The work-acceptance gate (Route A twin): the work_submit executor
+    // blocks inside its call awaiting the user's VERDICT on the tested
+    // work — a still-running part in the transcript is the pending card.
+    const pendingWork = useMemo(
+        () => workApprovalPending(messages as ChatMessage[]),
+        [messages],
+    );
     // The tail's working dots stand down while a decision is pending —
-    // a permission/question/plan-approval card is the session waiting
-    // on the USER, not work in progress.
+    // a permission/question/plan-approval/work-acceptance card is the
+    // session waiting on the USER, not work in progress.
     const waitingForUser =
-        pendingPermissions.length > 0 || pendingForms.length > 0 || pendingPlan !== null;
+        pendingPermissions.length > 0 || pendingForms.length > 0 || pendingPlan !== null || pendingWork !== null;
     const handlePlanDecision = useCallback(
         (approve: boolean) => {
             if (!pendingPlan) return;
@@ -258,39 +265,40 @@ const ChatView = memo(function ChatView({
                 return;
             }
             // Approving resumes execution at the tail — follow it down even
-            // if the reader had scrolled up through the plan text.
+            // if the reader had scrolled up through the plan text. The plan
+            // DOCUMENT is not written here anymore: the plan_submit
+            // executor itself persists the submission + (on approval)
+            // tasks.md into .lumina/tasks/ — see src/plugins/luminaTools.js.
             snapToBottom();
-            void (async () => {
-                if (directory && api) {
-                    try {
-                        // Same-day same-title revisions get -2, -3… (the
-                        // fs/read probe is location-confined; a missing
-                        // .lumina/plans yields 500 on v2.0.11 — treated as
-                        // absent by the probe's catch).
-                        const exists = async (name: string) => {
-                            try {
-                                return (await api.readTextFile(directory, `.lumina/plans/${name}`)) !== null;
-                            } catch {
-                                return false;
-                            }
-                        };
-                        const name = await planFileName(pendingPlan.title, new Date(), exists);
-                        await api.writeTextFile(
-                            `${directory.replace(/\/+$/, "")}/.lumina/plans/${name}`,
-                            composePlanDocument(
-                                pendingPlan.title,
-                                pendingPlan.plan,
-                                pendingPlan.todos.map((title) => ({title, status: "pending"})),
-                            ),
-                        );
-                    } catch (e) {
-                        logWarn(`Failed to save the plan document: ${e}`).catch(() => {});
-                    }
-                }
-                await api?.switchAgent(sessionId, "build");
-            })();
+            void api?.switchAgent(sessionId, "build");
         },
-        [pendingPlan, directory, api, sessionId, interrupt, snapToBottom],
+        [pendingPlan, api, sessionId, interrupt, snapToBottom],
+    );
+
+    // The acceptance gate's decision: approval is DELIVERED as the marker
+    // file the blocked executor polls (.lumina/review/{sessionID}.json —
+    // a fixed path both sides derive without knowing the task directory's
+    // collision suffix; the executor pre-creates the folder and cleans
+    // stale markers). A failed write keeps the card up (the executor is
+    // still blocked) — the user can simply click again. Rejection is the
+    // session interrupt, aborting the executor into a revision prompt.
+    const handleWorkDecision = useCallback(
+        (approve: boolean) => {
+            if (!pendingWork) return;
+            if (!approve) {
+                void interrupt();
+                return;
+            }
+            if (!directory || !api) return;
+            snapToBottom();
+            api.writeTextFile(
+                `${directory.replace(/\/+$/, "")}/.lumina/review/${sessionId}.json`,
+                JSON.stringify({approved: true, at: new Date().toISOString()}),
+            ).catch((e) => {
+                logWarn(`Failed to deliver the work-acceptance marker: ${e}`).catch(() => {});
+            });
+        },
+        [pendingWork, directory, api, sessionId, interrupt, snapToBottom],
     );
 
     // Grow the render window / fetch an older page (both directions of
@@ -392,6 +400,23 @@ const ChatView = memo(function ChatView({
                                 payload={pendingPlan}
                                 onApprove={() => handlePlanDecision(true)}
                                 onReject={() => handlePlanDecision(false)}
+                                {...bind}
+                            />
+                        )
+                    }
+                </ExitPresence>
+                {/* The work-acceptance card — the workflow's second gate,
+                 * pinned here while the work_submit executor blocks on
+                 * the user's verdict over the TESTED work (a still-running
+                 * part; see workApprovalPending). Collapses away in place
+                 * once the part settles. */}
+                <ExitPresence present={pendingWork !== null} exitMs={250} exit={{animation: "lum-row-exit"}}>
+                    {(closing, bind) =>
+                        (pendingWork || closing) && (
+                            <WorkReviewCard
+                                payload={pendingWork}
+                                onApprove={() => handleWorkDecision(true)}
+                                onReject={() => handleWorkDecision(false)}
                                 {...bind}
                             />
                         )

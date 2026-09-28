@@ -27,6 +27,7 @@ export function isSubagentToolName(name: string): boolean {
 export const PLAN_SUBMIT_TOOL = "plan_submit";
 export const TASK_COMPLETE_TOOL = "task_complete";
 export const PLAN_AMEND_TOOL = "plan_amend";
+export const WORK_SUBMIT_TOOL = "work_submit";
 
 /** One task of the session's approved plan. */
 export interface SessionTodoItem {
@@ -47,6 +48,13 @@ export interface SessionTodos {
      * card is up (or was lost to a disconnect); the list shown is the
      * PROPOSED one. */
     pendingApproval: boolean;
+    /** A successful work_submit followed the plan — the user ACCEPTED the
+     * delivered work and the executor archived the plan. Terminal. */
+    archived: boolean;
+    /** A work_submit was attempted for THIS plan (any outcome — the
+     * submission itself persists report.md before the gate). Gates the
+     * stats panel's "view report" button: no submission, no button. */
+    reportSubmitted: boolean;
 }
 
 /** Read a tool part's input as a record, or {} for anything else. */
@@ -122,8 +130,14 @@ export function collectSessionTodos(list: ChatMessage[]): SessionTodos | null {
         title: normalizeTodoTitle(raw),
         status: "pending",
     }));
+    let archived = false;
+    let reportSubmitted = false;
     for (let i = submitIdx + 1; i < parts.length; i++) {
         const part = parts[i];
+        // Any work_submit part (even running/errored) means a submission
+        // attempt — the executor persists report.md before its gate, so
+        // the document is viewable from the first call on.
+        if (part.name === WORK_SUBMIT_TOOL) reportSubmitted = true;
         if (part.state.status !== "completed") continue;
         const partInput = inputRecord(part);
         if (part.name === TASK_COMPLETE_TOOL) {
@@ -138,12 +152,18 @@ export function collectSessionTodos(list: ChatMessage[]): SessionTodos | null {
                     ...next.map((raw) => ({title: normalizeTodoTitle(raw), status: "pending" as const})),
                 );
             }
+        } else if (part.name === WORK_SUBMIT_TOOL) {
+            // Mirror of the plugin's fold: a COMPLETED work_submit = the
+            // user accepted the work; the executor archived the plan.
+            archived = true;
         }
     }
     return {
         title: title.trim(),
         items,
         pendingApproval: submit.state.status === "running" || submit.state.status === "pending",
+        archived,
+        reportSubmitted,
     };
 }
 
@@ -214,6 +234,36 @@ export function planApprovalPending(list: ChatMessage[]): PlanSubmitPayload | nu
         if (part.name !== PLAN_SUBMIT_TOOL) continue;
         return part.state.status === "running" || part.state.status === "pending"
             ? parsePlanSubmitPayload(part)
+            : null;
+    }
+    return null;
+}
+
+/** A validated work_submit payload — what the acceptance card renders. */
+export interface WorkSubmitPayload {
+    report: string;
+}
+
+function parseWorkSubmitPayload(part: AssistantToolPart): WorkSubmitPayload | null {
+    const report = inputRecord(part)["report"];
+    if (typeof report !== "string" || !report.trim()) return null;
+    return {report};
+}
+
+/**
+ * The pending work ACCEPTANCE (the workflow's second gate, Route A twin
+ * of planApprovalPending): the payload of the LAST work_submit part
+ * while it is still unsettled — its executor blocks until the user has
+ * tested the work (acceptance archives the plan; rejection returns it
+ * for fixes). Null once the part settles and when no submission exists.
+ */
+export function workApprovalPending(list: ChatMessage[]): WorkSubmitPayload | null {
+    const parts = toolParts(list);
+    for (let i = parts.length - 1; i >= 0; i--) {
+        const part = parts[i];
+        if (part.name !== WORK_SUBMIT_TOOL) continue;
+        return part.state.status === "running" || part.state.status === "pending"
+            ? parseWorkSubmitPayload(part)
             : null;
     }
     return null;

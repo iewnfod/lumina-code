@@ -374,7 +374,12 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         {view.kind === "overview" && (
                             <>
                                 {todos && todos.items.length > 0 && (
-                                    <TodoSection todos={todos} busy={busyIds.has(sessionId)}/>
+                                    <TodoSection
+                                        todos={todos}
+                                        busy={busyIds.has(sessionId)}
+                                        sessionId={sessionId}
+                                        directory={directory}
+                                    />
                                 )}
                                 {showChanges && (
                                     <ChangesSection

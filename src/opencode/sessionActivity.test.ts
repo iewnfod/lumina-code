@@ -10,6 +10,7 @@ import {
     isFileMutatingToolName,
     mutationSignature,
     planApprovalPending,
+    workApprovalPending,
 } from "./sessionActivity.ts";
 
 /** A shell tool part whose result moved the command to the background
@@ -364,4 +365,60 @@ test("planApprovalPending tracks the blocking submission", () => {
         null,
     );
     assert.equal(planApprovalPending([assistantMsg("m0", [])]), null);
+});
+
+test("workApprovalPending tracks the blocking acceptance", () => {
+    const running = workApprovalPending([
+        assistantMsg("m1", [planToolPart("w1", "work_submit", {report: "All good."}, "running")]),
+    ])!;
+    assert.equal(running.report, "All good.");
+    // Accepted (completed) or rejected/timed out (error) → no pending card.
+    assert.equal(
+        workApprovalPending([assistantMsg("m1", [planToolPart("w2", "work_submit", {report: "x"})])]),
+        null,
+    );
+    assert.equal(
+        workApprovalPending([assistantMsg("m1", [planToolPart("w3", "work_submit", {report: "x"}, "error")])]),
+        null,
+    );
+    // Malformed running payload → null.
+    assert.equal(
+        workApprovalPending([assistantMsg("m1", [planToolPart("w4", "work_submit", {}, "running")])]),
+        null,
+    );
+    assert.equal(workApprovalPending([assistantMsg("m0", [])]), null);
+});
+
+test("a completed work_submit marks the todos archived; a rejected one does not", () => {
+    const plan = [planToolPart("t1", "plan_submit", submitInput("Plan A", ["a"]))];
+    const done = [planToolPart("c1", "task_complete", {title: "a"})];
+    const accepted = collectSessionTodos([
+        assistantMsg("m1", plan),
+        assistantMsg("m2", done),
+        assistantMsg("m3", [planToolPart("w1", "work_submit", {report: "verified"}, "completed")]),
+    ])!;
+    assert.equal(accepted.archived, true);
+    assert.equal(accepted.reportSubmitted, true);
+
+    const rejected = collectSessionTodos([
+        assistantMsg("m1", plan),
+        assistantMsg("m2", done),
+        assistantMsg("m3", [planToolPart("w2", "work_submit", {report: "verified"}, "error")]),
+    ])!;
+    assert.equal(rejected.archived, false);
+    // The rejected submission still persisted its report — viewable.
+    assert.equal(rejected.reportSubmitted, true);
+
+    // A RUNNING work_submit (the acceptance card is up) also counts.
+    const reviewing = collectSessionTodos([
+        assistantMsg("m1", plan),
+        assistantMsg("m2", done),
+        assistantMsg("m3", [planToolPart("w3", "work_submit", {report: "verified"}, "running")]),
+    ])!;
+    assert.equal(reviewing.reportSubmitted, true);
+
+    const waiting = collectSessionTodos([assistantMsg("m1", plan), assistantMsg("m2", done)])!;
+    assert.equal(waiting.archived, false);
+    // No work_submit at all → no report button.
+    assert.equal(waiting.reportSubmitted, false);
 });

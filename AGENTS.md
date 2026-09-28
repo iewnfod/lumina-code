@@ -29,7 +29,7 @@ or ask the user to enter the plan mode for you.
 | Fetch pinned OpenCode server sidecar (~200 MB, once per version bump) | `pnpm fetch:opencode` (also: `--all` for every target / explicit Rust triples) |
 | Run the app | `pnpm tauri dev` |
 | Typecheck + build frontend | `pnpm build` (`tsc && vite build`) |
-| Unit tests (pure frontend logic) | `pnpm test` (`node --test "src/**/*.test.ts"`) |
+| Unit tests (pure frontend logic) | `pnpm test` (`node --test "src/**/*.test.ts" "src/**/*.test.js"`) |
 | Point dev at a different server binary | `OPENCODE_BIN=/path/to/opencode pnpm tauri dev` |
 | Regenerate Material file-type icons (after bumping `material-icon-theme`) | `pnpm gen:icons` (output is committed) |
 
@@ -186,12 +186,12 @@ src/
 │                          #   switch broadcasts session.agent.selected, which
 │                          #   useSessions patches live). THE PLAN WORKFLOW
 │                          #   (always-on): plan_submit / task_complete /
-│                          #   plan_amend close the loop around plan mode —
-│                          #   the plan agent submits {title, plan, todos}
-│                          #   and the executor BLOCKS as the approval
-│                          #   gate (Route A): v2.0.11 has NO
-│                          #   execution-time permission check for
-│                          #   plugin tools (binary-verified:
+│                          #   plan_amend / work_submit close the loop
+│                          #   around plan mode — the plan agent submits
+│                          #   {title, plan, todos} and the executor
+│                          #   BLOCKS as the approval gate (Route A):
+│                          #   v2.0.11 has NO execution-time permission
+│                          #   check for plugin tools (binary-verified:
 │                          #   options.permission only filters tool
 │                          #   VISIBILITY; asking is builtin-internal),
 │                          #   so the gate is a poll loop — every 400ms
@@ -202,30 +202,97 @@ src/
 │                          #   next step already runs under build),
 │                          #   rejection as the executor's abort signal
 │                          #   (the card interrupts), 10-min deadline
-│                          #   otherwise. Task titles must be SHORT
+│                          #   otherwise. CAVEAT (live-observed
+│                          #   2026-09-28): an interrupt does NOT
+│                          #   reliably abort a plugin executor's
+│                          #   context.signal — a rejected gate's
+│                          #   executor can keep polling as a zombie, so
+│                          #   both poll gates carry a per-session
+│                          #   GENERATION FENCE (claimGate/gateIsCurrent):
+│                          #   each new plan_submit/work_submit claim
+│                          #   supersedes older loops, which exit at
+│                          #   their next tick without touching disk.
+│                          #   Task titles must be SHORT
 │                          #   (protocol text). Build then reports via
 │                          #   task_complete {title} under STRICT
 │                          #   validation (title must equal the NEXT
 │                          #   open task's title, whitespace-normalized,
 │                          #   no skipping/revisiting; blocked:true +
 │                          #   reason is the honest exit), plan_amend
-│                          #   {todos} replaces the remaining tail.
-│                          #   Validation state is DERIVED FROM THE
-│                          #   TRANSCRIPT each call (ctx.session.context:
-│                          #   last completed plan_submit + subsequent
-│                          #   completed task_complete/plan_amend parts —
-│                          #   planStateFromEntries; no plugin-side mutable
-│                          #   state; subagent child sessions self-scope-out,
-│                          #   their transcripts hold no plan). Every result
-│                          #   echoes the checklist (compaction self-healing).
-│                          #   setup() also rides the v2.0.11 session hook —
-│                          #   ctx.session.hook("context", e => e.system.push)
-│                          #   appends HOST_IDENTITY (the harness identity:
-│                          #   "you run inside Lumina Code, the desktop GUI
+│                          #   {todos} replaces the remaining tail; once
+│                          #   EVERY task is settled, work_submit
+│                          #   {report} is the ACCEPTANCE gate — archival
+│                          #   certifies "the user TESTED this", never
+│                          #   the AI's own claim (same Route A shape:
+│                          #   approval arrives as the marker file the
+│                          #   WorkReviewCard writes, rejection as the
+│                          #   interrupt). Validation state is DERIVED
+│                          #   FROM THE TRANSCRIPT each call
+│                          #   (ctx.session.context: last completed
+│                          #   plan_submit + subsequent completed
+│                          #   task_complete/plan_amend/work_submit
+│                          #   parts — planStateFromEntries; no
+│                          #   plugin-side mutable state; a COMPLETED
+│                          #   work_submit marks the plan archived =
+│                          #   terminal, later calls refuse; subagent
+│                          #   child sessions self-scope-out, their
+│                          #   transcripts hold no plan). Every result
+│                          #   echoes the checklist (compaction
+│                          #   self-healing). THE ON-DISK MIRROR
+│                          #   (.lumina/tasks/<slug>/ under the
+│                          #   SESSION's directory — resolved via
+│                          #   ctx.session.get's location.directory,
+│                          #   NEVER ctx.location which is the single
+│                          #   plugin instance's CWD, live-verified):
+│                          #   every plan/report SUBMISSION (approved or
+│                          #   not) writes a history/<kind>-<ts>.md
+│                          #   snapshot plus the newest plan.md /
+│                          #   report.md — each file's header anchors it
+│                          #   to its session id, so the fold stays
+│                          #   stateless and resubmissions reuse (and
+│                          #   version) their own directory while other
+│                          #   sessions' same-title plans get -2
+│                          #   siblings; tasks.md is HOST-maintained
+│                          #   (generated from the structured todos,
+│                          #   never parsed from plan markdown) and
+│                          #   fully rewritten after approval and every
+│                          #   progress event — its existence marks the
+│                          #   directory as an APPROVED plan. All file
+│                          #   ops run INSIDE the executors through
+│                          #   dynamic `await import("node:fs")`
+│                          #   (live-verified on v2.0.11 — the HTTP fs
+│                          #   API has no delete/move, so the plugin is
+│                          #   the only side that can archive); the
+│                          #   pure naming/composition/zip helpers are
+│                          #   named exports covered by
+│                          #   src/plugins/luminaTools.test.js. On
+│                          #   ACCEPTANCE the executor archives:
+│                          #   plan.md + report.md + tasks.md + history/
+│                          #   become one stored zip (hand-rolled, no
+│                          #   deps) at .lumina/archived/<slug>.zip
+│                          #   (tmp+rename atomic) and the task
+│                          #   directory is removed. The acceptance
+│                          #   marker itself lives at a FIXED path
+│                          #   (.lumina/review/<sessionID>.json) both
+│                          #   sides derive without knowing the task
+│                          #   directory's collision suffix. setup() also
+│                          #   rides the v2.0.11 session hook —
+│                          #   ctx.session.hook("context", async e =>
+│                          #   e.system.push) appends HOST_IDENTITY (the
+│                          #   harness identity: "you run inside Lumina
+│                          #   Code, the desktop GUI
 │                          #   client for OpenCode — not the TUI") and the
 │                          #   PLAN_WORKFLOW protocol to every model call
 │                          #   (binary-verified; runtime-probed,
-│                          #   degrades to tool descriptions when absent).
+│                          #   degrades to tool descriptions when absent)
+│                          #   — plus, for non-helper agents, a one-line
+│                          #   digest of the directory's UNARCHIVED plans
+│                          #   (tasks.md scan; activePlansNote — the
+│                          #   callback is async and resolves the
+│                          #   session's own directory, both
+│                          #   live-verified), so a NEW session can
+│                          #   resume a plan and a compacted context
+│                          #   re-learns where the documents live.
 │
 ├── opencode/              # THE domain layer — everything talking to the server
 │   ├── api.ts             # OpencodeApi: hand-rolled typed REST client (fetch +
@@ -318,6 +385,15 @@ src/
 │   │                      #   on the event bus (the server persists a part when it
 │   │                      #   ENDS, carrying "" until then), so a list must never be
 │   │                      #   rebuilt from a server snapshot alone.
+│   │                      #   INTERRUPT SETTLE: v2.0.11 emits NO per-tool
+│   │                      #   settle event when a run is interrupted
+│   │                      #   (only session.step.failed + the run-level
+│   │                      #   session.execution.interrupted), so the
+│   │                      #   reducer settles in-flight tool parts on
+│   │                      #   the run-level event — without it a running
+│   │                      #   part (e.g. a blocking plan_submit) hangs
+│   │                      #   every derived pending state (approval
+│   │                      #   cards, tool rows) until a re-seed.
 │   │                      #   EDIT-LAST-MESSAGE: dropFromBoundary + the
 │   │                      #   session.revert.committed event case truncate a
 │   │                      #   list at the first id >= boundary (the TUI's
@@ -449,8 +525,10 @@ src/
 │   │                      #   badges work for inactive sessions. The plan workflow's
 │   │                      #   pending APPROVAL folds into the same pendingCounts via
 │   │                      #   a module store over the message transcript
-│   │                      #   (planApprovalPending — Route A; see
-│   │                      #   PlanApprovalCard) — same badge as questions.
+│   │                      #   (planApprovalPending + workApprovalPending
+│   │                      #   — Route A's two gates; see
+│   │                      #   PlanApprovalCard / WorkReviewCard) — same
+│   │                      #   badge as questions.
 │   ├── sessionActivity.ts # Pure stats-card derivations from a session's messages:
 │   │                      #   background shells (tool-part metadata.shellID — only
 │   │                      #   background results carry it) with their completion
@@ -467,8 +545,10 @@ src/
 │   │                      #   plan_submit part defines the list — status "error" =
 │   │                      #   rejected, no active plan; running = pendingApproval —
 │   │                      #   and subsequent COMPLETED task_complete/plan_amend parts
-│   │                      #   advance it; the FRONTEND MIRROR of the plugin's
-│   │                      #   planStateFromEntries fold — keep the two in sync) +
+│   │                      #   advance it, a COMPLETED work_submit marks it archived
+│   │                      #   (terminal — acceptance happened); the FRONTEND MIRROR of
+│   │                      #   the plugin's planStateFromEntries fold — keep the two
+│   │                      #   in sync) +
 │   │                      #   findPlanSubmitInput (locates a pending request's plan
 │   │                      #   payload via its permission source part id, falling
 │   │                      #   back to the last plan_submit; a located-but-malformed
@@ -476,7 +556,9 @@ src/
 │   │                      #   planApprovalPending (the LAST plan_submit
 │   │                      #   part while still running — Route A's
 │   │                      #   pending-approval signal, driving the
-│   │                      #   approval card).
+│   │                      #   approval card) + workApprovalPending (its
+│   │                      #   work_submit twin — the pending ACCEPTANCE,
+│   │                      #   driving WorkReviewCard).
 │   │                      #   node-testable.
 │   ├── useSessionActivity.ts # Stats-card state, split by scope, both over
 │   │                      #   MODULE-LEVEL stores (the useSessionMessages
@@ -567,15 +649,6 @@ src/
 │   ├── persist.ts         # loadState/saveState — cross-restart UI state in
 │   │                      #   localStorage ("lumina-code:ui-state": open session,
 │   │                      #   model, agent, directory). Never throws.
-│   ├── planFiles.ts       # Plan-workflow document persistence (pure): the
-│   │                      #   CJK-safe filename slug, the dated
-│   │                      #   `.lumina/plans/YYYY-MM-DD-<slug>.md` name with
-│   │                      #   collision suffixes (async exists-probe — the
-│   │                      #   fs/read round-trip), and composePlanDocument
-│   │                      #   (plan markdown + checklist appendix, self-
-│   │                      #   contained). The write itself is the approval
-│   │                      #   card's job (it owns the api + directory).
-│   │                      #   node-testable.
 │   ├── clipboard.ts       # copyText — clipboard write with an execCommand
 │   │                      #   fallback for webviews lacking the async API
 │   ├── dragRegionDoubleClick.ts # pure predicate behind the title-bar double-click
@@ -732,13 +805,20 @@ src/
     │   │                  #   intrinsic-size estimate shifted the viewport
     │   │                  #   on WebKitGTK). Don't re-add without a plan
     │   │                  #   for those two failure modes. Also owns the
-    │   │                  #   plan-workflow APPROVAL (Route A): the
-    │   │                  #   plan_submit executor blocks inside its
-    │   │                  #   call, planApprovalPending derives the
-    │   │                  #   pending payload from the transcript, and
-    │   │                  #   PlanApprovalCard pins above the composer
-    │   │                  #   (approve = switchAgent + plan-file save;
-    │   │                  #   reject = interrupt). And the EDIT-LAST-
+    │   │                  #   plan-workflow's TWO GUI gates (Route A):
+    │   │                  #   the APPROVAL — the plan_submit executor
+    │   │                  #   blocks inside its call, planApprovalPending
+    │   │                  #   derives the pending payload from the
+    │   │                  #   transcript, and PlanApprovalCard pins above
+    │   │                  #   the composer (approve = switchAgent only —
+    │   │                  #   the PLUGIN writes the plan documents into
+    │   │                  #   .lumina/tasks/; reject = interrupt) — and
+    │   │                  #   the ACCEPTANCE — workApprovalPending /
+    │   │                  #   WorkReviewCard (approve = write the
+    │   │                  #   .lumina/review/<sessionID>.json marker the
+    │   │                  #   blocked executor polls, which then ARCHIVES
+    │   │                  #   the plan; reject = interrupt). And the
+    │   │                  #   EDIT-LAST-
     │   │                  #   MESSAGE state: editingMessageId +
     │   │                  #   lastEditableId (the last plain user
     │   │                  #   message, connected — the pencil is
@@ -971,11 +1051,26 @@ src/
     │   │                  #   planApprovalPending — a still-running
     │   │                  #   part IS a pending decision) and pins this
     │   │                  #   card above the composer via ExitPresence.
-    │   │                  #   批准 = switchAgent("build") + best-effort
-    │   │                  #   plan-document save (lib/planFiles.ts →
-    │   │                  #   .lumina/plans/); 驳回 = interrupt (aborts
-    │   │                  #   the executor → revision prompt). A
-    │   │                  #   malformed payload offers rejection only.
+    │   │                  #   批准 = switchAgent("build") (the plugin
+    │   │                  #   itself persists the plan documents);
+    │   │                  #   驳回 = interrupt (aborts the executor →
+    │   │                  #   revision prompt). A malformed payload
+    │   │                  #   offers rejection only.
+    │   ├── WorkReviewCard.tsx # The plan workflow's ACCEPTANCE card (the
+    │   │                  #   second gate): the work_submit executor
+    │   │                  #   BLOCKS until the user has TESTED the
+    │   │                  #   delivered work — archival certifies
+    │   │                  #   "tested and working", never the AI's own
+    │   │                  #   claim (workApprovalPending derives the
+    │   │                  #   pending report from the transcript).
+    │   │                  #   Renders the report markdown + 批准并归档 /
+    │   │                  #   驳回; approval = the marker file the
+    │   │                  #   executor polls (ChatView writes
+    │   │                  #   .lumina/review/<sessionID>.json — the
+    │   │                  #   executor then archives to .lumina/archived/
+    │   │                  #   and the card collapses as the part
+    │   │                  #   settles); rejection = interrupt → fix and
+    │   │                  #   resubmit.
     │   ├── RequestCardChrome.tsx # Card + CardButton + MONO_STYLE (mono
     │   │                  #   family + settings-driven --lum-code-size)
     │   │                  #   shared by the request kinds and tool cards;
@@ -1082,8 +1177,14 @@ src/
     │                      #   the plan frames the work, the diff is residue.
     │                      #   Static rows (statuses swap in place, nothing
     │                      #   unmounts — no presence animation needed);
-    │                      #   pendingApproval swaps the header count for a
-    │                      #   "waiting for approval" chip.
+    │                      #   the header count swaps for state chips:
+    │                      #   pendingApproval → "waiting for approval",
+    │                      #   ALL tasks settled without acceptance →
+    │                      #   "awaiting review" (the standing invitation
+    │                      #   to test — archival is the user's call),
+    │                      #   a completed work_submit → "archived"
+    │                      #   (terminal; the record lives in
+    │                      #   .lumina/archived/).
     ├── composer/          # The prompt composer
         ├── ChatInput.tsx  # Composer shell: staged attachments (chips),
         │                  #   slash-command fetch (per-directory, retried),
@@ -1335,10 +1436,16 @@ warn, error}`; the frontend imports from `@tauri-apps/plugin-log`.
 
 ### 3.6 Tests
 
-`pnpm test` runs node:test over `src/**/*.test.ts` — pure-logic modules
-only (message reducer, run-footer collection, usage math, transcript
-folding, form answers, session grouping, path display, tool metadata). New
-pure logic
+`pnpm test` runs node:test over `src/**/*.test.ts` and `src/**/*.test.js`
+— pure-logic modules only (message reducer, run-footer collection, usage
+math, transcript folding, form answers, session grouping, path display,
+tool metadata). The `.test.js` glob exists for one resident:
+`src/plugins/luminaTools.test.js`, which imports the PLUGIN source's
+named exports directly (plain ESM, no top-level imports — node loads it
+without a bundler; tsc/vite never touch .js, tsconfig has no allowJs).
+The plugin's pure helpers (slug/naming/document composition/stored-zip)
+and its fs-touching plan-document writers (against temp dirs) live under
+test there. New pure logic
 that matters (reducers, collectors, mapping) belongs in a pure module WITH
 a colocated test; UI wiring is verified by `pnpm build` + running the app.
 The Rust side currently has no test suite — keep it thin enough not to

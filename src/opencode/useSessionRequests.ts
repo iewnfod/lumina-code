@@ -4,7 +4,7 @@ import type {OpencodeApi} from "./api.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {ChatMessage, EventMap, FormAnswer, FormRequest, PermissionDecision, PermissionRequest} from "./types.ts";
 import {peekSessionMessages, subscribeSessionMessages} from "./useSessionMessages.ts";
-import {planApprovalPending} from "./sessionActivity.ts";
+import {planApprovalPending, workApprovalPending} from "./sessionActivity.ts";
 
 /**
  * Pending server→user requests across ALL sessions: permission asks
@@ -29,40 +29,58 @@ import {planApprovalPending} from "./sessionActivity.ts";
  * plan approvals the same sidebar badge as questions.
  */
 
-/** Sessions with a blocking plan_submit, as a stable snapshot for
- * useSyncExternalStore (replaced — never mutated — on change). */
-let planApprovalSnapshot: ReadonlySet<string> = new Set();
-const planApprovalListeners = new Set<() => void>();
-let planApprovalsWired = false;
+// The plan workflow's transcript-derived gates ride the same badge
+// pipeline (Route A): they are not wire-level requests — the plan_submit
+// and work_submit executors block inside their tool calls, so a
+// still-running part IS a pending decision (sessionActivity.
+// planApprovalPending / workApprovalPending). A module-level store
+// watches the message store for every tracked session and folds both
+// into pendingCounts, giving plan approvals and work acceptances the
+// same sidebar badge as questions.
 
-/** Recompute one session's plan-approval state from its message store
- * entry (called on every store notification for that session). */
-function recomputePlanApproval(sessionId: string): void {
+/** Per-session transcript-derived pending flags, as a stable snapshot for
+ * useSyncExternalStore (replaced — never mutated — on change). */
+interface PendingFlags {
+    plan: boolean;
+    work: boolean;
+}
+const NO_FLAGS: PendingFlags = {plan: false, work: false};
+let pendingFlagsSnapshot: ReadonlyMap<string, PendingFlags> = new Map();
+const pendingFlagsListeners = new Set<() => void>();
+let pendingFlagsWired = false;
+
+/** Recompute one session's gate states from its message store entry
+ * (called on every store notification for that session). */
+function recomputePendingFlags(sessionId: string): void {
     const messages = peekSessionMessages(sessionId);
     if (!messages) return;
-    const pending = planApprovalPending(messages as ChatMessage[]) !== null;
-    if (pending === planApprovalSnapshot.has(sessionId)) return;
-    const next = new Set(planApprovalSnapshot);
-    if (pending) next.add(sessionId);
+    const flags: PendingFlags = {
+        plan: planApprovalPending(messages as ChatMessage[]) !== null,
+        work: workApprovalPending(messages as ChatMessage[]) !== null,
+    };
+    const prev = pendingFlagsSnapshot.get(sessionId) ?? NO_FLAGS;
+    if (flags.plan === prev.plan && flags.work === prev.work) return;
+    const next = new Map(pendingFlagsSnapshot);
+    if (flags.plan || flags.work) next.set(sessionId, flags);
     else next.delete(sessionId);
-    planApprovalSnapshot = next;
-    for (const listener of planApprovalListeners) listener();
+    pendingFlagsSnapshot = next;
+    for (const listener of pendingFlagsListeners) listener();
 }
 
 /** Drop a deleted session's entry (its message store entry goes with it). */
-function dropPlanApproval(sessionId: string): void {
-    if (!planApprovalSnapshot.has(sessionId)) return;
-    const next = new Set(planApprovalSnapshot);
+function dropPendingFlags(sessionId: string): void {
+    if (!pendingFlagsSnapshot.has(sessionId)) return;
+    const next = new Map(pendingFlagsSnapshot);
     next.delete(sessionId);
-    planApprovalSnapshot = next;
-    for (const listener of planApprovalListeners) listener();
+    pendingFlagsSnapshot = next;
+    for (const listener of pendingFlagsListeners) listener();
 }
 
 /** Install the message-store watcher once per app run. */
-function ensurePlanApprovalWiring(): void {
-    if (planApprovalsWired) return;
-    planApprovalsWired = true;
-    subscribeSessionMessages((sessionId) => recomputePlanApproval(sessionId));
+function ensurePendingFlagsWiring(): void {
+    if (pendingFlagsWired) return;
+    pendingFlagsWired = true;
+    subscribeSessionMessages((sessionId) => recomputePendingFlags(sessionId));
 }
 
 export function useSessionRequests(
@@ -142,7 +160,7 @@ export function useSessionRequests(
                     const {sessionID} = event.data as {sessionID: string};
                     setPermissions((prev) => prev.filter((p) => p.sessionID !== sessionID));
                     setForms((prev) => prev.filter((f) => f.sessionID !== sessionID));
-                    dropPlanApproval(sessionID);
+                    dropPendingFlags(sessionID);
                     break;
                 }
             }
@@ -202,30 +220,32 @@ export function useSessionRequests(
         );
     }, [settle]);
 
-    // The transcript-derived plan approvals (module store above) join
-    // the count — same sidebar badge as questions.
-    const subscribePlanApprovals = useCallback((notify: () => void) => {
-        planApprovalListeners.add(notify);
+    // The transcript-derived gates (module store above) join the count —
+    // same sidebar badge as questions.
+    const subscribePendingFlags = useCallback((notify: () => void) => {
+        pendingFlagsListeners.add(notify);
         return () => {
-            planApprovalListeners.delete(notify);
+            pendingFlagsListeners.delete(notify);
         };
     }, []);
-    const planApprovals = useSyncExternalStore(
-        subscribePlanApprovals,
-        () => planApprovalSnapshot,
-        () => planApprovalSnapshot,
+    const pendingFlags = useSyncExternalStore(
+        subscribePendingFlags,
+        () => pendingFlagsSnapshot,
+        () => pendingFlagsSnapshot,
     );
     useEffect(() => {
-        ensurePlanApprovalWiring();
+        ensurePendingFlagsWiring();
     }, []);
 
     const pendingCounts = useMemo(() => {
         const counts = new Map<string, number>();
         for (const p of permissions) counts.set(p.sessionID, (counts.get(p.sessionID) ?? 0) + 1);
         for (const f of forms) counts.set(f.sessionID, (counts.get(f.sessionID) ?? 0) + 1);
-        for (const sid of planApprovals) counts.set(sid, (counts.get(sid) ?? 0) + 1);
+        for (const [sid, flags] of pendingFlags) {
+            counts.set(sid, (counts.get(sid) ?? 0) + (flags.plan ? 1 : 0) + (flags.work ? 1 : 0));
+        }
         return counts;
-    }, [permissions, forms, planApprovals]);
+    }, [permissions, forms, pendingFlags]);
 
     return {permissions, forms, pendingCounts, replyPermission, replyForm, cancelForm};
 }

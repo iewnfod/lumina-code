@@ -16,11 +16,15 @@ export const statsRowClass =
 export function StatsSection({
     icon,
     title,
+    actions,
     summary,
     children,
 }: {
     icon: ReactNode;
     title: string;
+    /** Trailing quiet controls (view buttons…) — right-aligned, BEFORE
+     * the summary slot so counts/chips stay outermost. */
+    actions?: ReactNode;
     /** Right-aligned slot (counts, live chips…) — rendered as given. */
     summary?: ReactNode;
     children: ReactNode;
@@ -31,6 +35,7 @@ export function StatsSection({
                 <span className="shrink-0 opacity-70 inline-flex">{icon}</span>
                 <span className="text-[11px] font-medium uppercase tracking-wider opacity-55">{title}</span>
                 <span className="flex-1"/>
+                {actions}
                 {summary}
             </header>
             {children}

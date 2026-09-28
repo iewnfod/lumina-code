@@ -472,11 +472,15 @@ export function useSessionActivity(
     // The plan-workflow todo list is a PURE transcript derivation (no
     // endpoints, no running-set store) — same identity-cache discipline
     // as above so streamed frames don't re-render the card per delta.
+    // The key must cover EVERY field consumers read: `archived` once
+    // lived outside it, so the flip to archived (work_submit completing)
+    // returned the stale cached object and the chip stayed "awaiting
+    // review" forever — the files were archived, the UI wasn't.
     const todosCacheRef = useRef<{key: string; value: SessionTodos | null} | null>(null);
     const todos = useMemo(() => {
         const derived = collectSessionTodos(messages as ChatMessage[]);
         const key = derived
-            ? `${derived.title}|${derived.pendingApproval ? "p" : ""}|${derived.items
+            ? `${derived.title}|${derived.pendingApproval ? "p" : ""}|${derived.archived ? "a" : ""}|${derived.reportSubmitted ? "r" : ""}|${derived.items
                   .map((i) => `${i.title}:${i.status}:${i.reason ?? ""}`)
                   .join("|")}`
             : "";

@@ -167,6 +167,19 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
             const d = data as EventMap["session.revert.committed"];
             return dropFromBoundary(list, d.to);
         }
+        case "session.execution.interrupted": {
+            // v2.0.11 emits NO per-tool settle when a run is interrupted —
+            // only session.step.failed (whose case above sets m.error but
+            // leaves in-flight TOOL parts "running") plus this run-level
+            // event. A part left running hangs every derived pending state
+            // (plan/work approval cards, pulsing tool rows) until a
+            // session re-seed finally replaces the store with the server's
+            // settled snapshot — live-observed as the approval card
+            // refusing to collapse after a rejection. The run-level event
+            // is the authoritative "nothing in this session is running
+            // anymore" signal: settle everything in flight.
+            return settleInFlightToolParts(list, "Tool execution interrupted");
+        }
         default:
             return list;
     }
@@ -184,6 +197,30 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
 export function dropFromBoundary(list: ChatMessage[], boundaryId: string): ChatMessage[] {
     const index = list.findIndex((m) => m.id >= boundaryId);
     return index === -1 ? list : list.slice(0, index);
+}
+
+/** Settle every in-flight tool part to an error — the interrupt path
+ *  carries no per-part event on v2.0.11 (see the
+ *  session.execution.interrupted case in applyEvent). Clone-on-write: a
+ *  list with nothing in flight keeps its identity so memoized rows skip
+ *  re-rendering. Idempotent, and re-seed safe: terminal tool states share
+ *  a toolRank, so a later server page can still overwrite the detail. */
+function settleInFlightToolParts(list: ChatMessage[], error: string): ChatMessage[] {
+    let changed = false;
+    const next = list.map((m) => {
+        if (!isAssistantMessage(m)) return m;
+        let touched = false;
+        const content = m.content.map((p) => {
+            if (p.type !== "tool" || (p.state.status !== "running" && p.state.status !== "pending")) return p;
+            touched = true;
+            const draft: AssistantToolPart = {...p, state: {...p.state, status: "error", error}};
+            return draft;
+        });
+        if (!touched) return m;
+        changed = true;
+        return {...m, content};
+    });
+    return changed ? next : list;
 }
 
 /** The next-older cursor of a page, with the server's exhaustion quirk

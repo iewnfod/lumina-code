@@ -7,6 +7,7 @@ import {recordPendingCommand} from "./pendingCommands.ts";
 import type {OpencodeEvent} from "./eventStream.ts";
 import type {ChatAssistantMessage, ChatMessage, ChatUserMessage} from "./types.ts";
 import {isUserMessage} from "./types.ts";
+import type {AssistantToolPart} from "./types.ts";
 
 /**
  * Pure-logic tests for the per-session message store: the event reducer
@@ -94,6 +95,33 @@ test("switch-back keeps streamed reasoning: seed merge + away deltas, before end
     const afterAway = applyEvent(seeded.messages, reasoningDelta("the options."));
     assert.equal(afterAway.length, 2, "user bubble from page + assistant");
     assert.equal(reasoningText(afterAway), "Let me consider the options.");
+});
+
+test("execution.interrupted settles in-flight tool parts (v2.0.11 sends no per-tool settle)", () => {
+    // A running tool call is interrupted: only the run-level event
+    // arrives (live-observed with the plan approval card refusing to
+    // collapse after a rejection) — the part must settle so every
+    // derived pending state collapses instead of hanging until a
+    // session re-seed finally replaces the store.
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_1", name: "bash"}));
+    list = applyEvent(list, ev("session.tool.called", {assistantMessageID: MID, id: "tool_1", input: {command: "sleep 100"}}));
+
+    const settled = applyEvent(list, ev("session.execution.interrupted", {}));
+    assert.notEqual(settled, list, "the list must change while a tool is in flight");
+    const part = asst(settled).content.find((p) => p.type === "tool") as AssistantToolPart;
+    assert.equal(part.state.status, "error");
+    assert.equal(part.state.error, "Tool execution interrupted");
+    assert.deepEqual(part.state.input, {command: "sleep 100"});
+
+    // Idempotent + identity-preserving: a repeat interrupt (nothing in
+    // flight anymore) returns the SAME array so memoized rows skip.
+    assert.equal(applyEvent(settled, ev("session.execution.interrupted", {})), settled);
+
+    // A quiet list (no in-flight tool anywhere) keeps its identity too.
+    const quiet = applyEvent([], stepStarted());
+    assert.equal(applyEvent(quiet, ev("session.execution.interrupted", {})), quiet);
 });
 
 test("reasoning.ended still settles the full text", () => {
