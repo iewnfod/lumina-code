@@ -245,7 +245,10 @@ src/
 │   │                      #   at message M undoes the file changes of the
 │   │                      #   turns after M immediately, committing deletes
 │   │                      #   M AND everything after it, and clearing
-│   │                      #   re-applies the undone files.
+│   │                      #   re-applies the undone files. Plus the binary
+│   │                      #   fs/read (readFileBlob → Blob, same
+│   │                      #   location-confined shape as readTextFile)
+│   │                      #   feeding the attachment-chip image previews.
 │   ├── configFiles.ts     # globalConfigTarget — where the global opencode.json
 │   │                      #   lives, derived from GET /api/config (pure; shared
 │   │                      #   by the settings config editor and the attachment
@@ -776,7 +779,12 @@ src/
     │   │                  #   name + file-type icon, hover shows the saved
     │   │                  #   path) and copy/edits work on the clean text;
     │   │                  #   an image-only divert renders chips and no
-    │   │                  #   bubble at all. The user bubble also carries the EDIT-LAST-
+    │   │                  #   bubble at all. The attachment chips are
+    │   │                  #   CLICKABLE previews (attachmentPreview.ts +
+    │   │                  #   AttachmentPreview.tsx): one chip at a time
+    │   │                  #   expands under the row through ExitPresence —
+    │   │                  #   images inline, text/code in the workspace
+    │   │                  #   display. The user bubble also carries the EDIT-LAST-
     │   │                  #   MESSAGE entry point: a pencil in the quiet
     │   │                  #   actions row (only the row whose id matches
     │   │                  #   the edit bundle's editableMessageId —
@@ -794,6 +802,34 @@ src/
     │   │                  #   → MessageItem as ONE stable prop so memoized
     │   │                  #   rows skip re-renders; subagent transcripts
     │   │                  #   pass none of it.
+    │   ├── attachmentPreview.ts # Pure planning for the attachment-chip
+    │   │                  #   previews: previewKind (mime wins, file-name
+    │   │                  #   extension as the fallback — staged files
+    │   │                  #   often carry an EMPTY mime), splitFilePath
+    │   │                  #   (file:// URI or absolute path → fs/read's
+    │   │                  #   flat directory + name), the per-chip source
+    │   │                  #   resolution (data-URI/base64 bytes ride the
+    │   │                  #   message → ready source; file:// mentions and
+    │   │                  #   the vision divert's saved paths → server
+    │   │                  #   read), attachmentChips (the ONE chip item
+    │   │                  #   list the chip row and the preview resolve
+    │   │                  #   against — keys can't drift), and
+    │   │                  #   capPreviewLines (2000-line DOM guard).
+    │   │                  #   node-testable.
+    │   ├── AttachmentPreview.tsx # The expanded half of the attachment
+    │   │                  #   chips: renders one source. Ready sources
+    │   │                  #   paint immediately; `read` sources fetch via
+    │   │                  #   fs/read (image Blob → object URL, revoked
+    │   │                  #   on unmount/swap; text via readTextFile) with
+    │   │                  #   .lum-loading / error states. Text/code
+    │   │                  #   borrows the WORKSPACE display: the whole
+    │   │                  #   file as context rows through fragmentHunks →
+    │   │                  #   DiffViewBody (numbered, highlighted, no diff
+    │   │                  #   wash) inside the recessed reading box,
+    │   │                  #   truncated past the line cap with a
+    │   │                  #   footnote. Mounted KEYED per chip (MessageItem)
+    │   │                  #   so switches remount fresh; entrance/exit
+    │   │                  #   animation is the parent's ExitPresence.
     │   ├── messageParts.ts # Pure part segmentation: segmentContent,
     │   │                  #   effectiveTailPart, stable part keys.
     │   ├── ActivityGroup.tsx # Folded run of tool calls / thoughts

@@ -574,6 +574,42 @@ export class OpencodeApi {
         }
     }
 
+    /** Raw-bytes variant of {@link requestRawText}: same fs transport,
+     *  but the body resolves to a Blob instead of text. Thrown errors
+     *  carry the HTTP `status` like its siblings. */
+    private async requestRawBlob(path: string, init?: RequestInit): Promise<Blob> {
+        const res = await fetch(this.baseUrl + path, {
+            ...init,
+            headers: {
+                Authorization: this.authorization,
+                ...init?.headers,
+            },
+        });
+        if (!res.ok) {
+            const detail = await res.text().catch(() => "");
+            const err = new Error(`${res.status} ${res.statusText}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+            (err as Error & {status?: number}).status = res.status;
+            throw err;
+        }
+        return res.blob();
+    }
+
+    /** Binary twin of {@link readTextFile} (same location-confined
+     * fs/read): one file's raw bytes as a Blob — attachment previews
+     * (diverted images, file:// mentions). Returns null on 404; other
+     * failures throw. Server quirk (per the v2 SDK schema): fs/read
+     * answers with the file's bytes (200: Blob | File), not a JSON
+     * envelope. */
+    async readFileBlob(directory: string, name: string): Promise<Blob | null> {
+        const params = new URLSearchParams({"location[directory]": directory});
+        try {
+            return await this.requestRawBlob(`/api/fs/read/${encodeURIComponent(name)}?${params.toString()}`);
+        } catch (e) {
+            if ((e as {status?: number}).status === 404) return null;
+            throw e;
+        }
+    }
+
     /** Write text to an ABSOLUTE path (experimental fs/write is not
      *  location-confined; missing parent directories are created).
      *  Server quirk: the endpoint REJECTS `Content-Type: application/json`

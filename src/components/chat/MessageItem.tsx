@@ -1,4 +1,4 @@
-import {memo, useEffect, useRef, useState, type CSSProperties} from "react";
+import {memo, useEffect, useMemo, useRef, useState, type CSSProperties} from "react";
 import {motion} from "framer-motion";
 import {Terminal, Check, Copy, AlertCircle, Pencil} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
@@ -7,12 +7,11 @@ import type {
     ChatAssistantMessage,
     ChatMessage,
     ChatUserMessage,
-    UserMessageFile,
 } from "../../opencode/types.ts";
 import {isAssistantMessage, isUserMessage} from "../../opencode/types.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
-import {splitAttachmentNote, type DivertedAttachment} from "../../opencode/visionAttachments.ts";
+import {splitAttachmentNote} from "../../opencode/visionAttachments.ts";
 import {useCopy} from "../../hooks/useCopy.ts";
 import {COMMAND_MENTION_COLOR} from "../composer/CommandMentionNode.tsx";
 import Markdown from "./Markdown.tsx";
@@ -23,6 +22,13 @@ import ActivityGroup from "./ActivityGroup.tsx";
 import {useExpansion} from "./useExpansion.ts";
 import {effectiveTailPart, partKey, segmentContent, visibleStepError, type ActivityPart} from "./messageParts.ts";
 import {ERROR_TEXT} from "./toolMeta.ts";
+import {
+    attachmentChips,
+    type AttachmentChipItem,
+    type AttachmentPreviewSource,
+} from "./attachmentPreview.ts";
+import AttachmentPreview from "./AttachmentPreview.tsx";
+import ExitPresence from "../ui/ExitPresence.tsx";
 import Hint from "../ui/Hint.tsx";
 
 /**
@@ -138,6 +144,26 @@ function UserBubble({
     // feed them; editResend re-appends the note when the prompt is
     // edited, so the model keeps its image paths).
     const {text: displayText, diverted} = splitAttachmentNote(message.text);
+    // The attachment chips (inline files + vision-diverted images) and
+    // their preview sources resolve from the SAME memoized items, so a
+    // chip's key always matches what the expanded panel would render —
+    // and the source identities stay stable across re-renders (the
+    // preview's fetch effect keys off them; fresh objects every render
+    // would refetch on every streaming frame).
+    const chips = useMemo(
+        () => attachmentChips(message.files ?? [], splitAttachmentNote(message.text).diverted),
+        [message.files, message.text],
+    );
+    const [previewKey, setPreviewKey] = useState<string | null>(null);
+    const activeItem = previewKey == null ? null : chips.find((c) => c.key === previewKey) ?? null;
+    const active = activeItem?.source != null ? {key: activeItem.key, source: activeItem.source} : null;
+    // The LAST active pair stays renderable through the exit hold
+    // (collapsing nulls `active` mid-render; the engine still needs
+    // content to fade out — the same derived-state pattern ExitPresence
+    // itself uses).
+    const lastActiveRef = useRef<{key: string; source: AttachmentPreviewSource} | null>(null);
+    if (active != null) lastActiveRef.current = active;
+    const held = active ?? lastActiveRef.current;
     const {expanded, toggle} = useExpansion(`user-bubble:${message.id}`, false);
     const [clipped, setClipped] = useState(false);
     const textRef = useRef<HTMLDivElement>(null);
@@ -170,10 +196,31 @@ function UserBubble({
                 text keeps a clean single-surface read and the files read as
                 accompanying material rather than bubble content. Diverted
                 images (saved to disk for a text-only model's vision tool)
-                join the row as chips with no thumbnail to show. */}
+                join the row as chips with no thumbnail to show.
+                PREVIEWABLE chips are buttons: clicking one expands its
+                preview right under the row (image lightbox-style / the
+                workspace's code display), clicking it again collapses. */}
             {(files.length > 0 || (diverted?.length ?? 0) > 0) && (
-                <AttachmentChips files={files} diverted={diverted}/>
+                <AttachmentChips
+                    chips={chips}
+                    expandedKey={active != null ? previewKey : null}
+                    onToggle={(key) => setPreviewKey((k) => (k === key ? null : key))}
+                />
             )}
+            {/* The expanded preview, held through its fade-out by the exit
+                engine (self-stretch: a code reading surface wants the
+                column's width, unlike the shrink-wrapped bubble). */}
+            <ExitPresence present={active != null} exitMs={150} exit={{animation: "lum-fade-exit"}}>
+                {(closing, bind) => held != null && (
+                    <div
+                        key={held.key}
+                        {...bind}
+                        className={`self-stretch mb-2${closing ? " lum-fade-exit" : " lum-enter"}`}
+                    >
+                        <AttachmentPreview source={held.source}/>
+                    </div>
+                )}
+            </ExitPresence>
             {displayText && (
                 // A slash-command submission hovers to reveal the expanded
                 // template (the wrapper carries the width cap while the
@@ -290,43 +337,51 @@ function UserBubble({
 
 /** A user message's attachments, floated above the bubble — the prompt
  *  text keeps a clean single-surface read and the files read as
- *  accompanying material rather than bubble content. `diverted` are the
- *  images saved to disk for a text-only model's vision tool: they ride
- *  no thumbnail on the message, so their chips carry the file-type icon
- *  and the ORIGINAL name, hover revealing where the file landed. */
-function AttachmentChips({files, diverted}: {files: UserMessageFile[]; diverted?: DivertedAttachment[] | null}) {
+ *  accompanying material rather than bubble content. Chips carrying a
+ *  preview SOURCE are buttons (hover wash; the expanded chip stays
+ *  lit on the active surface); the rest remain inert spans. `diverted`
+ *  items' hover hint reveals where the file landed. */
+function AttachmentChips({
+    chips,
+    expandedKey,
+    onToggle,
+}: {
+    chips: AttachmentChipItem[];
+    expandedKey: string | null;
+    onToggle: (key: string) => void;
+}) {
+    const colors = useColors();
     return (
         <div className="flex flex-wrap justify-end gap-1.5 mb-1.5 max-w-[85%]">
-            {files.map((f, i) => {
-                const src = typeof f.uri === "string" ? f.uri
-                    : f.data && f.mime ? `data:${f.mime};base64,${f.data}`
-                    : null;
-                return (
-                    <span
-                        key={i}
-                        className="inline-flex items-center gap-1.5 h-7 pl-2.5 pr-2.5 rounded-[var(--radius-lg)] max-w-56"
-                        style={{background: "rgba(128,128,128,0.10)"}}
-                    >
-                        {f.mime?.startsWith("image/") && src ? (
-                            <img src={src} alt="" className="w-5 h-5 rounded-[var(--radius-xs)] object-cover shrink-0"/>
+            {chips.map((c) => {
+                const expanded = expandedKey === c.key;
+                const body = (
+                    <>
+                        {c.isImageThumb && c.thumb ? (
+                            <img src={c.thumb} alt="" className="w-5 h-5 rounded-[var(--radius-xs)] object-cover shrink-0"/>
                         ) : (
-                            <img src={fileIconUrl(f.name ?? "file")} alt="" className="w-4 h-4 shrink-0"/>
+                            <img src={fileIconUrl(c.name)} alt="" className="w-4 h-4 shrink-0"/>
                         )}
-                        <span className="text-xs truncate leading-normal">{f.name ?? "file"}</span>
-                    </span>
+                        <span className="text-xs truncate leading-normal">{c.name}</span>
+                    </>
+                );
+                const className =
+                    "inline-flex items-center gap-1.5 h-7 pl-2.5 pr-2.5 rounded-[var(--radius-lg)] max-w-56 transition-colors duration-[var(--duration-fast)]";
+                const style = {background: expanded ? colors.activeOverlay : "rgba(128,128,128,0.10)"};
+                return (
+                    <Hint key={c.key} label={c.path ?? null}>
+                        {c.source != null ? (
+                            <button type="button" onClick={() => onToggle(c.key)} className={`${className} lum-wash cursor-pointer`} style={style}>
+                                {body}
+                            </button>
+                        ) : (
+                            <span className={className} style={style}>
+                                {body}
+                            </span>
+                        )}
+                    </Hint>
                 );
             })}
-            {diverted?.map((d) => (
-                <Hint key={d.path} label={d.path}>
-                    <span
-                        className="inline-flex items-center gap-1.5 h-7 pl-2.5 pr-2.5 rounded-[var(--radius-lg)] max-w-56"
-                        style={{background: "rgba(128,128,128,0.10)"}}
-                    >
-                        <img src={fileIconUrl(d.name)} alt="" className="w-4 h-4 shrink-0"/>
-                        <span className="text-xs truncate leading-normal">{d.name}</span>
-                    </span>
-                </Hint>
-            ))}
         </div>
     );
 }

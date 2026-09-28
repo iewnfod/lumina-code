@@ -192,6 +192,8 @@ const enUs = {
     "Custom providers are stored in the global OpenCode config": "Custom providers are stored in the global OpenCode config",
     "Connect failed": "Connect failed",
     "Save failed": "Save failed",
+    "Preview unavailable": "Preview unavailable",
+    "Showing first {n} lines": "Showing first {n} lines",
     // --- Workspace activity stats card ---
     "Workspace activity": "Workspace activity",
     "Changes": "Changes",
