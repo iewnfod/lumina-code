@@ -58,7 +58,14 @@ function ToolBodyBox({color, scrollRef, onScroll, wrap = true, children}: {
                     edges.onScroll();
                     onScroll?.();
                 }}
-                className={`max-h-64 overflow-y-auto px-3 py-2 lum-fade-md${
+                // Streamed instances (scrollRef — the follow-bottom raw
+                // output) carry the streamed-tail PADDING GUARD: the pin
+                // lands new text one paint before scrollTop catches up,
+                // so the bottom edge must be padding, not text. Static
+                // bodies (diffs, errors) keep the symmetric py-2.
+                className={`max-h-64 overflow-y-auto px-3 pt-2${
+                    scrollRef ? " pb-6" : " pb-2"
+                } lum-fade-md${
                     wrap ? " whitespace-pre-wrap break-words" : ""
                 }${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
             >

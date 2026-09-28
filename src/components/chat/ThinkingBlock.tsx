@@ -32,11 +32,16 @@ export default function ThinkingBlock({part, stateKey, live}: {part: AssistantRe
             {/* Naked scroller (no painted chrome of its own) — the mask
              * rides it directly; lg tier (the thinking stream is a big
              * reading block), fades only while a side has hidden content
-             * (useFollowBottom's edge flags). */}
+             * (useFollowBottom's edge flags). pb-6: the STREAMED-TAIL
+             * padding guard — the follow pin lands the newest line one
+             * paint before its scrollTop catches up, so the bottom edge
+             * must be padding, not text (the transient lag eats the
+             * gap, never the line); scrolled up, the bottom fade covers
+             * real hidden content as usual. */}
             <div
                 ref={thinkScroll}
                 onScroll={thinkScrollHandler}
-                className={`ml-5 mt-0.5 mb-1 text-sm whitespace-pre-wrap break-words max-h-64 overflow-y-auto opacity-60 leading-relaxed lum-fade-lg${tailTop ? " lum-fade-top" : ""}${tailBottom ? " lum-fade-bottom" : ""}`}
+                className={`ml-5 mt-0.5 mb-1 text-sm whitespace-pre-wrap break-words max-h-64 overflow-y-auto pb-6 opacity-60 leading-relaxed lum-fade-lg${tailTop ? " lum-fade-top" : ""}${tailBottom ? " lum-fade-bottom" : ""}`}
             >
                 {part.text}
             </div>

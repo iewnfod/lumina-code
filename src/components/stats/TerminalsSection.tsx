@@ -305,7 +305,11 @@ export const TerminalBody = memo(function TerminalBody({
                 fill
                 scrollRef={scrollRef}
                 onScroll={onScroll}
-                className="px-3 py-2 whitespace-pre-wrap break-words"
+                // pb-6: the streamed-tail padding guard (see
+                // ThinkingBlock's note) — output streams in while the
+                // follow pin chases it, so the bottom edge must be
+                // padding, not text.
+                className="px-3 pt-2 pb-6 whitespace-pre-wrap break-words"
             >
                 <span style={{color: colors.inactiveText}}>
                     {failed
