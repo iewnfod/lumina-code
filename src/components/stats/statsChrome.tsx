@@ -123,7 +123,18 @@ export function FinishedTotal({finished, total}: {finished: number; total: numbe
  *  the outer div; the inner div is the scroller wearing the CONDITIONAL
  *  edge fades (self-tracked via useScrollEdges — drill content sits
  *  flush inside the caller's padding, so a fade shows only while a side
- *  has hidden content). A mask must never ride the painted surface. */
+ *  has hidden content). A mask must never ride the painted surface.
+ *
+ *  fill sizing — flex, never h-full: the panel's height is a max-height
+ *  CLAMP over a content-sized flex chain, and a percentage height on
+ *  the scroller degenerates to auto once the flex algorithm sizes the
+ *  box (the browser then lets the scroller grow to content height
+ *  inside the overflow:hidden clip — the drill bodies rendered
+ *  truncated and unscrollable; verified in a standalone engine repro).
+ *  With the outer box a flex column and the scroller a flex-1 min-h-0
+ *  ITEM, the size comes from the flex algorithm itself — no percentage
+ *  to lose — and short content still hugs (a grow item in a
+ *  content-sized container sizes to its content). */
 export function BodyBox({
     className = "",
     mono = false,
@@ -147,7 +158,7 @@ export function BodyBox({
     const edges = useScrollEdges<HTMLDivElement>();
     return (
         <div
-            className={`rounded-[var(--radius-sm)] ${fill ? "h-full" : "max-h-[55vh]"} overflow-hidden`}
+            className={`rounded-[var(--radius-sm)] ${fill ? "h-full flex flex-col" : "max-h-[55vh]"} overflow-hidden`}
             style={{
                 ...(mono ? MONO_STYLE : null),
                 background: colors.recessedBg,
@@ -164,7 +175,7 @@ export function BodyBox({
                     edges.onScroll();
                     onScroll?.();
                 }}
-                className={`${fill ? "h-full" : "max-h-[55vh]"} overflow-auto lum-fade-md${
+                className={`${fill ? "flex-1 min-h-0" : "max-h-[55vh]"} overflow-auto lum-fade-md${
                     edges.top ? " lum-fade-top" : ""
                 }${edges.bottom ? " lum-fade-bottom" : ""} ${className}`}
             >
