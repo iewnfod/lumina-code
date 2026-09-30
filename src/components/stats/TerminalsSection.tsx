@@ -142,6 +142,7 @@ export const TerminalsSection = memo(function TerminalsSection({
                         {shell.running && (
                             <IconButton
                                 size={20}
+                                circle
                                 hoverOverlay={colors.hoverOverlay}
                                 activeOverlay={colors.activeOverlay}
                                 onClick={() => onStopShell(shell.id)}

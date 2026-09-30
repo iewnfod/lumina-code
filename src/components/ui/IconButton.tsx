@@ -22,6 +22,12 @@ export interface IconButtonProps
     size?: number;
     /** Persistent highlight (e.g. an active toggle). */
     isActive?: boolean;
+    /** True circle (rounded-full) instead of the default radius-sm —
+     *  for controls floating inside a strongly rounded frame (the stats
+     *  panel's header buttons nest 9px inside its --radius-xl corner,
+     *  where a concentric radius exceeds half the button and lands on a
+     *  circle anyway). */
+    circle?: boolean;
     /** Hover background overlay (runtime-derived from useSurfaceColors). */
     hoverOverlay?: string;
     /** Active/pressed background overlay. */
@@ -37,6 +43,7 @@ const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconB
         variant = "ghost",
         size = 32,
         isActive = false,
+        circle = false,
         hoverOverlay = "rgba(255,255,255,0.08)",
         activeOverlay = "rgba(255,255,255,0.14)",
         dangerHover,
@@ -75,7 +82,7 @@ const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconB
             type="button"
             whileHover={{scale: 1.04, transition: springSnappy}}
             whileTap={{scale: 0.94, transition: springSnappy}}
-            className={`lum-icon-button inline-flex items-center justify-center rounded-[var(--radius-sm)] cursor-pointer select-none transition-colors duration-[var(--duration-fast)] ease-[var(--ease-glass)] bg-[var(--lum-button-bg)] hover:bg-[var(--lum-hover-bg)] active:bg-[var(--lum-active-bg)] disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-cinnabar)] focus-visible:ring-offset-0 ${className}`}
+            className={`lum-icon-button inline-flex items-center justify-center ${circle ? "rounded-full" : "rounded-[var(--radius-sm)]"} cursor-pointer select-none transition-colors duration-[var(--duration-fast)] ease-[var(--ease-glass)] bg-[var(--lum-button-bg)] hover:bg-[var(--lum-hover-bg)] active:bg-[var(--lum-active-bg)] disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-cinnabar)] focus-visible:ring-offset-0 ${className}`}
             style={motionStyle}
             {...rest}
         >

@@ -329,13 +329,18 @@ const SessionStatsCard = memo(function SessionStatsCard({
                 >
                     {/* Panel header: back (in a drill view), the title,
                         and the collapse button. */}
-                    {/* pt-2 + the title's centering inside the 24px icon row
-                        ≈ 12px of visual top gap, matching the body's px-3
-                        side gutters (four equal margins). */}
-                    <div className="flex items-center gap-1 pl-1.5 pr-2 pt-2 pb-1.5 shrink-0 min-w-0">
+                    {/* pt-3/pl-3/pr-3 put the 24px icon buttons' BOXES on
+                        the body's 12px gutter line (px-3): their circular
+                        wash sits 13px from the frame on the straights AND
+                        ~13px at the corner diagonal (the radius-xl corner
+                        arc sweeps inward), so the circles read as having
+                        room — cramping them closer made the roundness
+                        feel choked by the frame. */}
+                    <div className="flex items-center gap-1 pl-3 pr-3 pt-3 pb-1.5 shrink-0 min-w-0">
                         {view.kind !== "overview" && (
                             <IconButton
                                 size={24}
+                                circle
                                 hoverOverlay={colors.hoverOverlay}
                                 activeOverlay={colors.activeOverlay}
                                 onClick={() => setView({kind: "overview"})}
@@ -360,8 +365,8 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         ) : (
                             // Aligns the title's text with the section
                             // content below (body px-3 + section px-2 =
-                            // 20px; header pl-1.5 + this pl-3.5 = 20px).
-                            <div className="flex-1 min-w-0 pl-3.5 text-xs font-medium truncate">
+                            // 20px; header pl-3 + this pl-2 = 20px).
+                            <div className="flex-1 min-w-0 pl-2 text-xs font-medium truncate">
                                 {t["Workspace activity"]}
                             </div>
                         )}
@@ -374,6 +379,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         {view.kind === "terminal" && liveShell?.running && (
                             <IconButton
                                 size={24}
+                                circle
                                 hoverOverlay={colors.hoverOverlay}
                                 activeOverlay={colors.activeOverlay}
                                 onClick={() => stopShell(liveShell.id)}
@@ -387,6 +393,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         )}
                         <IconButton
                             size={24}
+                            circle
                             hoverOverlay={colors.hoverOverlay}
                             activeOverlay={colors.activeOverlay}
                             onClick={collapse}
