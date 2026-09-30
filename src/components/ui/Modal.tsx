@@ -69,7 +69,7 @@ export default function Modal({
                             background: "var(--color-elevated)",
                             border: `1px solid ${colors.glassBorder}`,
                             boxShadow: colors.elevationShadow,
-                            color: colors.dark ? "rgba(255,255,255,0.88)" : "rgba(0,0,0,0.88)",
+                            color: colors.textPrimary,
                         }}
                     >
                         {title != null && (

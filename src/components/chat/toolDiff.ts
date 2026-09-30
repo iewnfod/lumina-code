@@ -33,10 +33,11 @@ export interface DiffLine {
 
 /** LCS table cell cap; beyond it the changed middle renders as a whole
  * removal + whole addition instead of an O(n·m) table. */
-/** Diff red/green — shared by every diff surface (tool cards, the stats
- *  panel's file diff view); ToolCard's DiffCounts reads the same pair. */
-export const DIFF_ADD = "#22c55e";
-export const DIFF_DEL = "#ef4444";
+/** Diff red/green — shared by every diff surface (tool cards, run
+ *  footers, the stats panel's file views). No JS constants anymore: the
+ *  canonical values live as the --color-diff-add / --color-diff-del
+ *  tokens in main.css's @theme, and consumers reference them via
+ *  var() in inline styles. */
 
 const MAX_LCS_CELLS = 1_000_000;
 

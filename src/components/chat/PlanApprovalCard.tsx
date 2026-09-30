@@ -39,7 +39,7 @@ export const PlanApprovalCard = memo(function PlanApprovalCard({
     return (
         <Card>
             <div className="flex items-center gap-2 text-sm font-medium">
-                <ClipboardCheck size={15} className="shrink-0" style={{color: "#10b981"}}/>
+                <ClipboardCheck size={15} className="shrink-0" style={{color: "var(--color-success)"}}/>
                 <span>{t["Approve plan"]}</span>
             </div>
             {payload ? (
@@ -57,7 +57,7 @@ export const PlanApprovalCard = memo(function PlanApprovalCard({
                     <Markdown>{payload.plan}</Markdown>
                 </div>
             ) : (
-                <div className="pl-6 text-xs" style={{color: "#f87171"}}>
+                <div className="pl-6 text-xs" style={{color: "var(--color-danger-text)"}}>
                     {t["Invalid plan submission"]}
                 </div>
             )}

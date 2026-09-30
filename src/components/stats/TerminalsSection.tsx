@@ -80,7 +80,7 @@ export const TerminalsSection = memo(function TerminalsSection({
             icon={<SquareTerminal size={13}/>}
             title={t["Terminals"]}
             summary={
-                <span className="shrink-0 text-[10px] opacity-50">
+                <span className="shrink-0 text-2xs opacity-50">
                     <FinishedTotal finished={shells.length - running} total={shells.length}/>
                 </span>
             }
@@ -151,9 +151,12 @@ export const TerminalsSection = memo(function TerminalsSection({
                                 // pointer-events-none keeps the invisible
                                 // button from swallowing clicks meant for the
                                 // drill-in.
+                                // 9px = optical baseline alignment of the
+                                // stop button inside the row (not a
+                                // spacing-scale step).
                                 className="absolute right-2 bottom-[9px] opacity-0 pointer-events-none group-hover/term:opacity-100 group-hover/term:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto transition-opacity duration-[var(--duration-fast)]"
                             >
-                                <Square size={11} className="fill-current" style={{color: "#ef4444"}}/>
+                                <Square size={11} className="fill-current" style={{color: "var(--color-danger)"}}/>
                             </IconButton>
                         )}
                     </div>
@@ -293,7 +296,7 @@ export const TerminalBody = memo(function TerminalBody({
                     <div
                         ref={cmdEdges.ref}
                         onScroll={cmdEdges.onScroll}
-                        className={`max-h-24 overflow-auto px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap break-words${
+                        className={`max-h-24 overflow-auto px-3 py-2 text-2xs leading-relaxed whitespace-pre-wrap break-words${
                             cmdEdges.top ? " lum-fade-top" : ""
                         }${cmdEdges.bottom ? " lum-fade-bottom" : ""}`}
                     >

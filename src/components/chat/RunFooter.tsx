@@ -1,5 +1,5 @@
 import {useState} from "react";
-import {Check, ChevronDown, Clock, Copy} from "lucide-react";
+import {Check, ChevronRight, Clock, Copy} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {requestStatsFileDrill} from "../../hooks/useStatsPanelMode.ts";
@@ -9,7 +9,7 @@ import {useTurnEdits} from "../../opencode/turnEdits.ts";
 import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
-import {DIFF_ADD, DIFF_DEL} from "./toolDiff.ts";
+
 import {MONO_STYLE} from "./RequestCardChrome.tsx";
 import Hint from "../ui/Hint.tsx";
 import ExitPresence from "../ui/ExitPresence.tsx";
@@ -118,14 +118,17 @@ function TurnEditsCard({edits, directory}: {
                 aria-expanded={open}
                 className="lum-wash w-full flex items-center gap-2 px-2.5 h-8 cursor-pointer select-none text-xs"
             >
-                <ChevronDown
+                {/* Collapsed points right (▸ "there's more"), expanded
+                 * rotates to down (▾ "it's open") — the same disclosure
+                 * affordance the stats panel's drill chevrons use. */}
+                <ChevronRight
                     size={13}
-                    className={`shrink-0 transition-transform duration-[var(--duration-fast)]${open ? " rotate-180" : ""}`}
+                    className={`shrink-0 transition-transform duration-[var(--duration-fast)]${open ? " rotate-90" : ""}`}
                 />
-                <span className="font-medium shrink-0 leading-none">{edits.files.length} {t["files changed"]}</span>
+                <span className="shrink-0 leading-none">{edits.files.length} {t["files changed"]}</span>
                 <span className="inline-flex items-center gap-1.5 shrink-0 leading-none" style={MONO_STYLE}>
-                    <span style={{color: DIFF_ADD}}>+{edits.added}</span>
-                    <span style={{color: DIFF_DEL}}>−{edits.removed}</span>
+                    <span style={{color: "var(--color-diff-add)"}}>+{edits.added}</span>
+                    <span style={{color: "var(--color-diff-del)"}}>−{edits.removed}</span>
                 </span>
             </button>
             <div className="lum-fold" data-open={open}>
@@ -171,13 +174,13 @@ function TurnFileRow({entry, directory}: {
             className="lum-wash w-full flex items-center gap-2 px-2.5 h-8 min-w-0 text-xs text-left cursor-pointer"
         >
             <img src={fileIconUrl(entry.file)} alt="" className="w-4 h-4 shrink-0"/>
-            <span className="min-w-0 truncate leading-[1.5]" style={MONO_STYLE}>
+            <span className="min-w-0 truncate leading-[1.5] font-normal" style={MONO_STYLE}>
                 {dir !== "" && <span className="opacity-45">{dir}</span>}
                 {name}
             </span>
             <span className="ml-auto shrink-0 inline-flex items-center gap-1.5 leading-[1.5]" style={MONO_STYLE}>
-                <span style={{color: DIFF_ADD}}>+{entry.additions}</span>
-                <span style={{color: DIFF_DEL}}>−{entry.deletions}</span>
+                <span style={{color: "var(--color-diff-add)"}}>+{entry.additions}</span>
+                <span style={{color: "var(--color-diff-del)"}}>−{entry.deletions}</span>
             </span>
         </button>
     );

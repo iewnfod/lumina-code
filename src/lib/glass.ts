@@ -134,6 +134,10 @@ export function windowOutline(bg: string): string {
 /**
  * Soft elevation shadow. Pure black at low alpha so it works on any bg; the
  * blur gives the "floating" feel without a heavy drop shadow.
+ *
+ * NOTE: the "sm" value is mirrored as the static --lum-shadow-sm CSS token
+ * in main.css (stylesheet-only consumers — the HeroUI tooltip override —
+ * can't call this function). Keep the two in sync.
  */
 export function elevationShadow(strength: "sm" | "md" | "lg" = "sm"): string {
     const alphas = {sm: 0.08, md: 0.16, lg: 0.28} as const;

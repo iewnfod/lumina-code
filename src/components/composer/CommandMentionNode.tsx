@@ -20,7 +20,10 @@ export type SerializedCommandMentionNode = Spread<
 >;
 
 /** Accent color for command mentions — shared with the suggestion list's
- *  Terminal icon so a picked row previews its final look. */
+ *  Terminal icon so a picked row previews its final look. A JS literal,
+ *  NOT var(): the value is serialized into the icon's SVG data URI,
+ *  which cannot resolve CSS vars. Mirrors the --color-command token in
+ *  main.css — keep the two in sync. */
 export const COMMAND_MENTION_COLOR = "#a78bfa";
 
 /**

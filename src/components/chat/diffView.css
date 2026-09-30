@@ -39,10 +39,10 @@
     --diff-del-lineNumber--: rgba(248, 81, 73, 0.13);
 
     /* Quiet gutter text and hairline separators. */
-    --diff-plain-lineNumber-color--: rgba(128, 128, 128, 0.55);
-    --diff-expand-lineNumber-color--: rgba(128, 128, 128, 0.55);
-    --diff-hunk-content-color--: rgba(128, 128, 128, 0.8);
-    --diff-border--: rgba(128, 128, 128, 0.18);
+    --diff-plain-lineNumber-color--: var(--lum-neutral-text);
+    --diff-expand-lineNumber-color--: var(--lum-neutral-text);
+    --diff-hunk-content-color--: var(--lum-neutral-text);
+    --diff-border--: var(--lum-neutral-hairline);
 }
 
 /* The hljs theme pairs its colors with a solid background; on glass

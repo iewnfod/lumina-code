@@ -21,8 +21,10 @@ import {
 import type {AssistantToolPart} from "../../opencode/types.ts";
 import type {TranslationKey} from "../../hooks/i18n.tsx";
 
-/** Shared error accent for failed tools and failed model steps alike. */
-export const ERROR_TEXT = "#f87171";
+/** Shared error accent for failed tools and failed model steps alike.
+ *  The value is a CSS var reference (resolves in the inline styles of its
+ *  consumers) pointing at the --color-danger-text token in main.css. */
+export const ERROR_TEXT = "var(--color-danger-text)";
 
 /**
  * Tool-call display metadata (pure) — the name→{title, icon} table and
@@ -32,8 +34,18 @@ export const ERROR_TEXT = "#f87171";
  */
 
 /** Human title (as a translation key) + icon per known tool; falls back
- *  to a capitalized wrench. */
-export const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon}> = {
+ *  to a capitalized wrench.
+ *
+ *  `markdown: true` marks tools whose OUTPUT is markdown BY SPEC — the
+ *  expanded body renders through the Markdown component instead of the
+ *  plain mono pre-wrap. Verified against the server's tool definitions:
+ *  webfetch returns the fetched page "as text, markdown, or HTML" with
+ *  markdown the DEFAULT format; websearch returns the provider's
+ *  context string "optimized for LLMs" (markdown with links); vision
+ *  (lumina-tools plugin) returns the vision model's ANSWER — a model
+ *  response. Everything else (bash, read, grep, …) is verbatim plain
+ *  text and must NOT be markdown-rendered — syntax would be mangled. */
+export const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon; markdown?: true}> = {
     bash: {title: "Shell", icon: SquareTerminal},
     shell: {title: "Shell", icon: SquareTerminal},
     power_shell: {title: "Shell", icon: SquareTerminal},
@@ -47,8 +59,8 @@ export const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon}
     list: {title: "List", icon: FolderSearch},
     todowrite: {title: "Todo", icon: ListTodo},
     todoread: {title: "Todo", icon: ListTodo},
-    webfetch: {title: "Fetch", icon: Globe},
-    websearch: {title: "Search", icon: Globe},
+    webfetch: {title: "Fetch", icon: Globe, markdown: true},
+    websearch: {title: "Search", icon: Globe, markdown: true},
     // The question tool — the "AI asks the user" surface. Distinct from the
     // generic wrench so its FoldRow reads as a question, not a tool call.
     question: {title: "Question", icon: MessageCircleQuestion},
@@ -56,7 +68,7 @@ export const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon}
     // Lumina Code's tools plugin (see src/plugins/luminaTools.js): image
     // inspection via a vision-capable helper model, and the model
     // switching the session into Plan Mode on its own initiative.
-    vision: {title: "Vision", icon: ScanEye},
+    vision: {title: "Vision", icon: ScanEye, markdown: true},
     plan_mode: {title: "Plan mode", icon: ClipboardList},
     // The plan workflow (same plugin): plan submission for approval,
     // in-order task completion reports, remaining-list amendments, and
@@ -74,6 +86,12 @@ export const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon}
 export function toolDisplayName(name: string, t: Record<TranslationKey, string>): string {
     const meta = TOOL_META[name];
     return meta ? t[meta.title] : name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/** Whether a tool's expanded OUTPUT should render as markdown (see
+ *  TOOL_META's `markdown` flag for the verified per-tool rationale). */
+export function toolOutputIsMarkdown(name: string): boolean {
+    return TOOL_META[name]?.markdown === true;
 }
 
 /** Resolved {title, icon} for a tool row (wrench fallback for unknown). */

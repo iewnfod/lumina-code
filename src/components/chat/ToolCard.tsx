@@ -10,8 +10,9 @@ import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
-import {errorText, inputFilePath, inputObject, inputStr, metaFor, ERROR_TEXT} from "./toolMeta.ts";
-import {DIFF_ADD, DIFF_DEL, diffCounts, toolDiffFor, toolHunksFor, toolPatchFiles, type DiffLine} from "./toolDiff.ts";
+import {errorText, inputFilePath, inputObject, inputStr, metaFor, toolOutputIsMarkdown, ERROR_TEXT} from "./toolMeta.ts";
+import Markdown from "./Markdown.tsx";
+import {diffCounts, toolDiffFor, toolHunksFor, toolPatchFiles, type DiffLine} from "./toolDiff.ts";
 import {ERROR_DISCLOSURE_MS, useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 import DiffViewBody from "./DiffViewBody.tsx";
@@ -26,13 +27,20 @@ import {MONO_ROW_STYLE, MONO_STYLE} from "./RequestCardChrome.tsx";
  *  static content, and the streamed raw-output instance rides the same
  *  flags while useFollowBottom pins its tail through scrollRef/
  *  onScroll). A mask must never ride a painted surface. */
-function ToolBodyBox({color, scrollRef, onScroll, wrap = true, children}: {
-    color: string;
+function ToolBodyBox({color, scrollRef, onScroll, wrap = true, mono = true, children}: {
+    /** Inline text color for the plain-mono surfaces; omit to inherit
+     *  (the markdown body keeps the transcript's normal text color). */
+    color?: string;
     scrollRef?: RefObject<HTMLDivElement | null>;
     onScroll?: () => void;
     /** Pre-wrap the plain-text surfaces (raw output, errors). The diff
-     *  view manages its own wrapping and must not inherit it. */
+     *  view and the markdown body manage their own block layout and must
+     *  not inherit it. */
     wrap?: boolean;
+    /** The mono family + code-size tokens (raw output, errors, diffs).
+     *  Markdown tool outputs (webfetch/websearch/vision) opt out — they
+     *  render prose through the Markdown component at UI sizes. */
+    mono?: boolean;
     children: ReactNode;
 }) {
     const colors = useColors();
@@ -41,10 +49,10 @@ function ToolBodyBox({color, scrollRef, onScroll, wrap = true, children}: {
         <div
             className="ml-5 mt-0.5 mb-1 rounded-[var(--radius-sm)] max-h-64 overflow-hidden"
             style={{
-                ...MONO_STYLE,
+                ...(mono ? MONO_STYLE : null),
                 background: colors.recessedBg,
                 border: `1px solid ${colors.glassBorder}`,
-                color,
+                ...(color != null ? {color} : null),
             }}
         >
             <div
@@ -86,10 +94,10 @@ function DiffCounts({added, removed}: {added?: number; removed?: number}) {
     return (
         <span className="shrink-0 inline-flex items-center gap-1.5">
             {added != null && (
-                <span style={{color: DIFF_ADD}}>+{added}</span>
+                <span style={{color: "var(--color-diff-add)"}}>+{added}</span>
             )}
             {removed != null && (
-                <span style={{color: DIFF_DEL}}>−{removed}</span>
+                <span style={{color: "var(--color-diff-del)"}}>−{removed}</span>
             )}
         </span>
     );
@@ -313,7 +321,7 @@ const ToolCard = memo(function ToolCard({
         : status === "pending"
             ? <Hourglass size={14} className="opacity-60" />
             : status === "error"
-                ? <AlertCircle size={14} style={{color: "#ef4444"}} />
+                ? <AlertCircle size={14} style={{color: "var(--color-danger)"}} />
                 : <Icon size={14} />;
 
     const output = (part.state.content ?? [])
@@ -360,7 +368,7 @@ const ToolCard = memo(function ToolCard({
                     const statusKey: TranslationKey =
                         f.status === "added" ? "Added" : f.status === "deleted" ? "Deleted" : "Modified";
                     const statusColor =
-                        f.status === "added" ? DIFF_ADD : f.status === "deleted" ? DIFF_DEL : undefined;
+                        f.status === "added" ? "var(--color-diff-add)" : f.status === "deleted" ? "var(--color-diff-del)" : undefined;
                     return (
                         <Fragment key={`${f.fileName}:${i}`}>
                             {(patchFiles.length > 1 || f.status === "deleted") && (
@@ -384,13 +392,31 @@ const ToolCard = memo(function ToolCard({
             ) : diff != null && hunks != null ? (
                 <DiffBody hunks={hunks} fileName={filePath}/>
             ) : output.length > 0 && (
-                <ToolBodyBox
-                    color={colors.inactiveText}
-                    scrollRef={outputScroll}
-                    onScroll={outputScrollHandler}
-                >
-                    {output}
-                </ToolBodyBox>
+                // Markdown-flagged tools (webfetch/websearch/vision — see
+                // toolOutputIsMarkdown) render their output as PROSE: the
+                // same Markdown component as the assistant document, with
+                // the per-block entrance fade while the output streams.
+                // Everything else stays the plain mono pre-wrap — tool
+                // output is verbatim text and markdown syntax in it would
+                // be mangled by a renderer.
+                toolOutputIsMarkdown(part.name) ? (
+                    <ToolBodyBox
+                        mono={false}
+                        wrap={false}
+                        scrollRef={outputScroll}
+                        onScroll={outputScrollHandler}
+                    >
+                        <Markdown live={status === "running"}>{output}</Markdown>
+                    </ToolBodyBox>
+                ) : (
+                    <ToolBodyBox
+                        color={colors.inactiveText}
+                        scrollRef={outputScroll}
+                        onScroll={outputScrollHandler}
+                    >
+                        {output}
+                    </ToolBodyBox>
+                )
             )}
         </FoldRow>
     );

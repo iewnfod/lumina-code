@@ -1018,7 +1018,14 @@ src/
     │   │                  #   file-mutating tools expand to a git-diff view;
     │   │                  #   failed calls show ONLY the error reason — no
     │   │                  #   attempted diff, no accent counts — and fold
-    │   │                  #   themselves after ERROR_DISCLOSURE_MS)
+    │   │                  #   themselves after ERROR_DISCLOSURE_MS;
+    │   │                  #   markdown-flagged tools (webfetch/websearch/
+    │   │                  #   vision — output markdown BY SPEC, see
+    │   │                  #   toolOutputIsMarkdown) render their expanded
+    │   │                  #   output through the Markdown component as
+    │   │                  #   prose; every other tool stays the plain mono
+    │   │                  #   pre-wrap — verbatim output must never be
+    │   │                  #   mangled by a renderer)
     │   ├── DiffViewBody.tsx # Shared @git-diff-view/react wrapper (Unified
     │   │                  #   mode, built-in lowlight highlighting keyed off
     │   │                  #   the file name, wrap, theme from SurfaceColors)
@@ -1622,6 +1629,57 @@ never runs per frame and never measures/pins/synchronizes layout.
   `--lum-wash` var (App sets it from SurfaceColors); local overrides
   re-declare the var on the element. Never invent another per-site
   `--lum-*-hover` variable.
+
+### 3.8 Visual surfaces & tokens — the unified style system
+
+Every styled surface derives from ONE token set (main.css `@theme` +
+`:root`) plus the runtime palette (`useColors()` / SurfaceColors). The
+rules below are what "looks like Lumina Code" means; deviations are bugs.
+
+**Surface families** — a surface picks a FAMILY, which fixes its
+background, border, shadow and radius tier together:
+
+| Family | Background | Border | Shadow | Radius | Members |
+|---|---|---|---|---|---|
+| Elevated (floats over everything) | `var(--color-elevated)` | `colors.glassBorder` | `colors.elevationShadow` | `md`/`lg`/`xl` by size | Modal, PopoverMenu, InputSuggestions, stats panel, the HeroUI tooltip (via the `.tooltip` CSS override) |
+| Recessed (in-flow cards over content) | `colors.recessedBg` | `colors.glassBorder` | none | `sm` (bodies) / `lg` (cards) | composer, request cards, tool/subagent output bodies, run-footers' edits card, settings fields, BodyBox |
+| Accent (identity bubbles) | `colors.accentOverlay` | none (edit ring: `focusRing`) | none | `lg` | the user message bubble |
+| Chrome glass | `glassSurface()` (lib/glass.ts) | `windowOutline` | — | `lg` (window) | window frame, title bar, sidebar |
+
+**Radii** — five tiers, semantic mapping (never write pixel radii):
+`xs 6` micro affordances · `sm 8` inline controls (buttons, inputs,
+chips, menu items, list rows) · `md 12` secondary floats (menus,
+suggestion panels, code blocks) · `lg 16` first-class surfaces (cards,
+modals, bubbles, composer, window frame) · `xl 22` the largest float
+(stats panel). `rounded-full` only for true circles/pills.
+
+**Colors**:
+- Status colors are tokens: `--color-success / warning / danger /
+  danger-text / command` and `--color-diff-add / diff-del`. Never write
+  their hex values inline. The two JS mirrors that may NOT become var()
+  (SVG attributes / data URIs can't resolve CSS vars) carry a
+  keep-in-sync comment: UsageRing's arc stroke and
+  CommandMentionNode's `COMMAND_MENTION_COLOR`.
+- Neutral grays in stylesheets come from the `--lum-neutral-*` ladder
+  (wash .04 / fill .10 / hairline .15 / divider .35 / text .55) — no
+  ad-hoc `rgba(128,128,128,x)`.
+- Panel primary text is `colors.textPrimary` (one value, not per-panel
+  0.88 hand-rolls).
+
+**Type scale** — four steps: `text-2xs` 11 (micro rows, uppercase
+labels) · `text-xs` 12 (default UI) · `text-sm` 14 (prose) ·
+`text-base` 16 (rare). No arbitrary `text-[Npx]`.
+
+**Spacing rhythm** — Tailwind's 4px grid only; the recurring beats:
+control heights 24/28/32/44 (`h-6/h-7/h-8/h-11`), card padding
+`px-4 py-3` / compact `px-3 py-2.5` / row-internal `px-2.5`, gaps
+`gap-1/1.5/2`. Genuine geometric exceptions (Switch's 18px track, the
+composer's derived min-height, optical offsets) stay literal but carry
+a comment saying why.
+
+**Chips** — attachment chips are ONE family wherever they render
+(composer staging and message bubbles): `h-7`, `radius-sm`,
+`colors.activeOverlay`.
 
 ## 4. Rules for AI Contributors
 

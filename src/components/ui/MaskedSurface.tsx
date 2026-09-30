@@ -11,7 +11,7 @@ import {isMacOS} from "../../lib/platform.ts";
 
 export interface MaskedSurfaceProps {
     children: ReactNode;
-    /** Corner radius in px. Defaults to the --radius-lg token (14). */
+    /** Corner radius in px. Defaults to the --radius-lg token (16). */
     radius?: number;
     className?: string;
     style?: CSSProperties;
@@ -23,13 +23,13 @@ export default function MaskedSurface({
     className = "",
     style,
 }: MaskedSurfaceProps) {
-    // Read the default radius from the design token once; fall back to 14
+    // Read the default radius from the design token once; fall back to 16
     // (the literal --radius-lg value) if the var isn't resolvable yet.
     const raw = getComputedStyle(document.documentElement)
         .getPropertyValue("--radius-lg")
         .trim();
     const parsed = parseFloat(raw);
-    const r = radius ?? (Number.isFinite(parsed) && parsed > 0 ? parsed : 14);
+    const r = radius ?? (Number.isFinite(parsed) && parsed > 0 ? parsed : 16);
 
     return (
         <div

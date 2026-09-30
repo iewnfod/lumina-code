@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
-import {errorText, inputStr, toolDisplayName} from "./toolMeta.ts";
+import {errorText, inputStr, toolDisplayName, toolOutputIsMarkdown} from "./toolMeta.ts";
 import enUs from "../../i18n/en-us.ts";
 
 test("toolDisplayName resolves known tools through the dictionary", () => {
@@ -26,4 +26,19 @@ test("errorText extracts object messages and plain strings", () => {
 test("inputStr picks the first non-empty string", () => {
     assert.equal(inputStr({filePath: "", file_path: "/a"}, "filePath", "file_path"), "/a");
     assert.equal(inputStr({count: 3}, "count"), undefined);
+});
+
+test("toolOutputIsMarkdown marks exactly the markdown-by-spec tools", () => {
+    // webfetch defaults to markdown, websearch returns the LLM-optimized
+    // context string, vision returns the helper model's answer.
+    assert.equal(toolOutputIsMarkdown("webfetch"), true);
+    assert.equal(toolOutputIsMarkdown("websearch"), true);
+    assert.equal(toolOutputIsMarkdown("vision"), true);
+    // Verbatim-output tools must stay plain — a renderer would mangle
+    // their syntax.
+    assert.equal(toolOutputIsMarkdown("bash"), false);
+    assert.equal(toolOutputIsMarkdown("read"), false);
+    assert.equal(toolOutputIsMarkdown("grep"), false);
+    assert.equal(toolOutputIsMarkdown("execute"), false);
+    assert.equal(toolOutputIsMarkdown("some_mcp_tool"), false);
 });

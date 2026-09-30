@@ -522,6 +522,10 @@ export default function ComposerCore({
                         // @lexical/react's source).
                         ref={inputEdges.ref}
                         onScroll={inputEdges.onScroll}
+                        // min-h 38 = one text-sm row (20px leading-5) +
+                        // the pt-3/pb-1.5 padding rhythm — a derived
+                        // floor, kept literal because it must track the
+                        // padding, not the spacing scale.
                         className={`block w-full resize-none bg-transparent outline-none px-4 pt-3 pb-1.5 text-sm leading-5 whitespace-pre-wrap break-words overflow-y-auto min-h-[38px] lum-fade-md ${disabled ? "opacity-50" : ""}${inputEdges.top ? " lum-fade-top" : ""}${inputEdges.bottom ? " lum-fade-bottom" : ""}`}
                         style={{maxHeight: MAX_LINES * LINE_HEIGHT + 18}}
                         readOnly={disabled}

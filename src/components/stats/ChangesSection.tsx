@@ -4,7 +4,7 @@ import {useI18n} from "../../hooks/i18n.tsx";
 import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
-import {DIFF_ADD, DIFF_DEL, patchHunks} from "../chat/toolDiff.ts";
+import {patchHunks} from "../chat/toolDiff.ts";
 import DiffViewBody from "../chat/DiffViewBody.tsx";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
 import {BodyBox, RollingValue, statsRowClass, StatsSection} from "./statsChrome.tsx";
@@ -16,10 +16,10 @@ export function DiffCountsBadge({added, removed}: {added?: number; removed?: num
     return (
         <span className="shrink-0 inline-flex items-center gap-1.5" style={MONO_STYLE}>
             {added != null && (
-                <span style={{color: DIFF_ADD}}>+<RollingValue value={added}/></span>
+                <span style={{color: "var(--color-diff-add)"}}>+<RollingValue value={added}/></span>
             )}
             {removed != null && (
-                <span style={{color: DIFF_DEL}}>−<RollingValue value={removed}/></span>
+                <span style={{color: "var(--color-diff-del)"}}>−<RollingValue value={removed}/></span>
             )}
         </span>
     );
@@ -76,7 +76,7 @@ export const ChangesSection = memo(function ChangesSection({
         >
             <div className="flex flex-col gap-1">
                 {summary && (
-                    <div className="px-2 pb-1 text-[10px] opacity-50 tabular-nums select-none">{summary}</div>
+                    <div className="px-2 pb-1 text-2xs opacity-50 tabular-nums select-none">{summary}</div>
                 )}
                 {diff === null && loading && (
                     <div className="px-2 py-1 text-xs opacity-40 select-none">{t["Loading..."]}</div>

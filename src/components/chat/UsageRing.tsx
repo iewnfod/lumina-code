@@ -43,6 +43,9 @@ export default function UsageRing({tokens, sessionUsage, contextLimit}: {
     const pct = fraction == null ? null : Math.round(fraction * 100);
     const hit = cacheHitRate(tokens);
     const warn = (fraction ?? 0) >= WARN_FRACTION;
+    // Literal hex mirroring --color-danger: the value lands in an SVG
+    // stroke ATTRIBUTE (below), which cannot resolve var() — keep in sync
+    // with the token in main.css.
     const arc = warn ? "#ef4444" : colors.inactiveText;
     const sessionTotal = totalTokens(sessionUsage?.tokens);
     const cost = formatCost(sessionUsage?.cost);

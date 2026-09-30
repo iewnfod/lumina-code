@@ -204,7 +204,6 @@ function UserBubble({
             {(files.length > 0 || (diverted?.length ?? 0) > 0) && (
                 <AttachmentChips
                     chips={chips}
-                    expandedKey={active != null ? previewKey : null}
                     onToggle={(key) => setPreviewKey((k) => (k === key ? null : key))}
                 />
             )}
@@ -336,7 +335,7 @@ function UserBubble({
                         <motion.button
                             type="button"
                             {...whileHoverTap}
-                            className="px-2 py-1 text-[11px] cursor-pointer rounded-[var(--radius-sm)] lum-wash"
+                            className="px-2 py-1 text-2xs cursor-pointer rounded-[var(--radius-sm)] lum-wash"
                             style={{"--lum-wash": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
                             onClick={toggle}
                         >
@@ -379,23 +378,19 @@ function renderSegment(segment: UserMentionSegment, i: number) {
 /** A user message's attachments, floated above the bubble — the prompt
  *  text keeps a clean single-surface read and the files read as
  *  accompanying material rather than bubble content. Chips carrying a
- *  preview SOURCE are buttons (hover wash; the expanded chip stays
- *  lit on the active surface); the rest remain inert spans. `diverted`
- *  items' hover hint reveals where the file landed. */
+ *  preview SOURCE are buttons (hover wash); the rest remain inert
+ *  spans. `diverted` items' hover hint reveals where the file landed. */
 function AttachmentChips({
     chips,
-    expandedKey,
     onToggle,
 }: {
     chips: AttachmentChipItem[];
-    expandedKey: string | null;
     onToggle: (key: string) => void;
 }) {
     const colors = useColors();
     return (
         <div className="flex flex-wrap justify-end gap-1.5 mb-1.5 max-w-[85%]">
             {chips.map((c) => {
-                const expanded = expandedKey === c.key;
                 const body = (
                     <>
                         {c.isImageThumb && c.thumb ? (
@@ -406,9 +401,13 @@ function AttachmentChips({
                         <span className="text-xs truncate leading-normal">{c.name}</span>
                     </>
                 );
+                // Same chip family as the composer's attachment chips
+                // (h-7, radius-sm, activeOverlay) — one look wherever an
+                // attachment renders; the expanded state still reads via
+                // the preview panel opening below, not a color change.
                 const className =
-                    "inline-flex items-center gap-1.5 h-7 pl-2.5 pr-2.5 rounded-[var(--radius-lg)] max-w-56 transition-colors duration-[var(--duration-fast)]";
-                const style = {background: expanded ? colors.activeOverlay : "rgba(128,128,128,0.10)"};
+                    "inline-flex items-center gap-1.5 h-7 pl-2.5 pr-2.5 rounded-[var(--radius-sm)] max-w-56 transition-colors duration-[var(--duration-fast)]";
+                const style = {background: colors.activeOverlay};
                 return (
                     <Hint key={c.key} label={c.path ?? null}>
                         {c.source != null ? (

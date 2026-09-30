@@ -76,7 +76,7 @@ export default function SessionFolder({
     return (
         <div>
             <div
-                className="group/folder w-full flex items-center gap-1 px-3 pt-2.5 pb-1 text-[11px] font-medium uppercase tracking-wider cursor-pointer transition-opacity duration-[var(--duration-fast)] ease-[var(--ease-glass)] hover:opacity-70"
+                className="group/folder w-full flex items-center gap-1 px-3 pt-2.5 pb-1 text-2xs font-medium uppercase tracking-wider cursor-pointer transition-opacity duration-[var(--duration-fast)] ease-[var(--ease-glass)] hover:opacity-70"
                 style={{color: colors.inactiveText}}
                 onClick={() => onToggleFolder(directory)}
             >
@@ -173,8 +173,8 @@ export default function SessionFolder({
                                                         className="w-full h-full flex items-center justify-end transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
                                                     >
                                                         <span
-                                                            className="min-w-4 h-4 px-1 rounded-full text-[10px] font-semibold leading-4 text-center select-none"
-                                                            style={{backgroundColor: "#f59e0b", color: "#fff"}}
+                                                            className="min-w-4 h-4 px-1 rounded-full text-2xs font-semibold leading-4 text-center select-none"
+                                                            style={{backgroundColor: "var(--color-warning)", color: "#fff"}}
                                                         >
                                                             {pendingCount}
                                                         </span>
@@ -183,7 +183,7 @@ export default function SessionFolder({
                                             )}
                                             {pendingCount == null && session.updatedAt != null && (
                                                 <span
-                                                    className="absolute inset-0 flex items-center justify-end text-[11px] tabular-nums transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
+                                                    className="absolute inset-0 flex items-center justify-end text-2xs tabular-nums transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
                                                     style={{color: colors.inactiveText}}
                                                 >
                                                     {relativeAge(session.updatedAt, now)}
@@ -221,7 +221,7 @@ export default function SessionFolder({
                                     <motion.button
                                         type="button"
                                         {...whileHoverTap}
-                                        className="flex-1 min-w-0 flex items-center justify-center px-2 py-1.5 text-[11px] cursor-pointer rounded-[var(--radius-sm)] lum-wash"
+                                        className="flex-1 min-w-0 flex items-center justify-center px-2 py-1.5 text-2xs cursor-pointer rounded-[var(--radius-sm)] lum-wash"
                                         style={{color: colors.inactiveText} as CSSProperties}
                                         onClick={() => onShowMore(directory, visibleCount)}
                                     >
@@ -231,7 +231,7 @@ export default function SessionFolder({
                                 <motion.button
                                     type="button"
                                     {...whileHoverTap}
-                                    className="flex-1 min-w-0 flex items-center justify-center px-2 py-1.5 text-[11px] cursor-pointer rounded-[var(--radius-sm)] lum-wash"
+                                    className="flex-1 min-w-0 flex items-center justify-center px-2 py-1.5 text-2xs cursor-pointer rounded-[var(--radius-sm)] lum-wash"
                                     style={{color: colors.inactiveText} as CSSProperties}
                                     onClick={() => onShowLess(directory)}
                                 >
@@ -242,7 +242,7 @@ export default function SessionFolder({
                             <motion.button
                                 type="button"
                                 {...whileHoverTap}
-                                className="w-full flex items-center px-7 py-1.5 text-[11px] cursor-pointer rounded-[var(--radius-sm)] lum-wash"
+                                className="w-full flex items-center px-7 py-1.5 text-2xs cursor-pointer rounded-[var(--radius-sm)] lum-wash"
                                 style={{color: colors.inactiveText} as CSSProperties}
                                 onClick={() => onShowMore(directory, visibleCount)}
                             >

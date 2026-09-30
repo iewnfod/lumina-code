@@ -59,7 +59,7 @@ export const SubagentsSection = memo(function SubagentsSection({
             icon={<Bot size={13}/>}
             title={t["Subagents"]}
             summary={
-                <span className="shrink-0 text-[10px] opacity-50">
+                <span className="shrink-0 text-2xs opacity-50">
                     <FinishedTotal finished={subagents.length - running} total={subagents.length}/>
                 </span>
             }

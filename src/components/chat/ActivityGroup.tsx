@@ -70,7 +70,7 @@ export default function ActivityGroup({
             icon={running
                 ? <Loader2 size={14} className="animate-spin" />
                 : errored
-                    ? <AlertCircle size={14} style={{color: "#ef4444"}} />
+                    ? <AlertCircle size={14} style={{color: "var(--color-danger)"}} />
                     : <Wrench size={14} />}
             title={label}
             active={running}

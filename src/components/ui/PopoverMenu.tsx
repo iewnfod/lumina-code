@@ -73,7 +73,7 @@ export default function PopoverMenu({
         background: "var(--color-elevated)",
         border: `1px solid ${colors.glassBorder}`,
         boxShadow: colors.elevationShadow,
-        color: colors.dark ? "rgba(255,255,255,0.88)" : "rgba(0,0,0,0.88)",
+        color: colors.textPrimary,
     } as const;
 
     return (
@@ -142,7 +142,7 @@ export function MenuItem({
 /** Non-interactive group label inside a PopoverMenu panel. */
 export function MenuLabel({children}: {children: ReactNode}) {
     return (
-        <div className="px-2.5 pt-1.5 pb-0.5 text-[10px] leading-normal font-medium uppercase tracking-wider opacity-45 select-none">
+        <div className="px-2.5 pt-1.5 pb-0.5 text-2xs leading-normal font-medium uppercase tracking-wider opacity-45 select-none">
             {children}
         </div>
     );

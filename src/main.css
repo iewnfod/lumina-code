@@ -41,6 +41,12 @@
  * palette. Chrome components consume them via Tailwind utilities (rounded-md
  * → --radius-md), inline var() references, or the helpers in lib/glass.ts and
  * lib/motion.ts.
+ *
+ * The full unified style system — surface families (elevated / recessed /
+ * accent / chrome glass), the semantic radius mapping, the status-color and
+ * neutral-gray tokens, the type scale and the spacing rhythm — is specified
+ * in AGENTS.md §3.8; the :root block below adds the non-@theme companions
+ * (code size, the --lum-neutral-* gray ladder, --lum-shadow-sm).
  */
 @theme {
     /* Typography — explicit stacks resolving to the BUNDLED faces declared
@@ -58,12 +64,28 @@
     --font-mono: "Maple Mono NF CN", ui-monospace, "Noto Sans Mono CJK SC",
         Consolas, monospace;
 
-    /* Radii — soft, modern. Match the macOS Sequoia / Arc feel. */
-    --radius-xs: 4px;
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 14px;
-    --radius-xl: 20px;
+    /* Type scale — the app's four-step rhythm. 2xs (11px) is the micro
+     * tier: dense rows and uppercase labels (the old unnamed
+     * text-[10px]/text-[11px] arbitrary values collapsed into it). */
+    --text-2xs: 11px;
+    --text-2xs--line-height: 1rem;
+
+    /* Radii — soft, modern. Match the macOS Sequoia / Arc feel.
+     * Semantic mapping (the unified scale; see AGENTS.md §3.8):
+     *   xs 6   micro affordances (quiet-action buttons, thumbnails,
+     *          inline code)
+     *   sm 8   inline controls (buttons, inputs, chips, menu items,
+     *          list rows, tool output bodies)
+     *   md 12  secondary floats (menus, suggestion panels, nested
+     *          cards, code blocks)
+     *   lg 16  first-class surfaces (cards, modals, bubbles, the
+     *          composer, the window frame)
+     *   xl 22  the largest float (the stats panel) */
+    --radius-xs: 6px;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 22px;
 
     /* Motion — one spring curve, two durations. lib/motion.ts mirrors the
      * numbers its button springs need; ALL other animation is the CSS
@@ -90,6 +112,24 @@
     --color-brand-gradient: linear-gradient(135deg, #FF461F 0%, #A892C7 100%);
     --color-brand-gradient-soft: linear-gradient(135deg, rgba(255, 70, 31, 0.5) 0%, rgba(168, 146, 199, 0.5) 100%);
 
+    /* Semantic status colors — the single source for every status icon,
+     * label and badge (values are the ones the app already shipped, now
+     * named). danger is for icons/strokes, danger-text is the lighter
+     * variant that stays legible as PROSE on both light and dark glass. */
+    --color-success: #10b981;
+    --color-warning: #f59e0b;
+    --color-danger: #ef4444;
+    --color-danger-text: #f87171;
+    /* Command mentions (the composer's /token violet). Mirrored as a JS
+     * literal in CommandMentionNode.tsx (the icon's SVG data URI can't
+     * resolve var()) — keep the two in sync. */
+    --color-command: #a78bfa;
+
+    /* Diff accents — the +/- counts and status chips beside code diffs
+     * (GitHub-family green/red; the wash variants live in diffView.css). */
+    --color-diff-add: #22c55e;
+    --color-diff-del: #ef4444;
+
     /* Semantic surface tokens consumed via var() in lib/glass.ts. These are
      * the fallbacks for when the runtime bg-derived colors are not yet
      * resolved. */
@@ -112,6 +152,25 @@
  * surfaces: .lum-md code below and the chat cards' MONO spans. */
 :root {
     --lum-code-size: 12px;
+
+    /* Neutral gray ladder — the ONLY grays allowed in stylesheets. The
+     * ~15 ad-hoc rgba(128,128,128,x) values that used to be scattered
+     * across main.css / diffView.css collapsed into these 5 named tiers
+     * (ghost wash → recessed fill → hairline border → divider → dim
+     * text). Runtime-tinted chrome still derives its own overlays from
+     * the bg via SurfaceColors — this ladder is for the bg-agnostic
+     * reading surfaces (markdown, diffs, scrollbars). */
+    --lum-neutral-wash: rgba(128, 128, 128, 0.04);
+    --lum-neutral-fill: rgba(128, 128, 128, 0.10);
+    --lum-neutral-hairline: rgba(128, 128, 128, 0.15);
+    --lum-neutral-divider: rgba(128, 128, 128, 0.35);
+    --lum-neutral-text: rgba(128, 128, 128, 0.55);
+
+    /* The sm elevation shadow as a static CSS token — mirrors
+     * elevationShadow("sm") in lib/glass.ts (which feeds inline styles);
+     * stylesheet-only consumers (the tooltip override below) read this.
+     * Keep the two in sync. */
+    --lum-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 #root {
@@ -140,7 +199,7 @@ body {
  */
 * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(128, 128, 128, 0.35) transparent;
+    scrollbar-color: var(--lum-neutral-divider) transparent;
 }
 
 /* Narrow at rest AND on hover — the hover state only deepens the color.
@@ -156,12 +215,12 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-    background: rgba(128, 128, 128, 0.35);
+    background: var(--lum-neutral-divider);
     border-radius: var(--radius-sm);
 }
 
 *::-webkit-scrollbar-thumb:hover {
-    background: rgba(128, 128, 128, 0.55);
+    background: var(--lum-neutral-text);
 }
 
 /* Selection — tinted with the brand cinnabar so highlighted text reads as
@@ -406,12 +465,12 @@ body {
 .lum-md code {
     font-family: var(--font-mono, ui-monospace, monospace);
     font-size: var(--lum-code-size);
-    background: rgba(128, 128, 128, 0.1);
+    background: var(--lum-neutral-fill);
     padding: 0.15em 0.4em;
     border-radius: var(--radius-xs);
 }
 .lum-md pre {
-    background: rgba(128, 128, 128, 0.1);
+    background: var(--lum-neutral-fill);
     padding: 0.75em 1em;
     border-radius: var(--radius-md);
     margin: 0.6em 0;
@@ -432,7 +491,7 @@ body {
     font-size: var(--lum-code-size);
 }
 .lum-md blockquote {
-    border-left: 2px solid rgba(128, 128, 128, 0.4);
+    border-left: 2px solid var(--lum-neutral-divider);
     padding-left: 0.9em;
     margin: 0.6em 0;
     opacity: 0.85;
@@ -451,7 +510,7 @@ body {
     width: fit-content;
     max-width: 100%;
     overflow: hidden;
-    border: 1px solid rgba(128, 128, 128, 0.15);
+    border: 1px solid var(--lum-neutral-hairline);
     border-radius: var(--radius-lg);
 }
 .lum-md .lum-md-table-scroll {
@@ -469,13 +528,13 @@ body {
 .lum-md td {
     padding: 0.55em 1em;
     text-align: left;
-    border-bottom: 1px solid rgba(128, 128, 128, 0.12);
+    border-bottom: 1px solid var(--lum-neutral-hairline);
 }
 .lum-md th {
-    background: rgba(128, 128, 128, 0.04);
+    background: var(--lum-neutral-wash);
     font-weight: 600;
     letter-spacing: 0.02em;
-    border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+    border-bottom: 1px solid var(--lum-neutral-hairline);
 }
 /* (The old th:first/last-child radius rules are gone — the .lum-md-table
  * wrap's overflow-hidden + border-radius clips the header corners.) */
@@ -483,7 +542,7 @@ body {
     border-bottom: none;
 }
 .lum-md tbody tr:nth-child(even) td {
-    background: rgba(128, 128, 128, 0.025);
+    background: var(--lum-neutral-wash);
 }
 .lum-md a {
     color: var(--color-brand-cinnabar-soft);
@@ -492,7 +551,7 @@ body {
 }
 .lum-md hr {
     border: none;
-    border-top: 1px solid rgba(128, 128, 128, 0.3);
+    border-top: 1px solid var(--lum-neutral-divider);
     margin: 1em 0;
 }
 .lum-md img {
@@ -767,7 +826,31 @@ body {
 }
 
 .lum-wash:hover {
-    background: var(--lum-wash, rgba(128, 128, 128, 0.08));
+    background: var(--lum-wash, var(--lum-neutral-fill));
+}
+
+/*
+ * HeroUI tooltip alignment — the one framework-styled surface still
+ * visible (ui/Hint.tsx wraps HeroUI's Tooltip). HeroUI's own .tooltip
+ * (heroui.min.css) draws a themed overlay bubble with a 3xl radius and
+ * its own shadow; these overrides sit it on the ELEVATED surface family
+ * instead: the same background token, the runtime glass hairline (App
+ * seeds --lum-glass-border on the root beside the wash vars), the sm
+ * radius tier and the shared elevation shadow. Sits later in the file
+ * than the @import, so equal specificity wins the cascade. Text color
+ * needs no override: HeroUI's --foreground already flips with the
+ * light/dark class App syncs on <html>, matching elevated in both modes.
+ */
+.tooltip {
+    background-color: var(--color-elevated);
+    border: 1px solid var(--lum-glass-border, var(--lum-neutral-hairline));
+    border-radius: var(--radius-sm);
+    box-shadow: var(--lum-shadow-sm);
+}
+
+.tooltip [data-slot=overlay-arrow] {
+    fill: var(--color-elevated);
+    stroke: var(--lum-glass-border, var(--lum-neutral-hairline));
 }
 
 /*

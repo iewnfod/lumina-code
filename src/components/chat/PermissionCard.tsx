@@ -39,7 +39,7 @@ export const PermissionCard = memo(function PermissionCard({
     return (
         <Card>
             <div className="flex items-center gap-2 text-sm font-medium">
-                <ShieldAlert size={15} className="shrink-0" style={{color: "#f59e0b"}}/>
+                <ShieldAlert size={15} className="shrink-0" style={{color: "var(--color-warning)"}}/>
                 <span>{permissionPhrase(request.action, t)}</span>
             </div>
             {request.resources.length > 0 && (

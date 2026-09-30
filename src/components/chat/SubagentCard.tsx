@@ -57,7 +57,7 @@ const SubagentCard = memo(function SubagentCard({
     const icon = status === "running"
         ? <Bot size={14} className="animate-pulse" />
         : status === "error"
-            ? <AlertCircle size={14} style={{color: "#ef4444"}} />
+            ? <AlertCircle size={14} style={{color: "var(--color-danger)"}} />
             : <Bot size={14} />;
 
     const output = (part.state.content ?? [])
@@ -84,7 +84,7 @@ const SubagentCard = memo(function SubagentCard({
                         ...MONO_STYLE,
                         background: colors.recessedBg,
                         border: `1px solid ${colors.glassBorder}`,
-                        color: "#f87171",
+                        color: "var(--color-danger-text)",
                     }}
                 >
                     <div

@@ -147,7 +147,7 @@ const AttachmentPreview = memo(function AttachmentPreview({source}: {source: Att
                     </div>
                 </div>
                 {truncated && (
-                    <span className="text-[11px] opacity-40 select-none">
+                    <span className="text-2xs opacity-40 select-none">
                         {t["Showing first {n} lines"].replace("{n}", String(PREVIEW_MAX_LINES))}
                     </span>
                 )}

@@ -213,7 +213,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
     const surfaceStyle = {
         background: "var(--color-elevated)",
         border: `1px solid ${colors.glassBorder}`,
-        color: colors.dark ? "rgba(255,255,255,0.88)" : "rgba(0,0,0,0.88)",
+        color: colors.textPrimary,
         boxShadow: "var(--lum-stats-shadow)",
         "--lum-stats-shadow": expanded ? colors.elevationShadow : "0 1px 3px rgba(0,0,0,0.06)",
         "--lum-stats-divider": colors.glassBorder,
@@ -266,7 +266,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
                                 className={`shrink-0 ${todoLive ? "animate-pulse" : "opacity-70"}`}
                             />
                             {todos.pendingApproval ? (
-                                <span className="text-[10px] opacity-40 select-none">
+                                <span className="text-2xs opacity-40 select-none">
                                     {t["Waiting for approval"]}
                                 </span>
                             ) : (
@@ -287,7 +287,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
                                 // Clean working copy — the row still shows so
                                 // the card says "tracked, nothing changed"
                                 // instead of vanishing.
-                                <span className="text-[10px] opacity-40 select-none">
+                                <span className="text-2xs opacity-40 select-none">
                                     {t["No changes yet"]}
                                 </span>
                             )}
@@ -379,7 +379,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
                                 onClick={() => stopShell(liveShell.id)}
                                 aria-label={t["Stop"]}
                             >
-                                <Square size={12} className="fill-current" style={{color: "#ef4444"}}/>
+                                <Square size={12} className="fill-current" style={{color: "var(--color-danger)"}}/>
                             </IconButton>
                         )}
                         {view.kind === "subagent" && liveSub && (

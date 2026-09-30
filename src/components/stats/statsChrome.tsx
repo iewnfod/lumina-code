@@ -34,7 +34,7 @@ export function StatsSection({
         <section className="flex flex-col gap-1">
             <header className="flex items-center gap-2 px-2 select-none min-h-4">
                 <span className="shrink-0 opacity-70 inline-flex">{icon}</span>
-                <span className="text-[11px] font-medium uppercase tracking-wider opacity-55">{title}</span>
+                <span className="text-2xs font-medium uppercase tracking-wider opacity-55">{title}</span>
                 <span className="flex-1"/>
                 {actions}
                 {summary}
@@ -69,11 +69,11 @@ export function StateChip({
     const colors = useColors();
     return (
         <span
-            className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-[var(--radius-xs)] tabular-nums select-none"
+            className="shrink-0 text-2xs px-1.5 py-0.5 rounded-[var(--radius-xs)] tabular-nums select-none"
             style={{
                 ...(mono ? MONO_STYLE : null),
                 background: running ? colors.accentOverlay : colors.activeOverlay,
-                color: danger ? "#ef4444" : undefined,
+                color: danger ? "var(--color-danger)" : undefined,
                 fontWeight: running ? 500 : 400,
                 opacity: running ? 1 : 0.65,
             }}

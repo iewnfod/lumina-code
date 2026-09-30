@@ -44,7 +44,7 @@ function RowMarker({kind, index, selected}: {
     if (kind === "number") {
         return (
             <span
-                className="shrink-0 w-4 text-[11px] font-medium text-center tabular-nums"
+                className="shrink-0 w-4 text-2xs font-medium text-center tabular-nums"
                 style={{color: selected ? "var(--color-brand-lavender)" : colors.inactiveText}}
             >
                 {index + 1}
@@ -53,7 +53,7 @@ function RowMarker({kind, index, selected}: {
     }
     return (
         <span
-            className="shrink-0 w-4 h-4 rounded-[4px] flex items-center justify-center"
+            className="shrink-0 w-4 h-4 rounded-[var(--radius-xs)] flex items-center justify-center"
             style={selected
                 ? {background: "var(--color-brand-lavender)", color: "#fff"}
                 : {border: `1.5px solid ${colors.inactiveText}`}}
@@ -236,7 +236,7 @@ export const QuestionCard = memo(function QuestionCard({
                 <div className="flex items-baseline gap-2">
                     <span className="text-xs font-medium">{field.title}</span>
                     {field.required && (
-                        <span className="text-[10px] uppercase tracking-wider" style={{color: "#f59e0b"}}>
+                        <span className="text-2xs uppercase tracking-wider" style={{color: "var(--color-warning)"}}>
                             {t["Answer required"]}
                         </span>
                     )}

@@ -359,7 +359,7 @@ export default function ModelSettings({
                                         <span className="min-w-0 flex-1 truncate leading-normal text-xs">{i.name}</span>
                                         {i.connections.some((c) => c.type === "credential") && (
                                             <span
-                                                className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-[var(--radius-xs)]"
+                                                className="shrink-0 text-2xs px-1.5 py-0.5 rounded-[var(--radius-xs)]"
                                                 style={{
                                                     background: colors.accentOverlay,
                                                     color: colors.dark ? "rgba(255,255,255,0.75)" : "rgba(0,0,0,0.7)",
@@ -459,7 +459,7 @@ export default function ModelSettings({
                                         className="min-w-0 flex-1 text-left cursor-pointer"
                                     >
                                         <div className="text-xs truncate leading-normal">{def.name}</div>
-                                        <div className="text-[10px] truncate leading-normal" style={{color: colors.inactiveText}}>
+                                        <div className="text-2xs truncate leading-normal" style={{color: colors.inactiveText}}>
                                             {def.id} · {def.models.map((m) => m.id).join(", ")}
                                         </div>
                                     </motion.button>
@@ -492,7 +492,7 @@ export default function ModelSettings({
                                 </div>
                             ))}
                             <div className="flex items-center justify-between gap-2 pt-1">
-                                <p className="text-[10px]" style={{color: colors.inactiveText}}>
+                                <p className="text-2xs" style={{color: colors.inactiveText}}>
                                     {t["Custom providers are stored in the global OpenCode config"]}
                                 </p>
                                 <Button
@@ -671,14 +671,14 @@ function ToolsTab({
             >
                 {label}
                 {sub && (
-                    <span className="block text-[10px] truncate leading-normal" style={{color: colors.inactiveText}}>
+                    <span className="block text-2xs truncate leading-normal" style={{color: colors.inactiveText}}>
                         {sub}
                     </span>
                 )}
             </span>
             {selected && (
                 <span
-                    className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-[var(--radius-xs)]"
+                    className="shrink-0 text-2xs px-1.5 py-0.5 rounded-[var(--radius-xs)]"
                     style={{
                         background: colors.accentOverlay,
                         color: colors.dark ? "rgba(255,255,255,0.75)" : "rgba(0,0,0,0.7)",
@@ -699,7 +699,7 @@ function ToolsTab({
                             <ScanEye size={14} className="shrink-0 opacity-60"/>
                             <span className="text-xs font-medium">{t["Vision model"]}</span>
                         </div>
-                        <p className="text-[10px] leading-relaxed" style={{color: colors.inactiveText}}>
+                        <p className="text-2xs leading-relaxed" style={{color: colors.inactiveText}}>
                             {t["Adds a vision tool that text-only models can call to see images"]}
                         </p>
                     </div>
@@ -733,7 +733,7 @@ function ToolsTab({
                     })}
                 </div>
             </section>
-            <p className="text-[10px] pt-1" style={{color: colors.inactiveText}}>
+            <p className="text-2xs pt-1" style={{color: colors.inactiveText}}>
                 {t["Custom tools are stored in the global OpenCode config"]}
             </p>
         </div>
@@ -840,7 +840,7 @@ function ProviderDetail({
                             <span className="min-w-0 flex-1 truncate leading-normal text-xs">{c.label}</span>
                             {index === 0 ? (
                                 <span
-                                    className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-[var(--radius-xs)]"
+                                    className="shrink-0 text-2xs px-1.5 py-0.5 rounded-[var(--radius-xs)]"
                                     style={{background: colors.accentOverlay}}
                                 >
                                     {t["Active"]}
@@ -893,8 +893,8 @@ function ProviderDetail({
                             className="flex items-center gap-2 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-xs"
                             style={{background: colors.recessedBg, border: `1px solid ${colors.glassBorder}`}}
                         >
-                            <span className="min-w-0 flex-1 truncate leading-normal font-mono text-[11px]">{c.name}</span>
-                            <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-[var(--radius-xs)]" style={{background: colors.accentOverlay}}>
+                            <span className="min-w-0 flex-1 truncate leading-normal font-mono text-2xs">{c.name}</span>
+                            <span className="shrink-0 text-2xs px-1.5 py-0.5 rounded-[var(--radius-xs)]" style={{background: colors.accentOverlay}}>
                                 {t["Active"]}
                             </span>
                         </div>
@@ -960,7 +960,7 @@ function ProviderDetail({
                                 <>
                                     {oauthInstructions?.code && (
                                         <div className="flex flex-col gap-1">
-                                            <span className="text-[10px]" style={{color: colors.inactiveText}}>
+                                            <span className="text-2xs" style={{color: colors.inactiveText}}>
                                                 {t["Verification code"]}
                                             </span>
                                             <div className="flex items-center gap-2">
@@ -991,7 +991,7 @@ function ProviderDetail({
                                     )}
                                     {oauthInstructions?.text && (
                                         <p
-                                            className="text-[11px] leading-normal break-words"
+                                            className="text-2xs leading-normal break-words"
                                             style={{color: colors.inactiveText}}
                                         >
                                             {oauthInstructions.text}
@@ -1037,7 +1037,7 @@ function ProviderDetail({
 
             {/* Env-var hint */}
             {envMethod && envMethod.type === "env" && (
-                <p className="text-[11px]" style={{color: colors.inactiveText}}>
+                <p className="text-2xs" style={{color: colors.inactiveText}}>
                     {t["Or set environment variable"]}{" "}
                     <span className="font-mono">{envMethod.names.join(", ")}</span>
                 </p>

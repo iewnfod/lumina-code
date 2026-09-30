@@ -21,6 +21,9 @@ export default function Switch({checked, label, onChange}: {
             aria-checked={checked}
             aria-label={label}
             onClick={() => onChange(!checked)}
+            // Track/knob micro-geometry (18px track, 12px knob at 2/3px
+            // insets) — deliberate off-scale optical values, not drift;
+            // the spacing rhythm doesn't apply to a control this small.
             className="relative shrink-0 w-8 h-[18px] rounded-full cursor-pointer transition-colors duration-[var(--duration-fast)]"
             style={{
                 background: checked ? colors.accentOverlay : colors.activeOverlay,

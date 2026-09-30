@@ -8,6 +8,10 @@ import {elevationShadow, glassBorder} from "../lib/glass.ts";
  */
 export interface SurfaceColors {
     dark: boolean;
+    /** Primary text color on elevated panels (0.88-alpha black/white) —
+     *  the ONE value every floating panel sets, so Modal/PopoverMenu/
+     *  suggestions/stats never hand-roll their own. */
+    textPrimary: string;
     borderColor: string;
     activeOverlay: string;
     hoverOverlay: string;
@@ -58,6 +62,7 @@ export function useSurfaceColors(
             : "rgba(255,70,31,0.45)";
         return {
             dark,
+            textPrimary: dark ? "rgba(255,255,255,0.88)" : "rgba(0,0,0,0.88)",
             borderColor,
             activeOverlay,
             hoverOverlay,

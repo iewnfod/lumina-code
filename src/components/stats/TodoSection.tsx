@@ -18,10 +18,10 @@ function TodoGlyph({status}: {status: SessionTodoItem["status"] | "in_progress"}
         return <ArrowRight size={12} className="shrink-0 animate-pulse"/>;
     }
     if (status === "completed") {
-        return <CircleCheck size={12} className="shrink-0" style={{color: "#10b981"}}/>;
+        return <CircleCheck size={12} className="shrink-0" style={{color: "var(--color-success)"}}/>;
     }
     if (status === "blocked") {
-        return <CircleAlert size={12} className="shrink-0" style={{color: "#f59e0b"}}/>;
+        return <CircleAlert size={12} className="shrink-0" style={{color: "var(--color-warning)"}}/>;
     }
     return <Circle size={12} className="shrink-0 opacity-40"/>;
 }
@@ -162,7 +162,7 @@ export const TodoSection = memo(function TodoSection({
                     // gate); this chip is that standing invitation.
                     <StateChip running label={t["Awaiting review"]}/>
                 ) : (
-                    <span className="shrink-0 text-[10px] opacity-50">
+                    <span className="shrink-0 text-2xs opacity-50">
                         <FinishedTotal finished={completed} total={todos.items.length}/>
                     </span>
                 )

@@ -388,6 +388,10 @@ function AppBody({
                 "--lum-wash": colors.hoverOverlay,
                 "--lum-wash-active": colors.activeOverlay,
                 "--lum-wash-accent": colors.accentOverlay,
+                // The runtime glass hairline, exposed for stylesheets that
+                // can't reach the React context (the HeroUI tooltip
+                // override in main.css).
+                "--lum-glass-border": colors.glassBorder,
             } as React.CSSProperties}
         >
             <SessionBar
@@ -520,11 +524,11 @@ function AppBody({
                 overlay (not border/outline) — no layout shift, follows the
                 rounded corners, and paints above the content which would
                 otherwise cover a container-edge line. Hidden when maximized
-                like the rounded-lg above; toggleable in General settings. */}
+                like the rounded frame above; toggleable in General settings. */}
             {isLinux() && !isMaximized && outlineEnabled && (
                 <div
                     aria-hidden
-                    className="lum-enter absolute inset-0 rounded-lg pointer-events-none"
+                    className="lum-enter absolute inset-0 rounded-[var(--radius-lg)] pointer-events-none"
                     style={{
                         boxShadow: `inset 0 0 0 1px ${windowOutline(effectiveBg)}`,
                         zIndex: 9999,
@@ -548,7 +552,7 @@ function App() {
                 background: "transparent",
             }}
         >
-            <div className={`w-full h-full overflow-hidden ${isMaximized ? "" : "rounded-lg"}`}>
+            <div className={`w-full h-full overflow-hidden ${isMaximized ? "" : "rounded-[var(--radius-lg)]"}`}>
                 <InnerApp isMaximized={isMaximized}/>
             </div>
         </div>
