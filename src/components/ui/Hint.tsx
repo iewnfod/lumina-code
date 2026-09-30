@@ -4,8 +4,8 @@ import {Tooltip} from "@heroui/react";
 /**
  * THE hover-hint wrapper: a HeroUI tooltip around an existing element —
  * the single replacement for native `title` attributes (whose OS-drawn
- * tooltips don't follow the app's surface language). The .tooltip override
- * in main.css pads the bubble (py 8px / px 6px), so content stays clear
+ * tooltips don't follow the app's surface language). Bubble padding is
+ * governed by the .tooltip override in main.css, so content stays clear
  * of the horizontal edges.
  *
  * A falsy `label` renders the child untouched — call sites gate the hint

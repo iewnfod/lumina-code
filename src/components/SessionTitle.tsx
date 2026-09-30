@@ -97,7 +97,10 @@ export default function SessionTitle({text, className, style}: {
             </Tooltip.Trigger>
             {overflowing && (
                 <Tooltip.Content>
-                    <p className="text-xs px-2 max-w-64 break-words">{text}</p>
+                    {/* No padding classes — the bubble's padding is
+                     * governed by the .tooltip override in main.css
+                     * (same as ui/Hint.tsx). */}
+                    <p className="text-xs max-w-64 break-words">{text}</p>
                 </Tooltip.Content>
             )}
         </Tooltip>

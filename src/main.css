@@ -836,9 +836,8 @@ body {
  * its own shadow; these overrides sit it on the ELEVATED surface family
  * instead: the same background token, the runtime glass hairline (App
  * seeds --lum-glass-border on the root beside the wash vars), the md
- * radius tier, the shared elevation shadow, and a tighter horizontal
- * padding (HeroUI's base pads 8px all around; px drops to 6px while py
- * keeps the 8px base). Sits later in the file
+ * radius tier, the shared elevation shadow, and a roomier horizontal
+ * padding than HeroUI's uniform 8px base. Sits later in the file
  * than the @import, so equal specificity wins the cascade. Text color
  * needs no override: HeroUI's --foreground already flips with the
  * light/dark class App syncs on <html>, matching elevated in both modes.
@@ -848,7 +847,7 @@ body {
     border: 1px solid var(--lum-glass-border, var(--lum-neutral-hairline));
     border-radius: var(--radius-md);
     box-shadow: var(--lum-shadow-sm);
-    padding: 8px 6px;
+    padding: 8px 10px;
 }
 
 .tooltip [data-slot=overlay-arrow] {
