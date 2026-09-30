@@ -676,7 +676,25 @@ src/
 │   │                      #   --lum-code-size. node-testable.
 │   ├── persist.ts         # loadState/saveState — cross-restart UI state in
 │   │                      #   localStorage ("lumina-code:ui-state": open session,
-│   │                      #   model, agent, directory). Never throws.
+│   │                      #   model, agent, directory). Never throws; built over
+│   │                      #   persistedStore.ts like every persisted preference,
+│   │                      #   keeping its subscriber-less load/save shape.
+│   ├── persistedStore.ts  # THE persistence factory (node-testable):
+│   │                      #   createPersistedStore({key, label, read, write, eq})
+│   │                      #   is the ONE implementation behind every
+│   │                      #   localStorage-backed store — key naming, error
+│   │                      #   handling + logging, same-value short-circuit and
+│   │                      #   the absence-means-default write semantics (write()
+│   │                      #   returning null removes the key) live here and
+│   │                      #   nowhere else. Stores are created at module top
+│   │                      #   level and read SYNCHRONOUSLY before React mounts
+│   │                      #   (typography/language/theme must apply before the
+│   │                      #   first paint — the reason this is a module store,
+│   │                      #   not a React context). set() never throws: a failed
+│   │                      #   storage write is logged while the in-memory value
+│   │                      #   still updates + notifies. If the storage medium
+│   │                      #   ever changes (file-backed, …), only this file
+│   │                      #   changes.
 │   ├── clipboard.ts       # copyText — clipboard write with an execCommand
 │   │                      #   fallback for webviews lacking the async API
 │   ├── dragRegionDoubleClick.ts # pure predicate behind the title-bar double-click
@@ -704,21 +722,20 @@ src/
 │   ├── useGlass.ts        # backdrop-filter capability (disabled on Linux/WebKitGTK)
 │   ├── useSystemTheme.ts  # OS light/dark (module-cached)
 │   ├── useThemePreference.ts # Manual light/dark override ("system" follows
-│   │                      #   the OS) — module store + own localStorage key
-│   │                      #   (same pattern as i18n), consumed once in App
-│   │                      #   to resolve appThemeFor's input.
+│   │                      #   the OS) — a persistedStore.ts store, consumed
+│   │                      #   once in App to resolve appThemeFor's input.
 │   ├── useIsWayland.ts    # cached invoke("is_wayland")
 │   ├── useWindowOutline.ts # Linux window-outline toggle (App's inset
 │   │                      #   box-shadow edge for DEs without compositor
-│   │                      #   shadows): module store + own localStorage
-│   │                      #   key, default on; the settings row is
+│   │                      #   shadows): a persistedStore.ts store, default
+│   │                      #   on; the settings row is
 │   │                      #   Linux-only but App gates on isLinux() too.
 │   ├── useStatsPanelMode.ts # Session-activity panel expansion mode
 │   │                      #   ("auto" — mounts collapsed, outside click
 │   │                      #   / Escape collapse it; "always" — mounts
 │   │                      #   expanded and stays open; a manual collapse
-│   │                      #   lasts until the card remounts): module
-│   │                      #   store + own localStorage key (legacy
+│   │                      #   lasts until the card remounts): a
+│   │                      #   persistedStore.ts store (legacy
 │   │                      #   boolean "false" reads as "always").
 │   │                      #   Also exports useStatsExpanded — the
 │   │                      #   panel's MANUAL expansion as an in-memory
@@ -741,16 +758,15 @@ src/
 │   │                      #   effect; its outside-click collapse spares
 │   │                      #   [data-lum-stats-drill] rows so the re-aim
 │   │                      #   doesn't jank through a collapse).
-│   ├── useTypography.ts   # Custom fonts/sizes (useThemePreference
-│   │                      #   pattern): applies lib/typography.ts's
+│   ├── useTypography.ts   # Custom fonts/sizes (a persistedStore.ts
+│   │                      #   store): applies lib/typography.ts's
 │   │                      #   overrides on load + change. Load-order note:
 │   │                      #   main.tsx imports main.css BEFORE the App
 │   │                      #   tree so the @theme stacks exist at init.
 │   ├── useDisabledModels.ts # Models switched OFF in the model settings
 │   │                      #   (hidden from the picker — the server has no
 │   │                      #   per-model enable API, so this is client-side
-│   │                      #   only): module store + own localStorage key
-│   │                      #   (useThemePreference pattern), keys are
+│   │                      #   only): a persistedStore.ts store, keys are
 │   │                      #   "providerID/modelID".
 │   ├── useDragRegionDoubleClick.ts # capture-phase mousedown + explicit maximize toggle
 │   ├── useFollowBottom.ts # stream-follow stickiness for inner scroll regions;
@@ -1471,8 +1487,12 @@ types (opencode/types.ts, i18n keys)  ←  opencode/ + lib/  ←  hooks/  ←  c
 - **User-visible strings** → `useI18n()` with a TranslationKey. Add the key
   to `i18n/en-us.ts` (and preferably `zh-cn.ts`) in the same change — raw
   strings in JSX are wrong even for "temporary" copy.
-- **Cross-restart state** → `lib/persist.ts` (`loadState`/`saveState`), one
-  localStorage key. Don't grow a second persistence mechanism.
+- **Cross-restart state** → `lib/persistedStore.ts`'s `createPersistedStore`
+  (one factory: own key per preference, read/write/eq callbacks, never
+  throws, logging + same-value short-circuit built in). The session-flow
+  ui-state keeps its `lib/persist.ts` (`loadState`/`saveState`) wrapper.
+  Don't hand-roll another store implementation or introduce a second
+  persistence mechanism.
 
 Rule of thumb: **if you are about to copy-paste >10 lines from another
 file, stop and extract.**

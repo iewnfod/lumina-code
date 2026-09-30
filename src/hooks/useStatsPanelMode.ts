@@ -1,59 +1,40 @@
 import {useSyncExternalStore} from "react";
-import {error as logError, info as logInfo} from "@tauri-apps/plugin-log";
+import {info as logInfo} from "@tauri-apps/plugin-log";
 import type {WorkspaceDiffEntry} from "../opencode/types.ts";
+import {createPersistedStore} from "../lib/persistedStore.ts";
 
 /**
  * The session-activity panel's expansion mode: "auto" — the card mounts
  * collapsed and outside clicks / Escape collapse it; "always" — the panel
  * mounts expanded and outside interaction never collapses it (a manual
  * collapse lasts until the card remounts, i.e. a session switch).
- * Structured after hooks/useWindowOutline.ts: an app-level preference
- * with a module-level store + its own localStorage key, snapshotted via
- * useSyncExternalStore so a change takes effect instantly.
+ * An app-level preference over lib/persistedStore.ts (own localStorage
+ * key), snapshotted via useSyncExternalStore so a change takes effect
+ * instantly.
  */
 
 export type StatsPanelMode = "auto" | "always";
 
-const STORAGE_KEY = "lumina-code:stats-auto-collapse";
-
-let stored = loadStored();
-
-const listeners = new Set<() => void>();
-
-function loadStored(): StatsPanelMode {
-    try {
-        // Legacy values from the boolean switch this replaced: "false"
-        // (the old persistent side pane) maps to "always" — the nearest
-        // intent; "true" or absent → the "auto" default.
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw === "always" || raw === "false") return "always";
-        return "auto";
-    } catch {
-        return "auto";
-    }
-}
-
-function subscribe(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-}
+const store = createPersistedStore<StatsPanelMode>({
+    key: "lumina-code:stats-auto-collapse",
+    label: "stats panel mode",
+    // Legacy values from the boolean switch this module replaced: "false"
+    // (the old persistent side pane) maps to "always" — the nearest
+    // intent; "true" or absent → the "auto" default.
+    read: (raw) => (raw === "always" || raw === "false" ? "always" : "auto"),
+    write: (mode) => mode,
+});
 
 /** The stored panel mode; consumed by SessionStatsCard. */
 export function useStatsPanelMode(): StatsPanelMode {
-    return useSyncExternalStore(subscribe, () => stored);
+    return useSyncExternalStore(store.subscribe, store.get);
 }
 
 /** Set the panel mode and persist it. Never throws. */
 export function setStatsPanelMode(mode: StatsPanelMode): void {
-    if (stored === mode) return;
-    stored = mode;
-    try {
-        localStorage.setItem(STORAGE_KEY, mode);
-    } catch (e) {
-        logError(`Failed to persist stats panel mode: ${e}`).catch(() => {});
+    if (store.set(mode)) {
+        logInfo(`Stats panel mode set to ${mode}`).catch(() => {});
     }
-    logInfo(`Stats panel mode set to ${mode}`).catch(() => {});
-    for (const listener of listeners) listener();
 }
 
 // --- Manual expansion (survives the card's remounts) ----------------------
@@ -89,8 +70,8 @@ export function useStatsExpanded(): [boolean, (next: boolean) => void] {
 }
 
 // --- Cross-surface file drill requests --------------------------------------
-// The transcript's turn-edit rows (chat/RunFooter) ask the stats panel —
-// a flex sibling at App level, not an ancestor — to open showing one
+// The transcript's turn-edit rows (chat/RunFooter) ask the stats panel — a
+// flex sibling at App level, not an ancestor — to open showing one
 // file's diff: the SAME drill the Changes section's rows trigger
 // locally (setView {kind:"file"}). A module store crosses the two
 // subtrees without threading props through App; the card consumes the
