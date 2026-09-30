@@ -181,6 +181,26 @@
     overflow: hidden;
 }
 
+/*
+ * The document viewport must NEVER scroll. body's `position: absolute`
+ * (below) means its overflow:hidden does NOT propagate to the viewport
+ * (CSS propagation applies to the in-flow body box only), which left the
+ * ROOT scroller live: at startup, while the window is still hidden
+ * (viewport 0x0, document fully "scrollable"), a focus-scroll / scroll
+ * anchoring could move the root a few px, and once the window was shown
+ * the whole chrome — title bar included — rendered shifted up by that
+ * amount (the "title bar starts too short until you drag the sidebar"
+ * bug; the drag only re-clamped the scroll back to 0). `overflow: clip`
+ * removes the root scroll container entirely, so scrollY stays 0 no
+ * matter what tries to scroll it; the `hidden` line first is the legacy
+ * fallback for engines without clip support. Inner scrollers are
+ * unaffected — the app never scrolls the document itself.
+ */
+html {
+    overflow: hidden;
+    overflow: clip;
+}
+
 body {
     position: absolute;
     left: 0;
