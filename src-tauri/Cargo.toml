@@ -15,15 +15,26 @@ name = "lumina_code_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "3.0.0-alpha.2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-opener = "2"
-tauri-plugin-os = "2"
-tauri-plugin-log = "2"
-tauri-plugin-dialog = "2"
-tauri-plugin-notification = "2"
+tauri = { version = "3.0.0-alpha.3", features = ["devtools"] }
+# CEF (Chromium Embedded Framework) runtime — cef branch feasibility probe.
+# v3 unbundles the webview runtime from tauri; the app picks one here.
+# CEF runs gtk4 + X11 on Linux, so tauri-plugin-dialog must avoid its default
+# gtk3 feature (GTK 3 and GTK 4 cannot be initialized in the same process).
+tauri-runtime-cef = { version = "3.0.0-alpha.4", features = ["devtools"] }
+tauri-plugin-opener = "3.0.0-alpha.1"
+tauri-plugin-os = "3.0.0-alpha.1"
+tauri-plugin-log = "3.0.0-alpha.1"
+tauri-plugin-dialog = { version = "=3.0.0-alpha.1", default-features = false, features = ["xdg-portal"] }
+tauri-plugin-notification = "3.0.0-alpha.1"
+
+# cef 分支：tauri-plugin-dialog 的 xdg-portal feature 路径缺 `use tauri::Manager`
+# （上游 CI 只测默认 gtk3 feature，未覆盖该路径 —— alpha.1/alpha.2 同病）。
+# 本地 vendored 副本只补了这一行 import，升级插件版本时优先移除此 patch。
+[patch.crates-io]
+tauri-plugin-dialog = { path = "vendor/tauri-plugin-dialog" }
 
 # The Linux notification sender's persistent D-Bus connection — see
 # src/notify.rs for why the plugin's per-send connection gets GNOME

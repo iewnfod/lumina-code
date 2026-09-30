@@ -5,6 +5,12 @@ mod system;
 
 use tauri_plugin_log::TargetKind;
 
+// cef 分支：CEF 多进程入口点标记 —— Chromium 的 renderer/GPU 等子进程
+// 需要路由回 CEF 主循环，否则只有主进程行为正确。
+#[cfg_attr(
+    not(any(target_os = "android", target_os = "ios")),
+    tauri_runtime_cef::cef_entry_point
+)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // NVIDIA + WebKitGTK compositing workaround, same as lumina-terminal.
@@ -34,6 +40,23 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        // cef 分支：v3 起不再捆绑 webview runtime，在此选择 CEF
+        // (Chromium 152)。DynRuntime 类型擦除 —— 下方所有 command 签名
+        // 无需泛型化。
+        .runtime(tauri_runtime_cef::Cef::default())
+        .setup(|app| {
+            // cef 分支验证辅助：LUMINA_DEVTOOLS=1 时打开 Chromium DevTools，
+            // 供渲染性能录制（Performance 面板）。
+            if std::env::var("LUMINA_DEVTOOLS").ok().as_deref() == Some("1") {
+                use tauri::Manager;
+                if let Some(win) = app.get_webview_window("main") {
+                    win.open_devtools();
+                } else {
+                    log::warn!("LUMINA_DEVTOOLS=1 but no main window to open devtools on");
+                }
+            }
+            Ok(())
+        })
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
