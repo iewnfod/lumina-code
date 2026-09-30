@@ -480,7 +480,13 @@ const ChatView = memo(function ChatView({
                     shifted the viewport while scrolling — see
                     useTranscriptScroll's re-pin note for the sibling
                     lesson.) */}
-                <div className="lum-column flex flex-col gap-3 py-6">
+                {/* Bottom padding lifts the resting tail — the run footer's
+                 * edit card — mostly out of the 51px lum-fade-lg band (the
+                 * residual overlap sits in the band's near-solid tail), so it
+                 * doesn't read as half-erased just above the composer. Top
+                 * stays 24px: the top edge dissolving while scrolled up is the
+                 * intended dissolve-into-chrome look. */}
+                <div className="lum-column flex flex-col gap-3 pt-6 pb-8">
                     {showTopSentinel && (
                         <div
                             ref={sentinelRef}
