@@ -19,8 +19,10 @@ import {useThemePreference} from "./hooks/useThemePreference.ts";
 import {useSurfaceColors} from "./hooks/surfaceColors.ts";
 import {ColorsProvider, useColors} from "./hooks/colors.tsx";
 import {useWindowOutline} from "./hooks/useWindowOutline.ts";
+import {probeBms, useBmsFocusRefresh, useCompositorBlurActive} from "./hooks/useBlurMyShell.ts";
 import {useNotifications} from "./hooks/useNotifications.ts";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
+import {isColorDark, withAlpha} from "./lib/color.ts";
 import {isLinux} from "./lib/platform.ts";
 import {appThemeFor, type ChromeTheme} from "./lib/theme.ts";
 import {liveSurfaceKey, nextSurfacePhase, type SurfacePhase} from "./lib/surfacePhases.ts";
@@ -229,6 +231,11 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     // wrapping the content with rounded inner corners.
     const {supportsGlass} = useGlass();
 
+    // Compositor blur (GNOME + Blur my Shell): when live, the window
+    // base paints translucent and the extension blurs behind the whole
+    // window — see hooks/useBlurMyShell.ts.
+    const compositorBlur = useCompositorBlurActive();
+
     // The Linux window outline is a user preference (General settings);
     // see the outline overlay in AppBody.
     const outlineEnabled = useWindowOutline();
@@ -238,14 +245,33 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
 
     // The window is created hidden (tauri.conf.json `visible: false`) and
     // shown once the first paint is ready — same pattern as lumina-terminal.
+    // The Blur my Shell probe runs BEFORE the show so a BMS-enabled
+    // system paints its first visible frame already translucent (no
+    // opaque→translucent flash); the race caps the wait so a stuck
+    // gsettings can never keep the window hidden, and a failed probe
+    // degrades to the opaque fallback.
     useEffect(() => {
         const win = getCurrentWindow();
-        win.show().then(() => {
-            win.setFocus().catch(() => {});
-        }).catch((e) => {
-            error(`Failed to show window: ${e}`).catch(() => {});
+        const ready = Promise.race([
+            probeBms(),
+            new Promise<void>((resolve) => {
+                setTimeout(resolve, 400);
+            }),
+        ]);
+        ready.then(() => {
+            win.show().then(() => {
+                win.setFocus().catch(() => {});
+            }).catch((e) => {
+                error(`Failed to show window: ${e}`).catch(() => {});
+            });
         });
     }, []);
+
+    // The user may toggle Blur my Shell (or its applications component)
+    // in GNOME's UI while Lumina is unfocused — re-probe on focus regain
+    // so a stale "active" can't leave the window see-through without
+    // blur. No-op off Linux.
+    useBmsFocusRefresh();
 
     // Sync the HeroUI light/dark class on <html> with the resolved theme so
     // framework controls (tooltips, …) match the chrome.
@@ -257,8 +283,9 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     }, [dark]);
 
     // The chrome glass layer is derived per connection state (supportsGlass
-    // flips only on platform), so computing it inline is fine.
-    const chromeGlass = glassSurface(effectiveBg, supportsGlass, {blurPx: 16});
+    // flips only on platform; compositorBlur on the BMS probe), so
+    // computing it inline is fine.
+    const chromeGlass = glassSurface(effectiveBg, supportsGlass, {blurPx: 16, compositorBlur});
 
     return (
         <ColorsProvider colors={colors}>
@@ -273,6 +300,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
                         contentBg={contentBg}
                         chromeGlass={chromeGlass}
                         outlineEnabled={outlineEnabled}
+                        compositorBlur={compositorBlur}
                     />
                 </SessionDataProvider>
             </CatalogProvider>
@@ -289,6 +317,7 @@ function AppBody({
     contentBg,
     chromeGlass,
     outlineEnabled,
+    compositorBlur,
 }: {
     isMaximized: boolean;
     effectiveTheme: ChromeTheme;
@@ -297,6 +326,7 @@ function AppBody({
     contentBg: string | null;
     chromeGlass: React.CSSProperties;
     outlineEnabled: boolean;
+    compositorBlur: boolean;
 }) {
     const t = useI18n();
     const colors = useColors();
@@ -389,7 +419,15 @@ function AppBody({
         <div
             className="relative w-full h-full overflow-hidden flex flex-row"
             style={{
-                background: effectiveBg,
+                // The window's base. Opaque by default; under compositor
+                // blur (GNOME + Blur my Shell) it goes translucent so the
+                // extension's blur behind the window shows through — the
+                // chrome surfaces above keep their own tints. Dark keeps
+                // slightly more ink than light (readability over the
+                // blurred desktop).
+                background: compositorBlur
+                    ? withAlpha(effectiveBg, isColorDark(effectiveBg) ? 0.9 : 0.88)
+                    : effectiveBg,
                 // App-wide hover-wash defaults (the .lum-wash class reads
                 // them): one place instead of a per-site CSS var.
                 "--lum-wash": colors.hoverOverlay,

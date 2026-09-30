@@ -13,6 +13,11 @@ import {useIsWayland} from "./useIsWayland.ts";
  * the capability never changes during a run, so the result is computed once
  * and cached module-side.
  *
+ * NOTE: this flag is ONLY about in-page backdrop-filter. WINDOW-level
+ * translucency on Linux (GNOME + Blur my Shell blurring behind the whole
+ * window) is a separate capability — hooks/useBlurMyShell.ts — and plugs
+ * into glassSurface via its `compositorBlur` option, never here.
+ *
  * When `supportsGlass` is false, `glassSurface` falls back to an opaque
  * `adjustColor(bg)` surface, so the chrome still reads correctly.
  */

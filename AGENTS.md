@@ -713,8 +713,26 @@ src/
 │   │                      #   lumina-terminal; keep in sync with its sibling when fixed.
 │   ├── platform.ts        # isMacOS / isLinux
 │   ├── glass.ts           # glassSurface / windowOutline — the ONLY place
-│   │                      #   backdrop-filter is written (Wayland fallback lives here)
-│   ├── color.ts           # color math (luminance, foreground, adjust)
+│   │                      #   backdrop-filter is written (Wayland fallback lives
+│   │                      #   here). THREE glass modes: supportsGlass → tint +
+│   │      backdrop-filter; compositorBlur (GNOME + Blur my Shell, see
+│   │      hooks/useBlurMyShell.ts) → the SAME translucent tint with NO
+│   │      filter (the extension blurs behind the whole window in the
+│   │      compositor); neither → opaque adjustColor fallback. A
+│   │      lumina-code addition, deliberately diverged from lumina-terminal.
+│   ├── color.ts           # color math (luminance, foreground, adjust,
+│   │                      #   withAlpha — the rgba() feed of the compositor-
+│   │                      #   blur window base)
+│   ├── blurMyShell.ts     # The Blur my Shell integration's PURE decision
+│   │                      #   layer (node-testable): bmsWildcardMatch
+│   │                      #   mirrors the extension's whitelist matcher
+│   │                      #   (wildcards * / ?, everything else literal,
+│   │      case-insensitive — wildcardToRegex in its applications.js),
+│   │      deriveBmsStatus walks the extension's own gate chain
+│   │      (unsupported / notInstalled / extensionDisabled / disabled /
+│   │      notListed / blacklisted / active{staticBlur, opacity}) over
+│   │      the Rust probe's raw snapshot, composeWhitelist appends our
+│   │      wmClass without duplicating an already-covering pattern.
 │   ├── motion.ts          # The framer-motion RESIDUE: only the button
 │   │                      #   hover/tap spring (whileHoverTap +
 │   │                      #   springSnappy) and RollingTitle's timer
@@ -794,7 +812,37 @@ src/
 │   ├── maximized.ts       # useMaximized — computed ONCE in App, passed as prop
 │   ├── paddingOffset.ts   # usePaddingOffset(isMaximized) — from App, never from a child
 │   ├── surfaceColors.ts   # useSurfaceColors(bg) → derived border/overlay/accent colors
-│   ├── useGlass.ts        # backdrop-filter capability (disabled on Linux/WebKitGTK)
+│   ├── useGlass.ts        # backdrop-filter capability (disabled on Linux/WebKitGTK);
+│   │                      #   ONLY about the in-page filter — window-level
+│   │                      #   translucency on GNOME is useBlurMyShell below
+│   ├── useBlurMyShell.ts  # The Blur my Shell integration's stateful half
+│   │                      #   (GNOME gives apps no blur API: the extension
+│   │                      #   matches wm_class/app_id against a GSettings
+│   │                      #   whitelist and blurs BEHIND whitelisted windows;
+│   │                      #   "integration" = render translucent pixels +
+│   │                      #   join the whitelist + detect the state, so
+│   │                      #   non-BMS systems keep the opaque fallback —
+│   │                      #   never translucentize unconditionally). Module
+│   │                      #   snapshot store (the sessionStopping pattern;
+│   │                      #   probes deduped through one in-flight promise)
+│   │                      #   over the blur_my_shell_probe Rust command;
+│   │                      #   addToBmsWhitelist writes our wmClass into the
+│   │                      #   extension's whitelist (blur_my_shell_set_
+│   │                      #   whitelist; BMS re-scans all windows on the
+│   │                      #   key's changed:: signal, so it takes effect
+│   │                      #   immediately); useCompositorBlurActive is the
+│   │                      #   RENDER capability (live AND the persisted
+│   │                      #   lumina-code:compositor-blur pref on) consumed
+│   │                      #   by App's root bg + the chrome glass surfaces
+│   │                      #   via glassSurface's compositorBlur option.
+│   │                      #   Probes fire BEFORE the window is shown (first
+│   │                      #   visible frame already correct; a 400ms race
+│   │                      #   caps the wait), on focus REGAIN debounced
+│   │                      #   (the user toggles the extension while we are
+│   │                      #   unfocused — a stale active would leave the
+│   │                      #   window see-through with nothing blurring
+│   │                      #   behind it), when the settings row mounts, and
+│   │                      #   after our own write.
 │   ├── useSystemTheme.ts  # OS light/dark (module-cached)
 │   ├── useThemePreference.ts # Manual light/dark override ("system" follows
 │   │                      #   the OS) — a persistedStore.ts store, consumed
@@ -1483,13 +1531,21 @@ src/
     │                      #   collapse / always open), the desktop-
     │                      #   notification tier OptionRow + focus-mute
     │                      #   Switch (useNotificationMode), the
-    │                      #   Linux-only window-outline Switch, and a Fonts section
+    │                      #   Linux-only window-outline Switch, the
+    │                      #   Linux+GNOME Blur my Shell rows (state-
+    │                      #   guided: notInstalled/disabled/blacklisted
+    │                      #   hint, notListed offers the one-click
+    │                      #   "接入" button — addToBmsWhitelist — and
+    │                      #   active binds the translucent render's
+    │                      #   Switch + the opacity/static-blur advice
+    │                      #   lines; the pane mount re-probes), and a
+    │                      #   Fonts section
     │                      #   (AboutSettings-style header; one control per
     │                      #   row — family input / size stepper — plus
     │                      #   reset); everything acts instantly through
     │                      #   module stores (i18n, useThemePreference,
     │                      #   useStatsPanelMode, useWindowOutline,
-    │                      #   useTypography).
+    │                      #   useBlurMyShell, useTypography).
     ├── ModelSettings.tsx # Formerly composer/ModelConfigModal: searchable
     │                      #   integration list, API-key connect, browser-OAuth
     │                      #   flow with attempt polling, credential
@@ -1535,7 +1591,8 @@ src/
 
 ### Backend (`src-tauri/src/`)
 
-Intentionally thin — server lifecycle only. All business logic lives in the
+Intentionally thin — server lifecycle only (plus the two frontend-serving
+odd ones out, notify.rs and blur.rs). All business logic lives in the
 frontend. `system.rs` plus the `opencode/` module:
 
 ```
@@ -1562,6 +1619,58 @@ src-tauri/src/
 │                  #   command is a never-routed stub (the plugin serves
 │                  #   macOS/Windows); the zbus dep is Linux-gated (already
 │                  #   in the tree via notify-rust).
+├── blur.rs        # Blur my Shell integration, gsettings IO half (the pure
+│                  #   decision layer is src/lib/blurMyShell.ts, the state/
+│                  #   render half hooks/useBlurMyShell.ts). GNOME gives apps
+│                  #   no blur API — the extension matches wm_class/app_id
+│                  #   against its applications whitelist and blurs behind
+│                  #   matched windows — but its config is PLAIN GSETTINGS
+│                  #   (org.gnome.shell.extensions.blur-my-shell.applications),
+│                  #   and the extension re-scans every window on changed::,
+│                  #   so a third-party `gsettings set` works live. Two
+│                  #   commands: blur_my_shell_probe (spawn_blocking; gate
+│                  #   chain: XDG_CURRENT_DESKTOP GNOME token → schema
+│                  #   REACHABLE → extension enabled → raw keys blur/
+│                  #   enable-all/static-blur/opacity/whitelist/blacklist +
+│                  #   our wmClass from current_exe's basename, never
+│                  #   hardcoded; GVariant `as` parser — the typed-empty
+│                  #   prints as `@as []`, items need trim after ", ")
+│                  #   and blur_my_shell_set_whitelist (wholesale write,
+│                  #   single-quote escaping). TWO REACHABILITY TRAPS
+│                  #   (both live-verified on an extensions.gnome.org
+│                  #   install): (1) the schema compiles INSIDE the
+│                  #   extension's own schemas/ dir under
+│                  #   ~/.local/share/gnome-shell/extensions/<uuid>/,
+│                  #   which the gsettings CLI does NOT search (only the
+│                  #   shell's in-process loader does) — resolution:
+│                  #   plain get first (distro packages install into
+│                  #   /usr/share/glib-2.0/schemas), else scan
+│                  #   XDG_DATA_HOME/XDG_DATA_DIRS for <uuid>/schemas/
+│                  #   gschemas.compiled (UUIDs @aunetx + legacy
+│                  #   @aussiedev.me) and pass GSETTINGS_SCHEMA_DIR —
+│                  #   LOOKUP-only, dconf storage is identical either
+│                  #   way; the resolved source caches (OnceLock) on
+│                  #   success only, so a mid-session install is found
+│                  #   by the next probe; (2) a present schema ≠ an
+│                  #   ENABLED extension — gnome-extensions list
+│                  #   --enabled (locale-free UUID lines; failure reads
+│                  #   true) gates the chain, else the row would say
+│                  #   "active" while nothing blurs. Deliberately does
+│                  #   NOT write the extension's global `blur` master
+│                  #   switch — joining the whitelist is ours to offer,
+│                  #   enabling the extension is the user's call (the
+│                  #   settings row hints instead). KNOWN UPSTREAM BUG
+│                  #   (BMS #809, open, no fix PR as of 2026-09,
+│                  #   live-verified here on GNOME 50.5 + v72): DYNAMIC
+│                  #   application blur renders as plain transparency
+│                  #   on FLOATING windows ("ghosted") and only works
+│                  #   maximized — affects many apps (flathub, Zen…),
+│                  #   NOT our integration (the whole chain is proven
+│                  #   by the maximized case). Not our bug to fix; do
+│                  #   NOT add workarounds gated on maximize state —
+│                  #   they become wrong the day upstream fixes it. The
+│                  #   user-side fallback is BMS's STATIC blur (Mica-
+│                  #   like wallpaper snapshot; works floating).
 └── opencode/      # OpenCode server lifecycle, split by concern:
     ├── mod.rs     # Orchestration: OpencodeState/OpencodeConnection types,
     │              #   the `opencode_start` command (spawn `opencode serve` with a

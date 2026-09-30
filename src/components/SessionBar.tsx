@@ -6,6 +6,7 @@ import {isMacOS} from "../lib/platform.ts";
 import {CHROME_TITLE_BAR_HEIGHT} from "../constants.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
 import {useGlass} from "../hooks/useGlass.ts";
+import {useCompositorBlurActive} from "../hooks/useBlurMyShell.ts";
 import {glassSurface} from "../lib/glass.ts";
 import {whileHoverTap} from "../lib/motion.ts";
 import {useI18n} from "../hooks/i18n.tsx";
@@ -61,6 +62,7 @@ export default function SessionBar(props: SessionBarProps) {
 
     const colors = useSurfaceColors(backgroundColor);
     const {supportsGlass} = useGlass();
+    const compositorBlur = useCompositorBlurActive();
     // Conditional edge fades for the session list: content sits flush at
     // the top (px-1.5 only), so the fades must appear only while a side
     // actually has hidden content — a short list renders fade-free.
@@ -95,8 +97,10 @@ export default function SessionBar(props: SessionBarProps) {
 
     // The sidebar wears the glass material over the content canvas. On
     // platforms where backdrop-filter is unreliable (Linux/Wayland), this
-    // falls back to an opaque derived surface — same visual role, no blur.
-    const glass = glassSurface(backgroundColor, supportsGlass, {blurPx: 16});
+    // falls back to an opaque derived surface — same visual role, no blur —
+    // unless compositor blur is live (Blur my Shell), in which case it
+    // goes translucent and the extension blurs behind the window.
+    const glass = glassSurface(backgroundColor, supportsGlass, {blurPx: 16, compositorBlur});
 
     return (
         <div

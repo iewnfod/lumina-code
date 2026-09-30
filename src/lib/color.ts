@@ -24,3 +24,19 @@ export function adjustColor(hex: string, amount: number): string {
     const b = Math.max(0, Math.min(255, parseInt(hex.substring(4, 6), 16) + amount));
     return `rgb(${r}, ${g}, ${b})`;
 }
+
+/**
+ * A hex color with an alpha channel, as a css rgba() string. Malformed
+ * input falls back to the input unchanged (never throws — callers pass
+ * theme hexes). Feeds the compositor-blur render (Blur my Shell): the
+ * window's base goes translucent so the extension's blur behind the
+ * window shows through.
+ */
+export function withAlpha(hex: string, alpha: number): string {
+    const h = hex.replace("#", "");
+    if (h.length < 6) return hex;
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}

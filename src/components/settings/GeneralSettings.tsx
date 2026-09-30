@@ -1,12 +1,19 @@
 import {info} from "@tauri-apps/plugin-log";
 import {motion} from "framer-motion";
-import type {CSSProperties} from "react";
+import {useEffect, useState, type CSSProperties} from "react";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n, useLanguageChoice, setLanguage, type Language} from "../../hooks/i18n.tsx";
 import {setThemePreference, useThemePreference, type ThemePreference} from "../../hooks/useThemePreference.ts";
 import {setStatsPanelMode, useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
 import {setNotificationSettings, useNotificationSettings} from "../../hooks/useNotificationMode.ts";
 import {setWindowOutline, useWindowOutline} from "../../hooks/useWindowOutline.ts";
+import {
+    addToBmsWhitelist,
+    probeBms,
+    setCompositorBlurEnabled,
+    useBmsStatus,
+    useCompositorBlurEnabled,
+} from "../../hooks/useBlurMyShell.ts";
 import {setTypography, useTypography} from "../../hooks/useTypography.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
 import {isLinux} from "../../lib/platform.ts";
@@ -139,6 +146,17 @@ export default function GeneralSettings() {
     const panelMode = useStatsPanelMode();
     const notifications = useNotificationSettings();
     const typography = useTypography();
+    const bms = useBmsStatus();
+    const blurEnabled = useCompositorBlurEnabled();
+    const [joining, setJoining] = useState(false);
+
+    // Opening the settings pane refreshes the Blur my Shell snapshot:
+    // the user may have installed/enabled/configured the extension since
+    // our last probe (startup / focus-regain). Off-Linux the probe
+    // short-circuits to "unsupported" without spawning anything.
+    useEffect(() => {
+        if (isLinux()) probeBms();
+    }, []);
 
     // Language names stay in their own language regardless of the active
     // one (same convention as the old title-bar language menu); the
@@ -259,6 +277,75 @@ export default function GeneralSettings() {
                                 setWindowOutline(next);
                             }}
                         />
+                    </SettingRow>
+                )}
+                {/* Linux + GNOME: Blur my Shell window blur. The extension
+                    has no API — Lumina renders translucent pixels, gets
+                    its wm_class into the extension's whitelist (the
+                    button writes it via gsettings, src-tauri/src/blur.rs)
+                    and reads the state back to decide translucency
+                    (hooks/useBlurMyShell.ts). The rows below guide
+                    through the extension's own gates; "unsupported" (no
+                    GNOME / no gsettings) hides the block entirely. */}
+                {isLinux() && bms.state === "active" && (
+                    <SettingRow
+                        label={t["Window blur"]}
+                        description={
+                            <>
+                                {t["Blur the desktop behind the window via the Blur my Shell extension"]}
+                                {bms.opacity < 255 && (
+                                    <>
+                                        {" "}
+                                        {t["Tip: set Blur my Shell's window opacity to 100% — Lumina Code draws its own translucency"]}
+                                    </>
+                                )}
+                                {bms.staticBlur && (
+                                    <>
+                                        {" "}
+                                        {t["Static (wallpaper) blur is enabled in Blur my Shell"]}
+                                    </>
+                                )}
+                            </>
+                        }
+                    >
+                        <Switch
+                            checked={blurEnabled}
+                            label={blurEnabled ? t["Enabled"] : t["Disabled"]}
+                            onChange={(next) => {
+                                info(`Compositor blur set to ${next} from settings`).catch(() => {});
+                                setCompositorBlurEnabled(next);
+                            }}
+                        />
+                    </SettingRow>
+                )}
+                {isLinux() && ["notInstalled", "extensionDisabled", "disabled", "notListed", "blacklisted"].includes(bms.state) && (
+                    <SettingRow
+                        label={t["Window blur"]}
+                        description={
+                            bms.state === "notInstalled"
+                                ? t["Install the Blur my Shell extension, then reopen settings"]
+                                : bms.state === "extensionDisabled"
+                                    ? t["Enable the Blur my Shell extension in GNOME's extension manager, then reopen settings"]
+                                    : bms.state === "disabled"
+                                        ? t["Turn on Applications blur in Blur my Shell's preferences, then reopen settings"]
+                                        : bms.state === "blacklisted"
+                                            ? t["Blur my Shell blurs all windows; remove Lumina Code from its blacklist"]
+                                            : t["Blur my Shell is running — add Lumina Code to its blur whitelist"]
+                        }
+                    >
+                        {bms.state === "notListed" && (
+                            <Button
+                                primary
+                                disabled={joining}
+                                label={joining ? t["Adding…"] : t["Add to Blur my Shell"]}
+                                onClick={() => {
+                                    setJoining(true);
+                                    addToBmsWhitelist().finally(() => {
+                                        setJoining(false);
+                                    });
+                                }}
+                            />
+                        )}
                     </SettingRow>
                 )}
                 {/* Typography section — one control per row (family input,

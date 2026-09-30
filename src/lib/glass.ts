@@ -10,9 +10,14 @@ import {adjustColor, isColorDark} from "./color.ts";
  * Capability (`supportsGlass`) comes from `hooks/useGlass.ts`, which probes
  * platform/Wayland once and caches. When false, we degrade to an opaque
  * surface derived via {@link adjustColor} so the chrome still reads correctly
- * against the content bg.
+ * against the content bg — UNLESS compositor blur is live (`compositorBlur`
+ * option, GNOME + Blur my Shell via hooks/useBlurMyShell): the extension
+ * blurs behind the whole window in the compositor, so surfaces go
+ * translucent without any backdrop-filter (which WebKitGTK still can't
+ * render reliably).
  *
- * Ported as-is from lumina-terminal.
+ * Ported from lumina-terminal; the compositorBlur path is a lumina-code
+ * addition (deliberate divergence).
  */
 
 export interface GlassStyle {
@@ -47,6 +52,16 @@ export interface GlassSurfaceOptions {
      * Defaults to 8.
      */
     fallbackStrength?: number;
+    /**
+     * Compositor blur is live for this window (GNOME + Blur my Shell —
+     * hooks/useBlurMyShell). The extension blurs BEHIND the whole window
+     * in the compositor, so the surface goes translucent with the same
+     * tint as the glass path but WITHOUT backdrop-filter, which stays
+     * disabled on WebKitGTK (see useGlass). Ignored whenever
+     * `supportsGlass` is true — a real backdrop-filter is always
+     * preferred over the compositor approximation.
+     */
+    compositorBlur?: boolean;
 }
 
 /** Default blur radius pulled from the `--glass-blur` design token. */
@@ -87,6 +102,16 @@ export function glassSurface(
     const saturate = opts?.saturate ?? defaultSaturate();
 
     if (!supportsGlass || blurPx <= 0) {
+        // Compositor blur (GNOME + Blur my Shell): translucent tint, no
+        // backdrop-filter — the extension's blur actor behind the window
+        // provides the actual blurring. Root translucency comes from the
+        // caller (App paints the window base with alpha); this surface
+        // keeps the same tint the glass path would wear so the chrome
+        // reads identically to the filtered platforms.
+        if (opts?.compositorBlur) {
+            const tint = opts.tint ?? (dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)");
+            return {background: tint};
+        }
         // Opaque fallback. Nudge the bg by a small amount so the surface is
         // distinguishable from the content canvas.
         const strength = opts?.fallbackStrength ?? 8;

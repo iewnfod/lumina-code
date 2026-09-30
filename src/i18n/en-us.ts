@@ -100,6 +100,18 @@ const enUs = {
     "Dark": "Dark",
     "Window outline": "Window outline",
     "Show a thin window edge when the desktop draws no shadow": "Show a thin window edge when the desktop draws no shadow",
+    // --- Blur my Shell (Linux/GNOME window blur) ---
+    "Window blur": "Window blur",
+    "Blur the desktop behind the window via the Blur my Shell extension": "Blur the desktop behind the window via the Blur my Shell extension",
+    "Install the Blur my Shell extension, then reopen settings": "Install the Blur my Shell extension, then reopen settings",
+    "Enable the Blur my Shell extension in GNOME's extension manager, then reopen settings": "Enable the Blur my Shell extension in GNOME's extension manager, then reopen settings",
+    "Turn on Applications blur in Blur my Shell's preferences, then reopen settings": "Turn on Applications blur in Blur my Shell's preferences, then reopen settings",
+    "Blur my Shell is running — add Lumina Code to its blur whitelist": "Blur my Shell is running — add Lumina Code to its blur whitelist",
+    "Blur my Shell blurs all windows; remove Lumina Code from its blacklist": "Blur my Shell blurs all windows; remove Lumina Code from its blacklist",
+    "Add to Blur my Shell": "Add to Blur my Shell",
+    "Adding…": "Adding…",
+    "Tip: set Blur my Shell's window opacity to 100% — Lumina Code draws its own translucency": "Tip: set Blur my Shell's window opacity to 100% — Lumina Code draws its own translucency",
+    "Static (wallpaper) blur is enabled in Blur my Shell": "Static (wallpaper) blur is enabled in Blur my Shell",
     "Whether the workspace activity panel collapses on outside clicks or stays open": "Whether the workspace activity panel collapses on outside clicks or stays open",
 
     "Auto collapse": "Auto collapse",

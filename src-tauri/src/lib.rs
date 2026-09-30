@@ -1,3 +1,4 @@
+mod blur;
 mod opencode;
 mod notify;
 mod system;
@@ -54,7 +55,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             system::is_wayland,
             opencode::opencode_start,
-            notify::desktop_notify
+            notify::desktop_notify,
+            blur::blur_my_shell_probe,
+            blur::blur_my_shell_set_whitelist
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

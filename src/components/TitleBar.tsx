@@ -3,6 +3,7 @@ import type {ChromeTheme} from "../lib/theme.ts";
 import {isMacOS} from "../lib/platform.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
 import {useGlass} from "../hooks/useGlass.ts";
+import {useCompositorBlurActive} from "../hooks/useBlurMyShell.ts";
 import {useI18n} from "../hooks/i18n.tsx";
 import {glassSurface} from "../lib/glass.ts";
 import { info } from "@tauri-apps/plugin-log";
@@ -37,7 +38,8 @@ export default function TitleBar({
 
     const {hoverOverlay, activeOverlay} = useSurfaceColors(bg);
     const {supportsGlass} = useGlass();
-    const glass = glassSurface(bg, supportsGlass, {blurPx: 14});
+    const compositorBlur = useCompositorBlurActive();
+    const glass = glassSurface(bg, supportsGlass, {blurPx: 14, compositorBlur});
     const size = CHROME_TITLE_BAR_HEIGHT;
     // Brand cinnabar wash for the close button hover — the brand accent so
     // window controls feel part of the app identity.
