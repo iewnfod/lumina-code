@@ -370,6 +370,7 @@ const ChatView = memo(function ChatView({
                     <TranscriptList
                         messages={rendered}
                         busy={busy}
+                        sessionId={sessionId}
                         directory={directory}
                         models={models}
                         waitingForUser={waitingForUser}

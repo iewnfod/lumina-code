@@ -204,6 +204,7 @@ const enUs = {
     "Finished": "Finished",
     "Failed": "Failed",
     "Files": "Files",
+    "files changed": "files changed",
     "No changes yet": "No changes yet",
     "No messages yet": "No messages yet",
     "No output": "No output",

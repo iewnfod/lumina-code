@@ -7,6 +7,11 @@ export interface RunFooterInfo {
     text: string;
     /** Wall-clock duration; null when the timestamps didn't survive. */
     durationMs: number | null;
+    /** The user message that started the run (its id keys the per-turn
+     *  edit summary — api.sessionTurnDiff takes it as `from`); null when
+     *  the run began without a preceding user bubble (imported or
+     *  compacted histories). */
+    userMessageId: string | null;
 }
 
 /**
@@ -32,6 +37,8 @@ export function collectRunFooters(list: ChatMessage[], busy: boolean): Map<strin
     // that never finished (interrupted mid-run) gets none, instead of a
     // footer sandwiched between the steps.
     let lastAssistantId: string | null = null;
+    // The user bubble that opened the run being accumulated.
+    let userId: string | null = null;
 
     const close = () => {
         const text = texts.filter((t) => t.trim() !== "").join("\n\n");
@@ -39,6 +46,7 @@ export function collectRunFooters(list: ChatMessage[], busy: boolean): Map<strin
             footers.set(endId, {
                 text,
                 durationMs: start !== null && end !== null ? Math.max(0, end - start) : null,
+                userMessageId: userId,
             });
         }
         start = null;
@@ -46,6 +54,7 @@ export function collectRunFooters(list: ChatMessage[], busy: boolean): Map<strin
         endId = null;
         end = null;
         lastAssistantId = null;
+        userId = null;
     };
 
     for (const m of list) {
@@ -55,6 +64,7 @@ export function collectRunFooters(list: ChatMessage[], busy: boolean): Map<strin
             // bubbles only; optimistic ones carry no time and fall back
             // to the first step's stamp below.
             if (m.time?.created != null && start === null) start = m.time.created;
+            userId = m.id;
             continue;
         }
         if (!isAssistantMessage(m)) continue;

@@ -316,6 +316,14 @@ src/
 │   │                      #   fs/read (readFileBlob → Blob, same
 │   │                      #   location-confined shape as readTextFile)
 │   │                      #   feeding the attachment-chip image previews.
+│   │                      #   Plus sessionTurnDiff — the per-TURN diff
+│   │                      #   (GET /api/session/{id}/diff?from=<userMsg>,
+│   │                      #   binary-verified v2.0.11) feeding the run
+│   │                      #   footers' edit summaries: snapshot-based, so
+│   │                      #   subagent/bash edits count and the `from`
+│   │                      #   must be a USER message id (a turn spans
+│   │                      #   prompt → next idle; steered prompts join
+│   │                      #   the same turn).
 │   ├── configFiles.ts     # globalConfigTarget — where the global opencode.json
 │   │                      #   lives, derived from GET /api/config (pure; shared
 │   │                      #   by the settings config editor and the attachment
@@ -424,6 +432,26 @@ src/
 │   │                      #   true response never re-marks); a stale
 │   │                      #   marker is inert — the indicator also needs
 │   │                      #   busy, and the next execution.started clears.
+│   ├── turnEdits.ts      # The per-turn EDIT SUMMARY store (module store +
+│   │                      #   useSyncExternalStore, the sessionStopping
+│   │                      #   pattern): one entry per (session, user
+│   │                      #   message) holding the files that prompt's
+│   │                      #   TURN changed + summed line counts, fetched
+│   │                      #   from api.sessionTurnDiff (the server's
+│   │                      #   SNAPSHOT-based per-turn diff — authoritative,
+│   │                      #   includes subagent/bash edits no client-side
+│   │                      #   fold over tool inputs can see). A turn's
+│   │                      #   diff is immutable once the turn ended, so
+│   │                      #   entries cache FOREVER with in-flight
+│   │                      #   dedupe (RunFooter mounts trigger
+│   │                      #   ensureTurnEdits); session.deleted drops a
+│   │                      #   session's entries (applyTurnEditsBusEvent,
+│   │                      #   folded from useSessions' global handler
+│   │                      #   next to applyStoppingBusEvent). Snapshot-less
+│   │                      #   projects (no git / snapshot:false) settle as
+│   │                      #   error and the footer chip stays hidden — no
+│   │                      #   snapshot data, no summary. summarizeTurnDiff
+│   │                      #   is pure + node-testable (turnEdits.test.ts).
 │   ├── connectionContext.tsx # THE CONTEXT SPLIT, base layer: ConnectionProvider
 │   │                      #   + useConnection() distribute useOpencode's api/
 │   │                      #   subscribe/status to anything needing a raw handle
@@ -702,6 +730,17 @@ src/
 │   │                      #   "always" force-expands at every mount).
 │   │                      #   Consumed by SessionStatsCard; the
 │   │                      #   segmented OptionRow is in GeneralSettings.
+│   │                      #   PLUS the cross-surface FILE DRILL request
+│   │                      #   store (requestStatsFileDrill /
+│   │                      #   usePendingStatsFileDrill): the
+│   │                      #   transcript's turn-edit rows (chat/
+│   │                      #   RunFooter) ask the panel — a flex sibling
+│   │                      #   at App level, not an ancestor — to expand
+│   │                      #   and open one file's diff view
+│   │                      #   (SessionStatsCard consumes + clears in an
+│   │                      #   effect; its outside-click collapse spares
+│   │                      #   [data-lum-stats-drill] rows so the re-aim
+│   │                      #   doesn't jank through a collapse).
 │   ├── useTypography.ts   # Custom fonts/sizes (useThemePreference
 │   │                      #   pattern): applies lib/typography.ts's
 │   │                      #   overrides on load + change. Load-order note:
@@ -1008,7 +1047,23 @@ src/
     │   │                  #   stacks one DiffBody per file. node-testable.
     │   ├── SubagentCard.tsx # Subagent tool renderer
     │   ├── RunFooter.tsx + runFooters.ts # Per-turn summary footer (pure collector in
-    │   │                  #   runFooters.ts — node-testable)
+    │   │                  #   runFooters.ts — node-testable; the footer
+    │   │                  #   info carries the run's opening userMessageId).
+    │   │                  #   Beyond copy + duration, a turn that EDITED
+    │   │                  #   files gets the turns-edits CARD below the
+    │   │                  #   row — a recessed bordered box (useColors)
+    │   │                  #   whose header "N files changed +A −D"
+    │   │                  #   expands through the .lum-fold pattern into
+    │   │                  #   the file rows (type icon + gray directory
+    │   │                  #   prefix + name + per-file counts,
+    │   │                  #   DIFF_ADD/DIFF_DEL accents) — and each row
+    │   │                  #   DRILLS the right-side stats panel into that
+    │   │                  #   file's diff via requestStatsFileDrill
+    │   │                  #   (useStatsPanelMode.ts's cross-surface
+    │   │                  #   request store; the rows carry
+    │   │                  #   data-lum-stats-drill so the panel's
+    │   │                  #   outside-click collapse spares them). Data
+    │   │                  #   from useTurnEdits.
     │   ├── TailWorking.tsx + tailActivity.ts # The transcript tail's "still
     │   │                  #   working" loop: a label followed by three
     │   │                  #   quiet dots (.lum-loading's small .lum-loading-tail

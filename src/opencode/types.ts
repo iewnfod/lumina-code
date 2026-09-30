@@ -275,7 +275,9 @@ export interface UserMessageFile {
 // working copy, untracked files included as "added"), location-scoped by
 // the directory. Same FileDiff.Info shape as the session endpoint.
 
-/** `GET /api/vcs/diff` entry — one changed file (server `FileDiff.Info`). */
+/** `GET /api/vcs/diff` entry — one changed file (server `FileDiff.Info`).
+ *  Also the shape of `GET /api/session/{id}/diff` (per-turn snapshot diff,
+ *  see api.ts `sessionTurnDiff`). */
 export interface WorkspaceDiffEntry {
     file: string;
     /** Unified-diff patch text (hunk context = the server's default). */

@@ -121,7 +121,7 @@ export const SubagentBody = memo(function SubagentBody({
             <BodyBox fill className="px-4 py-3">
                 {visible.length === 0
                     ? <div className="text-xs opacity-40 select-none">{t["No messages yet"]}</div>
-                    : <TranscriptList messages={visible} busy={busy} directory={directory}/>}
+                    : <TranscriptList messages={visible} busy={busy} sessionId={sub.id} directory={directory}/>}
             </BodyBox>
         </div>
     );

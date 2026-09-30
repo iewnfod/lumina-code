@@ -45,6 +45,26 @@ test("finished run gets a footer: joined text + duration from the prompt", () =>
     // Duration measured from the prompt, not the first step.
     assert.equal(f.durationMs, 5_500);
     assert.equal(f.text, "Hello \n\nworld");
+    // The opening prompt's id keys the per-turn edit summary.
+    assert.equal(f.userMessageId, "u1");
+});
+
+test("footer carries the run's own opening prompt, not a later steer", () => {
+    const footers = collectRunFooters([
+        user("u1", 0),
+        asst("a1", {created: 1, completed: 2_000, texts: ["first answer"]}),
+        user("u2", 3_000), // steered follow-up opens its own run
+        asst("a2", {created: 3_001, completed: 8_000, texts: ["second answer"]}),
+    ], false);
+    assert.equal(footers.get("a1")!.userMessageId, "u1");
+    assert.equal(footers.get("a2")!.userMessageId, "u2");
+});
+
+test("run that began without a user bubble carries a null userMessageId", () => {
+    const footers = collectRunFooters([
+        asst("a1", {created: 1, completed: 2_000, texts: ["orphan answer"]}),
+    ], false);
+    assert.equal(footers.get("a1")!.userMessageId, null);
 });
 
 test("multi-step run: one footer on the last step, prose joined across steps", () => {

@@ -34,6 +34,7 @@ import TailWorking from "./TailWorking.tsx";
 const TranscriptList = memo(function TranscriptList({
     messages,
     busy,
+    sessionId,
     directory,
     models,
     waitingForUser = false,
@@ -44,6 +45,9 @@ const TranscriptList = memo(function TranscriptList({
     messages: ChatMessage[];
     /** A run is in flight — the tail assistant message counts as streaming. */
     busy: boolean;
+    /** The session this transcript belongs to (keys the run footers'
+     *  per-turn edit summaries; omit to skip them). */
+    sessionId?: string | null;
     /** Session working directory — file tool paths inside it display relative. */
     directory?: string | null;
     /** Model catalog for the switch divider's names (absent in subagent
@@ -195,6 +199,9 @@ const TranscriptList = memo(function TranscriptList({
                                 text={run.text}
                                 durationMs={run.durationMs}
                                 enter={footerEnter}
+                                sessionId={sessionId ?? undefined}
+                                turnUserId={run.userMessageId}
+                                directory={directory}
                             />
                         )}
                     </Fragment>

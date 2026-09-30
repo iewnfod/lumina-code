@@ -201,6 +201,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Finished": "已完成",
     "Failed": "失败",
     "Files": "个文件",
+    "files changed": "个文件已更改",
     "No changes yet": "暂无改动",
     "No messages yet": "暂无消息",
     "No output": "暂无输出",

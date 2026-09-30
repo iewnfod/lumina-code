@@ -2,6 +2,7 @@ import {useCallback, useEffect, useRef, useState} from "react";
 import {error as logError, info, warn as logWarn} from "@tauri-apps/plugin-log";
 import type {OpencodeApi} from "./api.ts";
 import {applyStoppingBusEvent} from "./sessionStopping.ts";
+import {applyTurnEditsBusEvent} from "./turnEdits.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {EventMap, OpencodeSession} from "./types.ts";
 
@@ -174,6 +175,9 @@ export function useSessions(
             // below are exactly what it waits for (see sessionStopping.ts;
             // unrelated types no-op inside the fold).
             applyStoppingBusEvent(event);
+            // Drop the deleted session's turn-edit summaries with it (the
+            // store caches forever otherwise; no-op for other event types).
+            applyTurnEditsBusEvent(event.type, (event.data as {sessionID?: unknown} | null | undefined)?.sessionID);
             switch (event.type) {
                 case "session.created": {
                     void relist();

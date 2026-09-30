@@ -268,6 +268,33 @@ export class OpencodeApi {
         );
     }
 
+    /** Per-TURN file diff of a session (`GET /api/session/{id}/diff?from=…`,
+     *  verified against server v2.0.11 — route table + handler source read
+     *  from the pinned binary): the files ONE turn changed, computed by the
+     *  server's own snapshot machinery (the same snapshots revert uses), so
+     *  the counts are authoritative — subagent and bash edits the model
+     *  made mid-turn are included, which no client-side fold over tool
+     *  inputs can promise. `from` must be a USER message id; a turn runs
+     *  from the first prompt after the session was last idle until its
+     *  next idle marker, so prompts steered in while busy belong to the
+     *  SAME turn (their run footers all see the whole turn's totals).
+     *  Same FileDiff.Info shape as {@link vcsDiff}. Fails on snapshot-less
+     *  sessions (project without git, or `snapshot: false` in config) —
+     *  callers read that as "no summary". `context=3` keeps the payload
+     *  small; omitting it serves full-file patches. */
+    sessionTurnDiff(
+        sessionId: string,
+        from: string,
+        opts?: {context?: number},
+    ): Promise<WorkspaceDiffEntry[]> {
+        const params = new URLSearchParams();
+        params.set("from", from);
+        params.set("context", String(opts?.context ?? 3));
+        return this.request<WorkspaceDiffEntry[]>(
+            `/api/session/${encodeURIComponent(sessionId)}/diff?${params.toString()}`,
+        );
+    }
+
     /** RUNNING shell commands only (exited ones drop off the list; read
      * those through {@link getShell}/{@link shellOutput} while the server
      * still retains them). Filter by `metadata.sessionID` for one

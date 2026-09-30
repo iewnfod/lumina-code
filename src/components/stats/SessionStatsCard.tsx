@@ -3,7 +3,7 @@ import {Bot, ChevronLeft, ChevronUp, Diff, ListChecks, Square, SquareTerminal} f
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
-import {useStatsExpanded, useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
+import {useStatsExpanded, useStatsPanelMode, usePendingStatsFileDrill, clearStatsFileDrill} from "../../hooks/useStatsPanelMode.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import type {SessionShellRef, SessionSubagentRef, SessionTodos} from "../../opencode/sessionActivity.ts";
 import ExitPresence from "../ui/ExitPresence.tsx";
@@ -134,14 +134,37 @@ const SessionStatsCard = memo(function SessionStatsCard({
         setView({kind: "overview"});
     }, [sessionId]);
 
+    // A file drill REQUESTED from the transcript (a turn-edit row — the
+    // same {kind:"file"} view the Changes rows open): expand the panel,
+    // refresh the workspace numbers, aim the view, clear the request.
+    // Refs for the helpers so the effect runs on the REQUEST only (the
+    // activity object rebuilds per render).
+    const drillRequest = usePendingStatsFileDrill();
+    const refreshRef = useRef(activity.refreshDiff);
+    refreshRef.current = activity.refreshDiff;
+    useEffect(() => {
+        if (!drillRequest) return;
+        setExpanded(true);
+        refreshRef.current();
+        setView({kind: "file", file: drillRequest});
+        clearStatsFileDrill();
+    }, [drillRequest, setExpanded]);
+
     // Outside pointer-down / Escape collapse the panel (PopoverMenu's
     // capture-phase pattern) — only in "auto" mode. "always" keeps the
     // panel open through outside interaction; its own collapse button
-    // still works and lasts until the card remounts.
+    // still works and lasts until the card remounts. A pointer-down on
+    // a turn-edit drill row ([data-lum-stats-drill], in the transcript)
+    // is exempt: its click re-aims the panel at that file, and the
+    // collapse-then-re-expand would jank the width transition.
     useEffect(() => {
         if (!expanded || panelMode !== "auto") return;
         const onPointerDown = (e: PointerEvent) => {
-            if (rootRef.current && !rootRef.current.contains(e.target as Node)) collapse();
+            if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+                const el = e.target as Element;
+                if (typeof el.closest === "function" && el.closest("[data-lum-stats-drill]")) return;
+                collapse();
+            }
         };
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.key === "Escape") collapse();

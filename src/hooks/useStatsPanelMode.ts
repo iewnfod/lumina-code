@@ -1,5 +1,6 @@
 import {useSyncExternalStore} from "react";
 import {error as logError, info as logInfo} from "@tauri-apps/plugin-log";
+import type {WorkspaceDiffEntry} from "../opencode/types.ts";
 
 /**
  * The session-activity panel's expansion mode: "auto" — the card mounts
@@ -85,4 +86,43 @@ export function setStatsExpanded(next: boolean): void {
 export function useStatsExpanded(): [boolean, (next: boolean) => void] {
     const value = useSyncExternalStore(subscribeExpanded, () => expanded);
     return [value, setStatsExpanded];
+}
+
+// --- Cross-surface file drill requests --------------------------------------
+// The transcript's turn-edit rows (chat/RunFooter) ask the stats panel —
+// a flex sibling at App level, not an ancestor — to open showing one
+// file's diff: the SAME drill the Changes section's rows trigger
+// locally (setView {kind:"file"}). A module store crosses the two
+// subtrees without threading props through App; the card consumes the
+// request in an effect (expand + view + clear). One request at a time,
+// fire-and-forget: if no card is mounted (welcome screen — no
+// transcript, so no rows), the request simply sits until the next one
+// replaces it.
+let drillRequest: WorkspaceDiffEntry | null = null;
+const drillListeners = new Set<() => void>();
+
+function subscribeDrill(listener: () => void): () => void {
+    drillListeners.add(listener);
+    return () => drillListeners.delete(listener);
+}
+
+/** Ask the stats panel to expand and show this file's diff (the
+ *  transcript's turn-edit rows; the entry may come from a TURN diff —
+ *  the card's live resolution falls back to it when the workspace diff
+ *  no longer lists the file). */
+export function requestStatsFileDrill(file: WorkspaceDiffEntry): void {
+    drillRequest = file;
+    for (const listener of drillListeners) listener();
+}
+
+/** Clear the pending request (the card, once it has applied it). */
+export function clearStatsFileDrill(): void {
+    if (drillRequest === null) return;
+    drillRequest = null;
+    for (const listener of drillListeners) listener();
+}
+
+/** The pending drill request, if any; consumed by SessionStatsCard. */
+export function usePendingStatsFileDrill(): WorkspaceDiffEntry | null {
+    return useSyncExternalStore(subscribeDrill, () => drillRequest);
 }
