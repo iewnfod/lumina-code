@@ -1,10 +1,11 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {motion} from "framer-motion";
-import {ArrowLeft, Globe, ScanEye, Search, Trash2} from "lucide-react";
+import {ArrowLeft, Check, Copy, Globe, ScanEye, Search, Trash2} from "lucide-react";
 import {openPath, openUrl} from "@tauri-apps/plugin-opener";
 import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
 import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {useCopy} from "../../hooks/useCopy.ts";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
 import type {
@@ -27,6 +28,7 @@ import {
     freshConfigWithProvider,
     globalConfigTarget,
     mergeCustomProvider,
+    parseOAuthInstructions,
     providerModels,
     removeCustomProvider,
     type CustomProviderDef,
@@ -763,6 +765,13 @@ function ProviderDetail({
 }) {
     const colors = useColors();
     const t = useI18n();
+    const {copied, copy} = useCopy();
+    // Device-flow instructions of the PENDING attempt — the server embeds
+    // the verification code here (xAI/Grok, GitHub Copilot, OpenAI Codex;
+    // see parseOAuthInstructions). The browser asks the user to
+    // compare/enter that code, so it gets a prominent mono display + copy.
+    const oauthInstructions =
+        oauth?.status === "pending" ? parseOAuthInstructions(oauth.attempt.instructions ?? "") : null;
     const keyMethod = integration.methods.find((m): m is IntegrationKeyMethod => m.type === "key") ?? null;
     const oauthMethods = integration.methods.filter((m): m is IntegrationOAuthMethod => m.type === "oauth");
     const envMethod = integration.methods.find((m) => m.type === "env");
@@ -947,18 +956,59 @@ function ProviderDetail({
                                 </span>
                             </div>
                             {oauth.status === "pending" ? (
-                                <div className="flex items-center gap-2">
-                                    <Button
-                                        label={t["Open in browser"]}
+                                <>
+                                    {oauthInstructions?.code && (
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-[10px]" style={{color: colors.inactiveText}}>
+                                                {t["Verification code"]}
+                                            </span>
+                                            <div className="flex items-center gap-2">
+                                                <span
+                                                    className="font-mono font-semibold text-base tracking-[0.2em] select-text rounded-[var(--radius-sm)] px-2.5 py-1"
+                                                    style={{
+                                                        background: colors.recessedBg,
+                                                        border: `1px solid ${colors.glassBorder}`,
+                                                    }}
+                                                >
+                                                    {oauthInstructions.code}
+                                                </span>
+                                                <Hint label={copied ? t["Copied"] : t["Copy code"]}>
+                                                    <IconButton
+                                                        size={24}
+                                                        hoverOverlay={colors.hoverOverlay}
+                                                        activeOverlay={colors.activeOverlay}
+                                                        aria-label={t["Copy code"]}
+                                                        onClick={() => {
+                                                            void copy(oauthInstructions.code!);
+                                                        }}
+                                                    >
+                                                        {copied ? <Check size={13}/> : <Copy size={13}/>}
+                                                    </IconButton>
+                                                </Hint>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {oauthInstructions?.text && (
+                                        <p
+                                            className="text-[11px] leading-normal break-words"
+                                            style={{color: colors.inactiveText}}
+                                        >
+                                            {oauthInstructions.text}
+                                        </p>
+                                    )}
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            label={t["Open in browser"]}
 
-                                        onClick={() => {
-                                            openUrl(oauth.attempt.url).catch((e) => {
-                                                logWarn(`Failed to open OAuth URL: ${e}`).catch(() => {});
-                                            });
-                                        }}
-                                    />
-                                    <Button label={t["Cancel login"]} onClick={onCancelOAuth}/>
-                                </div>
+                                            onClick={() => {
+                                                openUrl(oauth.attempt.url).catch((e) => {
+                                                    logWarn(`Failed to open OAuth URL: ${e}`).catch(() => {});
+                                                });
+                                            }}
+                                        />
+                                        <Button label={t["Cancel login"]} onClick={onCancelOAuth}/>
+                                    </div>
+                                </>
                             ) : (
                                 <div>
                                     <Button

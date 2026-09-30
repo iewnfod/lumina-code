@@ -7,6 +7,7 @@ import {
     freshConfigWithProvider,
     globalConfigTarget,
     mergeCustomProvider,
+    parseOAuthInstructions,
     providerModels,
     removeCustomProvider,
 } from "./modelConfig.ts";
@@ -197,4 +198,30 @@ test("providerModels keeps only the provider's usable models, deduped and sorted
 test("providerModels is empty for unknown or inactive providers", () => {
     assert.deepEqual(providerModels([model("a", "a1")], "missing"), []);
     assert.deepEqual(providerModels([], "a"), []);
+});
+
+test("parseOAuthInstructions extracts the code from the xAI long form", () => {
+    const out = parseOAuthInstructions(
+        "Open https://auth.x.ai/activate on any device and enter code: WPWT-BMND",
+    );
+    assert.equal(out.code, "WPWT-BMND");
+    assert.equal(out.text, "Open https://auth.x.ai/activate on any device");
+});
+
+test("parseOAuthInstructions extracts the code from the bare Copilot/Codex form", () => {
+    assert.deepEqual(parseOAuthInstructions("Enter code: ABCD-1234"), {code: "ABCD-1234", text: ""});
+    assert.deepEqual(parseOAuthInstructions("Enter code: LN2C-XM7M-9QPA"), {code: "LN2C-XM7M-9QPA", text: ""});
+});
+
+test("parseOAuthInstructions passes code-less instructions through untouched", () => {
+    assert.deepEqual(
+        parseOAuthInstructions("Complete Snowflake sign-in in your browser."),
+        {code: null, text: "Complete Snowflake sign-in in your browser."},
+    );
+    assert.deepEqual(parseOAuthInstructions(""), {code: null, text: ""});
+    // A phrase without a code-like token after it is prose, not a code.
+    assert.deepEqual(
+        parseOAuthInstructions("Authorize Example in your browser. This window will close automatically."),
+        {code: null, text: "Authorize Example in your browser. This window will close automatically."},
+    );
 });

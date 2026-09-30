@@ -163,6 +163,8 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Authorization expired": "授权已过期",
     "Open in browser": "在浏览器中打开",
     "Cancel login": "取消登录",
+    "Verification code": "验证码",
+    "Copy code": "复制验证码",
     "Retry": "重试",
     "Cancel": "取消",
     "Add custom provider": "添加自定义供应商",

@@ -1347,7 +1347,16 @@ src/
     │                      #   catalog models + Off), saving through the
     │                      #   shared installer
     │                      #   (opencode/useLuminaTools.ts; plan_mode needs
-    │                      #   no configuration — always-on).
+    │                      #   no configuration — always-on). The OAuth
+    │                      #   PENDING block renders the attempt's
+    │                      #   `instructions` — device-code flows (xAI/Grok
+    │                      #   SuperGrok, GitHub Copilot, OpenAI Codex)
+    │                      #   embed the verification code the browser asks
+    │                      #   the user to compare/enter, so
+    │                      #   modelConfig.ts's parseOAuthInstructions
+    │                      #   (pure) splits it out for a prominent mono
+    │                      #   display + copy; code-less instructions
+    │                      #   (Snowflake etc.) show as a plain caption.
     ├── AboutSettings.tsx # About pane: centered identity hero (icon +
     │                      #   name + app version via getVersion), the
     │                      #   OpenCode server version as a key/value line,

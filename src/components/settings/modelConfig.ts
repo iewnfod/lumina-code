@@ -166,3 +166,32 @@ export function filterIntegrations(list: IntegrationInfo[], query: string): Inte
 function hasCredential(i: IntegrationInfo): boolean {
     return i.connections.some((c) => c.type === "credential");
 }
+
+/** Parsed view of an OAuth attempt's `instructions` string. `code` is the
+ * device-flow verification code when the instructions carry one; `text` is
+ * the human-facing remainder ("" when the whole string was just the code). */
+export interface ParsedOAuthInstructions {
+    code: string | null;
+    text: string;
+}
+
+/** Splits an OAuth attempt's server-authored `instructions` into the
+ * device-flow verification code (when present) and the remaining prose.
+ * The server (v2.0.11) builds these strings from a handful of templates:
+ *   xAI/Grok:        "Open https://… on any device and enter code: WPWT-BMND"
+ *   GitHub Copilot:  "Enter code: ABCD-1234"
+ *   OpenAI Codex:    "Enter code: XXX-XXX-XXX"
+ *   code-less flows: "Complete Snowflake sign-in in your browser."
+ * The code token is uppercase alnum (dashes allowed, 4–20 chars) right
+ * after an "enter code:" tail — matched case-insensitively on the phrase
+ * only, so the token itself stays verbatim for display/copy. */
+export function parseOAuthInstructions(instructions: string): ParsedOAuthInstructions {
+    const trimmed = instructions.trim();
+    // m[1] = prose head (lazy — the only way to reach the $ anchor is
+    // through the "enter code: TOKEN" tail), m[2] = the code token.
+    const m = /^(.*?)[,;:]?\s*(?:and\s+)?enter\s+code:\s*([A-Z0-9][A-Z0-9-]{2,18}[A-Z0-9])\s*$/i.exec(
+        trimmed,
+    );
+    if (!m) return {code: null, text: trimmed};
+    return {code: m[2], text: m[1].replace(/[,;:]$/, "").trim()};
+}

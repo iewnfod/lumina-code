@@ -166,6 +166,8 @@ const enUs = {
     "Authorization expired": "Authorization expired",
     "Open in browser": "Open in browser",
     "Cancel login": "Cancel login",
+    "Verification code": "Verification code",
+    "Copy code": "Copy code",
     "Retry": "Retry",
     "Cancel": "Cancel",
     "Add custom provider": "Add custom provider",
