@@ -777,6 +777,7 @@ function ProviderDetail({
     const envMethod = integration.methods.find((m) => m.type === "env");
     const credentials = integration.connections.filter((c) => c.type === "credential");
     const envConnections = integration.connections.filter((c) => c.type === "env");
+    const connected = credentials.length > 0 || envConnections.length > 0;
 
     const [key, setKey] = useState("");
     const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -828,7 +829,7 @@ function ProviderDetail({
             {/* Stored credentials. The FIRST entry is the active one — the
              * server moves the freshly connected/activated credential to
              * index 0 (no explicit active flag on the wire). */}
-            {(credentials.length > 0 || envConnections.length > 0) && (
+            {connected && (
                 <section className="flex flex-col gap-1.5">
                     {credentials.map((c, index) => c.type === "credential" && (
                         <div
@@ -1044,24 +1045,27 @@ function ProviderDetail({
 
             {/* Models — switch each model's visibility in the composer's
              * picker. The server only lists models for ACTIVE providers,
-             * so an unconnected one shows the connect hint instead. */}
-            <section className="flex flex-col gap-1.5">
-                <span className="text-xs font-medium">{t["Models"]}</span>
-                {models === null && !modelsFailed && (
-                    <p className="text-xs py-1" style={{color: colors.inactiveText}}>{t["Loading..."]}</p>
-                )}
-                {modelsFailed && (
-                    <p className="text-xs py-1" style={{color: colors.inactiveText}}>{t["Failed to load models"]}</p>
-                )}
-                {models !== null && models.length === 0 && (
-                    <p className="text-xs py-1" style={{color: colors.inactiveText}}>
-                        {t["Connect this provider to list its models"]}
-                    </p>
-                )}
-                {models?.map((m) => (
-                    <ModelToggleRow key={m.modelID} model={m}/>
-                ))}
-            </section>
+             * so an unconnected provider hides the section entirely
+             * (nothing to manage until a credential exists). */}
+            {connected && (
+                <section className="flex flex-col gap-1.5">
+                    <span className="text-xs font-medium">{t["Models"]}</span>
+                    {models === null && !modelsFailed && (
+                        <p className="text-xs py-1" style={{color: colors.inactiveText}}>{t["Loading..."]}</p>
+                    )}
+                    {modelsFailed && (
+                        <p className="text-xs py-1" style={{color: colors.inactiveText}}>{t["Failed to load models"]}</p>
+                    )}
+                    {models !== null && models.length === 0 && (
+                        <p className="text-xs py-1" style={{color: colors.inactiveText}}>
+                            {t["Connect this provider to list its models"]}
+                        </p>
+                    )}
+                    {models?.map((m) => (
+                        <ModelToggleRow key={m.modelID} model={m}/>
+                    ))}
+                </section>
+            )}
         </div>
     );
 }
