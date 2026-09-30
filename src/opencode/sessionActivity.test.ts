@@ -422,3 +422,53 @@ test("a completed work_submit marks the todos archived; a rejected one does not"
     // No work_submit at all → no report button.
     assert.equal(waiting.reportSubmitted, false);
 });
+
+// --- Restart recovery (frozen running gates; see GateContext) ---
+
+test("a plan_submit frozen running under agent build reads as approved", () => {
+    const frozen: ChatMessage[] = [
+        assistantMsg("m1", [planToolPart("t1", "plan_submit", submitInput("P", ["a", "b"]), "running")]),
+    ];
+    // Live gate / undecided orphan (agent plan, or agent unknown) → pending.
+    assert.equal(collectSessionTodos(frozen)!.pendingApproval, true);
+    assert.equal(collectSessionTodos(frozen, {agent: "plan"})!.pendingApproval, true);
+    // agent=build IS the approval — even though the part never settled.
+    const recovered = collectSessionTodos(frozen, {agent: "build"})!;
+    assert.equal(recovered.pendingApproval, false);
+    assert.deepEqual(
+        recovered.items.map((i) => [i.title, i.status]),
+        [["a", "pending"], ["b", "pending"]],
+    );
+    // The approval card follows the same rule (no pending decision).
+    assert.equal(planApprovalPending(frozen, {agent: "build"}), null);
+    assert.ok(planApprovalPending(frozen, {agent: "plan"}));
+});
+
+test("a locally recorded rejection ends a frozen running wait", () => {
+    const frozen: ChatMessage[] = [
+        assistantMsg("m1", [planToolPart("t1", "plan_submit", submitInput("P", ["a"]), "running")]),
+    ];
+    const decided = new Map([["t1", "rejected" as const]]);
+    assert.equal(planApprovalPending(frozen, {decided}), null);
+    assert.equal(collectSessionTodos(frozen, {decided}), null);
+    // A decision recorded for a DIFFERENT part changes nothing.
+    const other = new Map([["t9", "rejected" as const]]);
+    assert.ok(planApprovalPending(frozen, {decided: other}));
+});
+
+test("a locally recorded acceptance ends a frozen running work gate", () => {
+    const list: ChatMessage[] = [
+        assistantMsg("m1", [planToolPart("t1", "plan_submit", submitInput("P", ["a"]))]),
+        assistantMsg("m2", [planToolPart("c1", "task_complete", {title: "a"})]),
+        assistantMsg("m3", [planToolPart("w1", "work_submit", {report: "done"}, "running")]),
+    ];
+    assert.ok(workApprovalPending(list));
+    const accepted = new Map([["w1", "accepted" as const]]);
+    assert.equal(workApprovalPending(list, {decided: accepted}), null);
+    // The todos fold counts the recorded acceptance as archival…
+    assert.equal(collectSessionTodos(list, {decided: accepted})!.archived, true);
+    // …while a recorded rejection leaves the plan open for fixes.
+    const rejected = new Map([["w1", "rejected" as const]]);
+    assert.equal(workApprovalPending(list, {decided: rejected}), null);
+    assert.equal(collectSessionTodos(list, {decided: rejected})!.archived, false);
+});

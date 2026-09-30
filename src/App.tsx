@@ -501,6 +501,7 @@ function AppBody({
                                         sessionId={activeSession.id}
                                         directory={activeDirectory}
                                         busyIds={busyIds}
+                                        agent={effectiveAgent}
                                     />
                                 )}
                             </div>

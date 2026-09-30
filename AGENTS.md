@@ -212,6 +212,40 @@ src/
 │                          #   each new plan_submit/work_submit claim
 │                          #   supersedes older loops, which exit at
 │                          #   their next tick without touching disk.
+│                          #   RESTART ORPHANS (live-observed 2026-09-30,
+│                          #   opencode.db取证): the server persists a
+│                          #   tool part as running AT CALL START and
+│                          #   never settles it when the app dies
+│                          #   mid-gate — the part stays frozen running
+│                          #   in storage while its executor is gone.
+│                          #   Because "approved" IS the agent switch,
+│                          #   the folds on BOTH sides adopt agent-as-
+│                          #   truth: a plan_submit frozen running under
+│                          #   agent "build" counts as APPROVED
+│                          #   (planStateFromEntries' agentNow param —
+│                          #   todos read from the frozen part's input),
+│                          #   unblocking task_complete/plan_amend/
+│                          #   work_submit after recovery; under any
+│                          #   other agent it is a genuinely waiting (or
+│                          #   rejected) gate. The frontend twin:
+│                          #   sessionActivity.ts's GateContext. The
+│                          #   acceptance twin is the review MARKER
+│                          #   itself (durable on disk) + the session-
+│                          #   hook SWEEPER (sweepOrphanAcceptance): any
+│                          #   marker readable while the session holds
+│                          #   no live gate claim is by definition
+│                          #   unconsumed — the sweeper archives the
+│                          #   plan and clears it (fires on Lumina
+│                          #   Code's orphan-acceptance wake prompt;
+│                          #   hot-reload restarts kill the old
+│                          #   instance's executors the same way, so a
+│                          #   fresh instance's map cannot skip a marker
+│                          #   that still has an owner). The GUI's
+│                          #   recovery: ChatView renders the pending
+│                          #   card in INTERRUPTED mode when the session
+│                          #   is idle and delivers the verdict as a
+│                          #   WAKE PROMPT (switchAgent + sendPrompt) —
+│                          #   see gateDecisions.ts.
 │                          #   Task titles must be SHORT
 │                          #   (protocol text). Build then reports via
 │                          #   task_complete {title} under STRICT
@@ -556,7 +590,11 @@ src/
 │   │                      #   (planApprovalPending + workApprovalPending
 │   │                      #   — Route A's two gates; see
 │   │                      #   PlanApprovalCard / WorkReviewCard) — same
-│   │                      #   badge as questions.
+│   │                      #   badge as questions. Deliberately STATUS-ONLY
+│   │                      #   (no GateContext): a badge on a restart-
+│   │                      #   orphaned gate draws the user to the session
+│   │                      #   whose card waits in recovery mode — the card
+│   │                      #   site (ChatView) reads the full context.
 │   ├── sessionActivity.ts # Pure stats-card derivations from a session's messages:
 │   │                      #   background shells (tool-part metadata.shellID — only
 │   │                      #   background results carry it) with their completion
@@ -576,7 +614,13 @@ src/
 │   │                      #   advance it, a COMPLETED work_submit marks it archived
 │   │                      #   (terminal — acceptance happened); the FRONTEND MIRROR of
 │   │                      #   the plugin's planStateFromEntries fold — keep the two
-│   │                      #   in sync) +
+│   │                      #   in sync; the plan folds take an optional GATECONTEXT
+│   │                      #   {agent, decided} — RESTART RECOVERY: a part frozen
+│   │                      #   running under agent "build" reads as APPROVED (the
+│   │                      #   switch IS the approval, mirroring the plugin's
+│   │                      #   agentNow rule) and a locally recorded verdict
+│   │                      #   (gateDecisions.ts, partId-keyed) settles a frozen
+│   │                      #   gate the storage can't; payloads carry partId) +
 │   │                      #   findPlanSubmitInput (locates a pending request's plan
 │   │                      #   payload via its permission source part id, falling
 │   │                      #   back to the last plan_submit; a located-but-malformed
@@ -588,6 +632,19 @@ src/
 │   │                      #   work_submit twin — the pending ACCEPTANCE,
 │   │                      #   driving WorkReviewCard).
 │   │                      #   node-testable.
+│   ├── gateDecisions.ts # Locally recorded verdicts for RESTART-ORPHANED gate
+│   │                      #   parts (the plan workflow's second recovery pillar
+│   │                      #   beside agent-as-truth): a createPersistedStore
+│   │                      #   ("lumina-code:gate-decisions", session → partId →
+│   │                      #   "rejected"|"accepted") written by ChatView's
+│   │                      #   orphan decision handlers and read by the
+│   │                      #   sessionActivity folds via GateContext.decided, so
+│   │                      #   a decided card never resurfaces after another
+│   │                      #   restart. Plan APPROVALS need no record (the agent
+│   │                      #   switch is server-persisted); work ACCEPTANCES are
+│   │                      #   doubly durable as the review marker file. Entries
+│   │                      #   are deliberately never cleaned (rare, inert for
+│   │                      #   deleted sessions).
 │   ├── useSessionActivity.ts # Stats-card state, split by scope, both over
 │   │                      #   MODULE-LEVEL stores (the useSessionMessages
 │   │                      #   pattern): (1) the WORKSPACE DIFF — one entry
@@ -901,7 +958,20 @@ src/
     │   │                  #   WorkReviewCard (approve = write the
     │   │                  #   .lumina/review/<sessionID>.json marker the
     │   │                  #   blocked executor polls, which then ARCHIVES
-    │   │                  #   the plan; reject = interrupt). And the
+    │   │                  #   the plan; reject = interrupt). RESTART
+    │   │                  #   ORPHANS: while the session is IDLE a
+    │   │                  #   still-running gate part means its executor
+    │   │                  #   died with the app (frozen running in
+    │   │                  #   storage) — the cards render INTERRUPTED
+    │   │                  #   (warning line) and the decisions deliver
+    │   │                  #   the verdict as a WAKE PROMPT (approve:
+    │   │                  #   switchAgent + sendPrompt with the task
+    │   │                  #   list; reject: sendPrompt + gateDecisions
+    │   │                  #   record; work-accept also writes the marker
+    │   │                  #   for the plugin's sweeper and wakes the
+    │   │                  #   session into archival); a zombie work gate
+    │   │                  #   whose marker is already on disk is probed
+    │   │                  #   once and mirrored into the record. And the
     │   │                  #   EDIT-LAST-
     │   │                  #   MESSAGE state: editingMessageId +
     │   │                  #   lastEditableId (the last plain user
@@ -1013,6 +1083,9 @@ src/
     │   │                  #   plain @words plain; ASCII/CJK punctuation
     │   │                  #   closes a token. node-testable.
     │   ├── ActivityGroup.tsx # Folded run of tool calls / thoughts
+    │   │                  #   (a group whose running parts have no live run
+    │   │                  #   around them renders FROZEN — stop glyph, no
+    │   │                  #   spinner: a restart orphan, see ToolCard)
     │   ├── ThinkingBlock.tsx # Reasoning disclosure (live while streaming)
     │   ├── ToolCard.tsx   # One tool call as a FoldRow (detail/accent lines;
     │   │                  #   file-mutating tools expand to a git-diff view;
@@ -1025,7 +1098,14 @@ src/
     │   │                  #   output through the Markdown component as
     │   │                  #   prose; every other tool stays the plain mono
     │   │                  #   pre-wrap — verbatim output must never be
-    │   │                  #   mangled by a renderer)
+    │   │                  #   mangled by a renderer; FROZEN rendering — a
+    │   │                  #   running part on an idle session (its run died
+    │   │                  #   with the app; the server never settles orphan
+    │   │                  #   parts) shows the stop glyph + "已中断" detail
+    │   │                  #   suffix instead of pulsing forever, display-only
+    │   │                  #   — the parents derive it from the message-level
+    │   │                  #   streaming flag, which for a part-carrying
+    │   │                  #   message equals the session's busy state)
     │   ├── DiffViewBody.tsx # Shared @git-diff-view/react wrapper (Unified
     │   │                  #   mode, built-in lowlight highlighting keyed off
     │   │                  #   the file name, wrap, theme from SurfaceColors)

@@ -12,10 +12,12 @@ import Markdown from "./Markdown.tsx";
  * derives that pending state from the transcript (planApprovalPending)
  * and renders this card pinned above the composer. Approving switches
  * the session to build (the agent change is what the executor's poll
- * waits for — the model's next step already runs under build) and saves
- * the plan document (.lumina/plans/); rejecting interrupts the session,
- * which aborts the executor into a revision prompt. No "always" — every
- * submission asks fresh. Shows the plan DOCUMENT only — the task list
+ * waits for — the model's next step already runs under build); rejecting
+ * interrupts the session, which aborts the executor into a revision
+ * prompt. No "always" — every submission asks fresh. `interrupted` is
+ * the RESTART-ORPHAN variant: the session is idle (its executor died
+ * with the app), so the decision is delivered as a wake prompt — the
+ * warning line says so. Shows the plan DOCUMENT only — the task list
  * is not previewed here (it lives in the stats panel's Plan progress
  * section and the saved document's checklist appendix). A payload that
  * fails to parse is a malformed submission (rejection only) — kept as a
@@ -23,11 +25,15 @@ import Markdown from "./Markdown.tsx";
  */
 export const PlanApprovalCard = memo(function PlanApprovalCard({
     payload,
+    interrupted,
     onApprove,
     onReject,
 }: {
     /** The submitted plan, or null when unparseable. */
     payload: PlanSubmitPayload | null;
+    /** Restart orphan: the blocking executor is gone — the decision
+     * wakes the session instead of unblocking a live poll. */
+    interrupted: boolean;
     onApprove: () => void;
     onReject: () => void;
 }) {
@@ -42,6 +48,11 @@ export const PlanApprovalCard = memo(function PlanApprovalCard({
                 <ClipboardCheck size={15} className="shrink-0" style={{color: "var(--color-success)"}}/>
                 <span>{t["Approve plan"]}</span>
             </div>
+            {interrupted && (
+                <div className="pl-6 text-xs" style={{color: "var(--color-warning)"}}>
+                    {t["Approval wait interrupted"]}
+                </div>
+            )}
             {payload ? (
                 // The plan document renders as MARKDOWN (the shared
                 // .lum-md typography — this is a reading surface, not a

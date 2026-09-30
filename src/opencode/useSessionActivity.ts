@@ -8,11 +8,13 @@ import {
     collectSessionShells,
     collectSessionSubagents,
     collectSessionTodos,
+    type GateContext,
     mutationSignature,
     type SessionShellRef,
     type SessionSubagentRef,
     type SessionTodos,
 } from "./sessionActivity.ts";
+import {getGateDecisionsSnapshot, subscribeGateDecisions} from "./gateDecisions.ts";
 
 /** Debounce for diff re-pulls while a burst of edits streams in. */
 const DIFF_DEBOUNCE_MS = 800;
@@ -390,6 +392,10 @@ export function useSessionActivity(
     sessionId: string | null,
     busyIds: ReadonlySet<string>,
     directory: string | null,
+    /** The session's CURRENT agent — the plan fold's restart-recovery
+     * rule reads it (a plan_submit frozen running under "build" counts
+     * as approved; see sessionActivity's GateContext). */
+    agent: string | undefined,
 ): {
     /** The session's background shells (spawn order) with live state. */
     shells: (SessionShellRef & {running: boolean})[];
@@ -476,9 +482,22 @@ export function useSessionActivity(
     // lived outside it, so the flip to archived (work_submit completing)
     // returned the stale cached object and the chip stayed "awaiting
     // review" forever — the files were archived, the UI wasn't.
+    // The gate context (agent + locally recorded restart-recovery
+    // verdicts) keeps the panel coherent with the approval cards: a
+    // frozen running gate reads as approved once the agent switched to
+    // build, and a recorded verdict settles its chip (sessionActivity's
+    // GateContext).
+    const gateDecisions = useSyncExternalStore(subscribeGateDecisions, getGateDecisionsSnapshot);
+    const gateCtx = useMemo<GateContext>(
+        () => ({
+            agent,
+            decided: sessionId !== null ? new Map(Object.entries(gateDecisions[sessionId] ?? {})) : undefined,
+        }),
+        [agent, gateDecisions, sessionId],
+    );
     const todosCacheRef = useRef<{key: string; value: SessionTodos | null} | null>(null);
     const todos = useMemo(() => {
-        const derived = collectSessionTodos(messages as ChatMessage[]);
+        const derived = collectSessionTodos(messages as ChatMessage[], gateCtx);
         const key = derived
             ? `${derived.title}|${derived.pendingApproval ? "p" : ""}|${derived.archived ? "a" : ""}|${derived.reportSubmitted ? "r" : ""}|${derived.items
                   .map((i) => `${i.title}:${i.status}:${i.reason ?? ""}`)
@@ -487,7 +506,7 @@ export function useSessionActivity(
         if (todosCacheRef.current?.key === key) return todosCacheRef.current.value;
         todosCacheRef.current = {key, value: derived};
         return derived;
-    }, [messages]);
+    }, [messages, gateCtx]);
 
     return useMemo(
         () => ({shells, subagents, todos, stopShell: stopShellCb}),

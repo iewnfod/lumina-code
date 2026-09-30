@@ -138,9 +138,10 @@ export function useSessionActivityOf(
     sessionId: string,
     busyIds: ReadonlySet<string>,
     directory: string | null,
+    agent: string | undefined,
 ) {
     const {api, subscribe} = useConnection();
-    return useSessionActivity(api, subscribe, sessionId, busyIds, directory);
+    return useSessionActivity(api, subscribe, sessionId, busyIds, directory, agent);
 }
 
 /** Re-exported for the choreography's convenience: readiness lives with

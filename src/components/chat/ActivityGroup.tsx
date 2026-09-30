@@ -1,4 +1,4 @@
-import {AlertCircle, Loader2, Wrench} from "lucide-react";
+import {AlertCircle, CircleStop, Loader2, Wrench} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {ActivityEntry, ActivityPart} from "./messageParts.ts";
@@ -45,6 +45,13 @@ export default function ActivityGroup({
     const live = runLive || (livePart != null && parts.includes(livePart));
     const running = parts.some((p) => p.type === "tool" && p.state.status === "running");
     const errored = parts.some((p) => p.type === "tool" && p.state.status === "error");
+    // FROZEN: running parts with no live run around them — the run died
+    // with the app (the server persists parts as running at call start
+    // and never settles orphans; see ToolCard's frozen). A group in a
+    // live run always carries runLive or the livePart, so `live` doubles
+    // as the liveness test; a frozen group reads as stopped instead of
+    // spinning forever.
+    const frozen = running && !live;
     // Errored runs fold with the run like successful ones — the collapsed
     // row keeps the red icon, and the failed call inside shows its reason
     // on demand (it has already had its moment; see ToolCard).
@@ -59,7 +66,7 @@ export default function ActivityGroup({
     const bits: string[] = [];
     if (toolCount > 0) bits.push(`${toolCount} ${toolCount > 1 ? t["tool calls"] : t["tool call"]}`);
     if (thoughtCount > 0) bits.push(`${thoughtCount} ${thoughtCount > 1 ? t["thoughts"] : t["thought"]}`);
-    const label = running ? t["Working..."] : bits.join(" · ");
+    const label = running && !frozen ? t["Working..."] : bits.join(" · ");
     // Distinct tool names involved, e.g. "Edit · Shell · Grep".
     const names = [...new Set(
         parts.filter((p) => p.type === "tool").map((p) => toolDisplayName(p.name, t)),
@@ -67,13 +74,15 @@ export default function ActivityGroup({
 
     return (
         <FoldRow
-            icon={running
-                ? <Loader2 size={14} className="animate-spin" />
-                : errored
-                    ? <AlertCircle size={14} style={{color: "var(--color-danger)"}} />
-                    : <Wrench size={14} />}
+            icon={frozen
+                ? <CircleStop size={14} className="opacity-60" />
+                : running
+                    ? <Loader2 size={14} className="animate-spin" />
+                    : errored
+                        ? <AlertCircle size={14} style={{color: "var(--color-danger)"}} />
+                        : <Wrench size={14} />}
             title={label}
-            active={running}
+            active={running && !frozen}
             detail={names.length > 0 ? (
                 <span className="truncate">{names.join(" · ")}</span>
             ) : null}
@@ -90,7 +99,12 @@ export default function ActivityGroup({
                     ) : isSubagentTool(part.name) ? (
                         <SubagentCard key={part.id ?? key} part={part} />
                     ) : (
-                        <ToolCard key={part.id ?? key} part={part} directory={directory} />
+                        <ToolCard
+                            key={part.id ?? key}
+                            part={part}
+                            directory={directory}
+                            frozen={frozen && part.state.status === "running"}
+                        />
                     ),
                 )}
             </div>

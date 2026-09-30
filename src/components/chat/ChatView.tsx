@@ -1,12 +1,18 @@
-import {memo, useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
 import {warn as logWarn} from "@tauri-apps/plugin-log";
+import {debug as logDebug} from "@tauri-apps/plugin-log";
 import {useTranscriptScroll} from "../../hooks/useTranscriptScroll.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {usePendingRequests, useSessionData, useSessionTranscript} from "../../opencode/sessionDataContext.tsx";
 import {useSessionStopping} from "../../opencode/sessionStopping.ts";
-import {planApprovalPending, workApprovalPending} from "../../opencode/sessionActivity.ts";
+import {type GateContext, planApprovalPending, workApprovalPending} from "../../opencode/sessionActivity.ts";
+import {
+    getGateDecisionsSnapshot,
+    recordGateDecision,
+    subscribeGateDecisions,
+} from "../../opencode/gateDecisions.ts";
 import {divertAttachmentsForSend, modelAcceptsImages} from "../../opencode/visionAttachments.ts";
 import type {
     ChatMessage,
@@ -50,6 +56,25 @@ import {QuestionCard} from "./QuestionCard.tsx";
 
 /** How many transcript entries mount initially / per expansion. */
 const RENDER_LIMIT = 60;
+
+/** Wake prompts for restart-ORPHANED gates (see handlePlanDecision /
+ * handleWorkDecision): the blocked executor died with the app, so its
+ * result never reached the model — the user's verdict must arrive as a
+ * message. English protocol text, like the plugin's own (visible as a
+ * user bubble; it IS the user's instruction). */
+const PLAN_WAKE_APPROVE = (todos: string[]) =>
+    "(resume) This plan was APPROVED by the user — an app restart interrupted the approval wait, so the gate's result never reached you. " +
+    "Treat the plan as approved and continue: execute the tasks strictly in order and report each via task_complete with its EXACT title. Task list:\n" +
+    todos.map((t, i) => `${i + 1}. ${t}`).join("\n");
+const PLAN_WAKE_REJECT =
+    "(resume) This plan was REJECTED by the user (an app restart interrupted the approval wait). " +
+    "Do not execute it. Revise the plan and call plan_submit again.";
+const WORK_WAKE_ACCEPT =
+    "(resume) The completion report was ACCEPTED by the user (an app restart interrupted the wait) — the plan is complete and archival happens host-side. " +
+    "Acknowledge briefly and stop; no further work is needed.";
+const WORK_WAKE_REJECT =
+    "(resume) The completion report was REJECTED by the user (an app restart interrupted the wait). " +
+    "Fix the issues they report, then call work_submit again with an updated report.";
 
 const ChatView = memo(function ChatView({
     sessionId,
@@ -241,16 +266,34 @@ const ChatView = memo(function ChatView({
     // best-effort save of the plan document (the transcript keeps the
     // content whatever happens). Rejecting = interrupting the session,
     // which aborts the executor → it returns a revision prompt.
+    //
+    // RESTART ORPHANS: the server persists a tool part as "running" at
+    // call start and never settles it when the app dies mid-gate — after
+    // a restart the part is still running but its executor is GONE (no
+    // busy run), so the switch/interrupt the live path relies on finds
+    // nobody listening and the card would sit forever. The folds below
+    // take the agent + any LOCALLY RECORDED verdicts (gateDecisions.ts)
+    // so a decided orphan collapses; an undecided one renders the card
+    // in recovery mode (the !busy interrupted variant) whose decisions
+    // DELIVER the verdict as a wake prompt — the session resumes.
+    const gateDecisions = useSyncExternalStore(subscribeGateDecisions, getGateDecisionsSnapshot);
+    const gateCtx = useMemo<GateContext>(
+        () => ({
+            agent,
+            decided: new Map(Object.entries(gateDecisions[sessionId] ?? {})),
+        }),
+        [agent, gateDecisions, sessionId],
+    );
     const pendingPlan = useMemo(
-        () => planApprovalPending(messages as ChatMessage[]),
-        [messages],
+        () => planApprovalPending(messages as ChatMessage[], gateCtx),
+        [messages, gateCtx],
     );
     // The work-acceptance gate (Route A twin): the work_submit executor
     // blocks inside its call awaiting the user's VERDICT on the tested
     // work — a still-running part in the transcript is the pending card.
     const pendingWork = useMemo(
-        () => workApprovalPending(messages as ChatMessage[]),
-        [messages],
+        () => workApprovalPending(messages as ChatMessage[], gateCtx),
+        [messages, gateCtx],
     );
     // The tail's working dots stand down while a decision is pending —
     // a permission/question/plan-approval/work-acceptance card is the
@@ -260,6 +303,35 @@ const ChatView = memo(function ChatView({
     const handlePlanDecision = useCallback(
         (approve: boolean) => {
             if (!pendingPlan) return;
+            if (!busy) {
+                // Restart orphan: the blocked executor is gone — the
+                // verdict travels as a WAKE PROMPT (the model never saw
+                // the gate's result) and lands in the local record so
+                // the card collapses; the frozen part itself is
+                // unreadable forever, the folds interpret it.
+                if (approve) {
+                    snapToBottom();
+                    void (async () => {
+                        try {
+                            await api?.switchAgent(sessionId, "build");
+                        } catch (e) {
+                            logWarn(`Failed to switch agent for plan recovery: ${e}`).catch(() => {});
+                        }
+                        try {
+                            await api?.sendPrompt(sessionId, PLAN_WAKE_APPROVE(pendingPlan.todos));
+                        } catch (e) {
+                            logWarn(`Failed to wake the session after plan approval: ${e}`).catch(() => {});
+                        }
+                    })();
+                } else {
+                    recordGateDecision(sessionId, pendingPlan.partId, "rejected");
+                    snapToBottom();
+                    api?.sendPrompt(sessionId, PLAN_WAKE_REJECT).catch((e) => {
+                        logWarn(`Failed to wake the session after plan rejection: ${e}`).catch(() => {});
+                    });
+                }
+                return;
+            }
             if (!approve) {
                 void interrupt();
                 return;
@@ -272,7 +344,7 @@ const ChatView = memo(function ChatView({
             snapToBottom();
             void api?.switchAgent(sessionId, "build");
         },
-        [pendingPlan, api, sessionId, interrupt, snapToBottom],
+        [pendingPlan, api, sessionId, interrupt, snapToBottom, busy],
     );
 
     // The acceptance gate's decision: approval is DELIVERED as the marker
@@ -282,9 +354,35 @@ const ChatView = memo(function ChatView({
     // stale markers). A failed write keeps the card up (the executor is
     // still blocked) — the user can simply click again. Rejection is the
     // session interrupt, aborting the executor into a revision prompt.
+    // RESTART ORPHANS (!busy): the executor that would consume the
+    // marker (or react to the interrupt) is gone — record the verdict
+    // locally, still write the marker (the plugin's session-hook janitor
+    // archives on the next model call) and wake the session so the
+    // workflow closes.
     const handleWorkDecision = useCallback(
         (approve: boolean) => {
             if (!pendingWork) return;
+            if (!busy) {
+                recordGateDecision(sessionId, pendingWork.partId, approve ? "accepted" : "rejected");
+                snapToBottom();
+                if (!approve) {
+                    api?.sendPrompt(sessionId, WORK_WAKE_REJECT).catch((e) => {
+                        logWarn(`Failed to wake the session after work rejection: ${e}`).catch(() => {});
+                    });
+                    return;
+                }
+                if (!directory || !api) return;
+                api.writeTextFile(
+                    `${directory.replace(/\/+$/, "")}/.lumina/review/${sessionId}.json`,
+                    JSON.stringify({approved: true, at: new Date().toISOString()}),
+                ).catch((e) => {
+                    logWarn(`Failed to deliver the work-acceptance marker: ${e}`).catch(() => {});
+                });
+                api.sendPrompt(sessionId, WORK_WAKE_ACCEPT).catch((e) => {
+                    logWarn(`Failed to wake the session after work acceptance: ${e}`).catch(() => {});
+                });
+                return;
+            }
             if (!approve) {
                 void interrupt();
                 return;
@@ -298,8 +396,39 @@ const ChatView = memo(function ChatView({
                 logWarn(`Failed to deliver the work-acceptance marker: ${e}`).catch(() => {});
             });
         },
-        [pendingWork, directory, api, sessionId, interrupt, snapToBottom],
+        [pendingWork, directory, api, sessionId, interrupt, snapToBottom, busy],
     );
+
+    // Work-gate ZOMBIE probe: a work_submit frozen running whose
+    // acceptance marker is ALREADY on disk (delivered by an earlier
+    // run's decision — the executor that would have consumed it died
+    // with the app; the local record usually covers this, but it is a
+    // separate medium that can lag) must not re-render as a pending
+    // card. The marker is the acceptance protocol's durable truth
+    // (verified live: the nested relative path reads fine through
+    // api.readTextFile), so probe it once per orphaned gate and mirror
+    // an existing marker into the record. Read failures are treated as
+    // absence — on this server generation a MISSING directory 500s
+    // instead of 404ing, so "absent" is the normal outcome (a false
+    // absence merely keeps the recovery card up; the user decides
+    // again).
+    useEffect(() => {
+        if (!pendingWork || busy || !directory || !api) return;
+        if (gateCtx.decided?.has(pendingWork.partId)) return;
+        let cancelled = false;
+        api.readTextFile(directory.replace(/\/+$/, ""), `.lumina/review/${sessionId}.json`)
+            .then((raw) => {
+                if (!cancelled && raw !== null) {
+                    recordGateDecision(sessionId, pendingWork.partId, "accepted");
+                }
+            })
+            .catch((e) => {
+                logDebug(`Work-acceptance marker probe treated as absent: ${e}`).catch(() => {});
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [pendingWork, busy, directory, api, sessionId, gateCtx]);
 
     // Grow the render window / fetch an older page (both directions of
     // "earlier": in-memory tail first, then the server cursor).
@@ -384,12 +513,15 @@ const ChatView = memo(function ChatView({
                  * the plan_submit executor blocks on the user's decision
                  * (a still-running part in the transcript; see
                  * planApprovalPending). Collapses away in place once the
-                 * part settles. */}
+                 * part settles. The !busy variant is a RESTART ORPHAN:
+                 * the executor is gone, the card offers recovery (see
+                 * handlePlanDecision). */}
                 <ExitPresence present={pendingPlan !== null} exitMs={250} exit={{animation: "lum-row-exit"}}>
                     {(closing, bind) =>
                         (pendingPlan || closing) && (
                             <PlanApprovalCard
                                 payload={pendingPlan}
+                                interrupted={!busy}
                                 onApprove={() => handlePlanDecision(true)}
                                 onReject={() => handlePlanDecision(false)}
                                 {...bind}
@@ -401,12 +533,14 @@ const ChatView = memo(function ChatView({
                  * pinned here while the work_submit executor blocks on
                  * the user's verdict over the TESTED work (a still-running
                  * part; see workApprovalPending). Collapses away in place
-                 * once the part settles. */}
+                 * once the part settles; the !busy variant is a restart
+                 * orphan (see handleWorkDecision). */}
                 <ExitPresence present={pendingWork !== null} exitMs={250} exit={{animation: "lum-row-exit"}}>
                     {(closing, bind) =>
                         (pendingWork || closing) && (
                             <WorkReviewCard
                                 payload={pendingWork}
+                                interrupted={!busy}
                                 onApprove={() => handleWorkDecision(true)}
                                 onReject={() => handleWorkDecision(false)}
                                 {...bind}

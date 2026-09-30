@@ -1,6 +1,7 @@
 import {memo, useMemo, Fragment, type ReactNode, type RefObject} from "react";
 import {
     AlertCircle,
+    CircleStop,
     Hourglass,
 } from "lucide-react";
 import type {AssistantToolPart} from "../../opencode/types.ts";
@@ -291,10 +292,20 @@ function toolAccent(diff: DiffLine[] | null): ReactNode {
 const ToolCard = memo(function ToolCard({
     part,
     directory,
+    frozen = false,
 }: {
     part: AssistantToolPart;
     /** Session working directory — file paths inside it display relative. */
     directory?: string | null;
+    /** A RUNNING part on a session with no live run: its executor died
+     * with the app (the server persists parts as running at call start
+     * and never settles orphans — e.g. a tool that was waiting on a
+     * permission ask at close). Renders as interrupted instead of a
+     * forever-pulsing row; display-only, the plan/work gates recover
+     * through their cards. The parent derives it (a running part always
+     * lives in the un-completed message, where its message-level
+     * streaming flag already equals the session's busy state). */
+    frozen?: boolean;
 }) {
     const colors = useColors();
     const status = part.state.status;
@@ -310,19 +321,23 @@ const ToolCard = memo(function ToolCard({
         ERROR_DISCLOSURE_MS,
     );
     const {ref: outputScroll, onScroll: outputScrollHandler} =
-        useFollowBottom<HTMLDivElement>(status === "running");
+        useFollowBottom<HTMLDivElement>(status === "running" && !frozen);
 
     const t = useI18n();
     const {title, icon: Icon} = metaFor(part.name, t);
     // Running tools breathe (opacity pulse) on their own icon — same live
-    // cue as thinking's brain; pending waits quietly, errors go red.
-    const icon = status === "running"
-        ? <Icon size={14} className="animate-pulse" />
-        : status === "pending"
-            ? <Hourglass size={14} className="opacity-60" />
-            : status === "error"
-                ? <AlertCircle size={14} style={{color: "var(--color-danger)"}} />
-                : <Icon size={14} />;
+    // cue as thinking's brain; pending waits quietly, errors go red. A
+    // FROZEN running part (restart orphan) reads as stopped — quiet, not
+    // alarming: the run it belonged to is long gone.
+    const icon = frozen
+        ? <CircleStop size={14} className="opacity-60" />
+        : status === "running"
+            ? <Icon size={14} className="animate-pulse" />
+            : status === "pending"
+                ? <Hourglass size={14} className="opacity-60" />
+                : status === "error"
+                    ? <AlertCircle size={14} style={{color: "var(--color-danger)"}} />
+                    : <Icon size={14} />;
 
     const output = (part.state.content ?? [])
         .map((c) => c.text)
@@ -357,9 +372,18 @@ const ToolCard = memo(function ToolCard({
         <FoldRow
             icon={icon}
             title={title}
-            detail={toolDetail(part, directory, t)}
+            detail={
+                frozen ? (
+                    <>
+                        {toolDetail(part, directory, t)}
+                        <span className="opacity-55"> · {t["Interrupted"]}</span>
+                    </>
+                ) : (
+                    toolDetail(part, directory, t)
+                )
+            }
             accent={status === "error" ? null : toolAccent(diff)}
-            active={status === "running"}
+            active={status === "running" && !frozen}
             expanded={expanded}
             onToggle={toggle}
         >

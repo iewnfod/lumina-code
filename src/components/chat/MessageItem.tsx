@@ -477,7 +477,11 @@ function AssistantBlock({
                             ) : isSubagentTool(part.name) ? (
                                 <SubagentCard part={part} />
                             ) : (
-                                <ToolCard part={part} directory={directory} />
+                                <ToolCard
+                                    part={part}
+                                    directory={directory}
+                                    frozen={part.state.status === "running" && !streaming}
+                                />
                             )}
                         </div>
                     );

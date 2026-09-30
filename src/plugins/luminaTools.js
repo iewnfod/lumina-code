@@ -764,20 +764,76 @@ async function activePlansNote(ctx, sessionID) {
   );
 }
 
+/** The restart-orphan acceptance SWEEPER: an app restart can kill a
+ * work_submit executor AFTER the user's acceptance marker was written
+ * but BEFORE the executor consumed and archived it — the marker then
+ * sits on disk unconsumed forever and the plan directory never archives
+ * (the frontend mirrors the acceptance in its own record, but only the
+ * plugin can touch the disk archive). Runs from the session "context"
+ * hook, the same place activePlansNote resolves the session's own
+ * directory — it fires on the very wake prompt Lumina Code sends with
+ * an orphan acceptance, so convergence is immediate there and eventual
+ * everywhere else. Safety: a CURRENTLY claimed gate owns its marker
+ * channel (gateGenerations), and a marker readable while the session
+ * holds no claim is by definition unconsumed — a hot-reload restart
+ * kills the old instance's executors exactly like an app restart, so
+ * the fresh instance's map is empty and the claim check cannot skip a
+ * marker that still has an owner. Best-effort like every disk op here:
+ * failures log, clear the marker and leave the transcript as the
+ * record. Exported for node:test coverage alongside its siblings. */
+export async function sweepOrphanAcceptance(ctx, sessionID, agentNow) {
+  if (!sessionID) return;
+  if (gateGenerations.has(sessionID)) return; // a live gate owns the channel
+  const directory = await sessionDirectory(ctx, sessionID);
+  if (!directory) return;
+  const {fs, path} = await nodeApis();
+  const marker = reviewMarkerPath(path, directory, sessionID);
+  let raw;
+  try {
+    raw = await fs.promises.readFile(marker, "utf8");
+  } catch {
+    return; // no marker — nothing to sweep
+  }
+  let approved = false;
+  try {
+    approved = JSON.parse(raw)?.approved === true;
+  } catch {
+    // unparseable — cleared below without archiving
+  }
+  if (approved) {
+    const state = await derivePlanState(ctx, sessionID, agentNow);
+    const archived = await archiveTaskDirectory(directory, sessionID, state?.title ?? "plan").catch((e) => ({
+      error: String(e?.message ?? e),
+    }));
+    if (archived?.error) {
+      console.warn(`[lumina-tools] orphan-acceptance sweep could not archive: ${archived.error}`);
+    }
+  }
+  await fs.promises.rm(marker, {force: true}).catch(() => {});
+}
+
 // ---------------------------------------------------------------------------
 // Plan workflow: plan_submit / task_complete / plan_amend
 // ---------------------------------------------------------------------------
 // The plan-driven workflow: the plan agent submits a plan document + its
-// ordered task list for USER APPROVAL (a permission "ask" rule Lumina Code
-// writes into the config's agents.plan — approval unblocks the executor),
-// approval switches the session to build, and execution reports progress
-// strictly in order. Validation state is DERIVED FROM THE TRANSCRIPT on
-// every call (ctx.session.context): the last COMPLETED plan_submit part
-// defines the active list, subsequent completed task_complete/plan_amend
-// parts advance it — no plugin-side mutable state to lose on restart or
-// drift out of sync. Subagent child sessions scope themselves out for
-// free: their transcripts hold no plan_submit, so task_complete there
-// fails with "no approved plan".
+// ordered task list for USER APPROVAL (Route A: the executor itself blocks
+// in a poll gate — v2.0.11 has NO execution-time permission check for
+// plugin tools; approval ARRIVES as the agent switch to build), and
+// execution reports progress strictly in order. Validation state is
+// DERIVED FROM THE TRANSCRIPT on every call (ctx.session.context): the
+// last COMPLETED plan_submit part defines the active list, subsequent
+// completed task_complete/plan_amend parts advance it — no plugin-side
+// mutable state to lose on restart or drift out of sync. RESTART
+// RECOVERY (agent-as-truth): the server persists a tool part as
+// status "running" at call start and never settles it when the app dies
+// mid-gate — but "approved" IS the agent switch in this architecture,
+// so a plan_submit frozen running under agent "build" counts as
+// approved (the dead executor merely never settled the part; todos are
+// read from the frozen part's input). Under any other agent a running
+// gate is genuinely waiting (or was rejected) — no executable plan.
+// Subagent child sessions scope themselves out for free: their
+// transcripts hold no plan_submit, so task_complete there fails with
+// "no approved plan".
 
 /** Task titles are compared after this normalization — whitespace runs
  * collapse so wrapped/retyped copies still match, everything else
@@ -817,18 +873,21 @@ function applyTaskEvent(state, input) {
  * (observed {info, parts}; tool parts defensively read several spellings)
  * — same posture as replyText above. Returns null when the session has
  * no APPROVED plan (never submitted, or the last submission errored). */
-async function derivePlanState(ctx, sessionID) {
+/** Derive the session's plan state from its transcript. `agentNow` is the
+ * executor's own agent (context.agent) — the restart-recovery rule below
+ * needs it. */
+async function derivePlanState(ctx, sessionID, agentNow) {
   let messages;
   try {
     messages = await ctx.session.context({sessionID});
   } catch {
     return null;
   }
-  return planStateFromEntries(toolEntries(messages));
+  return planStateFromEntries(toolEntries(messages), agentNow);
 }
 
-/** Tool-call entries {name, input, ok} in transcript order — shared by
- * the state derivation above. */
+/** Tool-call entries {name, input, ok, running} in transcript order —
+ * shared by the state derivation above. */
 function toolEntries(messages) {
   const entries = [];
   for (const m of Array.isArray(messages) ? messages : []) {
@@ -842,6 +901,7 @@ function toolEntries(messages) {
         name: p.name ?? p.tool,
         input: state.input ?? p.input,
         ok: state.status === "completed" || state.status === "success",
+        running: state.status === "running" || state.status === "pending",
       });
     }
   }
@@ -849,12 +909,20 @@ function toolEntries(messages) {
 }
 
 /** The fold itself, over normalized entries — kept separate so the
- * frontend twin (sessionActivity.ts) mirrors the exact same semantics. */
-function planStateFromEntries(entries) {
+ * frontend twin (sessionActivity.ts) mirrors the exact same semantics.
+ * `agentNow` only feeds the restart-recovery rule: a plan_submit frozen
+ * RUNNING by an app restart counts as approved while the session runs
+ * under build (approval IS the agent switch — the executor's poll waits
+ * for exactly that; the dead executor merely never settled the part).
+ * Progress entries (task_complete/plan_amend/work_submit) still count
+ * only once COMPLETED — a running one is an in-flight call, not an
+ * event that happened. */
+export function planStateFromEntries(entries, agentNow) {
   let state = null;
   for (const e of entries) {
-    if (!e.ok || !e.input || typeof e.input !== "object") continue;
+    if (!e.input || typeof e.input !== "object") continue;
     if (e.name === "plan_submit") {
+      if (!e.ok && !(e.running && agentNow === "build")) continue;
       const todos = asStringArray(e.input.todos);
       if (typeof e.input.title === "string" && e.input.title.trim() && todos && todos.length > 0) {
         state = {
@@ -862,13 +930,15 @@ function planStateFromEntries(entries) {
           items: todos.map((t) => ({title: normalizeTitle(t), status: "pending"})),
         };
       }
+    } else if (!e.ok) {
+      continue; // progress events count only once completed
     } else if (e.name === "task_complete" && state) {
       applyTaskEvent(state, e.input);
     } else if (e.name === "work_submit" && state) {
       // A SUCCESSFUL work_submit means the user accepted the work and the
       // executor archived the plan — acceptance is terminal (a rejected
       // or timed-out submission errors the part and leaves the plan open).
-      if (e.ok) state.archived = true;
+      state.archived = true;
     } else if (e.name === "plan_amend" && state) {
       const todos = asStringArray(e.input.todos);
       if (todos) {
@@ -1007,9 +1077,11 @@ const planSubmit = {
       },
       options: {
         // Native tool like vision — see the codemode note there. The
-        // approval gate is the config's agents.plan permission "ask"
-        // rule (toolPluginConfig.ts): the executor below runs only
-        // AFTER the user approved.
+        // approval gate is Route A: the executor itself blocks in a
+        // poll loop (v2.0.11 has NO execution-time permission check
+        // for plugin tools — options.permission only filters tool
+        // VISIBILITY; asking is builtin-internal), with the agent
+        // switch to build as the approval signal.
         codemode: false,
       },
       execute: async (input, context) => {
@@ -1140,7 +1212,7 @@ const taskComplete = {
         if (input?.blocked && !(typeof input.reason === "string" && input.reason.trim())) {
           return {error: "a blocked task needs a 'reason'"};
         }
-        const state = await derivePlanState(ctx, context?.sessionID);
+        const state = await derivePlanState(ctx, context?.sessionID, context?.agent);
         if (!state) {
           return {error: "no approved plan in this session — a plan becomes executable only after plan_submit is approved"};
         }
@@ -1216,7 +1288,7 @@ const planAmend = {
         }
         const todos = asStringArray(input?.todos);
         if (!todos) return {error: "'todos' must be an array of task titles (empty allowed)"};
-        const state = await derivePlanState(ctx, context?.sessionID);
+        const state = await derivePlanState(ctx, context?.sessionID, context?.agent);
         if (!state) {
           return {error: "no approved plan in this session to amend"};
         }
@@ -1297,7 +1369,7 @@ const workSubmit = {
         const report = typeof input?.report === "string" ? input.report.trim() : "";
         if (!report) return {error: "'report' (the completion report markdown) is required"};
         const sessionID = context.sessionID;
-        const state = await derivePlanState(ctx, sessionID);
+        const state = await derivePlanState(ctx, sessionID, context?.agent);
         if (!state) {
           return {error: "no approved plan in this session"};
         }
@@ -1436,6 +1508,14 @@ export default {
           // agents (single-step, deny-all: the note would be inert noise
           // in their focused prompts).
           if (typeof event.agent === "string" && event.agent.startsWith("lumina-")) return;
+          // Restart-orphan acceptances converge HERE first (the sweep is
+          // what archives them) — before the note below so an archived
+          // plan doesn't advertise itself in the same call.
+          try {
+            await sweepOrphanAcceptance(ctx, event.sessionID, typeof event.agent === "string" ? event.agent : undefined);
+          } catch {
+            // best-effort convergence — never block the call
+          }
           try {
             const note = await activePlansNote(ctx, event.sessionID);
             if (note) event.system.push({type: "text", text: note});

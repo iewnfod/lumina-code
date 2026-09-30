@@ -50,7 +50,13 @@ const pendingFlagsListeners = new Set<() => void>();
 let pendingFlagsWired = false;
 
 /** Recompute one session's gate states from its message store entry
- * (called on every store notification for that session). */
+ * (called on every store notification for that session).
+ *
+ * Deliberately STATUS-ONLY (no agent / decision context): a badge on a
+ * RESTART-ORPHANED gate is wanted — it draws the user to the session
+ * whose card waits in recovery mode, and it clears when the frozen part
+ * finally stops reading as pending (the decision lands / a newer gate
+ * replaces it). The card site (ChatView) reads the full context. */
 function recomputePendingFlags(sessionId: string): void {
     const messages = peekSessionMessages(sessionId);
     if (!messages) return;

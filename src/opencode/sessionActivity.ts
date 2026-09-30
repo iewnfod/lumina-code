@@ -46,7 +46,9 @@ export interface SessionTodos {
     items: SessionTodoItem[];
     /** The defining plan_submit part is still unsettled — its approval
      * card is up (or was lost to a disconnect); the list shown is the
-     * PROPOSED one. */
+     * PROPOSED one. False once the agent switched to build (approval IS
+     * the switch — including the restart-recovery case where the part
+     * stays frozen running in storage). */
     pendingApproval: boolean;
     /** A successful work_submit followed the plan — the user ACCEPTED the
      * delivered work and the executor archived the plan. Terminal. */
@@ -100,6 +102,27 @@ function applyTodoEvent(items: SessionTodoItem[], input: Record<string, unknown>
     }
 }
 
+/** Context the transcript alone cannot provide to the gate folds —
+ * everything restart recovery needs beyond part status:
+ * - `agent`: the session's CURRENT agent. Approval in this architecture
+ *   IS the agent switch to build (the plugin executor's poll waits for
+ *   exactly that), so a plan_submit part frozen RUNNING by an app
+ *   restart (the server persists parts as running at call start and
+ *   never settles orphans) counts as APPROVED under "build" — mirroring
+ *   planStateFromEntries in the plugin source; keep the two in sync.
+ * - `decided`: locally recorded verdicts for parts whose executor died
+ *   in a restart (partId → decision), which outlive the frozen running
+ *   status in storage. Omitted/undefined agent ⇒ legacy status-only
+ *   reading (the sidebar badge keeps it deliberately — a badge on an
+ *   orphaned gate draws the user to the session). */
+export interface GateContext {
+    agent?: string;
+    decided?: ReadonlyMap<string, GateDecision>;
+}
+
+/** A locally recorded verdict for a restart-orphaned gate part. */
+export type GateDecision = "rejected" | "accepted";
+
 /**
  * The session's plan-workflow state: the LAST plan_submit tool part
  * defines the task list (status "error" = rejected submission → no
@@ -107,10 +130,12 @@ function applyTodoEvent(items: SessionTodoItem[], input: Record<string, unknown>
  * plan_amend part advances it. Rejected calls (mismatched titles, plan
  * amendments the executor refused) carry status "error" and never count.
  * pendingApproval marks a submission whose part hasn't settled yet — the
- * approval card is the live one. Mirrors planStateFromEntries in the
- * plugin source; keep the two in sync.
+ * approval card is the live one; under agent "build" the switch already
+ * happened, so even a frozen running submission counts as approved (see
+ * GateContext). Mirrors planStateFromEntries in the plugin source; keep
+ * the two in sync.
  */
-export function collectSessionTodos(list: ChatMessage[]): SessionTodos | null {
+export function collectSessionTodos(list: ChatMessage[], opts?: GateContext): SessionTodos | null {
     const parts = toolParts(list);
     let submitIdx = -1;
     for (let i = parts.length - 1; i >= 0; i--) {
@@ -122,6 +147,9 @@ export function collectSessionTodos(list: ChatMessage[]): SessionTodos | null {
     if (submitIdx < 0) return null;
     const submit = parts[submitIdx];
     if (submit.state.status === "error") return null;
+    // A locally recorded rejection ends the wait the same way a settled
+    // part would (the frozen running status in storage outlives it).
+    if (opts?.decided?.get(submit.id) === "rejected") return null;
     const input = inputRecord(submit);
     const title = input["title"];
     const planTodos = todoTitles(input);
@@ -138,7 +166,14 @@ export function collectSessionTodos(list: ChatMessage[]): SessionTodos | null {
         // attempt — the executor persists report.md before its gate, so
         // the document is viewable from the first call on.
         if (part.name === WORK_SUBMIT_TOOL) reportSubmitted = true;
-        if (part.state.status !== "completed") continue;
+        if (part.state.status !== "completed") {
+            // Restart recovery: a work_submit frozen running whose
+            // acceptance was recorded locally still counts as acceptance.
+            if (part.name === WORK_SUBMIT_TOOL && opts?.decided?.get(part.id) === "accepted") {
+                archived = true;
+            }
+            continue;
+        }
         const partInput = inputRecord(part);
         if (part.name === TASK_COMPLETE_TOOL) {
             applyTodoEvent(items, partInput);
@@ -161,7 +196,8 @@ export function collectSessionTodos(list: ChatMessage[]): SessionTodos | null {
     return {
         title: title.trim(),
         items,
-        pendingApproval: submit.state.status === "running" || submit.state.status === "pending",
+        pendingApproval:
+            (submit.state.status === "running" || submit.state.status === "pending") && opts?.agent !== "build",
         archived,
         reportSubmitted,
     };
@@ -169,6 +205,9 @@ export function collectSessionTodos(list: ChatMessage[]): SessionTodos | null {
 
 /** A validated plan_submit payload — what the approval card renders. */
 export interface PlanSubmitPayload {
+    /** The submitting tool part's id — restart-recovery verdicts are
+     * recorded against it (gateDecisions.ts). */
+    partId: string;
     title: string;
     plan: string;
     todos: string[];
@@ -189,7 +228,7 @@ function parsePlanSubmitPayload(part: AssistantToolPart): PlanSubmitPayload | nu
     ) {
         return null;
     }
-    return {title: title.trim(), plan, todos};
+    return {partId: part.id, title: title.trim(), plan, todos};
 }
 
 /**
@@ -226,28 +265,36 @@ export function findPlanSubmitInput(
  * BLOCKS inside the call until the user decides, so a running part IS a
  * pending decision. Null once the part settles (approval completed it;
  * rejection/timeout errored it) and when no submission exists.
+ * Restart recovery (GateContext): a part frozen running under agent
+ * "build" was approved (the switch IS the approval; the executor merely
+ * died before settling the part) and a locally recorded rejection ends
+ * the wait — both read as "no pending decision".
  */
-export function planApprovalPending(list: ChatMessage[]): PlanSubmitPayload | null {
+export function planApprovalPending(list: ChatMessage[], opts?: GateContext): PlanSubmitPayload | null {
     const parts = toolParts(list);
     for (let i = parts.length - 1; i >= 0; i--) {
         const part = parts[i];
         if (part.name !== PLAN_SUBMIT_TOOL) continue;
-        return part.state.status === "running" || part.state.status === "pending"
-            ? parsePlanSubmitPayload(part)
-            : null;
+        if (part.state.status !== "running" && part.state.status !== "pending") return null;
+        if (opts?.agent === "build") return null;
+        if (opts?.decided?.get(part.id) === "rejected") return null;
+        return parsePlanSubmitPayload(part);
     }
     return null;
 }
 
 /** A validated work_submit payload — what the acceptance card renders. */
 export interface WorkSubmitPayload {
+    /** The submitting tool part's id — restart-recovery verdicts are
+     * recorded against it (gateDecisions.ts). */
+    partId: string;
     report: string;
 }
 
 function parseWorkSubmitPayload(part: AssistantToolPart): WorkSubmitPayload | null {
     const report = inputRecord(part)["report"];
     if (typeof report !== "string" || !report.trim()) return null;
-    return {report};
+    return {partId: part.id, report};
 }
 
 /**
@@ -256,15 +303,19 @@ function parseWorkSubmitPayload(part: AssistantToolPart): WorkSubmitPayload | nu
  * while it is still unsettled — its executor blocks until the user has
  * tested the work (acceptance archives the plan; rejection returns it
  * for fixes). Null once the part settles and when no submission exists.
+ * Restart recovery (GateContext): a locally recorded verdict (accept or
+ * reject) ends the wait — the frozen running status in storage outlives
+ * the decision.
  */
-export function workApprovalPending(list: ChatMessage[]): WorkSubmitPayload | null {
+export function workApprovalPending(list: ChatMessage[], opts?: GateContext): WorkSubmitPayload | null {
     const parts = toolParts(list);
     for (let i = parts.length - 1; i >= 0; i--) {
         const part = parts[i];
         if (part.name !== WORK_SUBMIT_TOOL) continue;
-        return part.state.status === "running" || part.state.status === "pending"
-            ? parseWorkSubmitPayload(part)
-            : null;
+        if (part.state.status !== "running" && part.state.status !== "pending") return null;
+        const decision = opts?.decided?.get(part.id);
+        if (decision === "accepted" || decision === "rejected") return null;
+        return parseWorkSubmitPayload(part);
     }
     return null;
 }

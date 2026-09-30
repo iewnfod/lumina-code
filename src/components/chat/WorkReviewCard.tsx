@@ -15,17 +15,25 @@ import Markdown from "./Markdown.tsx";
  * above the composer. Approving writes the marker file the executor
  * polls (.lumina/review/{sessionID}.json — it then archives the plan
  * directory into .lumina/archived/); rejecting interrupts the session,
- * aborting the executor into a revision prompt. A payload that fails to
- * parse is a malformed submission (rejection only) — kept as a defensive
- * fallback since the executor validates before blocking.
+ * aborting the executor into a revision prompt. `interrupted` is the
+ * RESTART-ORPHAN variant: the session is idle (its executor died with
+ * the app), so the decision is recorded locally + delivered as a wake
+ * prompt, and the plugin's janitor archives on the next model call —
+ * the warning line says so. A payload that fails to parse is a
+ * malformed submission (rejection only) — kept as a defensive fallback
+ * since the executor validates before blocking.
  */
 export const WorkReviewCard = memo(function WorkReviewCard({
     payload,
+    interrupted,
     onApprove,
     onReject,
 }: {
     /** The submitted report, or null when unparseable. */
     payload: WorkSubmitPayload | null;
+    /** Restart orphan: the blocking executor is gone — the decision is
+     * recorded locally and wakes the session. */
+    interrupted: boolean;
     onApprove: () => void;
     onReject: () => void;
 }) {
@@ -39,6 +47,11 @@ export const WorkReviewCard = memo(function WorkReviewCard({
                 <BadgeCheck size={15} className="shrink-0" style={{color: "var(--color-success)"}}/>
                 <span>{t["Review work"]}</span>
             </div>
+            {interrupted && (
+                <div className="pl-6 text-xs" style={{color: "var(--color-warning)"}}>
+                    {t["Review wait interrupted"]}
+                </div>
+            )}
             {payload ? (
                 // The report renders as MARKDOWN (the shared .lum-md
                 // typography) in a viewport-proportional scroll area —

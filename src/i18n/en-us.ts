@@ -72,6 +72,7 @@ const enUs = {
     "Skill": "Skill",
     "Subagent": "Subagent",
     "Tool failed": "Tool failed",
+    "Interrupted": "interrupted",
     "Subagent failed": "Subagent failed",
     "Request failed": "Request failed",
     /** The tail's pending-stop label: stop pressed, run not yet unwound. */
@@ -222,6 +223,8 @@ const enUs = {
     "Approve": "Approve",
     "Invalid plan submission": "Invalid plan submission",
     "Waiting for approval": "Waiting for approval",
+    "Approval wait interrupted": "The wait was interrupted by an app restart — the original gate is gone. Approving resumes the session in build mode; rejecting asks for a revised plan.",
+    "Review wait interrupted": "The wait was interrupted by an app restart — the original gate is gone. Approving accepts and archives the work; rejecting asks for fixes and a new report.",
     "Blocked": "Blocked",
     "Work submission": "Work submission",
     "Review work": "Review work",

@@ -21,6 +21,7 @@ const WorkspaceStatsCard = memo(function WorkspaceStatsCard({
     sessionId,
     directory,
     busyIds,
+    agent,
 }: {
     /** The active session (terminals/subagents scope). */
     sessionId: string;
@@ -29,9 +30,13 @@ const WorkspaceStatsCard = memo(function WorkspaceStatsCard({
     /** Sessions with an execution in flight (ALL sessions — subagent
      *  children included; the stats card reads their running state). */
     busyIds: ReadonlySet<string>;
+    /** The active session's CURRENT agent — feeds the plan fold's
+     * restart-recovery rule (a frozen running gate under "build" reads
+     * as approved; see sessionActivity's GateContext). */
+    agent: string | undefined;
 }) {
     const {diff, diffLoading, diffTotals, refreshDiff} = useWorkspaceDiffOf(directory);
-    const {shells, subagents, todos, stopShell} = useSessionActivityOf(sessionId, busyIds, directory);
+    const {shells, subagents, todos, stopShell} = useSessionActivityOf(sessionId, busyIds, directory, agent);
 
     return (
         <SessionStatsCard

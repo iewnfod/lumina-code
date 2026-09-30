@@ -16,6 +16,7 @@ import {
     historyFileName,
     planDirName,
     planFileSlug,
+    planStateFromEntries,
 } from "./luminaTools.js";
 
 const NOW = new Date(2026, 8, 25, 14, 30); // 2026-09-25, local fields only
@@ -65,6 +66,91 @@ test("gate generations supersede older poll loops, scoped per session", () => {
     // Sessions are independent — a claim in one never fences another.
     assert.equal(gateIsCurrent("ses_b", second), false);
     assert.equal(gateIsCurrent("ses_b", claimGate("ses_b")), true);
+});
+
+// planStateFromEntries fixtures — entry shape as toolEntries produces it.
+const submit = (over = {}) => ({
+    name: "plan_submit",
+    input: {title: "Plan A", plan: "# Plan A", todos: ["first task", "second task"]},
+    ok: true,
+    running: false,
+    ...over,
+});
+const progress = (name, input, over = {}) => ({name, input, ok: true, running: false, ...over});
+
+test("planStateFromEntries: completed plan_submit defines the list, progress advances it", () => {
+    const state = planStateFromEntries([
+        submit(),
+        progress("task_complete", {title: "first task"}),
+        progress("task_complete", {title: "second task"}),
+        progress("work_submit", {report: "done"}),
+    ]);
+    assert.equal(state.title, "Plan A");
+    assert.deepEqual(
+        state.items.map((i) => i.status),
+        ["completed", "completed"],
+    );
+    assert.equal(state.archived, true);
+});
+
+test("planStateFromEntries: a plan_submit frozen running counts as approved only under agent build", () => {
+    const frozen = submit({ok: false, running: true});
+    // Live gate (agent plan) or undecided orphan: NOT an executable plan.
+    assert.equal(planStateFromEntries([frozen], "plan"), null);
+    assert.equal(planStateFromEntries([frozen], undefined), null);
+    // Restart recovery: agent=build is the approval itself — the frozen
+    // part's todos define the list.
+    const state = planStateFromEntries([frozen], "build");
+    assert.equal(state.title, "Plan A");
+    assert.deepEqual(
+        state.items.map((i) => i.status),
+        ["pending", "pending"],
+    );
+    // A rejected/errored part never counts, whatever the agent.
+    assert.equal(planStateFromEntries([submit({ok: false, running: false})], "build"), null);
+});
+
+test("planStateFromEntries: recovery accepts task_complete on a frozen-approved plan", () => {
+    const state = planStateFromEntries(
+        [
+            submit({ok: false, running: true}),
+            progress("task_complete", {title: "first task"}),
+        ],
+        "build",
+    );
+    assert.deepEqual(
+        state.items.map((i) => i.status),
+        ["completed", "pending"],
+    );
+    // Under agent plan the same transcript has no plan at all — the
+    // progress event finds no list and is ignored.
+    assert.equal(
+        planStateFromEntries(
+            [
+                submit({ok: false, running: true}),
+                progress("task_complete", {title: "first task"}),
+            ],
+            "plan",
+        ),
+        null,
+    );
+});
+
+test("planStateFromEntries: running progress events never count, only completed ones", () => {
+    const state = planStateFromEntries(
+        [
+            submit(),
+            progress("task_complete", {title: "first task"}, {ok: false, running: true}),
+            progress("task_complete", {title: "first task"}, {ok: false, running: false}),
+            progress("work_submit", {report: "x"}, {ok: false, running: true}),
+        ],
+        "build",
+    );
+    assert.deepEqual(
+        state.items.map((i) => i.status),
+        ["pending", "pending"],
+    );
+    assert.ok(!state.archived, "a running work_submit gate is not an acceptance");
 });
 
 test("composePlanDoc carries the anchor and the body verbatim (no added heading)", () => {
@@ -144,7 +230,7 @@ test("buildStoredZip computes known CRC-32 values", () => {
 import {mkdtemp, readdir, readFile, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {archiveTaskDirectory, writePlanSubmission, writeReportSubmission, writeTasksState} from "./luminaTools.js";
+import {archiveTaskDirectory, sweepOrphanAcceptance, writePlanSubmission, writeReportSubmission, writeTasksState} from "./luminaTools.js";
 
 async function withTempDir(fn) {
     const dir = await mkdtemp(join(tmpdir(), "lumina-plan-"));
@@ -267,5 +353,58 @@ test("archiveTaskDirectory zips the complete record and removes the directory", 
         await writeReportSubmission(root, "ses_b", "Plan X", "Again.");
         const again = await archiveTaskDirectory(root, "ses_b", "Plan X");
         assert.equal(again.zipName, "plan-x-2.zip");
+    });
+});
+
+test("sweepOrphanAcceptance archives on an unconsumed marker and never touches a claimed gate", async () => {
+    await withTempDir(async (root) => {
+        const sid = "ses_sweep";
+        // An approved plan on disk (submission + tasks.md + report).
+        await writePlanSubmission(root, sid, "Sweep Plan", "# body");
+        await writeTasksState(root, sid, {
+            title: "Sweep Plan",
+            items: [{title: "only", status: "completed"}],
+        });
+        await writeReportSubmission(root, sid, "Sweep Plan", "Done.");
+        // The acceptance marker a dead executor never consumed.
+        const {mkdir, writeFile} = await import("node:fs/promises");
+        await mkdir(join(root, ".lumina/review"), {recursive: true});
+        const marker = join(root, ".lumina/review", `${sid}.json`);
+        await writeFile(marker, JSON.stringify({approved: true, at: "2026-09-30T00:00:00Z"}));
+        // The fake host ctx: session.get resolves the directory, context
+        // returns the transcript the fold reads the title from.
+        const ctx = {
+            session: {
+                get: async () => ({location: {directory: root}}),
+                context: async () => [
+                    {
+                        parts: [
+                            {
+                                type: "tool",
+                                name: "plan_submit",
+                                state: {status: "completed", input: {title: "Sweep Plan", todos: ["only"]}},
+                            },
+                        ],
+                    },
+                ],
+            },
+        };
+
+        await sweepOrphanAcceptance(ctx, sid, "build");
+        // The plan archived and the marker consumed.
+        assert.equal((await readdir(join(root, ".lumina/archived"))).includes("sweep-plan.zip"), true);
+        assert.equal((await readdir(join(root, ".lumina/tasks"))).includes("sweep-plan"), false);
+        await assert.rejects(() => readFile(marker));
+
+        // With a LIVE gate claimed, the sweep leaves the channel alone:
+        // a fresh marker stays until the gate consumes it.
+        await writePlanSubmission(root, sid, "Sweep Plan", "# v2");
+        await writeFile(marker, JSON.stringify({approved: true}));
+        const gen = claimGate(sid);
+        await sweepOrphanAcceptance(ctx, sid, "build");
+        assert.ok(gateIsCurrent(sid, gen));
+        const tasks = await readdir(join(root, ".lumina/tasks"));
+        assert.equal(tasks.includes("sweep-plan"), true, "the claimed gate's directory was not archived");
+        await assert.doesNotReject(() => readFile(marker), "the claimed gate's marker was not consumed");
     });
 });
