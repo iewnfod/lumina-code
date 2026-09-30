@@ -4,9 +4,9 @@ import {Tooltip} from "@heroui/react";
 /**
  * THE hover-hint wrapper: a HeroUI tooltip around an existing element —
  * the single replacement for native `title` attributes (whose OS-drawn
- * tooltips don't follow the app's surface language). The HeroUI tooltip
- * base already pads the bubble on all four sides (p-2), so content stays
- * clear of the horizontal edges.
+ * tooltips don't follow the app's surface language). The .tooltip override
+ * in main.css pads the bubble (py 8px / px 6px), so content stays clear
+ * of the horizontal edges.
  *
  * A falsy `label` renders the child untouched — call sites gate the hint
  * on whether there is anything to say (a value that exists, a popover
@@ -29,7 +29,7 @@ export default function Hint({label, className, children}: {
                 {children}
             </Tooltip.Trigger>
             <Tooltip.Content>
-                <p className="text-xs px-2 max-w-64 break-words">{label}</p>
+                <p className="text-xs max-w-64 break-words">{label}</p>
             </Tooltip.Content>
         </Tooltip>
     );
