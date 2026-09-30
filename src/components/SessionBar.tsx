@@ -11,6 +11,7 @@ import {glassSurface} from "../lib/glass.ts";
 import {whileHoverTap} from "../lib/motion.ts";
 import {useI18n} from "../hooks/i18n.tsx";
 import {useScrollEdges} from "../hooks/useScrollEdges.ts";
+import {useSidebarResizing, useSidebarWidth} from "../hooks/useSidebarWidth.ts";
 import {groupByDirectory, type SessionInfo} from "./sessionGrouping.ts";
 import SessionFolder, {MAX_VISIBLE_SESSIONS} from "./SessionFolder.tsx";
 import type {CSSProperties} from "react";
@@ -24,7 +25,9 @@ import type {CSSProperties} from "react";
  *
  * The shell owns the folder state (which folders are collapsed, how far
  * each is expanded) and the ticking clock for relative ages; each group
- * renders through SessionFolder.
+ * renders through SessionFolder. The expanded width is the persisted
+ * sidebar-width store (hooks/useSidebarWidth.ts), resized by dragging the
+ * seam beside the bar (components/SidebarResizer.tsx).
  */
 
 interface SessionBarProps {
@@ -63,6 +66,14 @@ export default function SessionBar(props: SessionBarProps) {
     const colors = useSurfaceColors(backgroundColor);
     const {supportsGlass} = useGlass();
     const compositorBlur = useCompositorBlurActive();
+    // The expanded width comes from the sidebar-width module store (the
+    // resize seam in App sets it per pointermove — this subscription keeps
+    // the per-move re-renders inside the sidebar, AppBody never re-renders).
+    const sidebarWidth = useSidebarWidth();
+    // While the seam is being dragged the width transition must be OFF: a
+    // 400ms spring per pointermove would lag the pointer (rubber-banding).
+    // The transition stays for the collapse/expand animation otherwise.
+    const resizingSidebar = useSidebarResizing();
     // Conditional edge fades for the session list: content sits flush at
     // the top (px-1.5 only), so the fades must appear only while a side
     // actually has hidden content — a short list renders fade-free.
@@ -104,10 +115,14 @@ export default function SessionBar(props: SessionBarProps) {
 
     return (
         <div
-            className="flex flex-col h-full select-none transition-[width,min-width,opacity] duration-[var(--duration-slow)] ease-[var(--ease-spring)] overflow-hidden"
+            className={`flex flex-col h-full select-none overflow-hidden${
+                resizingSidebar
+                    ? ""
+                    : " transition-[width,min-width,opacity] duration-[var(--duration-slow)] ease-[var(--ease-spring)]"
+            }`}
             style={{
-                width: collapsed ? 0 : 240,
-                minWidth: collapsed ? 0 : 240,
+                width: collapsed ? 0 : sidebarWidth,
+                minWidth: collapsed ? 0 : sidebarWidth,
                 ...glass,
             }}
         >

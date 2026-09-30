@@ -853,6 +853,20 @@ src/
 │   │                      #   shadows): a persistedStore.ts store, default
 │   │                      #   on; the settings row is
 │   │                      #   Linux-only but App gates on isLinux() too.
+│   ├── useSidebarWidth.ts # The sidebar's expanded width — dragged via the
+│   │                      #   resize seam (components/SidebarResizer.tsx)
+│   │                      #   and persisted across restarts: a
+│   │                      #   persistedStore.ts store (absence = 240
+│   │                      #   default, clamped [200, 480]) that SessionBar
+│   │                      #   reads itself (the sessionStopping module-
+│   │                      #   store pattern — per-pointermove re-renders
+│   │                      #   stay inside the sidebar, AppBody never
+│   │                      #   re-renders). Also hosts the NOT-persisted
+│   │                      #   resizing flag (useSidebarResizing) that
+│   │                      #   suppresses SessionBar's width transition
+│   │                      #   mid-drag. node-testable (dynamic-import
+│   │                      #   pattern — the store reads localStorage at
+│   │                      #   module load).
 │   ├── useStatsPanelMode.ts # Session-activity panel expansion mode
 │   │                      #   ("auto" — mounts collapsed, outside click
 │   │                      #   / Escape collapse it; "always" — mounts
@@ -976,7 +990,23 @@ src/
     │                      #   through SessionFolder. Session-row hover
     │                      #   fires onSessionHover → App's
     │                      #   prefetchSessionActivity (warms the stats
-    │                      #   card's data before the click).
+    │                      #   card's data before the click). Expanded
+    │                      #   width comes from the sidebar-width store
+    │                      #   (useSidebarWidth) — transition suppressed
+    │                      #   while the seam is dragged.
+    ├── SidebarResizer.tsx # The drag seam between the sidebar and the
+    │                      #   conversation area: an invisible OVERLAY sash
+    │                      #   (VS Code style) absolutely positioned over the
+    │                      #   boundary in AppBody's root (left = stored width
+    │                      #   − overlap; .lum-sidebar-resizer in main.css
+    │                      #   sizes it and fades in a 2px hairline on
+    │                      #   hover/drag). Pointer-capture drag →
+    │                      #   setSidebarWidth per move; double-click resets
+    │                      #   to the default; mid-drag it raises the
+    │                      #   resizing flag + the body[data-lum-sidebar-
+    │                      #   resizing] attribute (kills text selection
+    │                      #   app-wide). Hint documents the double-click
+    │                      #   reset.
     ├── SessionTitle.tsx   # Single-line label: edge-fade truncation + a
     │                      #   hover-debounced HeroUI tooltip when overflowing.
     ├── SessionFolder.tsx  # One directory group: collapsible header (+/chevron),

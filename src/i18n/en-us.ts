@@ -8,6 +8,7 @@ const enUs = {
     "Other Sessions": "Other Sessions",
     "Show more": "Show more",
     "Show less": "Show less",
+    "Drag to resize; double-click to reset": "Drag to resize; double-click to reset",
     "Connecting to OpenCode...": "Connecting to OpenCode...",
     "Ask Lumina Code, use @ to add context, use / for commands": "Ask Lumina Code, use @ to add context, use / for commands",
     "Connection error": "Connection error",

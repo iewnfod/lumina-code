@@ -958,3 +958,54 @@ body {
     opacity: 0.6;
     margin-bottom: 0.5rem;
 }
+
+/*
+ * =====================================================================
+ * Sidebar resize seam (components/SidebarResizer.tsx).
+ *
+ * An invisible OVERLAY sash straddling the sidebar/conversation boundary:
+ * absolutely positioned inside AppBody's root (left is the dynamic
+ * sidebar width minus the overlap, set inline by the component), so the
+ * seam's resting look is unchanged. The 7px width is 2 × the component's
+ * RESIZER_OVERLAP (3) + 1 — keep the two in sync. The hairline is a
+ * centered rounded pseudo-element over the runtime glass border (the
+ * root-seeded --lum-glass-border), fading in on hover and staying for
+ * the whole drag.
+ * =====================================================================
+ */
+.lum-sidebar-resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 30;
+    width: 7px;
+    cursor: col-resize;
+    touch-action: none;
+}
+
+.lum-sidebar-resizer::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 2px;
+    border-radius: 9999px;
+    background: var(--lum-glass-border);
+    opacity: 0;
+    transition: opacity var(--duration-base) var(--ease-glass);
+}
+
+.lum-sidebar-resizer:hover::after,
+.lum-sidebar-resizer[data-active="true"]::after {
+    opacity: 1;
+}
+
+/* While a seam drag is in flight nothing in the app may start a text
+ * selection — the captured pointer would smear one across the transcript.
+ * The sash sets this attribute at drag start and clears it at release
+ * (plus its unmount cleanup). */
+body[data-lum-sidebar-resizing] {
+    user-select: none;
+}

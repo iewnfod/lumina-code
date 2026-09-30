@@ -4,6 +4,7 @@ import {getCurrentWindow} from "@tauri-apps/api/window";
 import {error} from "@tauri-apps/plugin-log";
 import TitleBar from "./components/TitleBar.tsx";
 import SessionBar from "./components/SessionBar.tsx";
+import SidebarResizer from "./components/SidebarResizer.tsx";
 import WelcomeScreen from "./components/WelcomeScreen.tsx";
 import ChatView from "./components/chat/ChatView.tsx";
 import WorkspaceStatsCard from "./components/stats/WorkspaceStatsCard.tsx";
@@ -554,6 +555,12 @@ function AppBody({
                     </MaskedSurface>
                 </div>
             </div>
+            {/* The drag seam between the sidebar and the conversation
+                area: an invisible overlay sash over the boundary — drag
+                to resize (persisted), double-click to reset. Rendered
+                AFTER the content column so its absolute box (main.css)
+                paints above it; hidden with the sidebar when collapsed. */}
+            <SidebarResizer collapsed={false}/>
             {/* The settings modal (title-bar gear; the model picker
                 deep-links to its Model tab). */}
             <SettingsModal
