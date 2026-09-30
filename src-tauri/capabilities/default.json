@@ -9,6 +9,7 @@
     "os:default",
     "log:default",
     "dialog:default",
+    "notification:default",
     "core:window:allow-minimize",
     "core:window:allow-maximize",
     "core:window:allow-unmaximize",

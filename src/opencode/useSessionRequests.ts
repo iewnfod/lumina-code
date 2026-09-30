@@ -82,6 +82,13 @@ function dropPendingFlags(sessionId: string): void {
     for (const listener of pendingFlagsListeners) listener();
 }
 
+/** Read-only peek at ONE session's gate flags (the desktop-notification
+ * composer asks WHICH attention kind just appeared; pendingCounts only
+ * carries counts). Same shape the badge pipeline folds. */
+export function peekGateFlags(sessionId: string): {plan: boolean; work: boolean} {
+    return pendingFlagsSnapshot.get(sessionId) ?? NO_FLAGS;
+}
+
 /** Install the message-store watcher once per app run. */
 function ensurePendingFlagsWiring(): void {
     if (pendingFlagsWired) return;

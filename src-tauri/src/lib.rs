@@ -1,4 +1,5 @@
 mod opencode;
+mod notify;
 mod system;
 
 use tauri_plugin_log::TargetKind;
@@ -48,10 +49,12 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(opencode::OpencodeState::default())
         .invoke_handler(tauri::generate_handler![
             system::is_wayland,
-            opencode::opencode_start
+            opencode::opencode_start,
+            notify::desktop_notify
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

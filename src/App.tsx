@@ -19,6 +19,7 @@ import {useThemePreference} from "./hooks/useThemePreference.ts";
 import {useSurfaceColors} from "./hooks/surfaceColors.ts";
 import {ColorsProvider, useColors} from "./hooks/colors.tsx";
 import {useWindowOutline} from "./hooks/useWindowOutline.ts";
+import {useNotifications} from "./hooks/useNotifications.ts";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {isLinux} from "./lib/platform.ts";
 import {appThemeFor, type ChromeTheme} from "./lib/theme.ts";
@@ -337,6 +338,12 @@ function AppBody({
     // into Plan Mode — must exist from the first prompt on). No-op once
     // current; failures only log.
     useLuminaToolsInstall();
+
+    // Desktop notifications (Settings → General → Notifications): watches
+    // run ends and user-attention events across every root session, gated
+    // by the stored mode + focus mute. Pure decisions live in
+    // opencode/notificationTriggers.ts.
+    useNotifications(activeId);
 
     // The settings modal: the title-bar gear opens it, and the model
     // picker's "Configure models…" deep-links to its Model tab. App owns

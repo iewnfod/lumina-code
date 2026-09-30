@@ -594,7 +594,11 @@ src/
 │   │                      #   (no GateContext): a badge on a restart-
 │   │                      #   orphaned gate draws the user to the session
 │   │                      #   whose card waits in recovery mode — the card
-│   │                      #   site (ChatView) reads the full context.
+│   │                      #   site (ChatView) reads the full context. Also
+│   │                      #   exports peekGateFlags (the plan/work flags'
+│   │                      #   read-only peek — the notification composer
+│   │                      #   asks WHICH attention kind appeared;
+│   │                      #   pendingCounts only carries counts).
 │   ├── sessionActivity.ts # Pure stats-card derivations from a session's messages:
 │   │                      #   background shells (tool-part metadata.shellID — only
 │   │                      #   background results carry it) with their completion
@@ -645,6 +649,20 @@ src/
 │   │                      #   doubly durable as the review marker file. Entries
 │   │                      #   are deliberately never cleaned (rare, inert for
 │   │                      #   deleted sessions).
+│   ├── notificationTriggers.ts # The desktop-notification DECISION layer (pure,
+│   │                      #   node-testable — hooks/useNotifications.ts owns
+│   │                      #   the subscribing/sending half): the three-tier
+│   │                      #   mode (off / minimal = run ends only / full =
+│   │                      #   run ends + every user-attention event), the
+│   │                      #   focus-mute rule (suppress only while the
+│   │                      #   window is focused AND the event belongs to
+│   │                      #   the OPEN session — background sessions still
+│   │                      #   notify), interrupted excluded BY TYPE (an
+│   │                      #   interrupt can only be user-initiated from
+│   │                      #   this window), attention-kind priority
+│   │                      #   (work > plan > question > permission) and
+│   │                      #   the i18n title keys + notifySubject (title →
+│   │                      #   folderLabel(directory) → "Lumina Code").
 │   ├── useSessionActivity.ts # Stats-card state, split by scope, both over
 │   │                      #   MODULE-LEVEL stores (the useSessionMessages
 │   │                      #   pattern): (1) the WORKSPACE DIFF — one entry
@@ -825,6 +843,40 @@ src/
 │   │                      #   per-model enable API, so this is client-side
 │   │                      #   only): a persistedStore.ts store, keys are
 │   │                      #   "providerID/modelID".
+│   ├── useNotificationMode.ts # The desktop-notification preference: a
+│   │                      #   persistedStore.ts store ("lumina-code:
+│   │                      #   notifications") holding {mode: off/minimal/
+│   │                      #   full, muteFocusedCurrent: boolean}, default
+│   │                      #   full + mute on, field-level read fallback,
+│   │                      #   defaults persist as absence. Consumed by the
+│   │                      #   General pane and re-read at EVENT time by
+│   │                      #   useNotifications (a change applies to the
+│   │                      #   very next notification).
+│   ├── useNotifications.ts # The desktop-notification SUBSCRIBING half,
+│   │                      #   mounted once in AppBody: run ends read
+│   │                      #   straight off the bus (succeeded/failed only —
+│   │                      #   the busy set's diff carries no reason),
+│   │                      #   root sessions only (execution events fire
+│   │                      #   for subagent/helper sessions too), fired
+│   │                      #   after a 1500ms delay cancelled by a restart
+│   │                      #   or a new ask in the same session; user
+│   │                      #   attention rides pendingCounts' 0→N
+│   │                      #   transitions (first snapshot = baseline, so
+│   │                      #   connect-time seeds never replay), kinds from
+│   │                      #   permissions/forms + peekGateFlags. Sending =
+│   │                      #   @tauri-apps/plugin-notification with one
+│   │                      #   OS-permission resolution per run (denied
+│   │                      #   latches with a warn; transient failures
+│   │                      #   retry next event); focus via
+│   │                      #   onFocusChanged into a ref. SENDING is
+│   │                      #   platform-split: Linux goes through the
+│   │                      #   persistent-connection desktop_notify
+│   │                      #   command (src-tauri/src/notify.rs) — the
+│   │                      #   plugin's per-send D-Bus connection gets
+│   │                      #   GNOME 46+ to DESTROY the app-attributed
+│   │                      #   source (sender bus name vanishes) with
+│   │                      #   banner AND tray entries, live-verified;
+│   │                      #   macOS/Windows keep the plugin.
 │   ├── useDragRegionDoubleClick.ts # capture-phase mousedown + explicit maximize toggle
 │   ├── useFollowBottom.ts # stream-follow stickiness for inner scroll regions;
 │   │                      #   also exposes top/bottom edge flags for the
@@ -1428,7 +1480,9 @@ src/
     │                      #   {open, tab} so entry points deep-link a tab.
     ├── GeneralSettings.tsx # Language + appearance rows, the
     │                      #   activity-panel mode OptionRow (auto
-    │                      #   collapse / always open), the
+    │                      #   collapse / always open), the desktop-
+    │                      #   notification tier OptionRow + focus-mute
+    │                      #   Switch (useNotificationMode), the
     │                      #   Linux-only window-outline Switch, and a Fonts section
     │                      #   (AboutSettings-style header; one control per
     │                      #   row — family input / size stepper — plus
@@ -1488,11 +1542,26 @@ frontend. `system.rs` plus the `opencode/` module:
 src-tauri/src/
 ├── main.rs        # entry, calls lib::run()
 ├── lib.rs         # Tauri builder: plugins (log → LogDir "lumina-code" + Webview
-│                  #   target, os, opener, dialog), Linux env workarounds set BEFORE
+│                  #   target, os, opener, dialog, notification), Linux env workarounds set BEFORE
 │                  #   GTK init (__NV_DISABLE_EXPLICIT_SYNC; GDK_DEBUG=gl-no-fractional
 │                  #   for Wayland fractional scaling), invoke_handler, and the Exit
 │                  #   hook that kills the owned server (opencode::shutdown).
 ├── system.rs      # is_wayland command (XDG_SESSION_TYPE, WAYLAND_DISPLAY fallback)
+├── notify.rs      # desktop_notify: the Linux notification sender over a
+│                  #   PERSISTENT zbus session connection (OnceLock, process
+│                  #   lifetime). tauri-plugin-notification/notify-rust drops
+│                  #   its per-send connection immediately, and GNOME 46+
+│                  #   destroys an app-attributed notification source the
+│                  #   moment its sender's bus name vanishes — our window
+│                  #   matches the sender pid, so every plugin notification
+│                  #   was annihilated (no banner, no tray entry;
+│                  #   live-verified against GNOME 50.5 via D-Bus monitor +
+│                  #   the extracted shell notificationDaemon source). The
+│                  #   app_name matches the installed desktop entry, earning
+│                  #   proper "Lumina Code" attribution + icon. Off-Linux the
+│                  #   command is a never-routed stub (the plugin serves
+│                  #   macOS/Windows); the zbus dep is Linux-gated (already
+│                  #   in the tree via notify-rust).
 └── opencode/      # OpenCode server lifecycle, split by concern:
     ├── mod.rs     # Orchestration: OpencodeState/OpencodeConnection types,
     │              #   the `opencode_start` command (spawn `opencode serve` with a

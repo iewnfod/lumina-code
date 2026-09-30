@@ -5,6 +5,7 @@ import {useColors} from "../../hooks/colors.tsx";
 import {useI18n, useLanguageChoice, setLanguage, type Language} from "../../hooks/i18n.tsx";
 import {setThemePreference, useThemePreference, type ThemePreference} from "../../hooks/useThemePreference.ts";
 import {setStatsPanelMode, useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
+import {setNotificationSettings, useNotificationSettings} from "../../hooks/useNotificationMode.ts";
 import {setWindowOutline, useWindowOutline} from "../../hooks/useWindowOutline.ts";
 import {setTypography, useTypography} from "../../hooks/useTypography.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
@@ -23,9 +24,10 @@ import Switch from "./Switch.tsx";
 import TextInput from "./TextInput.tsx";
 
 /**
- * The settings modal's General pane: language, appearance, the Linux
- * window outline, and a Typography section (one control per row — family
- * input, size stepper). Everything acts
+ * The settings modal's General pane: language, appearance, desktop
+ * notifications (three tiers + focus mute), the Linux window outline,
+ * and a Typography section (one control per row — family input, size
+ * stepper). Everything acts
  * immediately (module stores persist the choice and notify their
  * subscribers — the whole chrome re-renders through useI18n /
  * useThemePreference / useWindowOutline / useTypography), so there is no
@@ -135,6 +137,7 @@ export default function GeneralSettings() {
     const theme = useThemePreference();
     const outline = useWindowOutline();
     const panelMode = useStatsPanelMode();
+    const notifications = useNotificationSettings();
     const typography = useTypography();
 
     // Language names stay in their own language regardless of the active
@@ -153,6 +156,13 @@ export default function GeneralSettings() {
     const panelOptions = [
         {value: "auto", text: t["Auto collapse"]},
         {value: "always", text: t["Always open"]},
+    ];
+    // "Off" reuses the existing key (thinking depth's tier label); the
+    // tiers map onto NotificationMode verbatim.
+    const notifyOptions = [
+        {value: "off", text: t["Off"]},
+        {value: "minimal", text: t["Runs only"]},
+        {value: "full", text: t["Full"]},
     ];
 
     return (
@@ -198,6 +208,39 @@ export default function GeneralSettings() {
                         setStatsPanelMode(value === "always" ? "always" : "auto");
                     }}
                 />
+                {/* Desktop notifications: off / run ends only / run ends
+                    + every user-attention event (see
+                    opencode/notificationTriggers.ts for the tiers). */}
+                <OptionRow
+                    label={t["Notifications"]}
+                    description={t["When to show desktop notifications"]}
+                    options={notifyOptions}
+                    selected={notifications.mode}
+
+                    onSelect={(value) => {
+                        const mode = value === "off" || value === "minimal" ? value : "full";
+                        info(`Notification mode set to ${mode} from settings`).catch(() => {});
+                        setNotificationSettings({...notifications, mode});
+                    }}
+                />
+                {/* Focus mute sub-setting — only meaningful when
+                    notifications exist at all. */}
+                {notifications.mode !== "off" && (
+                    <SettingRow
+                        label={t["Mute when focused"]}
+                        description={t["Skip notifications for the open session while the window is focused"]}
+                    >
+                        <Switch
+                            checked={notifications.muteFocusedCurrent}
+
+                            label={notifications.muteFocusedCurrent ? t["Enabled"] : t["Disabled"]}
+                            onChange={(next) => {
+                                info(`Notification focus mute set to ${next} from settings`).catch(() => {});
+                                setNotificationSettings({...notifications, muteFocusedCurrent: next});
+                            }}
+                        />
+                    </SettingRow>
+                )}
                 {/* Linux-only: the outline exists to replace the compositor
                     shadow DEs like some wlroots setups don't draw — on
                     macOS/Windows it would be redundant chrome. App.tsx

@@ -81,6 +81,14 @@ export function resolvedLanguage(): Language {
     return choice.get() ?? system ?? "en-us";
 }
 
+/** The dictionary as it resolves RIGHT NOW, outside React render — the
+ *  desktop-notification composer fires from event handlers/timers and
+ *  needs the CURRENT text without a hook. Same cached table identity
+ *  useI18n() serves. */
+export function currentDictionary(): Record<TranslationKey, string> {
+    return resolveTable(choice.get() ?? system);
+}
+
 /** Switch language and persist the choice; null clears it back to
  *  follow-the-system. Never throws. */
 export function setLanguage(lang: Language | null): void {
