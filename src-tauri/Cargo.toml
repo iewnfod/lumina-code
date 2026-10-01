@@ -35,6 +35,12 @@ tauri-plugin-notification = "3.0.0-alpha.1"
 # 本地 vendored 副本只补了这一行 import，升级插件版本时优先移除此 patch。
 [patch.crates-io]
 tauri-plugin-dialog = { path = "vendor/tauri-plugin-dialog" }
+# lumina-code cef branch 本地补丁之二：Linux 下 CEF 浏览器的 X 子窗口吃掉全部
+# 按钮事件，gtk4-winit 的 drag_window 因 "requires a pointer button press"
+# 永远失败（上游 #14936，崩溃已修但拖动仍不可用）。补丁在 StartDragging 分发处
+# 直接发 EWMH _NET_WM_MOVERESIZE，详见 vendor 内 start_window_drag 的注释。
+# 升级 runtime 版本时优先检查上游是否已修，再决定保留或移除此 patch。
+tauri-runtime-cef = { path = "vendor/tauri-runtime-cef" }
 
 # The Linux notification sender's persistent D-Bus connection — see
 # src/notify.rs for why the plugin's per-send connection gets GNOME
