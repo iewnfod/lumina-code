@@ -59,10 +59,12 @@ jobs:
           - pkg: lumina-code-bin
             template: .aur/PKGBUILD
             asset_prefix: "Lumina.Code_"
-          # The CEF (Chromium) shell → Lumina.Code.CEF_<ver>_<arch>.deb.
+          # The CEF (Chromium) shell → "Lumina Code CEF_<ver>_<arch>.deb"
+          # (tauri v3's bundler KEEPS productName spaces in asset names,
+          # unlike the v2 webkit flavor's dots).
           - pkg: lumina-code-cef-bin
             template: .aur/PKGBUILD-cef
-            asset_prefix: "Lumina.Code.CEF_"
+            asset_prefix: "Lumina Code CEF_"
 
     steps:
       - name: Checkout

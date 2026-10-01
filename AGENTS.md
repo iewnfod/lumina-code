@@ -59,9 +59,12 @@ Mirrors lumina-terminal's pipeline (keep the two in sync when fixing one):
 - **ci-frontend.yml** — every push/PR: `pnpm test` + `pnpm build` on
   ubuntu-latest.
 - **ci-backend.yml** — every push/PR: `cargo check --locked` across
-  Linux/Windows/macOS. Fetches the host sidecar via
-  `node scripts/fetch-opencode.mjs` (tauri-build needs it even for check)
-  and drops a placeholder `dist/index.html` for `generate_context!`.
+  Linux/Windows/macOS for the webkit shell, PLUS a `check-cef` job (ubuntu,
+  gtk4 deps) for the CEF shell — the dual check keeps the single-source
+  shared modules compiling under both tauri majors. Fetches the host
+  sidecar (`LUMINA_BINARIES_DIR` for the CEF leg; tauri-build needs it even
+  for check) and drops a placeholder `dist/index.html` for
+  `generate_context!`.
 - **release.yml** — on a **published GitHub release** (or manual dispatch
   with a `tag` input): builds the 5-target matrix (linux amd64/arm64,
   windows x64, macos amd64/arm64), fetching the sidecar for the exact
@@ -1765,9 +1768,17 @@ dependency versions.
   `drag_window`; the patch sends the EWMH `_NET_WM_MOVERESIZE` message
   directly, see tauri-apps/tauri#14936).
 - Distinguishing the flavors: identifier `com.iewnfod.lumina-code-cef`
-  (own data + CEF profile dirs), productName `Lumina Code CEF` (assets,
-  desktop entry), `mainBinaryName lumina-code-cef` (parallel-installable
-  with the webkit package). The frontend detects the runtime via
+  (own data + CEF profile dirs), productName `Lumina Code CEF` (desktop
+  entry), `mainBinaryName lumina-code-cef` (parallel-installable with the
+  webkit package). **Asset naming differs by bundler generation**: the v2
+  webkit flavor dots the spaces (`Lumina.Code_0.3.0_amd64.deb`) while the
+  v3 CEF bundler keeps them (`Lumina Code CEF_0.3.0_amd64.deb`) — release
+  tooling matches per flavor, and PKGBUILD/spec source URLs use %20
+  escapes. The v3 deb layout also moves the main binary to
+  `/usr/share/Lumina Code CEF/` with a `/usr/bin` symlink, and its
+  `Depends` list is still the bundler's static gtk3 one although the binary
+  links only libgtk-4 (upstream alpha gap; AUR/COPR declare the real deps).
+  The frontend detects the runtime via
   `isCefRuntime()` (`lib/platform.ts`, Linux + Chrome UA) and adapts
   (window corners come from the WM, no glass chrome). One `dist/` serves
   both shells — the v2 npm `@tauri-apps/*` packages are protocol-compatible

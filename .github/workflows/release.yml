@@ -294,7 +294,7 @@ jobs:
           for flavor in webkit cef; do
             case "${flavor}" in
               webkit) prefix="Lumina.Code";   libdir="Lumina Code";     need_libcef=0 ;;
-              cef)    prefix="Lumina.Code.CEF"; libdir="Lumina Code CEF"; need_libcef=1 ;;
+              cef)    prefix="Lumina Code CEF"; libdir="Lumina Code CEF"; need_libcef=1 ;;
             esac
 
             for arch in amd64 arm64; do
