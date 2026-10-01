@@ -77,11 +77,12 @@ jobs:
           - project: lumina-code
             spec: .copr/lumina-code.spec
             asset_prefix: "Lumina.Code-"
-          # The CEF (Chromium) shell → "Lumina Code CEF-<ver>-1.<arch>.rpm"
-          # (tauri v3's bundler keeps productName spaces in asset names).
+          # The CEF (Chromium) shell → "Lumina.Code.CEF-<ver>-1.<arch>.rpm"
+          # (GitHub's release-asset upload dots the tauri v3 bundler's spaced
+          # local names — see aur.yml's CEF matrix entry).
           - project: lumina-code-cef
             spec: .copr/lumina-code-cef.spec
-            asset_prefix: "Lumina Code CEF-"
+            asset_prefix: "Lumina.Code.CEF-"
 
     steps:
       - name: Checkout

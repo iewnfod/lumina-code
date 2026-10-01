@@ -1770,11 +1770,14 @@ dependency versions.
 - Distinguishing the flavors: identifier `com.iewnfod.lumina-code-cef`
   (own data + CEF profile dirs), productName `Lumina Code CEF` (desktop
   entry), `mainBinaryName lumina-code-cef` (parallel-installable with the
-  webkit package). **Asset naming differs by bundler generation**: the v2
-  webkit flavor dots the spaces (`Lumina.Code_0.3.0_amd64.deb`) while the
-  v3 CEF bundler keeps them (`Lumina Code CEF_0.3.0_amd64.deb`) — release
-  tooling matches per flavor, and PKGBUILD/spec source URLs use %20
-  escapes. The v3 deb layout also moves the main binary to
+  webkit package). **Asset naming (live-observed v0.3.0)**: GitHub's
+  release-asset upload replaces spaces with dots, so BOTH flavors' remote
+  assets are dotted (`Lumina.Code_0.3.0_amd64.deb`,
+  `Lumina.Code.CEF_0.3.0_amd64.deb`) even though the tauri v3 bundler keeps
+  the spaces in the local filename — release tooling, PKGBUILD and spec all
+  match the DOTTED names (no %20 escapes), while the IN-PACKAGE paths keep
+  the spaces (`usr/lib/Lumina Code CEF/`). The v3 deb layout also moves
+  the main binary to
   `/usr/share/Lumina Code CEF/` with a `/usr/bin` symlink, and its
   `Depends` list is still the bundler's static gtk3 one although the binary
   links only libgtk-4 (upstream alpha gap; AUR/COPR declare the real deps).

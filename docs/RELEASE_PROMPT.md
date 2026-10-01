@@ -7,8 +7,9 @@
 每次发布都必须包含以下说明块（放在 Features 之后或专门的变体小节），因为
 Linux 用户会在 release 资产里看到两套包：
 
-- **CEF 变体（Linux，实验性）**：`Lumina Code CEF_*` 资产（注意：tauri v3
-  打包器保留 productName 空格，与 webkit 版的 `Lumina.Code_*` 点分命名不同）/
+- **CEF 变体（Linux，实验性）**：`Lumina.Code.CEF_*` 资产（注意：GitHub
+  release 上传会把资产文件名里的空格替换为点，两个变体的远端资产都是点分
+  命名）/
   `lumina-code-cef-bin`
   (AUR) / `lumina-code-cef` (COPR) 是内置 Chromium 渲染的变体 ——
   渲染性能与 Web API 兼容性显著更好，但底座是 tauri v3 alpha（实验性），

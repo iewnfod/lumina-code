@@ -260,8 +260,17 @@ jobs:
           fail=0
 
           # Both shipped flavors: the default webkit shell and the CEF shell.
-          # Asset prefixes / private lib dirs differ by productName; the CEF
-          # flavor additionally must carry the Chromium runtime (libcef.so).
+          # ASSET names are DOTTED for both ("Lumina.Code_*…",
+          # "Lumina.Code.CEF_*…"): GitHub's release-asset upload replaces
+          # spaces with dots, so even the tauri v3 bundler's spaced LOCAL
+          # filenames ("Lumina Code CEF_…") arrive dotted. Each flavor's
+          # globs are ANCHORED on the separator right after the dotted base
+          # so one flavor can never swallow the other's assets — a bare
+          # "Lumina.Code*amd64.deb" also matches "Lumina.Code.CEF_…_amd64.deb",
+          # which fed the CEF deb to the webkit checks on v0.3.0. The
+          # IN-PACKAGE paths (libdir) keep their spaces — only the asset
+          # filename is sanitized. The CEF flavor additionally must carry
+          # the Chromium runtime (libcef.so).
           verify_layout() {
             # $1 = label, $2 = listing with modes (one line per member),
             # $3 = private lib dir as it appears in the listing,
@@ -293,40 +302,54 @@ jobs:
 
           for flavor in webkit cef; do
             case "${flavor}" in
-              webkit) prefix="Lumina.Code";   libdir="Lumina Code";     need_libcef=0 ;;
-              cef)    prefix="Lumina Code CEF"; libdir="Lumina Code CEF"; need_libcef=1 ;;
+              webkit) deb_pre="Lumina.Code_";     rpm_pre="Lumina.Code-";     libdir="Lumina Code";     need_libcef=0 ;;
+              cef)    deb_pre="Lumina.Code.CEF_"; rpm_pre="Lumina.Code.CEF-"; libdir="Lumina Code CEF"; need_libcef=1 ;;
             esac
 
             for arch in amd64 arm64; do
+              # Non-fatal on a no-match (gh exits 1) — the glob resolution
+              # below turns a missing download into an explicit FAIL instead
+              # of pipefail killing the whole verification run.
               gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
-                --pattern "${prefix}*${arch}.deb" --dir "${work}" --clobber
+                --pattern "${deb_pre}*${arch}.deb" --dir "${work}" --clobber || true
               # The asset filename carries the APP version, which can differ
               # from the tag (republish suffixes like v0.1.2-2 vs assets named
               # ..._0.1.2_...) — resolve the downloaded file by glob instead
               # of computing the name from the tag.
               f=""
-              for candidate in "${work}/${prefix}"*"${arch}.deb"; do
+              for candidate in "${work}/${deb_pre}"*"${arch}.deb"; do
                 if [ -f "${candidate}" ]; then f="${candidate}"; break; fi
               done
               if [ -z "${f}" ]; then
-                echo "FAIL: no ${prefix}*${arch}.deb asset found on ${RELEASE_TAG}"
+                echo "FAIL: no ${deb_pre}*${arch}.deb asset found on ${RELEASE_TAG}"
                 fail=1
                 continue
               fi
               bsdtar -xOf "${f}" 'data.tar.*' | bsdtar -tvf - > "${work}/deb-${flavor}-${arch}.list"
               verify_layout "deb ${flavor} ${arch}" "${work}/deb-${flavor}-${arch}.list" "${libdir}" "${need_libcef}"
-              # Extract the sidecar for ELF/exec checks.
+              # Extract the sidecar for ELF/exec checks. Non-fatal on a
+              # missing member (the listing check above already FAILED it) —
+              # bsdtar's non-zero exit under pipefail would otherwise kill
+              # the script mid-run, like it did on the v0.3.0 run.
               bsdtar -xOf "${f}" 'data.tar.*' \
-                | bsdtar -xOf - "usr/lib/${libdir}/opencode" > "${work}/sidecar-${flavor}-${arch}"
+                | bsdtar -xOf - "usr/lib/${libdir}/opencode" \
+                > "${work}/sidecar-${flavor}-${arch}" || true
+              if [ ! -s "${work}/sidecar-${flavor}-${arch}" ]; then
+                echo "FAIL: deb ${flavor} ${arch} sidecar did not extract (missing member)"
+                fail=1
+                continue
+              fi
               magic="$(head -c4 "${work}/sidecar-${flavor}-${arch}" | od -An -tx1 | tr -d '[:space:]')"
               if [ "${magic}" != "7f454c46" ]; then
                 echo "FAIL: deb ${flavor} ${arch} sidecar is not an ELF (magic ${magic})"
                 fail=1
+                continue
               fi
-              # Only the runner-matching arch can actually execute here.
+              # Only the runner-matching arch can actually execute here;
+              # a failed exec must surface as a FAIL, not kill the script.
               if [ "${arch}" = "amd64" ]; then
                 chmod +x "${work}/sidecar-${flavor}-${arch}"
-                got="$("${work}/sidecar-${flavor}-${arch}" --version)"
+                got="$("${work}/sidecar-${flavor}-${arch}" --version 2>/dev/null || true)"
                 if [ "${got}" != "opencode v${pin}" ]; then
                   echo "FAIL: deb ${flavor} amd64 sidecar reports '${got}', expected 'opencode v${pin}'"
                   fail=1
@@ -337,16 +360,17 @@ jobs:
             done
 
             for arch in x86_64 aarch64; do
+              # Non-fatal on a no-match — see the deb loop above.
               gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
-                --pattern "${prefix}-*${arch}.rpm" --dir "${work}" --clobber
+                --pattern "${rpm_pre}*${arch}.rpm" --dir "${work}" --clobber || true
               # Same as the deb loop: resolve the downloaded file by glob —
               # the asset's embedded version may differ from the tag.
               f=""
-              for candidate in "${work}/${prefix}-"*"${arch}.rpm"; do
+              for candidate in "${work}/${rpm_pre}"*"${arch}.rpm"; do
                 if [ -f "${candidate}" ]; then f="${candidate}"; break; fi
               done
               if [ -z "${f}" ]; then
-                echo "FAIL: no ${prefix}-*${arch}.rpm asset found on ${RELEASE_TAG}"
+                echo "FAIL: no ${rpm_pre}*${arch}.rpm asset found on ${RELEASE_TAG}"
                 fail=1
                 continue
               fi
@@ -357,10 +381,11 @@ jobs:
           done
 
           # The webkit rpm legs extract + stat the sidecar (mode check beyond
-          # the listing) — kept from the original tripwire.
+          # the listing) — kept from the original tripwire. Non-fatal: a
+          # missing download must fall through to the [ ! -f ] FAIL below.
           d="${work}/rpm-webkit-x86_64"
           mkdir -p "${d}"
-          (cd "${d}" && bsdtar -xf "${work}/Lumina.Code-"*"x86_64.rpm")
+          (cd "${d}" && bsdtar -xf "${work}/Lumina.Code-"*"x86_64.rpm") || true
           if [ ! -f "${d}/usr/lib/Lumina Code/opencode" ]; then
             echo "FAIL: rpm webkit x86_64 extraction missing sidecar"
             fail=1

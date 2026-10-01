@@ -34,11 +34,11 @@ License:        MPL-2.0
 URL:            https://github.com/iewnfod/lumina-code
 # The URL's tag segment is the rendered ${TAG}, NOT "v%{version}":
 # republished releases carry a suffix in the tag (v0.1.2-2) while the assets
-# stay named after the plain app version. The asset names carry SPACES
-# (tauri v3's bundler keeps productName spaces, unlike the v2 dots), hence
-# the %20 escapes.
-Source0:        %{url}/releases/download/${TAG}/Lumina%20Code%20CEF-%{version}-1.x86_64.rpm
-Source1:        %{url}/releases/download/${TAG}/Lumina%20Code%20CEF-%{version}-1.aarch64.rpm
+# stay named after the plain app version. The asset names are DOTTED: the
+# tauri v3 bundler keeps productName spaces locally, but GitHub's
+# release-asset upload replaces them with dots.
+Source0:        %{url}/releases/download/${TAG}/Lumina.Code.CEF-%{version}-1.x86_64.rpm
+Source1:        %{url}/releases/download/${TAG}/Lumina.Code.CEF-%{version}-1.aarch64.rpm
 
 # Repacking needs no toolchain — just cpio to receive rpm2cpio's stream.
 BuildRequires:  cpio
