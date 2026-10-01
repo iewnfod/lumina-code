@@ -1723,10 +1723,16 @@ src-tauri/src/
     │              #   /api/session WITH auth (unknown routes serve the SPA HTML
     │              #   with HTTP 200, so the probe checks the body is JSON).
     └── reap.rs    # Orphan reaping: every spawn records
-                   #   <app_data>/servers/<pid>.txt (body = port) and later runs
-                   #   kill only provably-ours servers (cmdline check via /proc;
-                   #   dev rebuilds strand several — two servers sharing the
-                   #   user's storage cause transiently EMPTY provider reads).
+                   #   <app_data>/servers/<pid>.txt (body = port + the owning
+                   #   app pid; the two-line body makes OLDER builds discard
+                   #   instead of kill) and later runs kill only
+                   #   provably-ours servers (cmdline check via /proc) whose
+                   #   /proc PARENT is not a live app instance — the
+                   #   process-tree gate is format-independent, so a sibling
+                   #   window running ANY build keeps BOTH its server and its
+                   #   record and two app instances coexist; dev rebuilds
+                   #   strand several — two servers sharing the user's storage
+                   #   cause transiently EMPTY provider reads).
 ```
 
 ---
