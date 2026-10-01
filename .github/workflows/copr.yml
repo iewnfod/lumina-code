@@ -54,17 +54,6 @@ env:
   # the per-flavor project name lives in the job matrix below.
   COPR_OWNER: iewnfod
 
-env:
-  # COPR full name of the target project (<owner>/<project>). COPR_OWNER
-  # must be the Fedora Account username that owns the project.
-  COPR_OWNER: iewnfod
-  COPR_PROJECT: lumina-code
-
-env:
-  # COPR_OWNER must be the Fedora Account username that owns BOTH projects;
-  # the per-flavor project name lives in the job matrix below.
-  COPR_OWNER: iewnfod
-
 jobs:
   publish:
     runs-on: ubuntu-latest
