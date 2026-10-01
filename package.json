@@ -9,7 +9,10 @@
     "test": "node --test \"src/**/*.test.ts\" \"src/**/*.test.js\"",
     "preview": "vite preview",
     "tauri": "tauri",
+    "dev:cef": "pnpm --dir cef run dev",
+    "build:cef": "pnpm --dir cef run build",
     "fetch:opencode": "node scripts/fetch-opencode.mjs",
+    "fetch:opencode:cef": "LUMINA_BINARIES_DIR=cef/src-tauri/binaries node scripts/fetch-opencode.mjs",
     "gen:icons": "node scripts/gen-file-icons.mjs"
   },
   "dependencies": {

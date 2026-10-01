@@ -1,0 +1,61 @@
+[package]
+name = "lumina-code-cef"
+version = "0.3.0"
+description = "A Tauri App (CEF shell)"
+authors = ["you"]
+edition = "2021"
+
+# The CEF shell: the SAME backend modules as the webkit shell (../../src-tauri),
+# shared single-source via #[path] in src/lib.rs — they must compile under BOTH
+# tauri majors (CI checks both crates). This crate exists because CEF requires
+# the tauri v3 alpha line while the default shell stays on v2 stable.
+
+[lib]
+# The `_lib` suffix is necessary so the lib name doesn't conflict with the bin.
+# See https://github.com/rust-lang/cargo/issues/8519
+name = "lumina_code_cef_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "3.0.0-alpha.2", features = [] }
+
+[dependencies]
+tauri = { version = "3.0.0-alpha.3", features = ["devtools"] }
+# CEF (Chromium Embedded Framework) runtime — v3 unbundles the webview
+# runtime from tauri; the app picks one at the Builder. CEF runs gtk4 + X11
+# on Linux, so tauri-plugin-dialog must avoid its default gtk3 feature
+# (GTK 3 and GTK 4 cannot be initialized in the same process).
+tauri-runtime-cef = { version = "3.0.0-alpha.4", features = ["devtools"] }
+tauri-plugin-opener = "3.0.0-alpha.1"
+tauri-plugin-os = "3.0.0-alpha.1"
+tauri-plugin-log = "3.0.0-alpha.1"
+tauri-plugin-dialog = { version = "=3.0.0-alpha.1", default-features = false, features = ["xdg-portal"] }
+tauri-plugin-notification = "3.0.0-alpha.1"
+
+# The Linux notification sender's persistent D-Bus connection — see
+# ../../../src-tauri/src/notify.rs for why the plugin's per-send connection
+# gets GNOME notifications destroyed. Same rationale as the webkit shell.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = "5"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Local patches (both documented for upstream removal — see each vendor dir):
+# 1. tauri-plugin-dialog: the xdg-portal feature path is missing a
+#    `use tauri::Manager` (upstream CI only tests the default gtk3 feature).
+# 2. tauri-runtime-cef: Linux window dragging — the CEF browser's X child
+#    window consumes every button event, so gtk4-winit's drag_window always
+#    errors (tauri-apps/tauri#14936); the patch sends the EWMH
+#    _NET_WM_MOVERESIZE message directly (see vendor/*/src for details).
+[patch.crates-io]
+tauri-plugin-dialog = { path = "vendor/tauri-plugin-dialog" }
+tauri-runtime-cef = { path = "vendor/tauri-runtime-cef" }
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

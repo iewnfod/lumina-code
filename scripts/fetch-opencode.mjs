@@ -32,7 +32,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const BINARIES_DIR = join(REPO_ROOT, "src-tauri", "binaries");
+// LUMINA_BINARIES_DIR (repo-relative) redirects the output — the CEF shell
+// (cef/src-tauri) has its own binaries/ the bundler reads from. Default: the
+// webkit shell's src-tauri/binaries.
+const BINARIES_DIR = process.env.LUMINA_BINARIES_DIR
+  ? join(REPO_ROOT, process.env.LUMINA_BINARIES_DIR)
+  : join(REPO_ROOT, "src-tauri", "binaries");
 
 // Rust target triple (the externalBin filename suffix) → npm package target.
 const TRIPLE_TO_TARGET = {
