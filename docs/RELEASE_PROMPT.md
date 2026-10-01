@@ -2,6 +2,19 @@
 
 从 git tag `<上一个 tag>`（例如 v0.1.0）到当前 HEAD 生成一份 GitHub Release Note，遵循项目既定的标准格式。
 
+## 自 0.3.0 起的固定条目
+
+每次发布都必须包含以下说明块（放在 Features 之后或专门的变体小节），因为
+Linux 用户会在 release 资产里看到两套包：
+
+- **CEF 变体（Linux，实验性）**：`Lumina.Code.CEF_*` 资产 / `lumina-code-cef-bin`
+  (AUR) / `lumina-code-cef` (COPR) 是内置 Chromium 渲染的变体 ——
+  渲染性能与 Web API 兼容性显著更好，但底座是 tauri v3 alpha（实验性），
+  与 webkit 版可并行安装（数据目录隔离）。已知限制：无透明玻璃窗口
+  （走不透明 + WM 原生圆角）、窗口拖动依赖本地补丁（上游
+  tauri-apps/tauri#14936）、暂无 AppImage。默认 `Lumina.Code_*` 资产仍是
+  webkit 版，普通用户无需改变。
+
 ## 步骤
 
 1. 运行以下命令收集信息：
