@@ -582,8 +582,10 @@ function AppBody({
                 overlay (not border/outline) — no layout shift, follows the
                 rounded corners, and paints above the content which would
                 otherwise cover a container-edge line. Hidden when maximized
-                like the rounded frame above; toggleable in General settings. */}
-            {isLinux() && !isMaximized && outlineEnabled && (
+                like the rounded frame above; toggleable in General settings.
+                Not drawn under the CEF shell either — its window is opaque
+                with the WM's native corners (see the cef note above). */}
+            {isLinux() && !isCefRuntime() && !isMaximized && outlineEnabled && (
                 <div
                     aria-hidden
                     className="lum-enter absolute inset-0 rounded-[var(--radius-lg)] pointer-events-none"
