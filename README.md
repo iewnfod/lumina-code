@@ -32,12 +32,16 @@ dnf install lumina-code
 ### Conversation
 * Streaming transcript with collapsible reasoning and folded runs of tool calls
 * Every tool call is a card — shell, file edits with inline git diffs (multi-file patches included), reads, grep, web fetch/search, subagents…
-* Per-turn duration footers, plus a usage ring showing context-window share, token breakdown, cache hit rate and cost
+* Per-turn footers pair duration with an edit summary — files changed with +/− counts, one click drills into the diff
+* Usage ring showing context-window share, token breakdown, cache hit rate and cost
+* Click an attachment chip to preview it inline — images render, text and code files show as highlighted source
 
 ### Plan-first workflow
 * Ask for a plan: the assistant switches itself into plan mode and submits the plan for your approval — an approval card pins above the composer
 * Approving hands the same session over to build mode; rejecting sends it back for revision
-* The approved task checklist then tracks progress live (pending / in-progress / completed / blocked), and the plan is archived as markdown under `.lumina/plans/`
+* The approved task checklist then tracks progress live (pending / in-progress / completed / blocked)
+* When every task is done, the assistant submits a completion report: accept it to archive the plan or reject it to send the work back — acceptance is always your call, never the model's own claim
+* Plan documents live under `.lumina/tasks/` in the project (plan, report, checklist, versioned history); accepting archives them into `.lumina/archived/`
 
 ### Sessions & projects
 * Sidebar groups sessions by project directory, with busy dots, pending-answer badges and relative ages
@@ -52,13 +56,16 @@ dnf install lumina-code
 ### Staying in control
 * Permission cards for sensitive actions — shell commands, file edits, web access, folders outside the project — with allow-once / always-allow / reject
 * Server-asked questions rendered as answerable forms; stop a running turn at any time
+* Edit any earlier prompt: the conversation rewinds to it — file changes from the rewound turns are undone too — and the edited version is resent
+* Desktop notifications in three tiers (off / run ends only / every attention event), muted while you're watching the session that needs you
 
 ### Workspace activity panel
 * One panel beside the conversation: plan progress, the project's working-copy git diff (drill into per-file diffs), background terminals with live output, and subagents with their streaming transcripts
 
 ### Models & preferences
-* Connect providers via API key or browser OAuth; add custom OpenAI-compatible providers; hide models you don't use
+* Connect providers via API key or browser OAuth (device-flow verification codes shown in-app); add custom OpenAI-compatible providers; hide models you don't use
 * English / 简体中文 following the system, light & dark themes, custom interface and code fonts with independent sizes
+* On GNOME, join the Blur my Shell whitelist for a translucent window with real compositor blur; other desktops fall back to opaque automatically
 
 ## The bundled OpenCode server
 
@@ -77,13 +84,16 @@ pnpm tauri dev
 | Purpose | Command |
 | --- | --- |
 | Run the app | `pnpm tauri dev` |
+| Run the app (experimental CEF/Chromium shell, Linux) | `pnpm dev:cef` |
 | Typecheck + build frontend | `pnpm build` |
 | Unit tests (pure frontend logic) | `pnpm test` |
 | Release bundle | `pnpm tauri build` |
+| Release bundle (CEF shell) | `pnpm build:cef` |
 | Backend check | `cargo check --manifest-path src-tauri/Cargo.toml` |
 | Regenerate file-type icons | `pnpm gen:icons` |
 
-* `pnpm fetch:opencode` is a **prerequisite** for `tauri dev` / `tauri build`: Tauri's `externalBin` (`src-tauri/binaries/opencode`) must exist or the bundle step fails.
+* `pnpm fetch:opencode` is a **prerequisite** for `tauri dev` / `tauri build` — and even for `cargo check`: the server ships as a Tauri resource (`src-tauri/binaries/opencode`) that must exist or the build script fails.
+* The CEF shell is a second app crate (`cef/`) running the same frontend on Tauri v3 alpha with bundled Chromium — for Linux setups where WebKitGTK misbehaves. It needs the shared CEF distribution under `~/.local/share/cef/`.
 * Point dev at a different server binary: `OPENCODE_BIN=/path/to/opencode pnpm tauri dev`.
 * The server version is pinned in three places that must move together: `OPENCODE_VERSION` in `scripts/fetch-opencode.mjs`, `EXPECTED_OPENCODE_VERSION` in `src-tauri/src/opencode/mod.rs`, and the exact-pinned `@opencode-ai/sdk` in `package.json`.
 * See [AGENTS.md](./AGENTS.md) for the full architecture guide.
