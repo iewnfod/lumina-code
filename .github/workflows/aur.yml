@@ -39,14 +39,30 @@ on:
     # uses the latest workflow code — no stale-on-tag problem.
     types: [publish-aur]
 
-# Avoid two concurrent pushes racing the same AUR ssh:// git remote.
-concurrency:
-  group: aur-publish
-  cancel-in-progress: false
-
 jobs:
   publish:
     runs-on: ubuntu-latest
+
+    # One group PER package (the two flavors push to independent AUR repos;
+    # matrix context is only available at job level).
+    concurrency:
+      group: aur-publish-${{ matrix.pkg }}
+      cancel-in-progress: false
+
+    strategy:
+      # The two shipped flavors publish to independent AUR packages; one
+      # failing must not cancel the other.
+      fail-fast: false
+      matrix:
+        include:
+          # The default webkit shell → Lumina.Code_<ver>_<arch>.deb assets.
+          - pkg: lumina-code-bin
+            template: .aur/PKGBUILD
+            asset_prefix: "Lumina.Code_"
+          # The CEF (Chromium) shell → Lumina.Code.CEF_<ver>_<arch>.deb.
+          - pkg: lumina-code-cef-bin
+            template: .aur/PKGBUILD-cef
+            asset_prefix: "Lumina.Code.CEF_"
 
     steps:
       - name: Checkout
@@ -68,15 +84,16 @@ jobs:
           # NOT the tag: tags sometimes carry a republish suffix (e.g.
           # v0.1.2-2) while the app version inside the assets stays
           # "0.1.2" — deriving from the tag builds source URLs that 404.
-          # Parse the version out of the amd64 deb's asset name.
+          # Parse the version out of THIS flavor's amd64 deb asset name.
+          prefix="${{ matrix.asset_prefix }}"
           deb_name="$(gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" \
             --json assets \
-            --jq '[.assets[].name] | map(select(endswith("_amd64.deb"))) | first // empty')"
+            --jq "[.assets[].name] | map(select(startswith(\"${prefix}\") and endswith(\"_amd64.deb\"))) | first // empty")"
           if [[ -z "${deb_name}" ]]; then
-            echo "::error::release ${tag} has no *_amd64.deb asset" >&2
+            echo "::error::release ${tag} has no ${prefix}*_amd64.deb asset" >&2
             exit 1
           fi
-          ver="${deb_name#Lumina.Code_}"
+          ver="${deb_name#"${prefix}"}"
           ver="${ver%_amd64.deb}"
           {
             echo "tag=${tag}"
@@ -102,10 +119,11 @@ jobs:
           tag="${{ steps.rel.outputs.tag }}"
           pkgver="${{ steps.rel.outputs.pkgver }}"
 
-          # Map dpkg arch suffixes to the asset filenames the Release job produces.
+          # Map dpkg arch suffixes to this flavor's asset filenames.
+          prefix="${{ matrix.asset_prefix }}"
           declare -A assets=(
-            [amd64]="Lumina.Code_${pkgver}_amd64.deb"
-            [arm64]="Lumina.Code_${pkgver}_arm64.deb"
+            [amd64]="${prefix}${pkgver}_amd64.deb"
+            [arm64]="${prefix}${pkgver}_arm64.deb"
           )
 
           for darch in amd64 arm64; do
@@ -133,7 +151,7 @@ jobs:
           # update (0.1.2-2 ships options=(!strip) — makepkg's strip broke
           # the bun-compiled sidecar; 0.1.2-3 fixes the source URL tag).
           # Reset to "1" on the next version.
-          PKGREL: "3"
+          PKGREL: "1"
           SHA256_AMD64: ${{ steps.sums.outputs.SHA256_AMD64 }}
           SHA256_ARM64: ${{ steps.sums.outputs.SHA256_ARM64 }}
         run: |
@@ -143,7 +161,7 @@ jobs:
           # placeholders — $pkgver, $srcdir, ${source_*[0]} in the PKGBUILD
           # body are left intact for makepkg to interpret.
           envsubst '${PKGVER} ${PKGREL} ${TAG} ${SHA256_AMD64} ${SHA256_ARM64}' \
-            < .aur/PKGBUILD > out/PKGBUILD
+            < ${{ matrix.template }} > out/PKGBUILD
 
           echo "===== rendered out/PKGBUILD ====="
           cat out/PKGBUILD
@@ -192,7 +210,7 @@ jobs:
 
       - name: Clone or init AUR repo
         env:
-          PKG: lumina-code-bin
+          PKG: ${{ matrix.pkg }}
         run: |
           set -euo pipefail
           # `git clone` over the AUR ssh:// URL works for an existing
@@ -240,7 +258,7 @@ jobs:
 
       - name: Commit and push to AUR
         env:
-          PKG: lumina-code-bin
+          PKG: ${{ matrix.pkg }}
         run: |
           set -euo pipefail
           cp out/PKGBUILD aur/PKGBUILD

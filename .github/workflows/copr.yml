@@ -23,9 +23,11 @@ name: Publish to COPR
 #
 # One-time manual setup (repo owner):
 #   1. Sign in at copr.fedorainfracloud.org with a Fedora Account (FAS).
-#   2. Create a project matching COPR_OWNER/COPR_PROJECT below and enable
+#   2. Create a project matching the matrix entries below (lumina-code and
+#      lumina-code-cef) and enable
 #      chroots. Fedora x86_64 + aarch64 are safe. Avoid EPEL chroots unless
-#      they ship `webkit2gtk4.1` — the binary links libwebkit2gtk-4.1.so.0.
+#      they ship `webkit2gtk4.1` — the webkit binary links
+#      libwebkit2gtk-4.1.so.0 (the CEF flavor links gtk4 instead).
 #   3. Generate an API token at copr.fedorainfracloud.org/api/ and store the
 #      WHOLE ini page as the repo secret COPR_CONFIG.
 #
@@ -47,11 +49,10 @@ on:
     # uses the latest workflow code — no stale-on-tag problem.
     types: [publish-copr]
 
-# A COPR project resolves one package; two concurrent submissions of the
-# same SRPM would only race the project's build queue.
-concurrency:
-  group: copr-publish
-  cancel-in-progress: false
+env:
+  # COPR_OWNER must be the Fedora Account username that owns BOTH projects;
+  # the per-flavor project name lives in the job matrix below.
+  COPR_OWNER: iewnfod
 
 env:
   # COPR full name of the target project (<owner>/<project>). COPR_OWNER
@@ -59,12 +60,39 @@ env:
   COPR_OWNER: iewnfod
   COPR_PROJECT: lumina-code
 
+env:
+  # COPR_OWNER must be the Fedora Account username that owns BOTH projects;
+  # the per-flavor project name lives in the job matrix below.
+  COPR_OWNER: iewnfod
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
+
+    # One group PER project — the two flavors submit to independent COPR
+    # projects (matrix context is only available at job level).
+    concurrency:
+      group: copr-publish-${{ matrix.project }}
+      cancel-in-progress: false
+
+    strategy:
+      # The two shipped flavors publish to independent COPR projects; one
+      # failing must not cancel the other.
+      fail-fast: false
+      matrix:
+        include:
+          # The default webkit shell → Lumina.Code-<ver>-1.<arch>.rpm assets.
+          - project: lumina-code
+            spec: .copr/lumina-code.spec
+            asset_prefix: "Lumina.Code-"
+          # The CEF (Chromium) shell → Lumina.Code.CEF-<ver>-1.<arch>.rpm.
+          - project: lumina-code-cef
+            spec: .copr/lumina-code-cef.spec
+            asset_prefix: "Lumina.Code.CEF-"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -89,15 +117,16 @@ jobs:
           # the tag: tags sometimes carry a republish suffix (e.g.
           # v0.1.2-2) while the app version inside the assets stays
           # "0.1.2" — deriving from the tag builds Source URLs that 404.
-          # Parse the version out of the x86_64 rpm's asset name.
+          # Parse the version out of THIS flavor's x86_64 rpm asset name.
+          prefix="${{ matrix.asset_prefix }}"
           rpm_name="$(gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" \
             --json assets \
-            --jq '[.assets[].name] | map(select(endswith(".x86_64.rpm"))) | first // empty')"
+            --jq "[.assets[].name] | map(select(startswith(\"${prefix}\") and endswith(\".x86_64.rpm\"))) | first // empty")"
           if [[ -z "${rpm_name}" ]]; then
-            echo "::error::release ${tag} has no *.x86_64.rpm asset" >&2
+            echo "::error::release ${tag} has no ${prefix}*.x86_64.rpm asset" >&2
             exit 1
           fi
-          ver="${rpm_name#Lumina.Code-}"
+          ver="${rpm_name#"${prefix}"}"
           ver="${ver%-1.x86_64.rpm}"
           {
             echo "tag=${tag}"
@@ -118,8 +147,9 @@ jobs:
           set -euo pipefail
           mkdir -p assets
           tag="${{ steps.rel.outputs.tag }}"
+          prefix="${{ matrix.asset_prefix }}"
           for arch in x86_64 aarch64; do
-            name="Lumina.Code-${{ steps.rel.outputs.pkgver }}-1.${arch}.rpm"
+            name="${prefix}${{ steps.rel.outputs.pkgver }}-1.${arch}.rpm"
             gh release download "${tag}" \
               --repo "${{ github.repository }}" \
               --pattern "${name}" \
@@ -141,7 +171,7 @@ jobs:
           # placeholders — %{version}, %{buildroot}, %{SOURCE0} etc. are left
           # intact for rpmbuild to expand.
           envsubst '${VERSION} ${TAG}' \
-            < .copr/lumina-code.spec > out/lumina-code.spec
+            < ${{ matrix.spec }} > out/${{ matrix.project }}.spec
 
           # Append a %changelog entry for this release; rpmbuild warns
           # without one, and the real history lives on the releases page.
@@ -152,10 +182,10 @@ jobs:
             echo "%changelog"
             echo "* $(LC_ALL=C date '+%a %b %d %Y') COPR Automation <noreply@copr.fedorainfracloud.org> - ${VERSION}-1"
             echo "- Automatic build of Lumina Code ${VERSION} from the upstream release."
-          } >> out/lumina-code.spec
+          } >> out/${{ matrix.project }}.spec
 
-          echo "===== rendered out/lumina-code.spec ====="
-          cat out/lumina-code.spec
+          echo "===== rendered out/${{ matrix.project }}.spec ====="
+          cat out/${{ matrix.project }}.spec
 
       # Ubuntu ships the rpm toolchain in apt; we need it for the lint parse
       # and the SRPM build below (scriptlets never run at SRPM time, so
@@ -171,8 +201,8 @@ jobs:
       - name: Lint rendered spec
         run: |
           set -euo pipefail
-          rpmspec -P out/lumina-code.spec > /dev/null
-          if grep -nE '\$\{(VERSION|TAG)\}' out/lumina-code.spec; then
+          rpmspec -P out/${{ matrix.project }}.spec > /dev/null
+          if grep -nE '\$\{(VERSION|TAG)\}' out/${{ matrix.project }}.spec; then
             echo "::error::Unsubstituted placeholder found in spec" >&2
             exit 1
           fi
@@ -184,10 +214,10 @@ jobs:
           set -euo pipefail
           mkdir -p rpmbuild/SOURCES rpmbuild/SPECS rpmbuild/SRPMS
           cp assets/*.rpm rpmbuild/SOURCES/
-          cp out/lumina-code.spec rpmbuild/SPECS/
+          cp out/${{ matrix.project }}.spec rpmbuild/SPECS/
           rpmbuild -bs \
             --define "_topdir ${PWD}/rpmbuild" \
-            rpmbuild/SPECS/lumina-code.spec
+            "rpmbuild/SPECS/${{ matrix.project }}.spec"
           srpm="$(ls rpmbuild/SRPMS/*.src.rpm)"
           echo "::notice::Built ${srpm}"
           echo "srpm=${srpm}" >> "$GITHUB_OUTPUT"
@@ -223,7 +253,7 @@ jobs:
           # project — warn early on an obvious mismatch.
           cfg_user="$(sed -n 's/^username[[:space:]]*=[[:space:]]*//p' "${config}")"
           if [[ -n "${cfg_user}" && "${cfg_user}" != "${COPR_OWNER}" ]]; then
-            echo "::warning::Token username (${cfg_user}) differs from COPR_OWNER (${COPR_OWNER}) — building into ${COPR_OWNER}/${COPR_PROJECT}; make sure that account may build there."
+            echo "::warning::Token username (${cfg_user}) differs from COPR_OWNER (${COPR_OWNER}) — building into ${COPR_OWNER}/${{ matrix.project }}; make sure that account may build there."
           fi
 
           # No --nowait: wait for every enabled chroot so a COPR-side build
@@ -237,5 +267,5 @@ jobs:
           # the IsADirectoryError) and copr-cli falls back to anonymous
           # access. Verified against copr-cli 2.6 + copr 2.7.
           copr-cli --config "${config}" build \
-            "${COPR_OWNER}/${COPR_PROJECT}" \
+            "${COPR_OWNER}/${{ matrix.project }}" \
             "${{ steps.srpm.outputs.srpm }}"

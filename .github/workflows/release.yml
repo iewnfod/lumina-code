@@ -25,6 +25,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The default (webkit) shell — every desktop target.
           - platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             args: "--target x86_64-unknown-linux-gnu"
@@ -40,6 +41,18 @@ jobs:
           - platform: macos-latest
             target: x86_64-apple-darwin
             args: "--target x86_64-apple-darwin"
+          # The CEF (Chromium) shell — Linux only. mac/win keep their system
+          # webviews (already Chromium-grade there); CEF would only add
+          # ~200 MB. deb+rpm only: CEF + AppImage/linuxdeploy is unproven,
+          # revisit after the flavor has shipped once.
+          - platform: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            args: "--target x86_64-unknown-linux-gnu --bundles deb,rpm"
+            shell: cef
+          - platform: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            args: "--target aarch64-unknown-linux-gnu --bundles deb,rpm"
+            shell: cef
 
     runs-on: ${{ matrix.platform }}
     permissions:
@@ -64,8 +77,8 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
+      - name: Install Linux dependencies (webkit shell)
+        if: runner.os == 'Linux' && matrix.shell != 'cef'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -76,6 +89,19 @@ jobs:
             libgtk-3-dev \
             libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev \
+            xdg-utils
+
+      # The CEF shell links gtk4 (+ its X11 backend) instead of the
+      # webkit2gtk/gtk3 stack; cef-dll-sys needs cmake + a C++ compiler for
+      # libcef_dll_wrapper (both preinstalled on GitHub runners).
+      - name: Install Linux dependencies (CEF shell)
+        if: runner.os == 'Linux' && matrix.shell == 'cef'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-4-dev \
+            librsvg2-dev \
+            patchelf \
             xdg-utils
 
       - name: Install frontend dependencies
@@ -89,6 +115,11 @@ jobs:
       # scripts/fetch-opencode.mjs verifies the npm tarball's sha512 against
       # the registry-published integrity.
       - name: Fetch OpenCode sidecar (${{ matrix.target }})
+        env:
+          # The CEF shell bundles from cef/src-tauri/binaries (its own copy —
+          # the bundler resolves resources relative to the crate); empty for
+          # the webkit shell, whose fetch script default applies.
+          LUMINA_BINARIES_DIR: ${{ matrix.shell == 'cef' && 'cef/src-tauri/binaries' || '' }}
         run: pnpm fetch:opencode ${{ matrix.target }}
 
       # aarch64-unknown-linux-gnu only: the Go sidecar's ELF (64K-aligned
@@ -175,6 +206,9 @@ jobs:
           releaseBody: ${{ steps.release_meta.outputs.body }}
           releaseDraft: false
           prerelease: false
+          # The CEF shell lives in cef/ (its own package root so the tauri
+          # CLI's src-tauri discovery finds the right crate).
+          projectPath: ${{ matrix.shell == 'cef' && 'cef' || '.' }}
           args: ${{ matrix.args }}
 
   # Post-publish tripwire (added after a v0.1.1 incident where a Linux
@@ -225,20 +259,24 @@ jobs:
           mkdir -p "${work}"
           fail=0
 
+          # Both shipped flavors: the default webkit shell and the CEF shell.
+          # Asset prefixes / private lib dirs differ by productName; the CEF
+          # flavor additionally must carry the Chromium runtime (libcef.so).
           verify_layout() {
             # $1 = label, $2 = listing with modes (one line per member),
-            # $3 = sidecar path prefix as it appears in the listing
-            local label="$1" listing="$2" prefix="$3"
+            # $3 = private lib dir as it appears in the listing,
+            # $4 = require libcef.so (cef) or not (webkit)
+            local label="$1" listing="$2" libdir="$3" need_libcef="$4"
             echo "::group::layout: ${label}"
             if grep -qE '(^|[[:space:]])\./?usr/bin/opencode([[:space:]]|$)' "${listing}"; then
               echo "FAIL: ${label} installs usr/bin/opencode — PATH pollution regression"
               fail=1
             fi
-            if ! grep -F "usr/lib/Lumina Code/opencode" "${listing}"; then
-              echo "FAIL: ${label} is missing the private sidecar usr/lib/Lumina Code/opencode"
+            if ! grep -F "usr/lib/${libdir}/opencode" "${listing}"; then
+              echo "FAIL: ${label} is missing the private sidecar usr/lib/${libdir}/opencode"
               fail=1
             else
-              mode="$(grep -F 'usr/lib/Lumina Code/opencode' "${listing}" | head -1 | awk '{print $1}')"
+              mode="$(grep -F "usr/lib/${libdir}/opencode" "${listing}" | head -1 | awk '{print $1}')"
               if [ "${mode#-}" != "rwxr-xr-x" ]; then
                 echo "FAIL: ${label} sidecar mode is ${mode#-}, expected rwxr-xr-x"
                 fail=1
@@ -246,82 +284,96 @@ jobs:
                 echo "ok: private sidecar present, mode ${mode#-}"
               fi
             fi
+            if [ "${need_libcef}" = "1" ] && ! grep -F "libcef.so" "${listing}"; then
+              echo "FAIL: ${label} (CEF) carries no libcef.so — the Chromium runtime must ship in the package"
+              fail=1
+            fi
             echo "::endgroup::"
           }
 
-          for arch in amd64 arm64; do
-            gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
-              --pattern "Lumina.Code*${arch}.deb" --dir "${work}" --clobber
-            # The asset filename carries the APP version, which can differ
-            # from the tag (republish suffixes like v0.1.2-2 vs assets named
-            # ..._0.1.2_...) — resolve the downloaded file by glob instead
-            # of computing the name from the tag.
-            f=""
-            for candidate in "${work}"/*"${arch}.deb"; do
-              if [ -f "${candidate}" ]; then f="${candidate}"; break; fi
-            done
-            if [ -z "${f}" ]; then
-              echo "FAIL: no ${arch} deb asset found on ${RELEASE_TAG}"
-              fail=1
-              continue
-            fi
-            bsdtar -xOf "${f}" 'data.tar.*' | bsdtar -tvf - > "${work}/deb-${arch}.list"
-            verify_layout "deb ${arch}" "${work}/deb-${arch}.list" ""
-            # Extract the sidecar for ELF/exec checks.
-            bsdtar -xOf "${f}" 'data.tar.*' \
-              | bsdtar -xOf - 'usr/lib/Lumina Code/opencode' > "${work}/sidecar-${arch}"
-            magic="$(head -c4 "${work}/sidecar-${arch}" | od -An -tx1 | tr -d '[:space:]')"
-            if [ "${magic}" != "7f454c46" ]; then
-              echo "FAIL: deb ${arch} sidecar is not an ELF (magic ${magic})"
-              fail=1
-            fi
-            # Only the runner-matching arch can actually execute here.
-            if [ "${arch}" = "amd64" ]; then
-              chmod +x "${work}/sidecar-${arch}"
-              got="$("${work}/sidecar-${arch}" --version)"
-              if [ "${got}" != "opencode v${pin}" ]; then
-                echo "FAIL: deb amd64 sidecar reports '${got}', expected 'opencode v${pin}'"
+          for flavor in webkit cef; do
+            case "${flavor}" in
+              webkit) prefix="Lumina.Code";   libdir="Lumina Code";     need_libcef=0 ;;
+              cef)    prefix="Lumina.Code.CEF"; libdir="Lumina Code CEF"; need_libcef=1 ;;
+            esac
+
+            for arch in amd64 arm64; do
+              gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+                --pattern "${prefix}*${arch}.deb" --dir "${work}" --clobber
+              # The asset filename carries the APP version, which can differ
+              # from the tag (republish suffixes like v0.1.2-2 vs assets named
+              # ..._0.1.2_...) — resolve the downloaded file by glob instead
+              # of computing the name from the tag.
+              f=""
+              for candidate in "${work}/${prefix}"*"${arch}.deb"; do
+                if [ -f "${candidate}" ]; then f="${candidate}"; break; fi
+              done
+              if [ -z "${f}" ]; then
+                echo "FAIL: no ${prefix}*${arch}.deb asset found on ${RELEASE_TAG}"
                 fail=1
-              else
-                echo "ok: deb amd64 sidecar runs, ${got}"
+                continue
               fi
-            fi
+              bsdtar -xOf "${f}" 'data.tar.*' | bsdtar -tvf - > "${work}/deb-${flavor}-${arch}.list"
+              verify_layout "deb ${flavor} ${arch}" "${work}/deb-${flavor}-${arch}.list" "${libdir}" "${need_libcef}"
+              # Extract the sidecar for ELF/exec checks.
+              bsdtar -xOf "${f}" 'data.tar.*' \
+                | bsdtar -xOf - "usr/lib/${libdir}/opencode" > "${work}/sidecar-${flavor}-${arch}"
+              magic="$(head -c4 "${work}/sidecar-${flavor}-${arch}" | od -An -tx1 | tr -d '[:space:]')"
+              if [ "${magic}" != "7f454c46" ]; then
+                echo "FAIL: deb ${flavor} ${arch} sidecar is not an ELF (magic ${magic})"
+                fail=1
+              fi
+              # Only the runner-matching arch can actually execute here.
+              if [ "${arch}" = "amd64" ]; then
+                chmod +x "${work}/sidecar-${flavor}-${arch}"
+                got="$("${work}/sidecar-${flavor}-${arch}" --version)"
+                if [ "${got}" != "opencode v${pin}" ]; then
+                  echo "FAIL: deb ${flavor} amd64 sidecar reports '${got}', expected 'opencode v${pin}'"
+                  fail=1
+                else
+                  echo "ok: deb ${flavor} amd64 sidecar runs, ${got}"
+                fi
+              fi
+            done
+
+            for arch in x86_64 aarch64; do
+              gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+                --pattern "${prefix}-*${arch}.rpm" --dir "${work}" --clobber
+              # Same as the deb loop: resolve the downloaded file by glob —
+              # the asset's embedded version may differ from the tag.
+              f=""
+              for candidate in "${work}/${prefix}-"*"${arch}.rpm"; do
+                if [ -f "${candidate}" ]; then f="${candidate}"; break; fi
+              done
+              if [ -z "${f}" ]; then
+                echo "FAIL: no ${prefix}-*${arch}.rpm asset found on ${RELEASE_TAG}"
+                fail=1
+                continue
+              fi
+              # bsdtar reads the rpm payload directly (modes preserved).
+              bsdtar -tvf "${f}" > "${work}/rpm-${flavor}-${arch}.list"
+              verify_layout "rpm ${flavor} ${arch}" "${work}/rpm-${flavor}-${arch}.list" "${libdir}" "${need_libcef}"
+            done
           done
 
-          for arch in x86_64 aarch64; do
-            gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
-              --pattern "Lumina.Code-*${arch}.rpm" --dir "${work}" --clobber
-            # Same as the deb loop: resolve the downloaded file by glob —
-            # the asset's embedded version may differ from the tag.
-            f=""
-            for candidate in "${work}"/*"${arch}.rpm"; do
-              if [ -f "${candidate}" ]; then f="${candidate}"; break; fi
-            done
-            if [ -z "${f}" ]; then
-              echo "FAIL: no ${arch} rpm asset found on ${RELEASE_TAG}"
+          # The webkit rpm legs extract + stat the sidecar (mode check beyond
+          # the listing) — kept from the original tripwire.
+          d="${work}/rpm-webkit-x86_64"
+          mkdir -p "${d}"
+          (cd "${d}" && bsdtar -xf "${work}/Lumina.Code-"*"x86_64.rpm")
+          if [ ! -f "${d}/usr/lib/Lumina Code/opencode" ]; then
+            echo "FAIL: rpm webkit x86_64 extraction missing sidecar"
+            fail=1
+          else
+            mode="$(stat -c '%A' "${d}/usr/lib/Lumina Code/opencode")"
+            if [ "${mode}" != "-rwxr-xr-x" ]; then
+              echo "FAIL: rpm webkit x86_64 sidecar mode is ${mode}, expected -rwxr-xr-x"
               fail=1
-              continue
             fi
-            # bsdtar reads the rpm payload directly (modes preserved).
-            bsdtar -tvf "${f}" > "${work}/rpm-${arch}.list"
-            verify_layout "rpm ${arch}" "${work}/rpm-${arch}.list" ""
-            d="${work}/rpm-${arch}"
-            mkdir -p "${d}"
-            (cd "${d}" && bsdtar -xf "${f}")
-            if [ ! -f "${d}/usr/lib/Lumina Code/opencode" ]; then
-              echo "FAIL: rpm ${arch} extraction missing sidecar"
-              fail=1
-            else
-              mode="$(stat -c '%A' "${d}/usr/lib/Lumina Code/opencode")"
-              if [ "${mode}" != "-rwxr-xr-x" ]; then
-                echo "FAIL: rpm ${arch} sidecar mode is ${mode}, expected -rwxr-xr-x"
-                fail=1
-              fi
-            fi
-          done
+          fi
 
           if [ "${fail}" -ne 0 ]; then
             echo "::error::Linux asset layout verification FAILED — see the FAIL lines above"
             exit 1
           fi
-          echo "All Linux assets verified: private sidecar layout intact."
+          echo "All Linux assets verified (both flavors): private sidecar layout intact."

@@ -17,9 +17,11 @@ name: Trigger package publishes (fallback)
 #
 # Triggered by: Release workflow completing with success. Each matrix leg
 # dispatches ONE downstream publish workflow, both of which read the tag
-# from `client_payload.tag`:
-#   publish-aur  → .github/workflows/aur.yml  (AUR lumina-code-bin)
-#   publish-copr → .github/workflows/copr.yml (Fedora COPR lumina-code)
+# from `client_payload.tag` and fan out over BOTH flavors (webkit + CEF):
+#   publish-aur  → .github/workflows/aur.yml  (AUR lumina-code-bin and
+#                  lumina-code-cef-bin)
+#   publish-copr → .github/workflows/copr.yml (Fedora COPR lumina-code and
+#                  lumina-code-cef)
 
 on:
   workflow_run:

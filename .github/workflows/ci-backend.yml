@@ -111,3 +111,59 @@ jobs:
       # errors. (No `cargo test` yet — lumina-code has no Rust test suite.)
       - name: cargo check
         run: cargo check --locked --manifest-path src-tauri/Cargo.toml
+
+  # The CEF shell (cef/src-tauri) — Linux only. Same single-source backend
+  # modules compiled against the tauri v3 alpha line: this job is what keeps
+  # the #[path] sharing honest (a module change that breaks either shell's
+  # tauri major fails here). cef-dll-sys downloads the CEF binary
+  # distribution (~280 MB) on the first run; rust-cache then persists the
+  # extracted copy under cef/src-tauri/target.
+  check-cef:
+    name: cef shell check (ubuntu)
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: ci-backend-cef-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The CEF shell's Linux stack: gtk4 (+ X11 backend via gtk-4-dev) and
+      # the CMake/C++ toolchain cef-dll-sys needs for libcef_dll_wrapper
+      # (cmake + g++ are preinstalled on GitHub runners).
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-4-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: cef/src-tauri
+
+      # Same sidecar prerequisite as the webkit job, redirected into the CEF
+      # shell's own binaries/ (its tauri.linux.conf.json resolves resources
+      # relative to the crate). Plain node, no pnpm install needed.
+      - name: Fetch OpenCode sidecar (host target, CEF shell)
+        env:
+          LUMINA_BINARIES_DIR: cef/src-tauri/binaries
+        run: node scripts/fetch-opencode.mjs
+
+      # The CEF shell's conf points frontendDist at ../../dist — the same
+      # repo-root placeholder satisfies its generate_context!.
+      - name: Create placeholder dist (for generate_context!)
+        run: |
+          mkdir -p dist
+          printf '<!DOCTYPE html><html><head></head><body></body></html>\n' > dist/index.html
+
+      - name: cargo check (CEF shell)
+        run: cargo check --locked --manifest-path cef/src-tauri/Cargo.toml
