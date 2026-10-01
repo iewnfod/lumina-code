@@ -5,9 +5,9 @@
   "version": "0.3.0",
   "identifier": "com.iewnfod.lumina-code-cef",
   "build": {
-    "beforeDevCommand": "pnpm --dir ../.. dev",
+    "beforeDevCommand": "pnpm --dir .. dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm --dir ../.. build",
+    "beforeBuildCommand": "pnpm --dir .. build",
     "frontendDist": "../../dist"
   },
   "app": {
