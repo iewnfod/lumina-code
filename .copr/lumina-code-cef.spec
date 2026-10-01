@@ -32,7 +32,7 @@ Summary:        A Tauri + React desktop GUI for OpenCode — CEF (Chromium) rend
 
 License:        MPL-2.0
 URL:            https://github.com/iewnfod/lumina-code
-# The URL's tag segment is the rendered ${TAG}, NOT "v%{version}":
+# The URL's tag segment is the rendered ${TAG}, NOT "v%%{version}":
 # republished releases carry a suffix in the tag (v0.1.2-2) while the assets
 # stay named after the plain app version. The asset names are DOTTED: the
 # tauri v3 bundler keeps productName spaces locally, but GitHub's
@@ -78,8 +78,15 @@ rpm2cpio %{SOURCE1} | cpio -idm --quiet
 %{_bindir}/lumina-code-cef
 # Tauri's bundler places resources under plain /usr/lib on every arch —
 # never rpm's libdir (lib64 on 64-bit Fedora) — so glob the prefix path.
-# The bundled OpenCode sidecar AND the Chromium runtime (libcef.so) ride
-# under the same /usr/lib/Lumina Code CEF/ tree.
+# The bundled OpenCode sidecar rides under /usr/lib/Lumina Code CEF/.
 %{_prefix}/lib/Lumina*
+# The tauri v3 layout SPLITS the trees (unlike v2, which keeps everything
+# under /usr/lib): the sidecar stays a resource under /usr/lib/Lumina
+# Code CEF/, while the Chromium runtime (libcef.so, paks, locales), the
+# data files and the main binary live under /usr/share/Lumina Code CEF/
+# (with /usr/bin/lumina-code-cef a symlink into it). Without this glob
+# rpmbuild fails the build with "Installed (but unpackaged) file(s)"
+# over the whole share tree (the v0.3.0 first-publish incident).
+%{_datadir}/Lumina*
 %{_datadir}/applications/Lumina*.desktop
 %{_datadir}/icons/hicolor/*/apps/lumina-code*.png
