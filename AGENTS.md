@@ -27,7 +27,11 @@ or ask the user to enter the plan mode for you.
 |---------|---------|
 | Install | `pnpm install` |
 | Fetch pinned OpenCode server sidecar (~200 MB, once per version bump) | `pnpm fetch:opencode` (also: `--all` for every target / explicit Rust triples) |
-| Run the app | `pnpm tauri dev` |
+| Fetch the sidecar into the CEF shell's binaries/ | `pnpm fetch:opencode:cef` (same args; sets `LUMINA_BINARIES_DIR`) |
+| Run the app (default webkit shell) | `pnpm tauri dev` |
+| Run the app (CEF/Chromium shell, Linux) | `pnpm dev:cef` — needs `~/.local/share/cef/cef_linux_x86_64` (the shared CEF binary distribution; the first cold build downloads it into OUT_DIR otherwise — through a proxy if the direct route stalls) |
+| Release-build the webkit shell | `pnpm tauri build` |
+| Release-build the CEF shell | `pnpm build:cef` |
 | Typecheck + build frontend | `pnpm build` (`tsc && vite build`) |
 | Unit tests (pure frontend logic) | `pnpm test` (`node --test "src/**/*.test.ts" "src/**/*.test.js"`) |
 | Point dev at a different server binary | `OPENCODE_BIN=/path/to/opencode pnpm tauri dev` |
@@ -1619,7 +1623,7 @@ src/
     │                      #   opencode/ now). node-testable.
 ```
 
-### Backend (`src-tauri/src/`)
+### Backend (`src-tauri/src/`) — the webkit shell
 
 Intentionally thin — server lifecycle only (plus the two frontend-serving
 odd ones out, notify.rs and blur.rs). All business logic lives in the
@@ -1734,6 +1738,46 @@ src-tauri/src/
                    #   strand several — two servers sharing the user's storage
                    #   cause transiently EMPTY provider reads).
 ```
+
+### The CEF shell (`cef/src-tauri/`) — the second app crate
+
+The SAME app shipped on the tauri v3 alpha line + `tauri-runtime-cef`
+(bundled Chromium 152), Linux-only. It exists as a separate crate because
+the dependency graphs are mutually exclusive (CEF requires tauri v3 alpha;
+the webkit shell stays on v2 stable) and cargo features cannot switch
+dependency versions.
+
+- `cef/package.json` — the CLI package root (`@tauri-apps/cli` v3 alpha,
+  own lockfile). The tauri CLI discovers `<cwd>/src-tauri`, which is why
+  the shell must live at `cef/src-tauri` — there is no `--project` flag.
+- `cef/src-tauri/src/lib.rs` — shell-only wiring: `.runtime(Cef)` (v3's
+  DynRuntime — the shared modules' command signatures stay ungenericized),
+  `cef_entry_point`, the `LUMINA_DEVTOOLS=1` hook. The five backend modules
+  (blur/notify/system/opencode) are mounted **single-source** via
+  `#[path = "../../../src-tauri/src/..."]` — child mods resolve relative to
+  each file's own directory, so the whole `opencode/` tree comes along.
+  **Invariant: the shared modules must compile under BOTH tauri majors**
+  (ci-backend.yml checks both crates; a change breaking one shell fails CI).
+- `cef/src-tauri/vendor/` — two local patches, both tracked for upstream
+  removal (see their inline docs): `tauri-plugin-dialog` (xdg-portal path
+  missing `use tauri::Manager`) and `tauri-runtime-cef` (Linux window
+  dragging — the CEF browser's X child window starves gtk4-winit's
+  `drag_window`; the patch sends the EWMH `_NET_WM_MOVERESIZE` message
+  directly, see tauri-apps/tauri#14936).
+- Distinguishing the flavors: identifier `com.iewnfod.lumina-code-cef`
+  (own data + CEF profile dirs), productName `Lumina Code CEF` (assets,
+  desktop entry), `mainBinaryName lumina-code-cef` (parallel-installable
+  with the webkit package). The frontend detects the runtime via
+  `isCefRuntime()` (`lib/platform.ts`, Linux + Chrome UA) and adapts
+  (window corners come from the WM, no glass chrome). One `dist/` serves
+  both shells — the v2 npm `@tauri-apps/*` packages are protocol-compatible
+  with the v3-alpha core (verified live; the CLI prints a version-mismatch
+  notice at build time that is safe to ignore).
+- `transparent: false` in its conf — the CEF webview cannot be transparent;
+  window corners are the WM's native ones (hence the frontend gate).
+- Path asymmetry to remember: config paths (`frontendDist`) are relative to
+  the conf file's directory; commands (`beforeDevCommand`) run relative to
+  the app dir (`cef/`) — hence `../../dist` vs `--dir ..`.
 
 ---
 
