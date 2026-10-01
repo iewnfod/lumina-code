@@ -31,15 +31,15 @@ tauri-plugin-os = "3.0.0-alpha.1"
 tauri-plugin-log = "3.0.0-alpha.1"
 tauri-plugin-dialog = { version = "=3.0.0-alpha.1", default-features = false, features = ["xdg-portal"] }
 tauri-plugin-notification = "3.0.0-alpha.1"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 # The Linux notification sender's persistent D-Bus connection — see
 # ../../../src-tauri/src/notify.rs for why the plugin's per-send connection
 # gets GNOME notifications destroyed. Same rationale as the webkit shell.
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = "5"
-log = "0.4"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 
 # Local patches (both documented for upstream removal — see each vendor dir):
 # 1. tauri-plugin-dialog: the xdg-portal feature path is missing a
