@@ -152,7 +152,8 @@ pub fn opencode_start(
     // A previous run may have died without killing its server (dev
     // rebuilds, crashes); reap any it left behind so two servers never
     // share the opencode storage (which transiently empties
-    // provider/model reads).
+    // provider/model reads). Servers owned by instances that are still
+    // running (a sibling window of this app) are exempt — see reap.rs.
     reap_orphaned_servers(&app);
 
     let (bin, bundled) = resolve_opencode(&app).ok_or_else(|| {
