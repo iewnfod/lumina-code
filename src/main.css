@@ -830,6 +830,38 @@ body {
 }
 
 /*
+ * List-row ENTRANCE — the mirror of .lum-row-exit above: an appended
+ * row UNFURLS from zero height. grid-template-rows 0fr → 1fr grows to
+ * the row's REAL computed height (no pixel anywhere), while
+ * overflow:hidden on the single child clips the bottom edge — the
+ * reveal sweeps top-to-bottom like a scroll and every content-driven
+ * container around it (the stats card's border) grows along frame by
+ * frame. Applied by the exit engine's ENTER side (ExitList's enter
+ * opt-in / Reveal) and gated to live appends only — bulk-mounted
+ * history never wears it ("history renders instantly" rule). The
+ * slower duration (slow vs the exit's base) is deliberate: the
+ * unfurl reads as one continuous gesture with the card growing, and
+ * the old fade+rise alone at base pace felt abrupt.
+ */
+.lum-row-enter {
+    display: grid;
+    grid-template-rows: 1fr;
+    animation: lum-row-enter var(--duration-slow) var(--ease-spring) both;
+}
+
+.lum-row-enter > * {
+    overflow: hidden;
+    min-height: 0;
+}
+
+@keyframes lum-row-enter {
+    from {
+        grid-template-rows: 0fr;
+        opacity: 0;
+    }
+}
+
+/*
  * Disclosure fold: height animates between 0 and content height with
  * ZERO JS — the browser interpolates grid-template-rows (0fr → 1fr) and
  * computes the content height itself. The fold must have exactly ONE

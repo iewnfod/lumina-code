@@ -809,10 +809,22 @@ src/
 │                        #   the host; bubbled child events never count),
 │                        #   the app-wide EXIT BUDGET ledger (caps
 │                        #   concurrent exit holds — bursts skip the
-│                        #   choreography instead of dropping frames), and
+│                        #   choreography instead of dropping frames),
 │                        #   mergeExitOrder (a leaving list row collapses
 │                        #   IN PLACE, interleaved at its original
-│                        #   position between surviving neighbors).
+│                        #   position between surviving neighbors), and
+│                        #   the ENTRANCE gate: rowEnteringKeys — which
+│                        #   keys of a list update are live appends
+│                        #   (unfurl via .lum-row-enter) vs bulk-mounted
+│                        #   history (instant) — over isWholesaleSwap
+│                        #   (non-empty prev, zero survivors), which
+│                        #   ExitList's enter mode also uses to skip
+│                        #   per-row exit holds (instant on BOTH edges).
+│                        #   First observation and wholesale swaps (a
+│                        #   session switch) are bulk; an EMPTY prev is
+│                        #   a watched list sitting empty, so its first
+│                        #   arrival IS an append; keys coming back from
+│                        #   an exit hold never re-unfurl.
 │
 ├── hooks/                 # React hooks (start with `use`; i18n.tsx provides JSX context)
 │   ├── i18n.tsx           # useI18n() → dictionary indexed by TranslationKey;
@@ -1056,6 +1068,37 @@ src/
     │   │                  #   the list form — rows leaving `items` collapse
     │   │                  #   in place (.lum-row-exit grid-rows keyframes).
     │   │                  #   Replaced the old useExitPresence timers.
+    │   │                  #   THE ENTRANCE TWIN: ExitList's opt-in `enter`
+    │   │                  #   mounts rows APPENDED to a surviving list
+    │   │                  #   (rowEnteringKeys gating, render-time against
+    │   │                  #   the keys the last commit PAINTED — holds
+    │   │                  #   included) through .lum-row-enter (grid
+    │   │                  #   0fr→1fr unfurl, the mirror of .lum-row-exit:
+    │   │                  #   old content untouched, the bottom edge
+    │   │                  #   sweeps down through the new row, and every
+    │   │                  #   content-driven container around it — the
+    │   │                  #   stats card's border — grows along frame by
+    │   │                  #   frame; no pixel anywhere, the browser
+    │   │                  #   computes the real height). Children receive
+    │   │                  #   `entering` as a 4th render-prop arg and drop
+    │   │                  #   their own .lum-enter on those rows (the
+    │   │                  #   unfurl already fades them in; a rise on top
+    │   │                  #   would compound). WHOLESALE swaps are instant
+    │   │                  #   on BOTH edges (isWholesaleSwap: a
+    │   │                  #   same-directory session switch skips the
+    │   │                  #   per-row exit holds too — no cascade of
+    │   │                  #   collapses, no budget burn). Reveal is the
+    │   │                  #   single-element form: one optional block that
+    │   │                  #   unfurls in on a false→true flip of `present`
+    │   │                  #   and collapses out through ExitPresence
+    │   │                  #   (.lum-row-exit on the same host,
+    │   │                  #   budget={false} — the fold-body doctrine: the
+    │   │                  #   container animates while the frozen ghost
+    │   │                  #   children just exist, so a section's exit is
+    │   │                  #   never budget-dropped; mounted-present renders
+    │   │                  #   instantly — callers keep it mounted and hand
+    │   │                  #   the old conditional as present; as="span"
+    │   │                  #   keeps button innards legal HTML).
     │   ├── Modal.tsx      # Portal-rendered modal chrome (fadeIn backdrop +
     │   │                  #   scaleIn panel, Escape/backdrop close)
     │   ├── MaskedSurface.tsx # SVG rounded-rect clip exposing the glass chrome corners
@@ -1947,7 +1990,11 @@ never runs per frame and never measures/pins/synchronizes layout.
 
 - **Entrances/exits are CSS keyframes**: `.lum-enter` (fade + rise),
   `.lum-fade` (tall panes), `.lum-pop`/`.lum-pop-exit` (modals, menus),
-  `.lum-row-exit` (list rows: grid-rows height collapse). RollingTitle's
+  `.lum-row-exit` (list rows: grid-rows height collapse) and its ENTRANCE
+  mirror `.lum-row-enter` (grid-rows 0fr→1fr unfurl — a row appended to a
+  surviving list reveals top-to-bottom while every content-driven
+  container around it grows along; gated by `rowEnteringKeys` so bulk
+  history stays instant). RollingTitle's
   drum is the framer exception below. Exit animations that must keep the
   element mounted go through the EXIT ENGINE
   (`components/ui/ExitPresence.tsx` — `ExitPresence` for single

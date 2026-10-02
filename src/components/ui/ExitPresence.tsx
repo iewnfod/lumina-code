@@ -9,9 +9,11 @@ import {
 } from "react";
 import {
     createExitLedger,
+    isWholesaleSwap,
     matchesAnimationEvent,
     matchesTransitionEvent,
     mergeExitOrder,
+    rowEnteringKeys,
     type ExitMatcher,
 } from "../../lib/exitGate.ts";
 
@@ -47,6 +49,11 @@ import {
  * (`onAnimationEnd`/`onTransitionEnd`) to spread onto the element that
  * carries the exit class — that element is the "host" the matching in
  * exitGate.ts checks against.
+ *
+ * The ENTRANCE side lives here too: ExitList's opt-in `enter` and the
+ * `Reveal` wrapper mount live-arriving content through .lum-row-enter
+ * (grid 0fr→1fr unfurl, main.css — the mirror of .lum-row-exit), gated
+ * by rowEnteringKeys so bulk-mounted history stays instant.
  */
 
 /** The one app-wide ledger (budget accounting across all exits). */
@@ -152,11 +159,92 @@ const NOOP_BIND: ExitBind = {
 };
 
 /**
+ * The single-element entrance twin of ExitPresence: one optional block
+ * that UNFURLS in (.lum-row-enter, grid 0fr→1fr — old content above is
+ * untouched, the bottom edge sweeps down through the new content, and
+ * every content-driven container around it grows along) and COLLAPSES
+ * out through the exit engine (.lum-row-exit on the same host).
+ *
+ * The gate is the mount edge, same derived-state pattern as
+ * ExitPresence's hold: mounted-present renders instantly (bulk
+ * history — the panel opening, a drill view swapping in), and only a
+ * false→true flip on an ALREADY-MOUNTED reveal is a live appearance
+ * that unfurls. Callers therefore keep the Reveal permanently mounted
+ * and hand the old conditional as `present` — wrapping the child in
+ * `{cond && <Reveal…>}` would remount it present and never animate.
+ *
+ * `as="span"` keeps phrasing content legal (the collapsed pill's rows
+ * live inside a <button>).
+ */
+export function Reveal({
+    present,
+    as = "div",
+    exitMs = 250,
+    className = "",
+    children,
+}: {
+    /** What the app wants shown — flips, not remounts, drive motion. */
+    present: boolean;
+    /** Host element kind (span keeps button innards legal HTML). */
+    as?: "div" | "span";
+    /** Fallback hold duration — matches .lum-row-exit's base duration. */
+    exitMs?: number;
+    /** Extra classes on the host (the unfurl/collapse classes add themselves). */
+    className?: string;
+    children: ReactNode;
+}) {
+    // Entrance edge DURING RENDER (idempotent under StrictMode: the
+    // second pass sees no edge). The class persists for the element's
+    // lifetime — the one-shot keyframes' `both` fill ends at the
+    // natural state, so it never needs removing.
+    const prevPresent = useRef(present);
+    const [entering, setEntering] = useState(false);
+    // The children to SHOW: callers guard their JSX with the same
+    // condition as `present` (null-safety), so during the exit hold the
+    // fresh children evaluate to null — a collapsing GHOST must keep
+    // rendering the content that was on stage. Stash the last
+    // present-render's node; React sees the identical element reference
+    // and skips re-rendering it, freezing the DOM at exit time — the
+    // data below a collapsing row must not flicker to emptiness.
+    const lastChildrenRef = useRef<ReactNode>(null);
+    if (present) {
+        prevPresent.current !== present && setEntering(true);
+        lastChildrenRef.current = children;
+    }
+    if (prevPresent.current !== present) {
+        prevPresent.current = present;
+    }
+    return (
+        // budget={false} — the fold-body doctrine: the COLLAPSE animates
+        // the container itself while the frozen ghost children just
+        // exist (nearly free), so a section's exit must NEVER be
+        // budget-dropped. Without the exemption a session switch's row
+        // holds (todo/subagent lists swapping wholesale) could exhaust
+        // the app-wide budget first and the section would vanish
+        // instead of collapsing.
+        <ExitPresence present={present} exitMs={exitMs} budget={false} exit={{animation: "lum-row-exit"}}>
+            {(closing, bind) => {
+                const Host = as;
+                return (
+                    <Host
+                        className={`${className}${closing ? " lum-row-exit" : entering ? " lum-row-enter" : ""}`}
+                        {...bind}
+                    >
+                        {present ? children : lastChildrenRef.current}
+                    </Host>
+                );
+            }}
+        </ExitPresence>
+    );
+}
+
+/**
  * The list form of the engine: rows that leave `items` don't vanish —
  * they collapse IN PLACE (mergeExitOrder keeps their position between
  * surviving neighbors) until their exit finishes or the budget drops
- * them. Present rows render through unchanged; their entrances remain
- * the children's own business (.lum-enter inside the content).
+ * them. Entrances are the children's own business (.lum-enter inside
+ * the content) UNLESS `enter` is on: appended rows then unfurl through
+ * the wrapper instead (see the prop doc and rowEnteringKeys).
  *
  * One shared wrapper per row keeps entering and exiting rows in the
  * same layout context, so the .lum-row-exit height collapse (grid-rows
@@ -171,22 +259,46 @@ const NOOP_BIND: ExitBind = {
 export function ExitList<T>({
     items,
     keyOf,
+    enter = false,
+    enterClassName = "lum-row-enter",
     exitMs = 250,
     exit,
+    exitClassName = "lum-row-exit",
     rowClassName = "",
     children,
 }: {
     /** What the app wants mounted, in order. */
     items: T[];
     keyOf: (item: T) => string;
+    /** Opt-in entrance unfurls: rows APPENDED to a surviving list
+     * (rowEnteringKeys — the stats panel's live activity) mount
+     * through .lum-row-enter so the list and its content-driven card
+     * grow smoothly. Bulk mounts (the list's first render, wholesale
+     * key swaps like a session switch) stay instant — on BOTH edges:
+     * a wholesale swap also skips per-row exit holds, so a session
+     * switch swaps the list in place instantly instead of cascading
+     * collapses (and without burning the exit budget). Off by default:
+     * existing callers keep their children-own .lum-enter entrances. */
+    enter?: boolean;
+    /** Class the entering wrapper wears instead of .lum-row-enter when
+     *  a surface needs its own entrance choreography (the queued-prompt
+     *  rows' synced track+rise pair, main.css). */
+    enterClassName?: string;
     /** Fallback hold duration — set to the exit's CSS duration. */
     exitMs?: number;
     /** Which animation/transition finishing ends a row's hold. */
     exit?: ExitMatcher;
+    /** Class a closing wrapper wears instead of .lum-row-exit (must
+     *  pair with `exit`'s matcher — e.g. the queued rows' pure-fade
+     *  exit, no height collapse). */
+    exitClassName?: string;
     /** Class on every row wrapper (spacing that must collapse with the
      * row). */
     rowClassName?: string;
-    children: (item: T, closing: boolean, bind: ExitBind) => ReactNode;
+    /** `entering` is true only on rows mounted as live appends — their
+     * children should DROP their own .lum-enter (the wrapper's unfurl
+     * already fades them in; a rise on top would compound the motion). */
+    children: (item: T, closing: boolean, bind: ExitBind, entering: boolean) => ReactNode;
 }) {
     interface Hold {
         item: T;
@@ -198,6 +310,23 @@ export function ExitList<T>({
     const prevItemsRef = useRef<T[] | null>(null);
     const orderRef = useRef<string[]>([]);
     const [, setTick] = useState(0);
+
+    // Entrance bookkeeping, computed DURING RENDER against the keys the
+    // PREVIOUS commit actually painted (live + held — so an exit hold
+    // coming back live is not an append). The accumulated set survives
+    // StrictMode's second render pass (which sees no edge) and entries
+    // drop once their key leaves the list again; the class itself is
+    // never removed — the one-shot keyframes end at the natural state.
+    const paintedKeysRef = useRef<string[] | null>(null);
+    const enteringKeysRef = useRef(new Set<string>());
+    const liveKeys = items.map(keyOf);
+    if (enter && paintedKeysRef.current !== null) {
+        for (const k of rowEnteringKeys(paintedKeysRef.current, liveKeys)) enteringKeysRef.current.add(k);
+    }
+    const liveKeySet = new Set(liveKeys);
+    for (const k of enteringKeysRef.current) {
+        if (!liveKeySet.has(k)) enteringKeysRef.current.delete(k);
+    }
 
     const finish = useRef((key: string) => {
         const hold = holdsRef.current.get(key);
@@ -224,15 +353,24 @@ export function ExitList<T>({
                     mutated = true;
                 }
             }
+            // A wholesale replacement (enter mode: a same-directory
+            // session switch swapping every row) skips per-row holds
+            // entirely — the fresh list renders through INSTANTLY on
+            // both edges, symmetric with the entrance gating, instead
+            // of a long cascade of collapses that also burns the
+            // app-wide exit budget.
+            const bulk = enter && isWholesaleSwap(prev.map(keyOf), liveKeys);
             // A key left: hold it through an exit, budget permitting. Over
             // budget rows are simply not held — they already unmounted.
-            for (const item of prev) {
-                const key = keyOf(item);
-                if (liveKeySet.has(key) || holdsRef.current.has(key)) continue;
-                if (!appLedger.tryAcquire()) continue;
-                const timer = window.setTimeout(() => finish(key), exitMs);
-                holdsRef.current.set(key, {item, timer});
-                mutated = true;
+            if (!bulk) {
+                for (const item of prev) {
+                    const key = keyOf(item);
+                    if (liveKeySet.has(key) || holdsRef.current.has(key)) continue;
+                    if (!appLedger.tryAcquire()) continue;
+                    const timer = window.setTimeout(() => finish(key), exitMs);
+                    holdsRef.current.set(key, {item, timer});
+                    mutated = true;
+                }
             }
         }
         // The committed order the NEXT render positions holds against.
@@ -263,6 +401,9 @@ export function ExitList<T>({
         if (!byKey.has(key)) byKey.set(key, {item, closing: true});
     }
     const order = mergeExitOrder(orderRef.current, items.map(keyOf), [...holdsRef.current.keys()]);
+    // What THIS render paints becomes the next render's "previously
+    // seen" for entrance gating (holds included).
+    paintedKeysRef.current = order;
 
     const makeBind = (key: string): ExitBind => ({
         onAnimationEnd: (e) => {
@@ -278,13 +419,14 @@ export function ExitList<T>({
             {order.map((key) => {
                 const row = byKey.get(key);
                 if (!row) return null;
+                const entering = enter && enteringKeysRef.current.has(key);
                 return (
                     <div
                         key={key}
-                        className={`${rowClassName}${row.closing ? " lum-row-exit" : ""}`}
+                        className={`${rowClassName}${entering ? ` ${enterClassName}` : ""}${row.closing ? ` ${exitClassName}` : ""}`}
                         {...(row.closing ? makeBind(key) : {})}
                     >
-                        {children(row.item, row.closing, row.closing ? makeBind(key) : NOOP_BIND)}
+                        {children(row.item, row.closing, row.closing ? makeBind(key) : NOOP_BIND, entering)}
                     </div>
                 );
             })}

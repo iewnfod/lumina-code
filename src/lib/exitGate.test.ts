@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import {
     createExitLedger,
     EXIT_BUDGET,
+    isWholesaleSwap,
     matchesAnimationEvent,
     matchesTransitionEvent,
     mergeExitOrder,
+    rowEnteringKeys,
 } from "./exitGate.ts";
 
 test("createExitLedger caps concurrent holds", () => {
@@ -93,4 +95,46 @@ test("mergeExitOrder keeps leaving rows at their original positions", () => {
         mergeExitOrder(["a", "b", "c", "d"], ["a", "d"], ["b", "c"]),
         ["a", "b", "c", "d"],
     );
+});
+
+test("rowEnteringKeys: the list's first observation is history, not appends", () => {
+    assert.deepEqual(rowEnteringKeys(null, ["a", "b"]), new Set());
+});
+
+test("rowEnteringKeys: appends to a surviving list unfurl", () => {
+    // The core case — one row arrives while the rest stay on stage.
+    assert.deepEqual(rowEnteringKeys(["a"], ["a", "b"]), new Set(["b"]));
+    // Several at once (parallel shells, a multi-file edit) all unfurl.
+    assert.deepEqual(rowEnteringKeys(["a", "b"], ["a", "c", "d"]), new Set(["c", "d"]));
+    // A pure no-change update animates nothing.
+    assert.deepEqual(rowEnteringKeys(["a", "b"], ["a", "b"]), new Set());
+    // Shrinks (rows leaving) animate nothing on the entrance side.
+    assert.deepEqual(rowEnteringKeys(["a", "b"], ["a"]), new Set());
+});
+
+test("rowEnteringKeys: wholesale replacement is a bulk swap, not appends", () => {
+    // Every previous key replaced (same-directory session switch) —
+    // zero survivors means the fresh list renders via its plain
+    // crossfade, not a collapse-and-re-expand unfurl.
+    assert.deepEqual(rowEnteringKeys(["a", "b"], ["x", "y"]), new Set());
+    // An EMPTY previous list is a watched list sitting empty — the
+    // first arrival IS a live append (null, not [], means "never
+    // rendered" and stays instant).
+    assert.deepEqual(rowEnteringKeys([], ["x"]), new Set(["x"]));
+});
+
+test("isWholesaleSwap: non-empty prev with zero survivors", () => {
+    assert.equal(isWholesaleSwap(["a", "b"], ["x", "y"]), true);
+    // Any survivor at all disqualifies the swap.
+    assert.equal(isWholesaleSwap(["a", "b"], ["a", "x"]), false);
+    assert.equal(isWholesaleSwap(["a"], ["a"]), false);
+    // An empty previous list is never a swap (the list sat mounted and
+    // watched, empty).
+    assert.equal(isWholesaleSwap([], ["x"]), false);
+});
+
+test("rowEnteringKeys: a key returning from an exit hold never re-unfurls", () => {
+    // "b" left (its exit hold exists) and came back — it is still in
+    // prevKeys, so only the genuinely new "c" unfurls.
+    assert.deepEqual(rowEnteringKeys(["a", "b"], ["a", "b", "c"]), new Set(["c"]));
 });
