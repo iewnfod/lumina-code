@@ -1954,8 +1954,13 @@ dependency versions.
   `Depends` list is still the bundler's static gtk3 one although the binary
   links only libgtk-4 (upstream alpha gap; AUR/COPR declare the real deps).
   The frontend detects the runtime via
-  `isCefRuntime()` (`lib/platform.ts`, Linux + Chrome UA) and adapts
-  (window corners come from the WM, no glass chrome). One `dist/` serves
+  `isCefRuntime()` (`lib/platform.ts`, Linux + Chrome UA) and adapts —
+  only WINDOW-level corner chrome turns off (the windowOutline inset arc;
+  the opaque window's outer corners belong to the WM). The IN-PAGE
+  content chrome (MaskedSurface corner clipping + the chrome-glass layer
+  beneath the content) stays on under CEF: those corner cutaways expose
+  an in-page layer, not the desktop, so the 拼接倒角 at the sidebar seam
+  renders like the webkit shell's. One `dist/` serves
   both shells — the v2 npm `@tauri-apps/*` packages are protocol-compatible
   with the v3-alpha core (verified live; the CLI prints a version-mismatch
   notice at build time that is safe to ignore).

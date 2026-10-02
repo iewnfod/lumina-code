@@ -524,22 +524,22 @@ function AppBody({
                     isMaximized={isMaximized}
                 />
                 <div className="flex-1 relative overflow-hidden">
-                    {/* cef 分支：CEF 的窗口不透明、WM 原生提供窗口圆角，
-                        不再自绘 —— chrome glass 露角层与 MaskedSurface 的
-                        圆角裁剪都是透明窗口时代的设计，CEF 下归零（半径 0
-                        的裁剪等价于普通容器）。 */}
-                    {!isCefRuntime() && (
-                        <div
-                            aria-hidden
-                            className="absolute inset-0"
-                            style={{...chromeGlass, zIndex: 0}}
-                        />
-                    )}
-                    <MaskedSurface
+                    {/* Chrome glass layer filling the content area. The
+                        surface above is clipped to a rounded rectangle, so
+                        its four corners are transparent and expose this
+                        layer — making the chrome read as a continuous frame
+                        wrapping the content. cef 分支注：这层露角与
+                        MaskedSurface 的圆角裁剪都是页内 chrome（露出的是
+                        本层，不是桌面），不透明窗口下照常工作，CEF 不归零
+                        —— 曾经把二者当"透明窗口时代的设计"一并关闭，拼角
+                        处的圆滑倒角随之消失。CEF 真正不能自绘的只有窗口
+                        级的 windowOutline（WM 原生圆角半径对不上）。 */}
+                    <div
+                        aria-hidden
                         className="absolute inset-0"
-                        style={{zIndex: 1}}
-                        radius={isCefRuntime() ? 0 : undefined}
-                    >
+                        style={{...chromeGlass, zIndex: 0}}
+                    />
+                    <MaskedSurface className="absolute inset-0" style={{zIndex: 1}}>
                         {/* The conversation canvas — its own opaque bg in
                             light mode, distinct from the chrome glass frame
                             around it. Dark mode stays transparent so the
