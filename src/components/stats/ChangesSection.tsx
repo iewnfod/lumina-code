@@ -8,6 +8,7 @@ import {patchHunks} from "../chat/toolDiff.ts";
 import DiffViewBody from "../chat/DiffViewBody.tsx";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
 import {BodyBox, RollingValue, statsRowClass, StatsSection} from "./statsChrome.tsx";
+import {ExitList} from "../ui/ExitPresence.tsx";
 
 /** "+N −N" badge — the collapsed summary, the panel header and file rows.
  *  Each number rolls to its new value (see RollingValue). */
@@ -86,17 +87,34 @@ export const ChangesSection = memo(function ChangesSection({
                     // is visible from session entry) — say so explicitly.
                     <div className="px-2 py-1 text-xs opacity-40 select-none">{t["No changes yet"]}</div>
                 )}
-                {(diff ?? []).map((entry) => (
-                    <button
-                        key={entry.file}
-                        type="button"
-                        onClick={() => onOpenFile(entry)}
-                        className={statsRowClass}
+                {(diff ?? []).length > 0 && (
+                    // The file rows live in an ExitList with entrance
+                    // unfurls: a file the AI newly touches unfurls at the
+                    // bottom (rowEnteringKeys gating — refreshes that
+                    // merely re-order or re-count render instantly) and a
+                    // file leaving (a revert, a checkout) collapses in
+                    // place. Rows present at the section's mount keep
+                    // their plain instant render (no .lum-enter today,
+                    // none added).
+                    <ExitList
+                        items={diff ?? []}
+                        keyOf={(entry) => entry.file}
+                        enter
+                        exitMs={250}
+                        exit={{animation: "lum-row-exit"}}
                     >
-                        <FileTitle entry={entry} directory={directory} className="flex-1"/>
-                        <DiffCountsBadge added={entry.additions} removed={entry.deletions}/>
-                    </button>
-                ))}
+                        {(entry) => (
+                            <button
+                                type="button"
+                                onClick={() => onOpenFile(entry)}
+                                className={statsRowClass}
+                            >
+                                <FileTitle entry={entry} directory={directory} className="flex-1"/>
+                                <DiffCountsBadge added={entry.additions} removed={entry.deletions}/>
+                            </button>
+                        )}
+                    </ExitList>
+                )}
             </div>
         </StatsSection>
     );

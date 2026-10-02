@@ -87,21 +87,22 @@ export const TerminalsSection = memo(function TerminalsSection({
         >
             {/* pt-1 widens this section's header→list gap beyond the
                 section chrome's gap-1 — the terminal cards are tall
-                two-line rows and sat flush under the title. Rows fade in
-                individually (.lum-enter) as they appear; they are
-                session-scoped inside the directory-keyed card, so a
-                same-directory switch swaps them in place. A row leaving
-                (session switch, shell eviction) collapses away in place
-                through the exit engine, budget-limited. */}
+                two-line rows and sat flush under the title. A row
+                APPENDED while the panel is on stage unfurls from zero
+                height (ExitList's enter gating — the list and the card
+                grow smoothly; bulk-mounted rows render instantly);
+                a row leaving collapses away in place through the exit
+                engine, budget-limited. */}
             <div className="flex flex-col gap-1.5 pt-1">
                 <ExitList
                     items={shells}
                     keyOf={(shell) => shell.id}
+                    enter
                     exitMs={250}
                     exit={{animation: "lum-row-exit"}}
                 >
-                    {(shell) => (
-                        <div className="lum-enter group/term relative">
+                    {(shell, _closing, _bind, entering) => (
+                        <div className={`group/term relative${entering ? "" : " lum-enter"}`}>
                         <button
                             type="button"
                             onClick={() => onOpenTerminal(shell)}

@@ -6,7 +6,7 @@ import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {useStatsExpanded, useStatsPanelMode, usePendingStatsFileDrill, clearStatsFileDrill} from "../../hooks/useStatsPanelMode.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import type {SessionShellRef, SessionSubagentRef, SessionTodos} from "../../opencode/sessionActivity.ts";
-import ExitPresence from "../ui/ExitPresence.tsx";
+import ExitPresence, {Reveal} from "../ui/ExitPresence.tsx";
 import IconButton from "../ui/IconButton.tsx";
 import Hint from "../ui/Hint.tsx";
 import {ChangesSection, DiffCountsBadge, FileDiffBody, FileTitle} from "./ChangesSection.tsx";
@@ -250,75 +250,86 @@ const SessionStatsCard = memo(function SessionStatsCard({
                 <button
                     type="button"
                     onClick={expand}
-                    // The pill's rows fade in individually as they appear
-                    // (.lum-enter on each row) — terminals/subagents are
-                    // session-scoped inside the directory-keyed card, so a
-                    // same-directory switch swaps them in place.
+                    // The pill's rows live in Reveals — a row APPEARING
+                    // while the pill is on stage unfurls from zero height
+                    // (.lum-row-enter) so the pill grows smoothly, and a
+                    // row LEAVING collapses through the exit engine; rows
+                    // present at the card's own mount render instantly
+                    // (the card itself fades in via .lum-enter).
+                    // as="span" keeps the button's phrasing content legal.
                     className="flex flex-col items-stretch gap-1 px-3 py-2.5 cursor-pointer rounded-[var(--radius-xl)] text-xs lum-wash"
                     aria-label={t["Workspace activity"]}
                 >
-                    {todos && todos.items.length > 0 && (
-                        // The plan's progress rides ABOVE the diff row —
-                        // the plan frames the work, the diff is residue.
-                        <span className="lum-enter flex items-center justify-between gap-2">
-                            <ListChecks
-                                size={13}
-                                className={`shrink-0 ${todoLive ? "animate-pulse" : "opacity-70"}`}
-                            />
-                            {todos.pendingApproval ? (
-                                <span className="text-2xs opacity-40 select-none">
-                                    {t["Waiting for approval"]}
-                                </span>
-                            ) : (
-                                <StatCount
-                                    finished={todoCompleted}
-                                    total={todos.items.length}
-                                    label={t["Plan progress"]}
+                    <Reveal as="span" present={todos !== null && todos.items.length > 0}>
+                        {todos && todos.items.length > 0 ? (
+                            // The plan's progress rides ABOVE the diff row —
+                            // the plan frames the work, the diff is residue.
+                            <span className="flex items-center justify-between gap-2">
+                                <ListChecks
+                                    size={13}
+                                    className={`shrink-0 ${todoLive ? "animate-pulse" : "opacity-70"}`}
                                 />
-                            )}
-                        </span>
-                    )}
-                    {diff !== null && (
-                        <span className="lum-enter flex items-center justify-between gap-2">
-                            <Diff size={13} className="shrink-0 opacity-70"/>
-                            {diffTotals.files > 0 ? (
-                                <DiffCountsBadge added={diffTotals.added} removed={diffTotals.removed}/>
-                            ) : (
-                                // Clean working copy — the row still shows so
-                                // the card says "tracked, nothing changed"
-                                // instead of vanishing.
-                                <span className="text-2xs opacity-40 select-none">
-                                    {t["No changes yet"]}
-                                </span>
-                            )}
-                        </span>
-                    )}
-                    {shells.length > 0 && (
-                        <span className="lum-enter flex items-center justify-between gap-2">
-                            <SquareTerminal
-                                size={13}
-                                className={`shrink-0 opacity-70${runningShells > 0 ? " animate-pulse" : ""}`}
-                            />
-                            <StatCount
-                                finished={shells.length - runningShells}
-                                total={shells.length}
-                                label={t["Terminals"]}
-                            />
-                        </span>
-                    )}
-                    {subagents.length > 0 && (
-                        <span className="lum-enter flex items-center justify-between gap-2">
-                            <Bot
-                                size={13}
-                                className={`shrink-0 opacity-70${runningSubagents > 0 ? " animate-pulse" : ""}`}
-                            />
-                            <StatCount
-                                finished={subagents.length - runningSubagents}
-                                total={subagents.length}
-                                label={t["Subagents"]}
-                            />
-                        </span>
-                    )}
+                                {todos.pendingApproval ? (
+                                    <span className="text-2xs opacity-40 select-none">
+                                        {t["Waiting for approval"]}
+                                    </span>
+                                ) : (
+                                    <StatCount
+                                        finished={todoCompleted}
+                                        total={todos.items.length}
+                                        label={t["Plan progress"]}
+                                    />
+                                )}
+                            </span>
+                        ) : null}
+                    </Reveal>
+                    <Reveal as="span" present={diff !== null}>
+                        {diff !== null ? (
+                            <span className="flex items-center justify-between gap-2">
+                                <Diff size={13} className="shrink-0 opacity-70"/>
+                                {diffTotals.files > 0 ? (
+                                    <DiffCountsBadge added={diffTotals.added} removed={diffTotals.removed}/>
+                                ) : (
+                                    // Clean working copy — the row still shows so
+                                    // the card says "tracked, nothing changed"
+                                    // instead of vanishing.
+                                    <span className="text-2xs opacity-40 select-none">
+                                        {t["No changes yet"]}
+                                    </span>
+                                )}
+                            </span>
+                        ) : null}
+                    </Reveal>
+                    <Reveal as="span" present={shells.length > 0}>
+                        {shells.length > 0 ? (
+                            <span className="flex items-center justify-between gap-2">
+                                <SquareTerminal
+                                    size={13}
+                                    className={`shrink-0 opacity-70${runningShells > 0 ? " animate-pulse" : ""}`}
+                                />
+                                <StatCount
+                                    finished={shells.length - runningShells}
+                                    total={shells.length}
+                                    label={t["Terminals"]}
+                                />
+                            </span>
+                        ) : null}
+                    </Reveal>
+                    <Reveal as="span" present={subagents.length > 0}>
+                        {subagents.length > 0 ? (
+                            <span className="flex items-center justify-between gap-2">
+                                <Bot
+                                    size={13}
+                                    className={`shrink-0 opacity-70${runningSubagents > 0 ? " animate-pulse" : ""}`}
+                                />
+                                <StatCount
+                                    finished={subagents.length - runningSubagents}
+                                    total={subagents.length}
+                                    label={t["Subagents"]}
+                                />
+                            </span>
+                        ) : null}
+                    </Reveal>
                 </button>
             ) : (
                 <div
@@ -416,36 +427,53 @@ const SessionStatsCard = memo(function SessionStatsCard({
                     >
                         {view.kind === "overview" && (
                             <>
-                                {todos && todos.items.length > 0 && (
-                                    <TodoSection
-                                        todos={todos}
-                                        busy={busyIds.has(sessionId)}
-                                        sessionId={sessionId}
-                                        directory={directory}
-                                    />
-                                )}
-                                {showChanges && (
-                                    <ChangesSection
-                                        diff={diff}
-                                        loading={diffLoading}
-                                        totals={diffTotals}
-                                        directory={directory}
-                                        onOpenFile={(file) => setView({kind: "file", file})}
-                                    />
-                                )}
-                                {shells.length > 0 && (
-                                    <TerminalsSection
-                                        shells={shells}
-                                        onStopShell={stopShell}
-                                        onOpenTerminal={(shell) => setView({kind: "terminal", shell})}
-                                    />
-                                )}
-                                {subagents.length > 0 && (
-                                    <SubagentsSection
-                                        subagents={subagents}
-                                        onOpenSubagent={(sub) => setView({kind: "subagent", sub})}
-                                    />
-                                )}
+                                {/* Each section slot lives in a Reveal: a section
+                                    APPEARING while the panel is open unfurls in
+                                    (.lum-row-enter — old content untouched, the
+                                    card grows along) and the last one leaving
+                                    collapses away after its rows. Slots present
+                                    at the panel's mount render instantly. The
+                                    inner guard only keeps the eager JSX eval
+                                    null-safe — a Reveal renders nothing while
+                                    absent. */}
+                                <Reveal present={todos !== null && todos.items.length > 0}>
+                                    {todos && todos.items.length > 0 ? (
+                                        <TodoSection
+                                            todos={todos}
+                                            busy={busyIds.has(sessionId)}
+                                            sessionId={sessionId}
+                                            directory={directory}
+                                        />
+                                    ) : null}
+                                </Reveal>
+                                <Reveal present={showChanges}>
+                                    {showChanges ? (
+                                        <ChangesSection
+                                            diff={diff}
+                                            loading={diffLoading}
+                                            totals={diffTotals}
+                                            directory={directory}
+                                            onOpenFile={(file) => setView({kind: "file", file})}
+                                        />
+                                    ) : null}
+                                </Reveal>
+                                <Reveal present={shells.length > 0}>
+                                    {shells.length > 0 ? (
+                                        <TerminalsSection
+                                            shells={shells}
+                                            onStopShell={stopShell}
+                                            onOpenTerminal={(shell) => setView({kind: "terminal", shell})}
+                                        />
+                                    ) : null}
+                                </Reveal>
+                                <Reveal present={subagents.length > 0}>
+                                    {subagents.length > 0 ? (
+                                        <SubagentsSection
+                                            subagents={subagents}
+                                            onOpenSubagent={(sub) => setView({kind: "subagent", sub})}
+                                        />
+                                    ) : null}
+                                </Reveal>
                             </>
                         )}
                         {view.kind === "file" && liveFile && (

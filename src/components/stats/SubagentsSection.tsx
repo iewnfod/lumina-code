@@ -40,10 +40,11 @@ export function SubagentTitle({sub, className = ""}: {
  * The subagents section: every child session this session spawned, in
  * spawn order, with its live running state (the app's busy set — child
  * sessions report execution events like any other). A row drills into
- * the child's transcript. Rows fade in individually (.lum-enter) as
- * they appear; they are session-scoped inside the directory-keyed card,
- * so a same-directory switch swaps them in place (a leaving row
- * collapses away in place through the exit engine).
+ * the child's transcript. A row APPENDED while the panel is on stage
+ * unfurls from zero height (ExitList's enter gating — bulk-mounted
+ * rows, including a same-directory switch's wholesale swap, render
+ * instantly); a row leaving collapses away in place through the exit
+ * engine.
  */
 export const SubagentsSection = memo(function SubagentsSection({
     subagents,
@@ -68,14 +69,15 @@ export const SubagentsSection = memo(function SubagentsSection({
                 <ExitList
                     items={subagents}
                     keyOf={(sub) => sub.id}
+                    enter
                     exitMs={250}
                     exit={{animation: "lum-row-exit"}}
                 >
-                    {(sub) => (
+                    {(sub, _closing, _bind, entering) => (
                         <button
                             type="button"
                             onClick={() => onOpenSubagent(sub)}
-                            className={`lum-enter ${statsRowClass}`}
+                            className={`${entering ? "" : "lum-enter"} ${statsRowClass}`}
                         >
                             <SubagentTitle sub={sub} className="flex-1"/>
                             <SubagentStateChip running={sub.running}/>

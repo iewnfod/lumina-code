@@ -5,6 +5,7 @@ import {useConnection} from "../../opencode/connectionContext.tsx";
 import {findSessionArchive, findSessionTaskDir, readTaskDocument, stripPlanAnchor} from "../../opencode/planDocuments.ts";
 import type {SessionTodoItem, SessionTodos} from "../../opencode/sessionActivity.ts";
 import {FinishedTotal, StateChip, StatsSection} from "./statsChrome.tsx";
+import {ExitList} from "../ui/ExitPresence.tsx";
 import Modal from "../ui/Modal.tsx";
 import Markdown from "../chat/Markdown.tsx";
 
@@ -51,8 +52,10 @@ type DocView =
  * list with live statuses — the user's fastest read on where the AI is
  * ("done what, doing what, what's left"), no thinking-scrolling needed.
  * Sits ABOVE the changes section by design: the plan frames the work,
- * the diff is its residue. Rows are static (statuses swap in place —
- * no row ever unmounts, so no presence animation is needed).
+ * the diff is its residue. Statuses swap in place (the same key
+ * re-renders); plan_amend's structural edits animate — appended tasks
+ * unfurl in, dropped tasks collapse away (ExitList enter, keyed by
+ * title — see the render comment).
  *
  * The header also carries VIEW buttons for the on-disk documents the
  * plugin maintains (.lumina/tasks/&lt;dir&gt;/plan.md + report.md —
@@ -168,34 +171,54 @@ export const TodoSection = memo(function TodoSection({
                 )
             }
         >
-            {todos.items.map((item, i) => (
-                <div
-                    key={`${i}-${item.title}`}
-                    // First row breathes below the section header (its
-                    // py-1 alone reads as glued to the title).
-                    className={`w-full flex items-center gap-2 px-2 py-1 text-xs rounded-[var(--radius-sm)] ${i === 0 ? "pt-2" : ""}`}
-                >
-                    <TodoGlyph
-                        status={inProgress && i === firstPending ? "in_progress" : item.status}
-                    />
-                    {/* truncate's clip box is the line box — at text-xs
-                     * (1.33 line-height) the app's font metrics overshoot
-                     * it and descenders (g/y/p) lose their bottom half.
-                     * leading-[1.5] grows the box SYMMETRICALLY (half-
-                     * leading above and below), so the text stays centered
-                     * against the row's icon — padding would shift it. */}
-                    <span
-                        className={`min-w-0 truncate text-left leading-[1.5] ${
-                            item.status === "completed" ? "opacity-45 line-through" : "opacity-85"
-                        }`}
-                    >
-                        {item.title}
-                    </span>
-                    {item.status === "blocked" && item.reason && (
-                        <span className="ml-auto shrink-0 max-w-[45%] truncate leading-[1.5] opacity-50">{item.reason}</span>
-                    )}
-                </div>
-            ))}
+            {/* The task rows live in an ExitList with entrance unfurls:
+                plan_amend's appended tasks unfurl (keyed by TITLE — the
+                protocol's distinct task titles — never the index, so an
+                insertion mid-list doesn't churn every shifted row into a
+                fake exit+enter) and tasks dropped by an amend collapse in
+                place. Rows present at the section's mount render
+                instantly; statuses still swap in place (the same key
+                re-renders, nothing remounts). */}
+            <ExitList
+                items={todos.items}
+                keyOf={(item) => item.title}
+                enter
+                exitMs={250}
+                exit={{animation: "lum-row-exit"}}
+            >
+                {(item) => {
+                    const i = todos.items.indexOf(item);
+                    return (
+                        <div
+                            // First row breathes below the section header (its
+                            // py-1 alone reads as glued to the title). Inside
+                            // the wrapper, so it collapses/unfurls with the
+                            // row.
+                            className={`w-full flex items-center gap-2 px-2 py-1 text-xs rounded-[var(--radius-sm)] ${i === 0 ? "pt-2" : ""}`}
+                        >
+                            <TodoGlyph
+                                status={inProgress && i === firstPending ? "in_progress" : item.status}
+                            />
+                            {/* truncate's clip box is the line box — at text-xs
+                             * (1.33 line-height) the app's font metrics overshoot
+                             * it and descenders (g/y/p) lose their bottom half.
+                             * leading-[1.5] grows the box SYMMETRICALLY (half-
+                             * leading above and below), so the text stays centered
+                             * against the row's icon — padding would shift it. */}
+                            <span
+                                className={`min-w-0 truncate text-left leading-[1.5] ${
+                                    item.status === "completed" ? "opacity-45 line-through" : "opacity-85"
+                                }`}
+                            >
+                                {item.title}
+                            </span>
+                            {item.status === "blocked" && item.reason && (
+                                <span className="ml-auto shrink-0 max-w-[45%] truncate leading-[1.5] opacity-50">{item.reason}</span>
+                            )}
+                        </div>
+                    );
+                }}
+            </ExitList>
             {view && (
                 <Modal
                     open

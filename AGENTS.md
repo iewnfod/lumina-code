@@ -1515,6 +1515,18 @@ src/
     │                      #   outside-click/Escape collapse, "always" mode,
     │                      #   live drill-entry resolution, and the
     │                      #   same-directory session-switch view reset.
+    │                      #   THE UNFURL CHOREOGRAPHY: every collapsible
+    │                      #   slot is a Reveal — the four pill rows
+    │                      #   (as="span", legal button innards) and the
+    │                      #   four overview section slots stay MOUNTED
+    │                      #   with their condition as `present`, so a
+    │                      #   row/section APPEARING while the card is on
+    │                      #   stage unfurls from zero height
+    │                      #   (.lum-row-enter) — old content untouched,
+    │                      #   the card's border growing along frame by
+    │                      #   frame (content drives the outer size; the
+    │                      #   section dividers' CSS keys on Reveal
+    │                      #   wrappers containing a section via :has).
     │   ├── statsChrome.tsx # Shared stats-panel chrome: StatsSection
     │                      #   header, DrillChevron, StateChip, RollingValue /
     │                      #   FinishedTotal counters (RollingTitle drums),
@@ -1524,13 +1536,18 @@ src/
     │   │                  #   status chip + net counts) → FileDiffBody (server
     │   │                  #   patch through chat/DiffViewBody + toolDiff.ts's
     │   │                  #   patchHunks — real line numbers). FileTitle /
-    │   │                  #   file row & header layoutIds live here.
-    │   ├── TerminalsSection.tsx # Background-shell rows (each row
-    │   │                  #   presence-animated — statsRowPresence: the rows
-    │   │                  #   are session-scoped inside the directory-keyed
-    │   │                  #   card, so a same-directory session switch swaps
-    │   │                  #   them in place with a crossfade; running pulse /
-    │   │                  #   exit chip; a running row cross-fades its drill
+    │   │                  #   file row & header layoutIds live here. The
+    │   │                  #   file rows live in an ExitList with `enter`:
+    │   │                  #   a file the AI newly touches unfurls in, a
+    │   │                  #   reverted/checked-out file collapses away;
+    │   │                  #   mere re-counts/re-orders render instantly.
+    │   ├── TerminalsSection.tsx # Background-shell rows (ExitList with
+    │   │                  #   `enter`: a shell moved off the foreground
+    │   │                  #   unfurls in at the bottom of the list —
+    │   │                  #   bulk mounts, including a same-directory
+    │   │                  #   session switch's wholesale swap, keep the
+    │   │                  #   plain crossfade; running pulse / exit chip;
+    │   │                  #   a running row cross-fades its drill
     │   │                  #   chevron into a hover STOP button — manual kill
     │   │                  #   via DELETE /api/shell/{id}, optimistic in
     │   │                  #   useSessionActivity.stopShell) → TerminalBody:
@@ -1541,8 +1558,8 @@ src/
     │   │                  #   stop removes the retained output too, so the
     │   │                  #   fallback is the normal path after one). The api
     │   │                  #   handle comes from useConnection().
-    │   ├── SubagentsSection.tsx # Subagent rows (presence-animated per
-    │   │                  #   row, like TerminalsSection; agent + task
+    │   ├── SubagentsSection.tsx # Subagent rows (ExitList with `enter`,
+    │   │                  #   like TerminalsSection; agent + task
     │   │                  #   label + running
     │                      #   state) → SubagentBody: read-only transcript
     │                      #   through useSessionTranscript (the shared
@@ -1556,9 +1573,13 @@ src/
     │                      #   ✓ completed struck through, ⏸ blocked with its
     │                      #   reason). Sits ABOVE ChangesSection by design:
     │                      #   the plan frames the work, the diff is residue.
-    │                      #   Static rows (statuses swap in place, nothing
-    │                      #   unmounts — no presence animation needed);
-    │                      #   the header count swaps for state chips:
+    │                      #   Statuses swap in place; plan_amend's
+    │                      #   structural edits animate — appended tasks
+    │                      #   unfurl in, dropped tasks collapse away
+    │                      #   (ExitList `enter`, keyed by TITLE — never
+    │                      #   the index, so mid-list insertions don't
+    │                      #   churn shifted rows into fake exits).
+    │                      #   The header count swaps for state chips:
     │                      #   pendingApproval → "waiting for approval",
     │                      #   ALL tasks settled without acceptance →
     │                      #   "awaiting review" (the standing invitation

@@ -1021,17 +1021,20 @@ body {
  * Rounded hairline dividers BETWEEN the expanded panel's overview
  * sections — a pseudo-element PILL (2px, fully rounded caps, half
  * alpha) inside the FOLLOWING section, not a border: softer than a
- * hard 1px rule while the caps stay visibly round. The adjacent-
- * sibling combinator does the conditional work — an empty section is
- * absent from the DOM, so a line exists only between two
- * actually-rendered sections (never above the first, never dangling).
- * The card seeds --lum-stats-divider from SurfaceColors (the same
- * glassBorder hairline the card frame and the model-change divider
- * use). Spacing stays symmetric: the body's gap-3 (12px) above the
- * line; margin-bottom 8px + the section's own gap-1 (4px) below it.
- * Drill bodies aren't <section>s, so they never pick the rule up.
+ * hard 1px rule while the caps stay visibly round. The sections ride
+ * inside Reveal wrappers (the unfurl/collapse slots), so the divider
+ * keys on wrapper divs that actually CONTAIN a section (:has — drill
+ * bodies and future non-section children never pick it up); the
+ * adjacent-sibling combinator still does the conditional work — an
+ * empty section's wrapper is absent from the DOM, so a line exists
+ * only between two actually-rendered sections (never above the first,
+ * never dangling). The card seeds --lum-stats-divider from
+ * SurfaceColors (the same glassBorder hairline the card frame and the
+ * model-change divider use). Spacing stays symmetric: the body's gap-3
+ * (12px) above the line; margin-bottom 8px + the section's own gap-1
+ * (4px) below it.
  */
-.lum-stats-body > section + section::before {
+.lum-stats-body > div:has(> section) + div:has(> section)::before {
     content: "";
     flex-shrink: 0;
     height: 2px;
