@@ -1018,6 +1018,32 @@ body {
 }
 
 /*
+ * The stats-card swap GHOST (App's StatsCardSwap): the layer holding a
+ * cross-directory switch's LEAVING card through its fade. inset-0 over
+ * the row and out of flow, so the successor (float mode) overlaps it
+ * at the top-right for a crossfade; flex justify-end keeps a
+ * WIDE-container ghost (position: static through its own container
+ * query, which still resolves — .lum-row remains its ancestor) pinned
+ * to the same corner instead of dropping to the wrapper's origin.
+ * The ghost mounts FRESH, so the card's own entrance animation is
+ * switched off — the wrapper's fade-out is the only motion (two fades
+ * fighting read as a flicker). Never interactive.
+ */
+.lum-card-hold {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    justify-content: flex-end;
+    align-items: flex-start;
+    pointer-events: none;
+}
+
+.lum-card-hold .lum-enter {
+    animation: none;
+}
+
+/*
  * Rounded hairline dividers BETWEEN the expanded panel's overview
  * sections — a pseudo-element PILL (2px, fully rounded caps, half
  * alpha) inside the FOLLOWING section, not a border: softer than a

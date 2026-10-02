@@ -131,8 +131,17 @@ src/
 │                          #   inside it) + the workspace stats panel as a
 │                          #   REAL sibling, KEYED BY DIRECTORY
 │                          #   (same-directory session switches keep it
-│                          #   mounted; cross-directory switches remount it;
-│                          #   never on the welcome screen). App measures
+│                          #   mounted; cross-directory switches go
+│                          #   through StatsCardSwap — the keyed remount
+│                          #   gains a fade: the LEAVING card renders on
+│                          #   as a frozen-snapshot ghost
+│                          #   (.lum-card-hold, pinned top-right out of
+│                          #   flow, its own entrance suppressed) while
+│                          #   the successor mounts — float mode
+│                          #   crossfades, wide-container mode reflows at
+│                          #   once with the ghost fading over the
+│                          #   corner; never on the welcome screen). App
+│                          #   measures
 │                          #   NOTHING: the row (.lum-row) is a CSS size
 │                          #   CONTAINER — the column's width cap + gutters
 │                          #   (.lum-column) and the stats panel's
