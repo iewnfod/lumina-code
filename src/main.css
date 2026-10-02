@@ -862,6 +862,65 @@ body {
 }
 
 /*
+ * Queued-prompt rows (QueuedPromptRow) — a bespoke pair, by request:
+ * the ENTRANCE is a SYNCED two-layer slide-out-of-the-composer — the
+ * wrapper's grid track grows 0fr→1fr (the pinned stack is
+ * bottom-anchored, so the growing height pushes everything above up
+ * SMOOTHLY, in lockstep) while the row content translates
+ * 100%→0 + fades with the SAME easing, so its top edge rises exactly
+ * with the layout: the still-sunken half stays hidden behind the
+ * composer (wrapper overflow) and the row reads as floating up out of
+ * it. The EXIT fades AND collapses its track (1fr→0fr) — the rows
+ * below glide up into the vacated space instead of snapping once the
+ * hold releases.
+ */
+.lum-queue-enter {
+    display: grid;
+    grid-template-rows: 1fr;
+    overflow: hidden;
+    animation: lum-queue-enter-track var(--duration-base) var(--ease-glass) both;
+}
+
+.lum-queue-enter > * {
+    min-height: 0;
+}
+
+.lum-queue-rise {
+    animation: lum-queue-rise var(--duration-base) var(--ease-glass) both;
+}
+
+@keyframes lum-queue-enter-track {
+    from {
+        grid-template-rows: 0fr;
+    }
+}
+
+@keyframes lum-queue-rise {
+    from {
+        opacity: 0;
+        transform: translateY(100%);
+    }
+}
+
+.lum-queue-exit {
+    display: grid;
+    grid-template-rows: 1fr;
+    animation: lum-queue-exit var(--duration-base) var(--ease-glass) both;
+    pointer-events: none;
+}
+
+.lum-queue-exit > * {
+    min-height: 0;
+}
+
+@keyframes lum-queue-exit {
+    to {
+        grid-template-rows: 0fr;
+        opacity: 0;
+    }
+}
+
+/*
  * Disclosure fold: height animates between 0 and content height with
  * ZERO JS — the browser interpolates grid-template-rows (0fr → 1fr) and
  * computes the content height itself. The fold must have exactly ONE

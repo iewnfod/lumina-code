@@ -1,12 +1,23 @@
-import {memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
+import {memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
+import {createPortal} from "react-dom";
 import {warn as logWarn} from "@tauri-apps/plugin-log";
 import {debug as logDebug} from "@tauri-apps/plugin-log";
+import {GripVertical} from "lucide-react";
+import {useColors} from "../../hooks/colors.tsx";
 import {useTranscriptScroll} from "../../hooks/useTranscriptScroll.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {usePendingRequests, useSessionData, useSessionTranscript} from "../../opencode/sessionDataContext.tsx";
 import {useSessionStopping} from "../../opencode/sessionStopping.ts";
+import {
+    clearSessionQueue,
+    enqueuePrompt,
+    moveQueuedPrompt,
+    removeQueuedPrompt,
+    takeQueuedPrompt,
+    useQueuedPrompts,
+} from "../../opencode/promptQueue.ts";
 import {type GateContext, planApprovalPending, workApprovalPending} from "../../opencode/sessionActivity.ts";
 import {
     getGateDecisionsSnapshot,
@@ -29,6 +40,7 @@ import TranscriptList from "./TranscriptList.tsx";
 import {ExitList} from "../ui/ExitPresence.tsx";
 import ExitPresence from "../ui/ExitPresence.tsx";
 import ChatInput from "../composer/ChatInput.tsx";
+import QueuedPromptRow, {queuedRowDisplay} from "./QueuedPromptRow.tsx";
 import {PermissionCard} from "./PermissionCard.tsx";
 import {groupPermissionRequests, groupReplyPlan} from "./permissionGroups.ts";
 import {PlanApprovalCard} from "./PlanApprovalCard.tsx";
@@ -109,6 +121,7 @@ const ChatView = memo(function ChatView({
     usage: SessionUsage | null;
 }) {
     const t = useI18n();
+    const colors = useColors();
     const {api} = useConnection();
     const {models} = useCatalog();
     const {replyPermission, replyForm, cancelForm} = useSessionData();
@@ -128,6 +141,11 @@ const ChatView = memo(function ChatView({
     // Stop pressed, run not yet unwound — the tail's indicator says
     // "Stopping" through the interrupt latency window (sessionStopping.ts).
     const stopping = useSessionStopping(sessionId);
+    // Prompts composed while the session runs: they QUEUE instead of
+    // steering the current turn (promptQueue.ts) and flush through the
+    // normal send path once the run ends (the flush effect below).
+    const queued = useQueuedPrompts(sessionId);
+    const queuedItems = useMemo(() => [...queued], [queued]);
 
     const sentinelRef = useRef<HTMLDivElement>(null);
     const [renderLimit, setRenderLimit] = useState(RENDER_LIMIT);
@@ -180,7 +198,10 @@ const ChatView = memo(function ChatView({
     // re-render (and re-run its whole editor + catalog-grouping subtree)
     // 60×/s while tokens stream. send/interrupt are already stable
     // (useCallback with empty deps in useSessionMessages).
-    const handleSend = useCallback(
+    // `deliver` is the ONE send path — the composer's live send, the
+    // queue's flush and the rows' "send now" all route through it (vision
+    // divert + optimistic bubble + command fallback included).
+    const deliver = useCallback(
         (
             text: string,
             files: ComposerAttachment[],
@@ -204,7 +225,164 @@ const ChatView = memo(function ChatView({
         },
         [send, api, models, model, snapToBottom],
     );
-    const handleInterrupt = useCallback(() => void interrupt(), [interrupt]);
+    const handleSend = useCallback(
+        (
+            text: string,
+            files: ComposerAttachment[],
+            fileRefs: ComposerFileRef[],
+            command: PendingCommand | null,
+        ) => {
+            // Mid-run the prompt QUEUES instead of steering the current
+            // turn — it renders as a row above the composer and goes out
+            // through `deliver` when the run ends (the flush effect).
+            if (busy) {
+                enqueuePrompt(sessionId, {text, files, fileRefs, command});
+                return;
+            }
+            deliver(text, files, fileRefs, command);
+        },
+        [busy, sessionId, deliver],
+    );
+    const handleInterrupt = useCallback(() => {
+        // Stopping means STOP: the queue clears too, so the aborted work
+        // is not immediately restarted by the next queued prompt (the
+        // rows collapse away with their exit animation).
+        clearSessionQueue(sessionId);
+        void interrupt();
+    }, [sessionId, interrupt]);
+
+    // --- Queued-prompt flush + row actions ---
+    // Exactly ONE queued prompt delivers per idle window (the guard ref):
+    // after `deliver` the queue shrinks, which re-runs this effect while
+    // `busy` is still false (execution.started arrives a beat later) —
+    // without the guard the whole queue would flush at once instead of
+    // one-prompt-per-run. busy turning true re-arms the guard; so does a
+    // session switch (the ref outlives it otherwise).
+    const flushedIdleRef = useRef(false);
+    useEffect(() => {
+        flushedIdleRef.current = false;
+    }, [sessionId]);
+    useEffect(() => {
+        if (busy) {
+            flushedIdleRef.current = false;
+            return;
+        }
+        if (flushedIdleRef.current || queued.length === 0) return;
+        const head = takeQueuedPrompt(sessionId);
+        if (!head) return;
+        flushedIdleRef.current = true;
+        deliver(head.text, head.files, head.fileRefs, head.command);
+    }, [busy, queued, sessionId, deliver]);
+    // "Send now" pulls one row out of the queue and delivers it
+    // immediately — the server accepts prompts mid-run (they join the
+    // running turn), so this is a deliberate steer, not a queue jump.
+    const handleSendQueuedNow = useCallback(
+        (id: string) => {
+            const entry = queued.find((q) => q.id === id);
+            if (!entry) return;
+            removeQueuedPrompt(sessionId, id);
+            deliver(entry.text, entry.files, entry.fileRefs, entry.command);
+        },
+        [queued, sessionId, deliver],
+    );
+    // Edit: the row's text + attachments load back into the composer
+    // (ChatInput's draftLoad prop) and the entry leaves the queue;
+    // resubmitting re-enqueues while the session still runs.
+    const [queueEdit, setQueueEdit] = useState<{token: number; text: string; files: ComposerAttachment[]} | null>(null);
+    useEffect(() => {
+        setQueueEdit(null);
+        setQueueDrag(null);
+    }, [sessionId]);
+    const handleEditQueued = useCallback(
+        (id: string) => {
+            const entry = queued.find((q) => q.id === id);
+            if (!entry) return;
+            removeQueuedPrompt(sessionId, id);
+            setQueueEdit({token: Date.now(), text: entry.text, files: entry.files});
+        },
+        [queued, sessionId],
+    );
+    const handleDraftLoaded = useCallback(() => setQueueEdit(null), []);
+
+    // --- Queue-row reorder (pointer drag; HTML5 DnD proved unreliable
+    // in the WebKitGTK webview) ---
+    // The grip's pointerdown opens the session; window-level listeners
+    // resolve the row under the pointer via elementFromPoint (each row
+    // root carries data-queued-id) and pointerup commits the move.
+    // Esc / pointercancel / releasing outside the rows cancels.
+    const [queueDrag, setQueueDrag] = useState<{draggedId: string; overId: string | null} | null>(null);
+    const queueDragRef = useRef(queueDrag);
+    queueDragRef.current = queueDrag;
+    const queueDragActive = queueDrag !== null;
+    // The GHOST follows the pointer imperatively (transform writes in
+    // the move handler — no per-move re-render): grab offset + width
+    // are captured from the row's rect at drag start, lastPointer
+    // carries the position into the ghost's mount effect.
+    const ghostRef = useRef<HTMLDivElement | null>(null);
+    const ghostGeomRef = useRef<{grabX: number; grabY: number; width: number} | null>(null);
+    const lastPointerRef = useRef<{x: number; y: number} | null>(null);
+    useEffect(() => {
+        if (!queueDragActive) return;
+        const rowAt = (x: number, y: number): string | null => {
+            const el = document.elementFromPoint(x, y)?.closest("[data-queued-id]");
+            return el instanceof HTMLElement ? (el.dataset.queuedId ?? null) : null;
+        };
+        const onMove = (e: PointerEvent) => {
+            lastPointerRef.current = {x: e.clientX, y: e.clientY};
+            const g = ghostRef.current;
+            const geom = ghostGeomRef.current;
+            if (g && geom) {
+                g.style.transform = `translate(${e.clientX - geom.grabX}px, ${e.clientY - geom.grabY}px)`;
+            }
+            const overId = rowAt(e.clientX, e.clientY);
+            setQueueDrag((d) => (d ? (d.overId === overId ? d : {...d, overId}) : d));
+        };
+        const onFinish = (e: PointerEvent) => {
+            const d = queueDragRef.current;
+            setQueueDrag(null);
+            if (!d) return;
+            const overId = rowAt(e.clientX, e.clientY);
+            // Drop = insert BEFORE the target row (the pinned stack
+            // grows upward; both directions work).
+            if (overId && overId !== d.draggedId) moveQueuedPrompt(sessionId, d.draggedId, overId);
+        };
+        const onCancel = () => setQueueDrag(null);
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") setQueueDrag(null);
+        };
+        document.body.style.cursor = "grabbing";
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onFinish);
+        window.addEventListener("pointercancel", onCancel);
+        window.addEventListener("keydown", onKey);
+        return () => {
+            document.body.style.cursor = "";
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onFinish);
+            window.removeEventListener("pointercancel", onCancel);
+            window.removeEventListener("keydown", onKey);
+        };
+    }, [queueDragActive, sessionId]);
+    // Place the ghost under the pointer BEFORE its first paint.
+    useLayoutEffect(() => {
+        const g = ghostRef.current;
+        const geom = ghostGeomRef.current;
+        const pt = lastPointerRef.current;
+        if (!queueDragActive || !g || !geom || !pt) return;
+        g.style.transform = `translate(${pt.x - geom.grabX}px, ${pt.y - geom.grabY}px)`;
+    }, [queueDragActive]);
+    const startQueueDrag = useCallback((e: React.PointerEvent, id: string) => {
+        if (e.button !== 0) return;
+        // No text selection / focus steal from the composer.
+        e.preventDefault();
+        const row = (e.currentTarget as HTMLElement).closest("[data-queued-id]");
+        const rect = row instanceof HTMLElement ? row.getBoundingClientRect() : null;
+        ghostGeomRef.current = rect
+            ? {grabX: e.clientX - rect.left, grabY: e.clientY - rect.top, width: rect.width}
+            : {grabX: 0, grabY: 0, width: 0};
+        lastPointerRef.current = {x: e.clientX, y: e.clientY};
+        setQueueDrag({draggedId: id, overId: null});
+    }, []);
 
     // --- Edit-last-message wiring ---
     // Only the session's LAST user message is editable (and it needs a
@@ -526,6 +704,37 @@ const ChatView = memo(function ChatView({
                 </div>
             </div>
             <div className="lum-column shrink-0 pb-4 flex flex-col gap-2">
+                {/* Queued prompts — composed mid-run, delivered when the
+                 * run ends (promptQueue.ts). Entrance/exit is the
+                 * bespoke queued pair (main.css): the wrapper's grid
+                 * track grows in sync with the row's rise (the content
+                 * above is pushed up smoothly while the row floats out
+                 * of the composer), and the exit is a pure fade. The
+                 * composer below stays live for the next queued
+                 * prompt. */}
+                <ExitList
+                    items={queuedItems}
+                    keyOf={(q) => q.id}
+                    enter
+                    enterClassName="lum-queue-enter"
+                    exitMs={250}
+                    exit={{animation: "lum-queue-exit"}}
+                    exitClassName="lum-queue-exit"
+                >
+                    {(q, _closing, _bind, entering) => (
+                        <QueuedPromptRow
+                            entry={q}
+                            entering={entering}
+                            dragging={queueDrag?.draggedId === q.id}
+                            dropTarget={queueDrag !== null && queueDrag.draggedId !== q.id && queueDrag.overId === q.id}
+                            onSendNow={handleSendQueuedNow}
+                            onEdit={handleEditQueued}
+                            onRemove={(id) => removeQueuedPrompt(sessionId, id)}
+                            onGripPointerDown={(e) => startQueueDrag(e, q.id)}
+                            editLocked={editMessage !== null}
+                        />
+                    )}
+                </ExitList>
                 {/* The plan workflow's approval card — pinned here while
                  * the plan_submit executor blocks on the user's decision
                  * (a still-running part in the transcript; see
@@ -620,6 +829,8 @@ const ChatView = memo(function ChatView({
                     draftKey={sessionId}
                     onSend={handleSend}
                     onInterrupt={handleInterrupt}
+                    draftLoad={queueEdit}
+                    onDraftLoaded={handleDraftLoaded}
                     agent={agent}
                     model={model}
                     onAgentChange={onAgentChange}
@@ -635,6 +846,47 @@ const ChatView = memo(function ChatView({
                     onSubmitEdit={handleSubmitEdit}
                 />
             </div>
+            {/* The reorder DRAG GHOST: a fixed-position lifted copy of the
+             * dragged row following the pointer (imperative transform —
+             * see the drag session above). Portaled to document.body:
+             * `fixed` inside the tree would be caught by an ancestor's
+             * containment (the conversation row's container-type: size
+             * makes it the containing block) and offset from the cursor.
+             * pointer-events:none is LOAD-BEARING: it keeps the ghost out
+             * of elementFromPoint so the drop target resolves to the row
+             * BENEATH it. */}
+            {queueDrag && (ghostGeomRef.current?.width ?? 0) > 0 &&
+                createPortal(
+                    <div
+                        ref={ghostRef}
+                        className="fixed left-0 top-0 z-50 pointer-events-none"
+                        style={{width: ghostGeomRef.current?.width}}
+                    >
+                        <div
+                            className="flex items-center gap-2 rounded-[var(--radius-lg)] px-3 py-2 select-none"
+                            style={{
+                                background: colors.recessedBg,
+                                border: `1px solid ${colors.glassBorder}`,
+                                boxShadow: colors.elevationShadow,
+                                transform: "scale(1.02)",
+                            }}
+                        >
+                            <GripVertical size={14} className="shrink-0" style={{color: colors.inactiveText}}/>
+                            <span className="flex-1 min-w-0 truncate text-xs" style={{color: colors.textPrimary}}>
+                                {queuedRowDisplay(
+                                    queued.find((q) => q.id === queueDrag.draggedId) ?? {
+                                        text: "",
+                                        files: [],
+                                        fileRefs: [],
+                                        command: null,
+                                        id: queueDrag.draggedId,
+                                    },
+                                )}
+                            </span>
+                        </div>
+                    </div>,
+                    document.body,
+                )}
         </div>
     );
 });

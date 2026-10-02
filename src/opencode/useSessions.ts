@@ -2,6 +2,7 @@ import {useCallback, useEffect, useRef, useState} from "react";
 import {error as logError, info, warn as logWarn} from "@tauri-apps/plugin-log";
 import type {OpencodeApi} from "./api.ts";
 import {applyStoppingBusEvent} from "./sessionStopping.ts";
+import {applyPromptQueueBusEvent} from "./promptQueue.ts";
 import {applyTurnEditsBusEvent} from "./turnEdits.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {EventMap, OpencodeSession} from "./types.ts";
@@ -178,6 +179,8 @@ export function useSessions(
             // Drop the deleted session's turn-edit summaries with it (the
             // store caches forever otherwise; no-op for other event types).
             applyTurnEditsBusEvent(event.type, (event.data as {sessionID?: unknown} | null | undefined)?.sessionID);
+            // ... and its queued prompts (no-op for other event types).
+            applyPromptQueueBusEvent(event);
             switch (event.type) {
                 case "session.created": {
                     void relist();

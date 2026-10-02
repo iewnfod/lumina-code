@@ -313,7 +313,18 @@ export default function ComposerToolbar({
                     )}
                 </PopoverMenu>
             )}
-            {busy ? (
+            {/* One send/stop slot: text ready → SEND (mid-run it QUEUES —
+             * promptQueue.ts — instead of steering the turn; the title
+             * says so), no text while running → STOP, idle and empty →
+             * send stays disabled. */}
+            {!disabled && canSend ? (
+                <ToolbarButton
+                    icon={<ArrowUp size={14}/>}
+
+                    title={busy ? t["Queue message"] : t["Send"]}
+                    onClick={onSend}
+                />
+            ) : busy ? (
                 <ToolbarButton
                     icon={<Square size={14}/>}
 
@@ -325,7 +336,7 @@ export default function ComposerToolbar({
                     icon={<ArrowUp size={14}/>}
 
                     title={t["Send"]}
-                    disabled={disabled || !canSend}
+                    disabled
                     onClick={onSend}
                 />
             )}

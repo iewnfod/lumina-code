@@ -64,6 +64,8 @@ const ChatInput = memo(function ChatInput({
      *  screen's fixed key) — keeps the half-typed buffer across the
      *  surface-swap remounts. */
     draftKey,
+    draftLoad = null,
+    onDraftLoaded,
     editMessage = null,
     onCancelEdit,
     onSubmitEdit,
@@ -90,6 +92,15 @@ const ChatInput = memo(function ChatInput({
     /** The session's current context reading (last measured step). */
     contextUsage?: ContextUsage | null;
     draftKey: string;
+    /** A queued-prompt row's "edit": its text + attachments load back
+     * into the composer (replacing the buffer) and the entry leaves the
+     * queue. `token` makes each request a distinct load even when the
+     * same row is edited twice. Applied only in NORMAL mode — ChatView
+     * locks the row's pencil while an edit-last-message session is
+     * active so the two buffers never clobber each other. */
+    draftLoad?: {token: number; text: string; files: ComposerAttachment[]} | null;
+    /** Fires once a draftLoad has been applied (ChatView clears it). */
+    onDraftLoaded?: () => void;
     /** The sent message being edited HERE (null = normal send mode —
      *  the welcome screen passes none). Entering edit loads its text +
      *  attachments into the composer; the draft in progress is stashed
@@ -163,6 +174,20 @@ const ChatInput = memo(function ChatInput({
             setAttachments(stash.attachments);
         }
     }, [editMessage, draftKey]);
+
+    // A queued row's "edit" arriving from above: load its text +
+    // attachments into the composer, replacing whatever draft was staged
+    // (resubmitting re-enqueues while the session runs). The callback
+    // rides a ref so a per-render-identical ChatView callback never
+    // re-triggers the load.
+    const onDraftLoadedRef = useRef(onDraftLoaded);
+    onDraftLoadedRef.current = onDraftLoaded;
+    useEffect(() => {
+        if (editMessage || !draftLoad) return;
+        composerApiRef.current?.setText(draftLoad.text);
+        setAttachments(draftLoad.files);
+        onDraftLoadedRef.current?.();
+    }, [draftLoad, editMessage]);
 
     // Slash commands are a small list, but they are location-scoped
     // (project-local .opencode/commands/ + built-ins only register inside
@@ -327,11 +352,16 @@ const ChatInput = memo(function ChatInput({
             <LexicalComposer initialConfig={initialConfig}>
                 <ComposerCore
                     disabled={disabled}
-                    busy={busy}
                     draftKey={draftKey}
                     directory={directory}
                     commands={commands}
-                    placeholder={disabled ? t["Connecting to OpenCode..."] : t["Ask Lumina Code, use @ to add context, use / for commands"]}
+                    placeholder={
+                        disabled
+                            ? t["Connecting to OpenCode..."]
+                            : busy
+                                ? t["Keep typing to queue messages"]
+                                : t["Ask Lumina Code, use @ to add context, use / for commands"]
+                    }
                     addFiles={addFiles}
                     onSubmit={handleSubmit}
                     onReady={(handle) => {

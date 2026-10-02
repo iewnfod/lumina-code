@@ -482,6 +482,35 @@ src/
 │   │                      #   true response never re-marks); a stale
 │   │                      #   marker is inert — the indicator also needs
 │   │                      #   busy, and the next execution.started clears.
+│   ├── promptQueue.ts    # The per-session QUEUED-PROMPT store (module store +
+│   │                      #   useSyncExternalStore, the sessionStopping
+│   │                      #   pattern): prompts composed mid-run QUEUE here
+│   │                      #   instead of steering the running turn, render as
+│   │                      #   rows above the composer (QueuedPromptRow —
+│   │                      #   grip-reorder / send-now / edit / remove) and
+│   │                      #   flush through the normal send path when the
+│   │                      #   run ends. THE FLUSH IS ChatView'S (it owns the
+│   │                      #   send path) and delivers EXACTLY ONE prompt per
+│   │                      #   idle window (a guard ref — busy flips true a
+│   │                      #   beat AFTER deliver, and the shrunken queue
+│   │                      #   re-fires the effect; without the guard the
+│   │                      #   whole queue would flush at once), re-armed on
+│   │                      #   busy→true and on session switch; a
+│   │                      #   backgrounded session's queue flushes when the
+│   │                      #   session is reopened (mount + idle). INTERRUPT
+│   │                      #   CLEARS the queue (stopping means stop — an
+│   │                      #   auto-flush right after would restart the
+│   │                      #   aborted work; rows collapse away with their
+│   │                      #   exit animation); "send now" delivers one row
+│   │                      #   immediately (the server accepts prompts
+│   │                      #   mid-run — a deliberate steer); "edit" loads
+│   │                      #   text + attachments back into the composer via
+│   │                      #   ChatInput's draftLoad prop (mention nodes
+│   │                      #   degrade to plain @path text — Lexical nodes
+│   │                      #   can't rehydrate from it). session.deleted
+│   │                      #   drops the queue (applyPromptQueueBusEvent,
+│   │                      #   folded in useSessions next to
+│   │                      #   applyStoppingBusEvent).
 │   ├── turnEdits.ts      # The per-turn EDIT SUMMARY store (module store +
 │   │                      #   useSyncExternalStore, the sessionStopping
 │   │                      #   pattern): one entry per (session, user
@@ -1182,6 +1211,13 @@ src/
     │   │                  #   submit = editResend (revert + resend),
     │   │                  #   success snaps to bottom and ends the
     │   │                  #   edit, failure keeps the composer editing.
+    │   │                  #   THE QUEUED-PROMPT SITE too: handleSend
+    │   │                  #   branches on busy (enqueue vs deliver), the
+    │   │                  #   ONE shared `deliver` feeds the live send /
+    │   │                  #   the flush effect / "send now" rows (see
+    │   │                  #   opencode/promptQueue.ts for the rules),
+    │   │                  #   and the rows' ExitList sits at the top of
+    │   │                  #   the pinned stack above the composer.
     │   ├── transcript.ts  # Pure blockify(): folds runs of activity-only
     │   │                  #   assistant messages into TranscriptBlocks; a persisted
     │   │                  #   model-switched marker becomes its own model-change
@@ -1461,6 +1497,42 @@ src/
     │   │                  #   and the card collapses as the part
     │   │                  #   settles); rejection = interrupt → fix and
     │   │                  #   resubmit.
+    │   ├── QueuedPromptRow.tsx # One queued-prompt row (opencode/
+    │   │                  #   promptQueue.ts): recessed row with a drag-
+    │   │                  #   grip REORDER — POINTER-EVENT drag
+    │   │                  #   coordinated by ChatView (HTML5 DnD proved
+    │   │                  #   unreliable in the WebKitGTK webview: the
+    │   │                  #   grip's pointerdown opens the session,
+    │   │                  #   window listeners resolve the row under
+    │   │                  #   the pointer via elementFromPoint — the row
+    │   │                  #   root carries data-queued-id — and pointerup
+    │   │                  #   commits moveQueuedPrompt; Esc/release
+    │   │                  #   outside cancels, source dims, target
+    │   │                  #   outlines, and a FIXED ghost copy of the
+    │   │                  #   row follows the pointer — portaled to
+    │   │                  #   document.body (a fixed element inside the
+    │   │                  #   tree gets caught by .lum-row's
+    │   │                  #   container-type containment and offsets
+    │   │                  #   from the cursor), imperative
+    │   │                  #   transform writes, pointer-events:none so
+    │   │                  #   elementFromPoint still resolves the row
+    │   │                  #   beneath it),
+    │   │                  #   the text preview (a slash-command entry shows
+    │   │                  #   its compact /name args form, not the expanded
+    │   │                  #   template), and send-now / edit / remove.
+    │   │                  #   The edit pencil locks while edit-last-message
+    │   │                  #   owns the composer (the two buffers must not
+    │   │                  #   clobber each other). ENTRANCE is SYNCED
+    │   │                  #   two-layer: the ExitList wrapper wears
+    │   │                  #   .lum-queue-enter (grid track 0fr→1fr — the
+    │   │                  #   content above is pushed up smoothly, in
+    │   │                  #   lockstep) while `entering` puts
+    │   │                  #   .lum-queue-rise on the row (translate+fade,
+    │   │                  #   SAME easing — floats up out of the
+    │   │                  #   composer); EXIT fades AND collapses the
+    │   │                  #   wrapper's track (1fr→0fr — the remaining
+    │   │                  #   rows glide up into the vacated space;
+    │   │                  #   ExitList's exitClassName override).
     │   ├── RequestCardChrome.tsx # Card + CardButton + MONO_STYLE (mono
     │   │                  #   family + settings-driven --lum-code-size)
     │   │                  #   shared by the request kinds and tool cards;
@@ -1610,7 +1682,15 @@ src/
         │                  #   submit (written back into the draft store
         │                  #   on mid-edit unmount); submit routes to
         │                  #   onSubmitEdit, whose false (revert failed)
-        │                  #   keeps the whole buffer.
+        │                  #   keeps the whole buffer. ALSO THE QUEUED
+        │                  #   EDIT surface: draftLoad {token, text,
+        │                  #   files} (ChatView, from a QueuedPromptRow's
+        │                  #   pencil) loads a queued prompt back into the
+        │                  #   composer — normal mode only (the pencil
+        │                  #   locks while an edit-last-message session is
+        │                  #   active) — then fires onDraftLoaded. While
+        │                  #   busy the placeholder switches to the
+        │                  #   queue hint ("继续输入以排队发送").
         ├── ComposerCore.tsx # Editor internals: trigger-driven suggestions,
         │                  #   keyboard routing (Enter/arrows/Tab/Esc, IME-safe),
         │                  #   submit serialization, paste-to-attach.
@@ -1621,8 +1701,13 @@ src/
         │                  #   revert failed); Esc with no popup open
         │                  #   cancels an active edit.
         ├── ComposerToolbar.tsx # Bottom toolbar: attach/mode/project on the
-        │                  #   left; usage ring, model, thinking depth,
-        │                  #   send/stop on the right. Owns the catalog →
+        │                  #   left; usage ring, model, thinking depth on
+        │                  #   the right. The send/stop slot is CONTENT-
+        │                  #   DRIVEN: text ready → send (mid-run it
+        │                  #   QUEUES — opencode/promptQueue.ts — instead
+        │                  #   of steering the run, and the title says so),
+        │                  #   no text while running → stop, idle + empty →
+        │                  #   send disabled. Owns the catalog →
         │                  #   picker mapping (provider groups, variants) and
         │                  #   the model-config entry (empty-state "no models
         │                  #   configured" when catalogOnly, and the

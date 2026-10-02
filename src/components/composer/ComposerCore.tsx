@@ -77,7 +77,6 @@ export interface ComposerHandle {
  */
 export default function ComposerCore({
     disabled,
-    busy,
     draftKey,
     directory,
     commands,
@@ -89,7 +88,6 @@ export default function ComposerCore({
     onCancelEdit,
 }: {
     disabled: boolean;
-    busy: boolean;
     /** Draft-store key (see ChatInput) — the editor half of the draft. */
     draftKey: string;
     directory: string | null;
@@ -127,8 +125,8 @@ export default function ComposerCore({
     const dismissedRef = useRef<string | null>(null);
     // Latest render values for command callbacks that register once but
     // must read fresh state.
-    const liveRef = useRef({suggest, items: suggestItems, selected: suggestSelected, disabled, busy, onCancelEdit});
-    liveRef.current = {suggest, items: suggestItems, selected: suggestSelected, disabled, busy, onCancelEdit};
+    const liveRef = useRef({suggest, items: suggestItems, selected: suggestSelected, disabled, onCancelEdit});
+    liveRef.current = {suggest, items: suggestItems, selected: suggestSelected, disabled, onCancelEdit};
     const addFilesRef = useRef(addFiles);
     addFilesRef.current = addFiles;
 
@@ -263,7 +261,9 @@ export default function ComposerCore({
      *  non-empty buffer sends; a leading `/name` that matches a known
      *  command runs server-side instead. A pending async submit blocks
      *  re-entry (an edit's revert round-trip must not be doubled by a
-     *  second Enter). */
+     *  second Enter). NOT gated on busy — a mid-run submit QUEUES
+     *  upstream (ChatView.handleSend → promptQueue) instead of steering
+     *  the turn. */
     const submitInFlightRef = useRef(false);
     const clearAfterSend = useCallback(() => {
         // Sent: drop the whole draft (editor state + attachments) for
@@ -279,7 +279,7 @@ export default function ComposerCore({
     }, [editor, draftKey]);
     const submit = useCallback(() => {
         const live = liveRef.current;
-        if (live.disabled || live.busy || submitInFlightRef.current) return;
+        if (live.disabled || submitInFlightRef.current) return;
         const payload = editor.getEditorState().read(() => {
             let text = "";
             const paths: string[] = [];
