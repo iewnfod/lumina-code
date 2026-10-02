@@ -30,6 +30,7 @@ import {ExitList} from "../ui/ExitPresence.tsx";
 import ExitPresence from "../ui/ExitPresence.tsx";
 import ChatInput from "../composer/ChatInput.tsx";
 import {PermissionCard} from "./PermissionCard.tsx";
+import {groupPermissionRequests, groupReplyPlan} from "./permissionGroups.ts";
 import {PlanApprovalCard} from "./PlanApprovalCard.tsx";
 import {WorkReviewCard} from "./WorkReviewCard.tsx";
 import {QuestionCard} from "./QuestionCard.tsx";
@@ -114,6 +115,16 @@ const ChatView = memo(function ChatView({
     const {messages, hasMore, loadingOlder, loadOlder, send, editResend, interrupt} =
         useSessionTranscript(sessionId);
     const {permissions: pendingPermissions, forms: pendingForms} = usePendingRequests(sessionId);
+    // Identical asks (same action + resources) merge into ONE card: the
+    // server fires one permission assert per tool invocation with no
+    // cross-call dedup, so parallel reads of the same external directory
+    // stack 2+ indistinguishable asks. Memoized on the store array — the
+    // group list keeps its identity across streaming frames so the
+    // memoized cards skip re-renders.
+    const permissionGroups = useMemo(
+        () => groupPermissionRequests(pendingPermissions),
+        [pendingPermissions],
+    );
     // Stop pressed, run not yet unwound — the tail's indicator says
     // "Stopping" through the interrupt latency window (sessionStopping.ts).
     const stopping = useSessionStopping(sessionId);
@@ -555,23 +566,30 @@ const ChatView = memo(function ChatView({
                     }
                 </ExitPresence>
                 {/* Pinned server requests — while any is pending, the
-                    session's execution waits server-side, so they stay
-                    in the composer's place, never scrolled away. Answered
-                    cards collapse away in place (the exit engine). */}
+                 * session's execution waits server-side, so they float
+                 * here above the composer, never scrolled away. The
+                 * composer stays available beneath them: a prompt typed
+                 * while an ask waits simply queues behind the blocked
+                 * run. Identical permission asks render as ONE card
+                 * (permissionGroups) whose decision replies to the whole
+                 * group. Answered cards collapse away in place (the exit
+                 * engine). */}
                 <ExitList
-                    items={pendingPermissions}
-                    keyOf={(request) => request.id}
+                    items={permissionGroups}
+                    keyOf={(group) => group.key}
                     exitMs={250}
                     exit={{animation: "lum-row-exit"}}
                 >
-                    {(request) => (
+                    {(group) => (
                         <PermissionCard
-                            request={request}
-                            onDecision={(req, decision) => {
+                            request={group.requests[0]}
+                            onDecision={(_, decision) => {
                                 // Answering resumes execution at the tail —
                                 // follow it down from wherever the reader is.
                                 snapToBottom();
-                                void replyPermission(req, decision);
+                                for (const reply of groupReplyPlan(group.requests, decision)) {
+                                    void replyPermission(reply.request, reply.decision);
+                                }
                             }}
                         />
                     )}
@@ -593,31 +611,29 @@ const ChatView = memo(function ChatView({
                         />
                     )}
                 </ExitList>
-                {/* While any request is pending, the composer hides —
-                    the answer flow is the request card itself, not a
-                    free-typed prompt. */}
-                {pendingForms.length === 0 && pendingPermissions.length === 0 && (
-                    <ChatInput
-                        disabled={disabled}
-                        busy={busy}
-                        draftKey={sessionId}
-                        onSend={handleSend}
-                        onInterrupt={handleInterrupt}
-                        agent={agent}
-                        model={model}
-                        onAgentChange={onAgentChange}
-                        onModelChange={onModelChange}
-                        conversationStarted={hasConversation}
-                        directory={directory}
-                        onDirectoryChange={onDirectoryChange}
-                        onOpenModelConfig={onOpenModelConfig}
-                        usage={usage}
-                        contextUsage={contextUsage}
-                        editMessage={editMessage}
-                        onCancelEdit={handleCancelEdit}
-                        onSubmitEdit={handleSubmitEdit}
-                    />
-                )}
+                {/* The composer stays mounted while requests pend (see
+                 * the comment above): busy still swaps its send button
+                 * for stop per the usual run flow. */}
+                <ChatInput
+                    disabled={disabled}
+                    busy={busy}
+                    draftKey={sessionId}
+                    onSend={handleSend}
+                    onInterrupt={handleInterrupt}
+                    agent={agent}
+                    model={model}
+                    onAgentChange={onAgentChange}
+                    onModelChange={onModelChange}
+                    conversationStarted={hasConversation}
+                    directory={directory}
+                    onDirectoryChange={onDirectoryChange}
+                    onOpenModelConfig={onOpenModelConfig}
+                    usage={usage}
+                    contextUsage={contextUsage}
+                    editMessage={editMessage}
+                    onCancelEdit={handleCancelEdit}
+                    onSubmitEdit={handleSubmitEdit}
+                />
             </div>
         </div>
     );

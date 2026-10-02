@@ -82,7 +82,10 @@ export class OpencodeApi {
     }
 
     /** Same transport as {@link request} but returns the JSON body as-is —
-     *  for endpoints whose real payload contains its own `data` field. */
+     * for endpoints whose real payload contains its own `data` field.
+     * Error replies are still JSON; thrown errors carry the HTTP `status`
+     * (same as {@link requestRawText}) so callers can tell "no longer
+     * pending" (404) from failure. */
     private async requestRaw<T>(path: string, init?: RequestInit): Promise<T> {
         const res = await fetch(this.baseUrl + path, {
             ...init,
@@ -95,7 +98,9 @@ export class OpencodeApi {
         });
         if (!res.ok) {
             const detail = await res.text().catch(() => "");
-            throw new Error(`${res.status} ${res.statusText}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+            const err = new Error(`${res.status} ${res.statusText}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+            (err as Error & {status?: number}).status = res.status;
+            throw err;
         }
         if (res.status === 204) return undefined as T;
         return (await res.json()) as T;

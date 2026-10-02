@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
-import {error as logError} from "@tauri-apps/plugin-log";
+import {debug as logDebug, error as logError} from "@tauri-apps/plugin-log";
 import type {OpencodeApi} from "./api.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {ChatMessage, EventMap, FormAnswer, FormRequest, PermissionDecision, PermissionRequest} from "./types.ts";
@@ -181,7 +181,12 @@ export function useSessionRequests(
     }, [subscribe]);
 
     /** Fire-and-track: remove optimistically, restore on failure (the
-     *  server also confirms via replied/cancelled events — idempotent). */
+     *  server also confirms via replied/cancelled events — idempotent).
+     *  A 404 is NOT a failure: the request is already settled server-side
+     *  (the server's reject/always replies CASCADE over the session's
+     *  other pending asks, and grouped identical asks are answered with
+     *  several replies), so restoring would fabricate a card with nothing
+     *  behind it — a zombie no click can dismiss. */
     const settle = useCallback(
         async (
             remove: () => void,
@@ -193,6 +198,10 @@ export function useSessionRequests(
             try {
                 await action();
             } catch (e) {
+                if ((e as {status?: number}).status === 404) {
+                    logDebug(`${what}: already settled server-side`).catch(() => {});
+                    return;
+                }
                 restore();
                 logError(`Failed to ${what}: ${e}`).catch(() => {});
             }

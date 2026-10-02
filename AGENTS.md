@@ -606,6 +606,12 @@ src/
 │   │                      #   read-only peek — the notification composer
 │   │                      #   asks WHICH attention kind appeared;
 │   │                      #   pendingCounts only carries counts).
+│   │                      #   The optimistic reply/cancel settle is 404-TOLERANT:
+│   │                      #   the server's reject/always replies CASCADE over the
+│   │                      #   session's other pending asks (and grouped identical
+│   │                      #   asks are answered with several replies), so a 404
+│   │                      #   means "already settled" — no restore, or the card
+│   │                      #   would zombie (api.requestRaw attaches the status).
 │   ├── sessionActivity.ts # Pure stats-card derivations from a session's messages:
 │   │                      #   background shells (tool-part metadata.shellID — only
 │   │                      #   background results carry it) with their completion
@@ -1365,8 +1371,16 @@ src/
     │   │                  #   then folds like any successful row)
     │   ├── PermissionCard.tsx / QuestionCard.tsx # RequestCards — the ONLY way a blocked
     │   │                  #   session moves forward (answers go to the reply endpoints).
-    │   │                  #   Shared chrome in RequestCardChrome.tsx; answer rules in
-    │   │                  #   formLogic.ts (pure, node-testable).
+    │   │                  #   All request cards FLOAT ABOVE the composer (the composer is
+    │   │                  #   never hidden — a prompt typed while an ask waits queues behind
+    │   │                  #   the blocked run). IDENTICAL permission asks (same action +
+    │   │                  #   resources — the server fires one assert per tool invocation
+    │   │                  #   with no dedup, so parallel external reads stack duplicates)
+    │   │                  #   merge into ONE card via permissionGroups.ts (pure,
+    │   │                  #   node-testable): one decision replies to the whole group,
+    │   │                  #   "always" only to the first (the rule saves once) + "once" to
+    │   │                  #   the rest. Shared chrome in RequestCardChrome.tsx; answer
+    │   │                  #   rules in formLogic.ts (pure, node-testable).
     │   ├── PlanApprovalCard.tsx # The plan workflow's approval card
     │   │                  #   (Route A): the plan_submit executor
     │   │                  #   BLOCKS inside its tool call, so ChatView

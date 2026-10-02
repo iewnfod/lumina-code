@@ -21,9 +21,10 @@ function permissionPhrase(action: string, t: ReturnType<typeof useI18n>): string
     }
 }
 
-/** One pending permission request: what it wants + the resources it
- *  names, with once / always / reject. Memoized — the card is static
- *  until it disappears. */
+/** One pending permission ask, rendered as the representative of its
+ * group (identical asks — same action + resources — merge into one
+ * card; see permissionGroups.ts). Memoized — the card is static until
+ * it disappears. */
 export const PermissionCard = memo(function PermissionCard({
     request,
     onDecision,
