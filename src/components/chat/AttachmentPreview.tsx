@@ -2,6 +2,7 @@ import {memo, useEffect, useMemo, useState} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {capPreviewLines, PREVIEW_MAX_LINES, type AttachmentPreviewSource} from "./attachmentPreview.ts";
 import {fragmentHunks} from "./toolDiff.ts";
@@ -34,6 +35,9 @@ const AttachmentPreview = memo(function AttachmentPreview({source}: {source: Att
     const colors = useColors();
     const {api} = useConnection();
     const [fetched, setFetched] = useState<FetchedState>(null);
+    // Conditional edge fades for the text preview's scroller (hooks before
+    // the early returns below).
+    const edges = useScrollEdges<HTMLDivElement>();
 
     // Hooks first (early returns below): resolve the renderable payload
     // from whichever side of the source union we're on.
@@ -121,20 +125,26 @@ const AttachmentPreview = memo(function AttachmentPreview({source}: {source: Att
             <div className="flex flex-col gap-1">
                 {/* The workspace display's recessed reading surface (the
                     stats panel's BodyBox shape) with the shared EDGE FADE
-                    (main.css's fade-system classes — the fade-system
-                    rules): the mask
-                    rides the INNER scroller — viewport-fixed, so rows
-                    dissolve as they cross the scroll boundary — while the
-                    fill + rounded clip stay on the outer box, because masks
+                    (main.css's fade-system classes): the mask rides the
+                    INNER scroller — viewport-fixed, so rows dissolve as
+                    they cross the scroll boundary — while the fill +
+                    rounded clip stay on the outer box, because masks
                     multiply into backgrounds (never mask the painted
-                    surface itself). The 12px fade band is covered by the
-                    same-sized padding, so resting content starts where the
-                    mask is already solid — nothing fades until you scroll. */}
+                    surface itself). CONDITIONAL and BOTTOM-ONLY: the fade
+                    appears solely while rows are actually hidden past the
+                    bottom edge (a file that fits the 55vh cap renders
+                    mask-free), and the TOP never fades — the panel opens
+                    at scroll-top, so a top band would dissolve the file's
+                    first lines into nothing at rest. */}
                 <div
                     className="rounded-[var(--radius-lg)] max-h-[55vh] overflow-hidden"
                     style={{background: colors.recessedBg}}
                 >
-                    <div className="max-h-[55vh] overflow-auto lum-fade-top lum-fade-bottom lum-fade-lg">
+                    <div
+                        ref={edges.ref}
+                        onScroll={edges.onScroll}
+                        className={`max-h-[55vh] overflow-auto lum-fade-lg${edges.bottom ? " lum-fade-bottom" : ""}`}
+                    >
                         <div className="px-3 py-3">
                             {hunks.length > 0
                                 ? (

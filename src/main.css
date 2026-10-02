@@ -310,17 +310,38 @@ body {
 }
 
 /* The vertical pair: one shared gradient. Each end contributes THREE
- * stops driven by per-end vars, and a class that is ABSENT leaves its
- * vars at #000/@0px defaults — the stops collapse onto the solid black
- * run (out-of-order positions are clamped up by the gradient machine),
- * so an inactive end stays FULLY opaque (no interpolation dip) while an
- * active end reads transparent → transparent (2px DEAD ZONE) → 0.65 at
- * ~0.375×band → solid at band. The dead zone is the anti-sliver guard:
- * the outermost 2px are unconditionally transparent, so a content row
- * scrolled just past the edge can never leak a one-pixel seam through
- * the ramp's first stop, whatever the band tier or sub-pixel rounding. */
+ * stops driven by per-end vars. THE GROUP RULE DECLARES BOTH ENDS'
+ * OPAQUE DEFAULTS as real custom properties, NOT just var() fallbacks:
+ * custom properties INHERIT, and fade surfaces NEST — the transcript
+ * scroller wears both edge classes while the rows inside it (the user
+ * bubble's clamp, tool bodies, thinking blocks, code-block scrollers)
+ * toggle their own edge classes, so without explicit defaults a
+ * single-edge descendant resolves its INACTIVE end against the
+ * ancestor's transparent stops (a var() fallback fires only when the
+ * var is undefined all the way up) and phantom-fades that edge —
+ * live-observed as the clamp mask erasing the user bubble's first
+ * line. Declared here, the defaults block inheritance; the single-edge
+ * classes below override ONLY their own end, so there is no cross-end
+ * conflict and both-edges still composes. (--lum-fade-band is
+ * deliberately NOT reset here: the tier classes sit above this rule
+ * and would lose the same-specificity source-order battle; a tier-less
+ * nested surface inheriting its ancestor's band is a separate,
+ * pre-existing quirk.) An inactive end reads #000/@0px — the stops
+ * collapse onto the solid black run (out-of-order positions are
+ * clamped up by the gradient machine) — while an active end reads
+ * transparent → transparent (2px DEAD ZONE) → 0.65 at ~0.375×band →
+ * solid at band. The dead zone is the anti-sliver guard: the outermost
+ * 2px are unconditionally transparent, so a content row scrolled just
+ * past the edge can never leak a one-pixel seam through the ramp's
+ * first stop, whatever the band tier or sub-pixel rounding. */
 .lum-fade-top,
 .lum-fade-bottom {
+    --lum-fade-tz: #000;
+    --lum-fade-tm: #000;
+    --lum-fade-tm-at: 0px;
+    --lum-fade-bz: #000;
+    --lum-fade-bm: #000;
+    --lum-fade-bm-at: 0px;
     -webkit-mask-image: linear-gradient(
         to bottom,
         var(--lum-fade-tz, #000) 0,
@@ -357,10 +378,17 @@ body {
     --lum-fade-bm-at: calc(var(--lum-fade-band, 12px) * 0.375);
 }
 
-/* The horizontal pair, same shape: width-aware scrollers (the md table)
+/* The horizontal pair, same shape AND same inheritance guard (see the
+ * vertical pair above): width-aware scrollers (md code blocks, tables)
  * fade a side only while content is actually hidden beyond it. */
 .lum-fade-left,
 .lum-fade-right {
+    --lum-fade-lz: #000;
+    --lum-fade-lm: #000;
+    --lum-fade-lm-at: 0px;
+    --lum-fade-rz: #000;
+    --lum-fade-rm: #000;
+    --lum-fade-rm-at: 0px;
     -webkit-mask-image: linear-gradient(
         to right,
         var(--lum-fade-lz, #000) 0,
