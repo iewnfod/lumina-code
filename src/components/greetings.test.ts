@@ -33,7 +33,7 @@ test("crazy Thursday fires in the meal window for zh, not for en", () => {
     // en: no Thursday texts → falls straight to the fun pool (no KFC leak).
     assert.equal(
         pickGreeting({now: thursdayLunch, language: "en-us", projectName: null, random: rng(0, 0)}),
-        "Where should we begin?",
+        "Where shall we begin?",
     );
 });
 
@@ -52,7 +52,7 @@ test("Oct 24 always wins, even against the weekend window and a maxed roll", () 
     );
     assert.equal(
         pickGreeting({now: programmersDay, language: "en-us", projectName: null, random: rng(0.99, 0.99)}),
-        "Happy 1024, fellow programmer.",
+        "Happy 1024. Wish there's no bug in your code.",
     );
 });
 
@@ -79,7 +79,7 @@ test("Friday afternoon warns about deploys; Friday morning does not", () => {
     );
     assert.equal(
         pickGreeting({now: at(8, 18, 15, 0), language: "en-us", projectName: null, random: rng(0, 0)}),
-        "Friday. Maybe don't deploy today.",
+        "Friday. Deploy less, slack more.",
     );
     assert.equal(
         pickGreeting({now: at(8, 18, 10, 0), language: "zh-cn", projectName: null, random: rng(0, 0)}),
@@ -136,6 +136,6 @@ test("plain greetings cover the four time-of-day tiers", () => {
     assert.equal(zh(3), "夜深了，早点休息呀");
     assert.equal(
         pickGreeting({now: at(8, 22, 8), language: "en-us", projectName: null, random: rng(0.99)}),
-        "Good morning",
+        "Morning! Let's code.",
     );
 });

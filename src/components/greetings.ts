@@ -21,7 +21,7 @@ export type GreetingContext = {
 /** Plain time-of-day greetings, indexed by tier: night / morning /
  *  afternoon / evening (the original ChatPlaceholder set, zh texts kept). */
 const PLAIN: Record<GreetingLanguage, readonly [string, string, string, string]> = {
-    "en-us": ["Late night, sweet dreams.", "Morning! Let's get coding.", "Good afternoon, what can we build today?", "Good evening, you've worked hard today."],
+    "en-us": ["Late night, sweet dreams.", "Morning! Let's code.", "Good afternoon, what can we build today?", "Good evening, you've worked hard today."],
     "zh-cn": ["夜深了，早点休息呀", "早上好呀，新的一天一起加油", "下午好呀，今天需要我帮忙做什么呀", "晚上好呀，今天辛苦啦"],
 };
 
@@ -102,7 +102,7 @@ const OCCASIONS: readonly Occasion[] = [
         matches: (d) => d.getDay() === 5 && minutesOfDay(d) >= 13 * 60,
         probability: 0.4,
         texts: {
-            "en-us": ["Friday. Maybe don't deploy today."],
+            "en-us": ["Friday. Deploy less, slack more."],
             "zh-cn": ["周五不宜部署，宜摸鱼~"],
         },
     },
