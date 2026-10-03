@@ -109,7 +109,7 @@ test("fun pool interpolates {project}", () => {
     const tuesdayMorning = at(8, 22, 10, 0);
     assert.equal(
         pickGreeting({now: tuesdayMorning, language: "en-us", projectName: "lumina-code", random: rng(0.1, 0.1)}),
-        "What should we build in lumina-code?",
+        "What shall we build in lumina-code?",
     );
     assert.equal(
         pickGreeting({now: tuesdayMorning, language: "zh-cn", projectName: "lumina-code", random: rng(0.1, 0.15)}),
