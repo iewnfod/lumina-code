@@ -97,7 +97,7 @@ test("Monday morning fires", () => {
 test("weekend daytime fires and falls back to the plain greeting", () => {
     assert.equal(
         pickGreeting({now: at(8, 19, 14, 0), language: "zh-cn", projectName: null, random: rng(0, 0)}),
-        "周末写代码，是热爱，还是 deadline？",
+        "周末写代码，是热爱，还是最后期限到了？",
     );
     assert.equal(
         pickGreeting({now: at(8, 19, 14, 0), language: "zh-cn", projectName: null, random: rng(0.9)}),
