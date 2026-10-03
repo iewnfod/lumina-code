@@ -21,7 +21,7 @@ export type GreetingContext = {
 /** Plain time-of-day greetings, indexed by tier: night / morning /
  *  afternoon / evening (the original ChatPlaceholder set, zh texts kept). */
 const PLAIN: Record<GreetingLanguage, readonly [string, string, string, string]> = {
-    "en-us": ["Good night", "Good morning", "Good afternoon", "Good evening"],
+    "en-us": ["Late night, sweet dreams.", "Morning! Let's get coding.", "Good afternoon, what can we build today?", "Good evening, you've worked hard today."],
     "zh-cn": ["夜深了，早点休息呀", "早上好呀，新的一天一起加油", "下午好呀，今天需要我帮忙做什么呀", "晚上好呀，今天辛苦啦"],
 };
 
@@ -29,8 +29,8 @@ const PLAIN: Record<GreetingLanguage, readonly [string, string, string, string]>
  *  skipped when no working directory is selected. */
 const FUN: Record<GreetingLanguage, readonly string[]> = {
     "en-us": [
-        "Where should we begin?",
-        "What should we build in {project}?",
+        "Where shall we begin?",
+        "What shall we build in {project}?",
         "What are we building?",
         "What do you want to build today?",
         "Talk is cheap. Show me the code.",
@@ -77,7 +77,7 @@ const OCCASIONS: readonly Occasion[] = [
         matches: (d) => d.getMonth() === 9 && d.getDate() === 24,
         probability: 1,
         texts: {
-            "en-us": ["Happy 1024, fellow programmer."],
+            "en-us": ["Happy 1024. Wish there's no bug in your code."],
             "zh-cn": ["1024 程序员节快乐，愿你写的代码永无 bug"],
         },
     },
@@ -110,7 +110,7 @@ const OCCASIONS: readonly Occasion[] = [
         matches: (d) => d.getDay() === 1 && d.getHours() >= 5 && d.getHours() < 11,
         probability: 0.3,
         texts: {
-            "en-us": ["Monday. Let's get the build green first."],
+            "en-us": ["Monday. Get the build green first, then get your life green."],
             "zh-cn": ["周一了，先把编译跑绿，再把人生跑绿"],
         },
     },
@@ -119,7 +119,7 @@ const OCCASIONS: readonly Occasion[] = [
         probability: 0.25,
         texts: {
             "en-us": ["Weekend coding: love, or deadline?"],
-            "zh-cn": ["周末写代码，是热爱，还是 deadline？"],
+            "zh-cn": ["周末写代码，是热爱，还是最后期限到了？"],
         },
     },
 ];
