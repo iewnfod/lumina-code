@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
-import {groupByDirectory, relativeAge, type SessionInfo} from "./sessionGrouping.ts";
+import {folderGroupLabel, groupByDirectory, relativeAge, type SessionInfo} from "./sessionGrouping.ts";
 
 function session(id: string, directory?: string, updatedAt?: number): SessionInfo {
     return {id, name: id, directory, updatedAt};
@@ -28,4 +28,23 @@ test("groupByDirectory buckets by directory and keeps first-seen order", () => {
     assert.deepEqual(groups.map(([dir]) => dir), ["/p1", "/p2", ""]);
     assert.deepEqual(groups[0][1].map((s) => s.id), ["a", "c"]);
     assert.deepEqual(groups[2][1].map((s) => s.id), ["d"]);
+});
+
+test("folderGroupLabel relabels managed worktrees as repo · branch", () => {
+    const bindings = {
+        "/home/u/.local/share/opencode/worktree/abc123/lucky-lagoon": {
+            branch: "cef",
+            mainDir: "/home/u/lumina-code",
+        },
+    };
+    // Worktree dir → "<repo> · <branch>", not the codename segment.
+    assert.equal(
+        folderGroupLabel("/home/u/.local/share/opencode/worktree/abc123/lucky-lagoon", bindings),
+        "lumina-code · cef",
+    );
+    // Plain directories and empties fall back to their own last segment.
+    assert.equal(folderGroupLabel("/home/u/lumina-code", bindings), "lumina-code");
+    assert.equal(folderGroupLabel("/a/b", {}), "b");
+    assert.equal(folderGroupLabel(null, bindings), "");
+    assert.equal(folderGroupLabel(undefined, bindings), "");
 });

@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useState} from "react";
-import {error} from "@tauri-apps/plugin-log";
+import {error, info, warn} from "@tauri-apps/plugin-log";
 import {loadState, saveState} from "../lib/persist.ts";
 import {OpencodeApi} from "./api.ts";
 import {prepareCommandSubmission} from "./useSessionMessages.ts";
@@ -7,6 +7,7 @@ import {useCatalog} from "./catalogContext.tsx";
 import {useConnection} from "./connectionContext.tsx";
 import {useSessionData} from "./sessionDataContext.tsx";
 import {divertAttachmentsForSend, modelAcceptsImages} from "./visionAttachments.ts";
+import {mainDirFor, projectIdForDirectory, recordWorktree} from "./worktreeSessions.ts";
 import type {
     ComposerAttachment,
     ComposerFileRef,
@@ -14,6 +15,40 @@ import type {
     PendingCommand,
     SessionModelRef,
 } from "./types.ts";
+
+/** Resolve the directory a branch-bound first send should create its
+ *  session in: a server-managed linked WORKTREE pinned at the branch
+ *  (recorded in worktreeSessions so the chip/labels know its branch).
+ *  Never throws — every failure falls back to the MAIN worktree with a
+ *  log (the send proceeds, honestly on the repo's own checkout; the
+ *  title bar shows the main directory's real branch). */
+async function resolveBranchDirectory(
+    api: OpencodeApi,
+    mainDir: string,
+    branch: string,
+): Promise<string> {
+    let projects = null;
+    try {
+        projects = await api.listProjects();
+    } catch (e) {
+        warn(`Project list failed, branch "${branch}" falls back to the main worktree: ${e}`).catch(() => {});
+        return mainDir;
+    }
+    const projectID = projectIdForDirectory(projects, mainDir);
+    if (!projectID) {
+        warn(`No registered git project for ${mainDir}, branch "${branch}" falls back to the main worktree`).catch(() => {});
+        return mainDir;
+    }
+    try {
+        const {directory} = await api.createWorktree({projectID, branch});
+        recordWorktree(directory, {branch, mainDir});
+        info(`Branch worktree for "${branch}": ${directory}`).catch(() => {});
+        return directory;
+    } catch (e) {
+        error(`Worktree creation for branch "${branch}" failed, using the main worktree: ${e}`).catch(() => {});
+        return mainDir;
+    }
+}
 
 /**
  * The app's session flow, extracted from App.tsx: which session is open,
@@ -44,8 +79,12 @@ export function useSessionFlow(): {
     effectiveAgent: string;
     /** The welcome screen's staged project directory. */
     pendingDirectory: string | null;
+    /** The welcome screen's staged branch binding (null = main worktree). */
+    pendingBranch: string | null;
     changeModel: (ref: SessionModelRef) => void;
     changeAgent: (id: string) => void;
+    /** Stage the next session's branch binding (pre-session only). */
+    changeStagedBranch: (branch: string | null) => void;
     /** Back to the welcome screen (optionally staging a directory). */
     newSession: (directory?: string) => void;
     changeDirectory: (directory: string | null) => void;
@@ -80,6 +119,12 @@ export function useSessionFlow(): {
     const [pendingModel, setPendingModel] = useState<SessionModelRef | null>(restored.model);
     const [pendingAgent, setPendingAgent] = useState<string | null>(restored.agent);
     const [pendingDirectory, setPendingDirectory] = useState<string | null>(restored.directory);
+    // Staged branch binding for the session the first send will create
+    // (null = the project's main worktree). Deliberately NOT persisted:
+    // a branch is staged per composition, and a restart landing on the
+    // welcome screen starts a fresh choice (the same reasoning as the
+    // in-progress draft staying in memory).
+    const [pendingBranch, setPendingBranch] = useState<string | null>(null);
 
     // Preselect the server's default model when it survived the catalog
     // filter; otherwise the first (newest-first) own model. None until the
@@ -134,6 +179,13 @@ export function useSessionFlow(): {
         }
     }, [activeId, api, patch]);
 
+    /** Stage (or clear) the branch the NEXT session will be bound to.
+     *  Pre-session only — a session's directory is immutable once
+     *  created, so no in-session equivalent exists (see sendFirst). */
+    const changeStagedBranch = useCallback((branch: string | null) => {
+        setPendingBranch(branch);
+    }, []);
+
     /** "New session" = back to the welcome screen (there is no empty-session
      *  view; the session is created on the first send, see sendFirst).
      *  Without an explicit folder (the sidebar-top button) the project
@@ -142,10 +194,19 @@ export function useSessionFlow(): {
      *  screen keeps the user's in-progress choice untouched. */
     const newSession = useCallback((directory?: string) => {
         if (directory !== undefined) {
+            // Explicit choice (a folder's "+") is taken literally — a
+            // branch-worktree folder starts the next session in THAT
+            // worktree (shared-checkout semantics on the pinned branch).
             setPendingDirectory(directory);
+            setPendingBranch(null);
         } else if (activeId !== null) {
             const previous = activeSession ?? sessions[0];
-            setPendingDirectory(previous?.directory ?? previous?.location?.directory ?? null);
+            const dir = previous?.directory ?? previous?.location?.directory ?? null;
+            // A branch-bound session's worktree is that one session's
+            // isolation, not a project to nest the next session in —
+            // seed its MAIN repo (worktreeSessions mapping).
+            setPendingDirectory(dir === null ? null : mainDirFor(dir));
+            setPendingBranch(null);
         }
         setActiveId(null);
     }, [activeId, activeSession, sessions]);
@@ -156,22 +217,27 @@ export function useSessionFlow(): {
      *  only shows before the first message) drop the empty session and
      *  return to the welcome screen with the choice staged — nothing to
      *  lose before the first message, and moving it server-side would
-     *  keep an empty session open. */
+     *  keep an empty session open. A branch staged for the PREVIOUS
+     *  directory no longer applies, so an actual retarget clears it (the
+     *  pickers are siblings now — this is the one place both meet). */
     const changeDirectory = useCallback((directory: string | null) => {
         if (!activeId) {
+            if (directory !== pendingDirectory) setPendingBranch(null);
             setPendingDirectory(directory);
             return;
         }
         void remove(activeId);
+        setPendingBranch(null);
         setPendingDirectory(directory);
         setActiveId(null);
-    }, [activeId, remove]);
+    }, [activeId, remove, pendingDirectory]);
 
     /** First send from the welcome screen: create the session (in the chosen
-     *  directory), apply the staged model/agent, then deliver the prompt
-     *  (or run a slash command server-side). Image attachments divert to
-     *  disk when the staged model is text-only (a vision-tool note is
-     *  appended), exactly like an in-session send. */
+     *  directory — a branch-bound send creates its linked WORKTREE first),
+     *  apply the staged model/agent, then deliver the prompt (or run a
+     *  slash command server-side). Image attachments divert to disk when
+     *  the staged model is text-only (a vision-tool note is appended),
+     *  exactly like an in-session send. */
     const sendFirst = useCallback(async (
         text: string,
         files: ComposerAttachment[],
@@ -179,7 +245,10 @@ export function useSessionFlow(): {
         command: PendingCommand | null = null,
     ) => {
         if (!api) return;
-        const created = await create(pendingDirectory ?? undefined);
+        const directory = pendingBranch && pendingDirectory
+            ? await resolveBranchDirectory(api, pendingDirectory, pendingBranch)
+            : pendingDirectory ?? undefined;
+        const created = await create(directory);
         if (!created) return;
         if (pendingModel) {
             await api.switchModel(created.id, pendingModel).catch((e) => {
@@ -223,7 +292,7 @@ export function useSessionFlow(): {
         await deliver.catch((e) => {
             error(`Failed to send prompt: ${e}`).catch(() => {});
         });
-    }, [api, create, models, pendingAgent, pendingDirectory, pendingModel]);
+    }, [api, create, models, pendingAgent, pendingBranch, pendingDirectory, pendingModel]);
 
     const deleteSession = useCallback((id: string) => {
         void remove(id);
@@ -259,8 +328,10 @@ export function useSessionFlow(): {
         effectiveModel,
         effectiveAgent,
         pendingDirectory,
+        pendingBranch,
         changeModel,
         changeAgent,
+        changeStagedBranch,
         newSession,
         changeDirectory,
         sendFirst,

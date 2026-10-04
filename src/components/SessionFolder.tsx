@@ -4,7 +4,8 @@ import {ChevronRight, Plus, X} from "lucide-react";
 import {useColors} from "../hooks/colors.tsx";
 import {whileHoverTap} from "../lib/motion.ts";
 import ExitPresence, {ExitList} from "./ui/ExitPresence.tsx";
-import {folderLabel} from "../lib/path.ts";
+import {folderGroupLabel} from "./sessionGrouping.ts";
+import {useWorktreeDirs} from "../opencode/worktreeSessions.ts";
 import {useI18n} from "../hooks/i18n.tsx";
 import {relativeAge, type SessionInfo} from "./sessionGrouping.ts";
 import SessionTitle from "./SessionTitle.tsx";
@@ -71,6 +72,9 @@ export default function SessionFolder({
 }) {
     const colors = useColors();
     const t = useI18n();
+    // Branch-worktree directories relabel as "<repo> · <branch>"
+    // (their own last segment is a server codename).
+    const worktreeDirs = useWorktreeDirs();
     const visibleCount = visibleSessions.length;
 
     return (
@@ -80,11 +84,12 @@ export default function SessionFolder({
                 style={{color: colors.inactiveText}}
                 onClick={() => onToggleFolder(directory)}
             >
-                {/* The header shows only the directory's last segment — the
+                {/* The header shows the directory's last segment — a
+                 * branch worktree shows "<repo> · <branch>" instead — the
                  * hint carries the full path. */}
                 <Hint label={directory || undefined} className="min-w-0 flex-1">
                     <span className="block truncate text-left">
-                        {directory ? folderLabel(directory) : t["Other Sessions"]}
+                        {directory ? folderGroupLabel(directory, worktreeDirs) : t["Other Sessions"]}
                     </span>
                 </Hint>
                 <Hint label={t["New Session"]}>

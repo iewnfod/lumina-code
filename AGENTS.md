@@ -373,7 +373,19 @@ src/
 │   │                      #   subagent/bash edits count and the `from`
 │   │                      #   must be a USER message id (a turn spans
 │   │                      #   prompt → next idle; steered prompts join
-│   │                      #   the same turn).
+│   │                      #   the same turn). Plus the BRANCH/WORKTREE
+│   │                      #   trio feeding the title-bar chip and the
+│   │                      #   branch-bound sessions (all curl-verified
+│   │                      #   v2.0.11): listBranches (GET /api/vcs/branch
+│   │                      #   — markerless list, same warmup-empty-first-
+│   │                      #   call race as vcsDiff) and
+│   │                      #   listWorktrees/createWorktree/removeWorktree
+│   │                      #   (/api/worktree, projectID-addressed; create
+│   │                      #   checks out DETACHED at the branch tip, remove
+│   │                      #   refuses dirty worktrees unless force — see
+│   │                      #   worktreeSessions for why removal is never
+│   │                      #   automatic). Current branch = readTextFile of
+│   │                      #   .git/HEAD + gitInfo.parseGitHead.
 │   ├── configFiles.ts     # globalConfigTarget — where the global opencode.json
 │   │                      #   lives, derived from GET /api/config (pure; shared
 │   │                      #   by the settings config editor and the attachment
@@ -619,11 +631,24 @@ src/
 │   │                      #   and returns false.
 │   ├── useSessionFlow.ts  # App-level session flow: active session id + composer
 │   │                      #   staging (pendingModel/pendingAgent/pendingDirectory
-│   │                      #   seeded from lib/persist.ts), changeModel/changeAgent/
-│   │                      #   changeDirectory/newSession/deleteSession, sendFirst
-│   │                      #   (create-then-deliver with the slash-command fallback),
-│   │                      #   and the cross-restart save. Consumes the context
-│   │                      #   split (connection handles + catalog + the
+│   │                      #   seeded from lib/persist.ts, plus the NOT-persisted
+│   │                      #   pendingBranch — the welcome picker's staged branch
+│   │                      #   binding; a branch is staged per composition, a
+│   │                      #   restart starts fresh), changeModel/changeAgent/
+│   │                      #   changeStagedBranch/changeDirectory/newSession/
+│   │                      #   deleteSession, sendFirst (create-then-deliver with
+│   │                      #   the slash-command fallback; a branch-bound send
+│   │                      #   FIRST creates the linked worktree via
+│   │   │                  #   resolveBranchDirectory — POST /api/worktree with
+│   │                      #   projectID from worktreeSessions, recorded in the
+│   │                      #   worktree map, every failure falling back to the
+│   │                      #   MAIN worktree with a log), newSession seeding a
+│   │                      #   worktree session's successor on the MAIN repo
+│   │                      #   (mainDirFor; an explicit folder "+" still takes
+│   │                      #   the worktree dir literally — shared-checkout
+│   │                      #   semantics on the pinned branch), and the
+│   │                      #   cross-restart save. Consumes the context split
+│   │                      #   (connection handles + catalog + the
 │   │                      #   provider-hosted session list) — no parameters.
 │   ├── useSessionRequests.ts # Pending server→user asks across ALL sessions (permission
 │   │                      #   requests + forms), seeded from the list endpoints then
@@ -747,7 +772,7 @@ src/
 │   │                      #   in App) warms the scopes ahead of the click.
 │   │                      #   Derived arrays are identity-stable across
 │   │                      #   streamed frames.
-│   └── useModelCatalog.ts # Providers/agents/models + server default, fetched per
+│   ├── useModelCatalog.ts # Providers/agents/models + server default, fetched per
 │                          #   connection AND re-fetched whenever the bus reports
 │                          #   credential.updated / config.updated (connecting a key
 │                          #   in the model-config modal, writing custom providers…).
@@ -759,6 +784,49 @@ src/
 │                          #   holding the shared storage lock) — an empty provider list
 │                          #   must never leak into the filter (`every()` is vacuously
 │                          #   true on [] and would unhide the free catalog).
+│   ├── gitInfo.ts         # THE branch-parsing pure layer (node-testable):
+│                          #   parseGitHead (a `.git/HEAD` text → branch name |
+│                          #   detached sha — the server has NO current-branch
+│                          #   endpoint; `/api/vcs/branch` is a markerless LIST,
+│                          #   verified live), shapeBranchList (that list's raw
+│                          #   entries interleave local branches, bare remote
+│                          #   NAMES ("origin") and remote refs ("origin/x") —
+│                          #   the prefix relation classifies them; local names
+│                          #   may contain slashes, so the "/" split alone
+│                          #   doesn't), shortSha. Feeds the title-bar chip and
+│                          #   the picker's branch section.
+│   ├── useDirectoryBranch.ts # The title bar's per-directory branch, cached in
+│                          #   a MODULE store keyed by directory (the
+│                          #   useSessionActivity directory-map pattern —
+│                          #   same-directory session switches paint instantly):
+│                          #   managed-worktree directories read their binding's
+│                          #   branch (authoritative — server worktrees are
+│                          #   DETACHED at the branch tip, their .git/HEAD is a
+│                          #   sha), anything else fetches `.git/HEAD` through
+│                          #   fs/read (REPO ROOTS only — a session in a repo
+│                          #   subdirectory hides the chip honestly). Refreshes
+│                          #   on directory change, window focus (the user may
+│                          #   have checked out in their own terminal) and on
+│                          #   worktree-record changes (a branch session just
+│                          #   created).
+│   └── worktreeSessions.ts # THE branch-bound session bookkeeping: a
+│                          #   persistedStore.ts map ("lumina-code:worktree-dirs")
+│                          #   worktreeDir → {branch, mainDir} — the app's ONLY
+│                          #   branch truth for managed worktrees (detached HEAD
+│                          #   + the server's worktree list carries no branch on
+│                          #   this build). Written by sendFirst when it creates
+│                          #   a branch worktree (POST /api/worktree); read by
+│                          #   useDirectoryBranch, the sidebar's folder labels
+│                          #   (folderGroupLabel) and newSession's seeding (a
+│                          #   worktree session's successor seeds the MAIN repo).
+│                          #   Entries never cleaned — worktree REMOVAL is never
+│                          #   automatic (a detached commit doesn't dirty the
+│                          #   tree, so even force:false removal loses commits;
+│                          #   cleanup is an explicit user action, future work).
+│                          #   Also projectIdForDirectory (pure): resolve the
+│                          #   worktree routes' projectID from GET /api/project
+│                          #   — duplicate canonicals exist (observed live);
+│                          #   prefer the vcs:"git" entry, newest first.
 │
 ├── lib/                   # Pure, framework-agnostic (NO React) — ported from
 │   │                      #   lumina-terminal; keep in sync with its sibling when fixed.
@@ -1046,7 +1114,11 @@ src/
 │
 └── components/
     ├── TitleBar.tsx       # Drag region + chrome buttons (window controls in
-    │                      #   ui/WindowControls.tsx, language menu inline)
+    │                      #   ui/WindowControls.tsx, language menu inline) +
+    │                      #   the right-side BRANCH chip (GitBranch icon +
+    │                      #   name, non-interactive; null = no repo, hidden)
+    │                      #   — App feeds it useDirectoryBranch's reading,
+    │                      #   or the welcome screen's STAGED branch.
     ├── SessionBar.tsx     # Left glass sidebar shell: brand row, folder
     │                      #   collapse/expand state, relative-age ticker,
     │                      #   bottom new-session button; groups render
@@ -1078,7 +1150,9 @@ src/
     │                      #   deleted rows collapse in place via ExitList,
     │                      #   budget-limited), "Show more/less" expander.
     ├── sessionGrouping.ts # Pure sidebar mapping: SessionInfo view-model,
-    │                      #   relativeAge, groupByDirectory. node-testable.
+    │                      #   relativeAge, groupByDirectory, folderGroupLabel
+    │                      #   (a managed worktree dir → "<repo> · <branch>").
+    │                      #   node-testable.
     ├── ChatPlaceholder.tsx # Welcome-screen logo + greeting
     │                      #   (picked once per mount via greetings.ts).
     ├── greetings.ts       # Pure welcome-greeting picker: per-language pools
@@ -1726,7 +1800,31 @@ src/
         ├── InputSuggestions.tsx # Autocomplete popup (@ / / triggers)
         ├── FileMentionNode.tsx / CommandMentionNode.tsx # Lexical token TextNodes
         ├── ToolbarButton.tsx # The composer's compact toolbar control
-        └── DirectoryPicker.tsx # Working-directory chooser (dialog + GET /api/project)
+        ├── DirectoryPicker.tsx # Working-directory chooser (dialog + GET /api/project);
+        │                      #   the BRANCH binding is its own sibling
+        │                      #   button (BranchPicker) — the two stay
+        │                      #   independent picks on the toolbar.
+        └── BranchPicker.tsx   # The pre-session BRANCH button (the project
+                          #   picker's sibling): the plain LOCAL branch
+                          #   list; picking a branch → sendFirst pins the
+                          #   next session to a server worktree. The
+                          #   repo's CURRENT branch wears a 「主分支」chip
+                          #   (row's right edge, always sorted to the TOP)
+                          #   and selecting IT means the plain main
+                          #   worktree (that row doubles as the default/
+                          #   null binding — no isolation, the session
+                          #   runs where the user's checkout already is).
+                          #   Remote refs are classified away, not listed.
+                          #   The button shows the STAGED branch, else the
+                          #   CURRENT one (a "following" state); hidden
+                          #   when the staged directory has no branch list
+                          #   (no repo / subdir / probe failed). Branch
+                          #   list fetched per mount (the vcs warmup
+                          #   empty-first-call re-checked once), shaped by
+                          #   gitInfo; a DIRECTORY retarget clears the
+                          #   staged branch (useSessionFlow's
+                          #   changeDirectory — the one place the siblings
+                          #   meet).
 
     └── settings/           # The settings modal (title-bar gear; layout
                            #   follows lumina-terminal's settings pages)

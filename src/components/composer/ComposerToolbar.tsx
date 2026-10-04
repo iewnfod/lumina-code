@@ -14,6 +14,7 @@ import PopoverMenu, {MenuItem, MenuLabel} from "../ui/PopoverMenu.tsx";
 import ToolbarButton from "./ToolbarButton.tsx";
 import UsageRing from "../chat/UsageRing.tsx";
 import DirectoryPicker from "./DirectoryPicker.tsx";
+import BranchPicker from "./BranchPicker.tsx";
 
 /** Display labels for the thinking-depth variants a model can carry. */
 const DEPTH_LABELS: Record<string, TranslationKey> = {
@@ -64,6 +65,8 @@ export default function ComposerToolbar({
     conversationStarted,
     directory,
     onDirectoryChange,
+    stagedBranch,
+    onStagedBranchChange,
     onOpenModelConfig,
     usage = null,
     contextUsage = null,
@@ -86,6 +89,10 @@ export default function ComposerToolbar({
     conversationStarted: boolean;
     directory: string | null;
     onDirectoryChange: (directory: string | null) => void;
+    /** Staged branch binding for the not-yet-created session (null = the
+     *  project's main worktree); see DirectoryPicker. */
+    stagedBranch: string | null;
+    onStagedBranchChange: (branch: string | null) => void;
     /** Opens the settings modal on its Model tab (model/provider config). */
     onOpenModelConfig: () => void;
     /** Session cumulative usage — tooltip reference lines only. */
@@ -198,6 +205,13 @@ export default function ComposerToolbar({
                 <DirectoryPicker
                     directory={directory}
                     onChange={onDirectoryChange}
+                />
+            )}
+            {!conversationStarted && (
+                <BranchPicker
+                    directory={directory}
+                    branch={stagedBranch}
+                    onBranchChange={onStagedBranchChange}
                 />
             )}
 

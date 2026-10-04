@@ -15,6 +15,8 @@ import {useI18n} from "../../hooks/i18n.tsx";
  * Project-directory picker for the not-yet-started session: quick picks
  * from the server's known projects, plus the native folder picker
  * (Tauri dialog plugin). Choosing `null` keeps the server's default (home).
+ * The BRANCH binding is its own sibling button (BranchPicker) — a branch
+ * is a first-class choice, not a sub-item of the folder menu.
  */
 export default function DirectoryPicker({
     directory,

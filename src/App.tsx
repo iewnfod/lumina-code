@@ -30,6 +30,7 @@ import {liveSurfaceKey, nextSurfacePhase, type SurfacePhase} from "./lib/surface
 import {matchesAnimationEvent} from "./lib/exitGate.ts";
 import {useOpencode} from "./opencode/useOpencode.ts";
 import {useSessionFlow} from "./opencode/useSessionFlow.ts";
+import {useDirectoryBranch} from "./opencode/useDirectoryBranch.ts";
 import {useLuminaToolsInstall} from "./opencode/useLuminaTools.ts";
 import {CatalogProvider} from "./opencode/catalogContext.tsx";
 import {ConnectionProvider, useConnection} from "./opencode/connectionContext.tsx";
@@ -404,8 +405,10 @@ function AppBody({
         effectiveModel,
         effectiveAgent,
         pendingDirectory,
+        pendingBranch,
         changeModel,
         changeAgent,
+        changeStagedBranch,
         newSession,
         changeDirectory,
         sendFirst,
@@ -419,6 +422,12 @@ function AppBody({
     const activeDirectory = activeSession
         ? activeSession.directory ?? activeSession.location?.directory ?? null
         : null;
+    // The title bar's branch chip: the ACTIVE session's directory, or
+    // the welcome screen's staged project (useDirectoryBranch caches per
+    // directory, so switches paint instantly). On the welcome screen a
+    // STAGED branch wins — that is the branch the first send will pin.
+    const titleBranch = useDirectoryBranch(api, activeDirectory ?? pendingDirectory);
+    const shownBranch = activeSession ? titleBranch : (pendingBranch ?? titleBranch);
     // Cumulative usage of the open session (seeded from the session list,
     // live-patched by session.usage.updated) — feeds the composer's ring.
     const activeUsage: SessionUsage | null = activeSession
@@ -520,6 +529,7 @@ function AppBody({
                 <TitleBar
                     theme={effectiveTheme}
                     title={activeSession ? activeSession.title?.trim() || t["Untitled"] : null}
+                    branch={shownBranch}
                     onOpenSettings={() => openSettings()}
                     isMaximized={isMaximized}
                 />
@@ -581,6 +591,8 @@ function AppBody({
                                                 onModelChange={changeModel}
                                                 directory={pendingDirectory}
                                                 onDirectoryChange={changeDirectory}
+                                                stagedBranch={pendingBranch}
+                                                onStagedBranchChange={changeStagedBranch}
                                                 onOpenModelConfig={openModelConfig}
                                             />
                                         ) : (
@@ -594,6 +606,20 @@ function AppBody({
                                                 onModelChange={changeModel}
                                                 directory={activeDirectory}
                                                 onDirectoryChange={changeDirectory}
+                                                stagedBranch={pendingBranch}
+                                                onStagedBranchChange={(branch) => {
+                                                    // A branch pick on an EXISTING (empty) session
+                                                    // cannot rehome it — the session's directory
+                                                    // is immutable server-side — so it takes the
+                                                    // changeDirectory route: drop the empty
+                                                    // session (nothing to lose before the first
+                                                    // message), stage the branch, back to the
+                                                    // welcome screen where sendFirst honors it.
+                                                    if (branch !== null && activeId) {
+                                                        changeDirectory(activeDirectory);
+                                                    }
+                                                    changeStagedBranch(branch);
+                                                }}
                                                 onOpenModelConfig={openModelConfig}
                                                 usage={activeUsage}
                                             />

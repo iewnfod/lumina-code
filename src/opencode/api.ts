@@ -300,6 +300,78 @@ export class OpencodeApi {
         );
     }
 
+    // --- Branches & worktrees — verified against server v2.0.11 ---
+    //
+    // The server's worktree API (SDK calls it "experimental", served under
+    // /api/worktree on this build) is the isolation primitive behind
+    // branch-bound sessions: every session sharing one directory shares
+    // ONE physical worktree, so concurrent sessions on different branches
+    // need one linked worktree per branch. Binary/curl-verified behavior
+    // encoded below:
+    //   - every route takes `projectID` (resolve via GET /api/project,
+    //     matching canonical + vcs:"git" — see worktreeSessions.ts);
+    //   - create with `branch` checks out a worktree DETACHED at that
+    //     branch's tip commit (not the branch ref — commits inside won't
+    //     advance any branch);
+    //   - `branch` must be an EXISTING rev ("无效引用" 400 otherwise);
+    //     there is no create-branch flag;
+    //   - remove refuses a worktree with modifications/untracked files
+    //     unless `force` — but a detached COMMIT doesn't dirty the tree,
+    //     so force:false does NOT protect those from deletion.
+
+    /** Branch name list of a directory (`GET /api/vcs/branch`, verified
+     *  against server v2.0.11). RAW entries interleaved: local branches,
+     *  bare remote names ("origin") and remote refs ("origin/master") —
+     *  shape with gitInfo.shapeBranchList. There is NO current-branch
+     *  marker on this endpoint (read `.git/HEAD` via {@link readTextFile}
+     *  for that). Shares the v2.0.11 warmup race with {@link vcsDiff}:
+     *  the FIRST call per location can return [] while the VCS backend
+     *  initializes — re-check an empty first answer once (callers own the
+     *  retry policy, DIFF_WARMUP_RETRY_MS style). */
+    listBranches(directory: string | null): Promise<string[]> {
+        const params = new URLSearchParams();
+        if (directory) params.set("location[directory]", directory);
+        const query = params.toString();
+        return this.request<string[]>(`/api/vcs/branch${query ? `?${query}` : ""}`);
+    }
+
+    /** Worktree entries of a project (`GET /api/worktree?projectID=`),
+     *  the project's MAIN worktree (the repo itself) included. */
+    listWorktrees(projectID: string): Promise<{directory: string; strategy?: string}[]> {
+        return this.request<{directory: string; strategy?: string}[]>(
+            `/api/worktree?projectID=${encodeURIComponent(projectID)}`,
+        );
+    }
+
+    /** Create a linked worktree (`POST /api/worktree`, server v2.0.11):
+     *  checks out under `~/.local/share/opencode/worktree/<pid6>/<name>`
+     *  (a random name when omitted), DETACHED at `branch`'s tip (or the
+     *  project's HEAD without one). Returns the new directory. */
+    createWorktree(input: {
+        projectID: string;
+        branch?: string;
+        name?: string;
+    }): Promise<{directory: string}> {
+        return this.request<{directory: string}>("/api/worktree", {
+            method: "POST",
+            body: JSON.stringify(input),
+        });
+    }
+
+    /** Remove a linked worktree (DELETE /api/worktree). `force:false` is
+     *  refused (400) while the worktree has modifications or untracked
+     *  files — see the caveat above on detached commits. */
+    removeWorktree(input: {
+        projectID: string;
+        directory: string;
+        force: boolean;
+    }): Promise<void> {
+        return this.request<void>("/api/worktree", {
+            method: "DELETE",
+            body: JSON.stringify(input),
+        });
+    }
+
     /** RUNNING shell commands only (exited ones drop off the list; read
      * those through {@link getShell}/{@link shellOutput} while the server
      * still retains them). Filter by `metadata.sessionID` for one

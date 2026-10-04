@@ -25,6 +25,8 @@ export default function WelcomeScreen({
     onModelChange,
     directory,
     onDirectoryChange,
+    stagedBranch,
+    onStagedBranchChange,
     onOpenModelConfig,
 }: {
     foregroundColor: string;
@@ -39,6 +41,10 @@ export default function WelcomeScreen({
     onModelChange: (model: SessionModelRef) => void;
     directory: string | null;
     onDirectoryChange: (directory: string | null) => void;
+    /** Staged branch binding for the session the first send will create
+     *  (null = the project's main worktree); see DirectoryPicker. */
+    stagedBranch: string | null;
+    onStagedBranchChange: (branch: string | null) => void;
     /** Opens the settings modal on its Model tab (model/provider config). */
     onOpenModelConfig: () => void;
 }) {
@@ -74,6 +80,8 @@ export default function WelcomeScreen({
                         conversationStarted={false}
                         directory={directory}
                         onDirectoryChange={onDirectoryChange}
+                        stagedBranch={stagedBranch}
+                        onStagedBranchChange={onStagedBranchChange}
                         onOpenModelConfig={onOpenModelConfig}
                     />
                 </div>

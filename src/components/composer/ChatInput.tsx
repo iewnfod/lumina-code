@@ -57,6 +57,8 @@ const ChatInput = memo(function ChatInput({
     conversationStarted,
     directory,
     onDirectoryChange,
+    stagedBranch,
+    onStagedBranchChange,
     onOpenModelConfig,
     usage = null,
     contextUsage = null,
@@ -85,6 +87,10 @@ const ChatInput = memo(function ChatInput({
     conversationStarted: boolean;
     directory: string | null;
     onDirectoryChange: (directory: string | null) => void;
+    /** Staged branch binding for the not-yet-created session (null = the
+     *  project's main worktree); see DirectoryPicker. */
+    stagedBranch: string | null;
+    onStagedBranchChange: (branch: string | null) => void;
     /** Opens the settings modal on its Model tab (model/provider config). */
     onOpenModelConfig: () => void;
     /** Session cumulative usage — tooltip reference lines only. */
@@ -386,6 +392,8 @@ const ChatInput = memo(function ChatInput({
                 conversationStarted={conversationStarted}
                 directory={directory}
                 onDirectoryChange={onDirectoryChange}
+                stagedBranch={stagedBranch}
+                onStagedBranchChange={onStagedBranchChange}
                 onOpenModelConfig={onOpenModelConfig}
                 usage={usage}
                 contextUsage={contextUsage}

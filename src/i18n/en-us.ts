@@ -26,6 +26,8 @@ const enUs = {
     "Project": "Project",
     "Default project directory": "Default project directory",
     "Recent Projects": "Recent Projects",
+    "Branch": "Branch",
+    "Main branch": "Main branch",
     "Browse...": "Browse...",
     "Choose This Folder": "Choose This Folder",
     "Add attachment": "Add attachment",

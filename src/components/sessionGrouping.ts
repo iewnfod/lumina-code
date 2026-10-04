@@ -4,6 +4,9 @@
  * the reduction is node-testable.
  */
 
+import {folderLabel} from "../lib/path.ts";
+import type {WorktreeDirs} from "../opencode/worktreeSessions.ts";
+
 export interface SessionInfo {
     id: string;
     name: string;
@@ -35,4 +38,17 @@ export function groupByDirectory(sessions: SessionInfo[]): [string, SessionInfo[
         else groups.set(key, [session]);
     }
     return Array.from(groups.entries());
+}
+
+/** The sidebar's folder label for a working directory: a MANAGED branch
+ *  worktree reads as "<main repo> · <branch>" — the worktree's own last
+ *  path segment is a server-generated codename ("lucky-lagoon"),
+ *  meaningless to the user; anything else is its own last segment. */
+export function folderGroupLabel(
+    directory: string | null | undefined,
+    bindings: WorktreeDirs,
+): string {
+    if (!directory) return "";
+    const binding = bindings[directory];
+    return binding ? `${folderLabel(binding.mainDir)} · ${binding.branch}` : folderLabel(directory);
 }

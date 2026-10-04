@@ -1,4 +1,4 @@
-import {Settings} from "lucide-react";
+import {GitBranch, Settings} from "lucide-react";
 import type {ChromeTheme} from "../lib/theme.ts";
 import {isMacOS} from "../lib/platform.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
@@ -22,12 +22,17 @@ import {CHROME_TITLE_BAR_HEIGHT} from "../constants.ts";
 export default function TitleBar({
     theme,
     title,
+    branch,
     onOpenSettings,
     isMaximized,
 } : {
     theme: ChromeTheme | null,
     /** Active session's title, shown in the bar's left side. */
     title?: string | null,
+    /** Active session's git branch (null/absent = no repo, chip hidden).
+     *  Managed-worktree sessions show their pinned branch; detached
+     *  main-repo HEADs show the abbreviated sha (useDirectoryBranch). */
+    branch?: string | null,
     /** Opens the settings modal (General / Model / About tabs). */
     onOpenSettings: () => void,
     isMaximized: boolean,
@@ -59,6 +64,9 @@ export default function TitleBar({
                 <div className="relative flex-1 min-w-0 flex items-center self-stretch overflow-hidden" data-tauri-drag-region>
                     <RollingTitle text={title} className="px-2 text-sm font-medium truncate" style={{color: fg}}/>
                 </div>
+                {branch && (
+                    <TitleBranchChip branch={branch} fg={fg}/>
+                )}
                 <IconButton
                     size={28}
                     hoverOverlay={hoverOverlay}
@@ -87,6 +95,9 @@ export default function TitleBar({
                 <RollingTitle text={title} className="pl-3 pr-2 text-sm font-medium truncate" style={{color: fg}}/>
             </div>
             <div className="flex flex-row items-center h-full">
+                {branch && (
+                    <TitleBranchChip branch={branch} fg={fg}/>
+                )}
                 <IconButton
                     size={size}
                     hoverOverlay={hoverOverlay}
@@ -100,5 +111,21 @@ export default function TitleBar({
                 <WindowControl size={size} isMaximized={isMaximized} hoverOverlay={hoverOverlay} activeOverlay={activeOverlay} closeHover={closeHover} fg={fg} />
             </div>
         </div>
+    );
+}
+
+/** The bar's quiet branch readout (right cluster, before the settings
+ *  button): icon + name, non-interactive display — switching branches is
+ *  not a title-bar action (branch-bound sessions are chosen per session
+ *  in the composer's project picker). */
+function TitleBranchChip({branch, fg}: {branch: string; fg: string}) {
+    return (
+        <span
+            className="flex flex-row items-center gap-1 min-w-0 shrink px-2 select-none"
+            style={{color: fg, opacity: 0.7}}
+        >
+            <GitBranch size={12} className="shrink-0"/>
+            <span className="text-xs truncate">{branch}</span>
+        </span>
     );
 }

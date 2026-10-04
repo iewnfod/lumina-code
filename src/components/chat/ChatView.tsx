@@ -99,6 +99,8 @@ const ChatView = memo(function ChatView({
     onModelChange,
     directory,
     onDirectoryChange,
+    stagedBranch,
+    onStagedBranchChange,
     onOpenModelConfig,
     usage,
 }: {
@@ -113,6 +115,10 @@ const ChatView = memo(function ChatView({
     /** The session's working directory (null = server default). */
     directory: string | null;
     onDirectoryChange: (directory: string | null) => void;
+    /** Staged branch binding — only meaningful before the first message
+     *  (the picker is pre-session), threaded for the composer's picker. */
+    stagedBranch: string | null;
+    onStagedBranchChange: (branch: string | null) => void;
     /** Opens the settings modal on its Model tab (model/provider config). */
     onOpenModelConfig: () => void;
     /** The session's cumulative usage — tooltip reference lines for the
@@ -838,6 +844,8 @@ const ChatView = memo(function ChatView({
                     conversationStarted={hasConversation}
                     directory={directory}
                     onDirectoryChange={onDirectoryChange}
+                    stagedBranch={stagedBranch}
+                    onStagedBranchChange={onStagedBranchChange}
                     onOpenModelConfig={onOpenModelConfig}
                     usage={usage}
                     contextUsage={contextUsage}
