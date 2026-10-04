@@ -4,6 +4,14 @@ import type {OpencodeApi} from "./api.ts";
 import {applyStoppingBusEvent} from "./sessionStopping.ts";
 import {applyPromptQueueBusEvent} from "./promptQueue.ts";
 import {applyTurnEditsBusEvent} from "./turnEdits.ts";
+import {
+    adoptSessions,
+    isSessionRegistered,
+    missingRegisteredIds,
+    registerSession,
+    registeredSessionIds,
+    unregisterSession,
+} from "./sessionRegistry.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {EventMap, OpencodeSession} from "./types.ts";
 
@@ -15,20 +23,32 @@ import type {EventMap, OpencodeSession} from "./types.ts";
  * Transient helper sessions created by Lumina Code's tools plugin (the
  * vision delegation) are filtered the same way — via their
  * `{source: "lumina-tools"}` metadata marker (v2.0.11's public create API
- * ignores `parentID`, so the marker is the only hiding mechanism).
+ * ignores `parentID`, so the marker is the only hiding mechanism); the
+ * marker check is load-bearing for the registry's one-time ADOPTION below
+ * even though display membership already implies it.
  */
 function isRootSession(s: OpencodeSession): boolean {
     return !s.parentID && s.metadata?.["source"] !== "lumina-tools";
 }
 
 /**
- * The sidebar's session list, kept in sync with the OpenCode server:
- * seeded from `GET /api/session`, then live-patched from the event bus
- * (session.created / inbox.enqueued / renamed / agent.selected / deleted
- * — the enqueued signal re-lists so the list's `time.updated` ordering
- * tracks each session's last question, not its creation; agent.selected
- * patches the mode in place, covering the model switching itself into
- * plan mode via the plan_mode tool; and session.usage.updated,
+ * The sidebar's session list — a WHITELIST view: only sessions recorded in
+ * the local session registry (sessionRegistry.ts, persisted per app
+ * instance) are listed, no matter who else creates sessions in the shared
+ * server storage (the TUI/CLI in the home dir, other desktop instances).
+ * Membership is granted at the single creation choke-point (`create` below,
+ * reached only through sendFirst) and revoked on every deletion path (the
+ * `remove` here, the session.deleted event, and seed-time reconciliation).
+ *
+ * Listed sessions stay in sync with the OpenCode server: seeded from
+ * `GET /api/session` (intersected with the registry — and the seed is also
+ * the one-time registry ADOPTION on a fresh install/upgrade, plus the
+ * prune of ids deleted while we were away), then live-patched from the
+ * event bus (session.created / inbox.enqueued / renamed / agent.selected
+ * / deleted — the enqueued signal re-lists so the list's `time.updated`
+ * ordering tracks each session's last question, not its creation;
+ * agent.selected patches the mode in place, covering the model switching
+ * itself into plan mode via the plan_mode tool; and session.usage.updated,
  * which patches the cumulative cost/token totals the composer's usage
  * ring reads), plus a running-state set
  * driven by
@@ -117,13 +137,13 @@ export function useSessions(
         });
     }, [deleteToolSession]);
 
-    // Re-list helper: root sessions only, server order (most recently
-    // updated first).
+    // Re-list helper: registered root sessions only (the registry is the
+    // membership truth), server order (most recently updated first).
     const relist = useCallback(() => {
         const a = apiRef.current;
         if (!a) return Promise.resolve();
         return a.listSessions().then((list) => {
-            setSessions((list ?? []).filter(isRootSession));
+            setSessions((list ?? []).filter((s) => isRootSession(s) && isSessionRegistered(s.id)));
             trackToolSessions(list ?? []);
         }).catch((e) => {
             logError(`Failed to load sessions: ${e}`).catch(() => {});
@@ -136,11 +156,30 @@ export function useSessions(
         let cancelled = false;
         api.listSessions().then((list) => {
             if (cancelled) return;
-            const roots = (list ?? []).filter(isRootSession);
-            setSessions(roots);
-            trackToolSessions(list ?? []);
+            const raw = list ?? [];
+            const roots = raw.filter(isRootSession);
+            // Registry reconciliation, exactly once per successful seed:
+            // ADOPT on a fresh install/upgrade (the current root sessions
+            // become the initial whitelist — one-time, so upgrade-time
+            // strangers need deleting manually once), otherwise PRUNE ids
+            // the server no longer lists (deleted while we were away; an
+            // empty list prunes nothing — a transient empty read must
+            // never wipe the registry). Live deletions arrive as
+            // session.deleted events instead.
+            const registered = registeredSessionIds();
+            if (registered === null) {
+                adoptSessions(roots.map((s) => s.id));
+            } else {
+                for (const id of missingRegisteredIds(registered, raw.map((s) => s.id))) {
+                    info(`Pruning session ${id} from the registry (no longer on the server)`).catch(() => {});
+                    unregisterSession(id);
+                }
+            }
+            const listed = roots.filter((s) => isSessionRegistered(s.id));
+            setSessions(listed);
+            trackToolSessions(raw);
             setLoaded(true);
-            info(`Loaded ${roots.length} OpenCode session(s) (${(list?.length ?? 0) - roots.length} subagent session(s) hidden)`).catch(() => {});
+            info(`Loaded ${listed.length} registered OpenCode session(s) (${raw.length - listed.length} unregistered/subagent session(s) hidden)`).catch(() => {});
         }).catch((e) => {
             logError(`Failed to load sessions: ${e}`).catch(() => {});
         });
@@ -216,6 +255,9 @@ export function useSessions(
                 }
                 case "session.deleted": {
                     const {sessionID} = event.data as {sessionID: string};
+                    // Every deletion path revokes whitelist membership —
+                    // ours, another instance's, the helper sweep. Idempotent.
+                    unregisterSession(sessionID);
                     setSessions((prev) => prev.filter((s) => s.id !== sessionID));
                     break;
                 }
@@ -276,6 +318,11 @@ export function useSessions(
         if (!a) return null;
         try {
             const created = await a.createSession(directory ? {directory} : {});
+            // Whitelist membership is granted HERE — the single creation
+            // choke-point (sendFirst is the only caller). Registered before
+            // the prepend so the session.created event's re-list already
+            // sees it as a member.
+            registerSession(created.id);
             setSessions((prev) => [created, ...prev.filter((s) => s.id !== created.id)]);
             return created;
         } catch (e) {
@@ -289,6 +336,9 @@ export function useSessions(
         if (!a) return;
         try {
             await a.deleteSession(id);
+            // Only a server-confirmed deletion revokes membership — a
+            // failed delete leaves the session (and its registration) alive.
+            unregisterSession(id);
             setSessions((prev) => prev.filter((s) => s.id !== id));
         } catch (e) {
             logError(`Failed to delete OpenCode session ${id}: ${e}`).catch(() => {});

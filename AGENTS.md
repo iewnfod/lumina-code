@@ -574,11 +574,48 @@ src/
 │   │                      #   cleanup deliberately does NOT stop it, so StrictMode's
 │   │                      #   mount/unmount/mount can't tear it down. "opencode-status"
 │   │                      #   events surface async exits as {state:"error"}.
-│   ├── useSessions.ts     # Sidebar list: seeded from GET /api/session, live-patched
+│   ├── sessionRegistry.ts # THE sidebar's session WHITELIST (the fix for
+│   │                      #   the recurring "untitled session in the home
+│   │                      #   dir" strangers): the ids of sessions created
+│   │                      #   by THIS app's UI, persisted via the factory
+│   │                      #   ("lumina-code:session-registry") — membership
+│   │                      #   is granted at the single creation choke-point
+│   │                      #   (useSessions.create ← sendFirst) and revoked
+│   │                      #   on every deletion path (useSessions.remove,
+│   │                      #   the session.deleted event, seed-time prune);
+│   │                      #   sessions created by anything else (TUI/CLI,
+│   │                      #   other instances — OpenCode storage is shared)
+│   │                      #   never enter the sidebar. `null` = NOT YET
+│   │                      #   ADOPTED (key absent / malformed — write(null)
+│   │                      #   removes the key, the factory's absence
+│   │                      #   semantics): the first successful session list
+│   │                      #   after connect adopts the visible root
+│   │                      #   sessions wholesale (one-time migration;
+│   │                      #   upgrade-time strangers need one manual
+│   │                      #   delete), after which even an EMPTY list
+│   │                      #   persists as "[]". The seed also prunes ids
+│   │                      #   the server no longer lists — but an empty
+│   │                      #   server list prunes NOTHING (the documented
+│   │                      #   transient-empty storage race must never wipe
+│   │                      #   the registry; missingRegisteredIds guards).
+│   │                      #   Plain-function accessors, no React binding
+│   │                      #   (mutations always coincide with useSessions'
+│   │                      #   own list updates); array order = registration
+│   │                      #   order, the substrate for future pin /
+│   │                      #   fixed-sort features. DirectoryPicker's
+│   │                      #   quick-picks share the membership check.
+│   │                      #   node-testable (storage-stub + dynamic-import
+│   │                      #   pattern; parseRegistryRaw exported for the
+│   │                      #   read-shape cases).
+│   ├── useSessions.ts     # Sidebar list: a WHITELIST view over the server
+│   │                      #   session list — only registry members
+│   │                      #   (sessionRegistry.ts) are listed. Seeded from
+│   │                      #   GET /api/session, live-patched
 │   │                      #   from the bus; root sessions only (subagent children carry
 │   │                      #   parentID and would flood the list; the tools plugin's
 │   │                      #   helper sessions hide via their {source:
-│   │                      #   "lumina-tools"} metadata marker — and are DELETED
+│   │                      #   "lumina-tools"} metadata marker — still checked
+│   │                      #   for the registry's ADOPTION filter — and are DELETED
 │   │                      #   by this hook once their execution ends, plus a
 │   │                      #   one-per-connection sweep of leftovers, because
 │   │                      #   v2.0.11's plugin API has no session delete);
@@ -587,7 +624,8 @@ src/
 │   │                      #   Mode via the plan_mode tool); busy set seeded from
 │   │                      #   GET /api/session/active (a stale busy id blocks the
 │   │                      #   composer forever — the seed must not resurrect ids watched
-│   │                      #   end); create/remove/patch (optimistic model/agent).
+│   │                      #   end); create/remove/patch (optimistic model/agent)
+│   │                      #   also grant/revoke the whitelist membership.
 │   ├── useSessionMessages.ts # React binding over a MODULE-LEVEL store (one entry per
 │   │                      #   session, surviving ChatView unmounts AND webview reloads
 │   │                      #   — backgrounded sessions keep accumulating deltas; entries
