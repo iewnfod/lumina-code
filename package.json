@@ -11,6 +11,10 @@
     "tauri": "tauri",
     "dev:cef": "CEF_PATH=\"$HOME/.local/share/cef\" pnpm --dir cef run dev",
     "build:cef": "CEF_PATH=\"$HOME/.local/share/cef\" pnpm --dir cef run build",
+    "server:dev": "pnpm --filter lumina-server run dev",
+    "server:build": "pnpm --filter lumina-server run build",
+    "server:typecheck": "pnpm --filter lumina-server run typecheck",
+    "server:test": "pnpm --filter lumina-server run test",
     "fetch:opencode": "node scripts/fetch-opencode.mjs",
     "fetch:opencode:cef": "LUMINA_BINARIES_DIR=cef/src-tauri/binaries node scripts/fetch-opencode.mjs",
     "gen:icons": "node scripts/gen-file-icons.mjs"

@@ -1,0 +1,15 @@
+# The lumina-server Next.js app is a workspace member so the whole repo
+# shares one lockfile (the desktop app stays the root package; the CEF
+# shell keeps its own isolated package because its CLI pin is
+# major-version-incompatible with the root's).
+packages:
+  - "server"
+
+# better-sqlite3 ships a native addon whose install script compiles/downloads
+# a prebuilt binding — pnpm v10+ blocks dependency scripts by default, so it
+# is explicitly allowlisted here (the only native dep in the workspace).
+onlyBuiltDependencies:
+  - better-sqlite3
+
+allowBuilds:
+  better-sqlite3: set this to true or false

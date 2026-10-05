@@ -1,5 +1,5 @@
 import {motion} from "framer-motion";
-import {Cpu, Info, Settings as SettingsIcon} from "lucide-react";
+import {Cpu, Info, Server as ServerIcon, Settings as SettingsIcon} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
@@ -8,10 +8,11 @@ import Modal from "../ui/Modal.tsx";
 import GeneralSettings from "./GeneralSettings.tsx";
 import ModelSettings from "./ModelSettings.tsx";
 import AboutSettings from "./AboutSettings.tsx";
+import ServerSettings from "./ServerSettings.tsx";
 
 /** Selectable settings tabs. App owns the value so an entry point can
  *  deep-link (the model picker opens straight to the Model tab). */
-export type SettingsTab = "general" | "model" | "about";
+export type SettingsTab = "general" | "model" | "server" | "about";
 
 /**
  * The app's settings modal — the gear in the title bar opens it. A left
@@ -44,6 +45,7 @@ export default function SettingsModal({
     const tabs: {id: SettingsTab; icon: typeof SettingsIcon; label: string}[] = [
         {id: "general", icon: SettingsIcon, label: t["General"]},
         {id: "model", icon: Cpu, label: t["Model settings"]},
+        {id: "server", icon: ServerIcon, label: t["Server"]},
         {id: "about", icon: Info, label: t["About"]},
     ];
 
@@ -93,6 +95,7 @@ export default function SettingsModal({
                     >
                             {tab === "general" && <GeneralSettings/>}
                             {tab === "model" && <ModelSettings api={api}/>}
+                            {tab === "server" && <ServerSettings/>}
                             {tab === "about" && <AboutSettings serverVersion={serverVersion}/>}
                     </div>
                 </div>

@@ -22,6 +22,7 @@ import {ColorsProvider, useColors} from "./hooks/colors.tsx";
 import {useWindowOutline} from "./hooks/useWindowOutline.ts";
 import {probeBms, useBmsFocusRefresh, useCompositorBlurActive} from "./hooks/useBlurMyShell.ts";
 import {useNotifications} from "./hooks/useNotifications.ts";
+import {useServerSync} from "./hooks/useServerSync.ts";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {isColorDark, withAlpha} from "./lib/color.ts";
 import {isLinux, isCefRuntime} from "./lib/platform.ts";
@@ -446,6 +447,12 @@ function AppBody({
     // by the stored mode + focus mute. Pure decisions live in
     // opencode/notificationTriggers.ts.
     useNotifications(activeId);
+
+    // The self-hosted lumina-server mirror (Settings → Server): when a
+    // connection is configured AND enabled, mirrors the session list +
+    // message snapshots up to it. Pure shaping lives in
+    // opencode/serverSync.ts; the local app never depends on the mirror.
+    useServerSync();
 
     // The settings modal: the title-bar gear opens it, and the model
     // picker's "Configure models…" deep-links to its Model tab. App owns

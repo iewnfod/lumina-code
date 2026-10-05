@@ -1,0 +1,28 @@
+# lumina-server — one container + one data volume.
+#
+#   docker compose up -d
+#
+# Then open http://<host>:4600/ and register the FIRST account (it
+# becomes admin). Put TLS in front for anything past the LAN (see
+# server/README.md).
+
+services:
+  lumina-server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    # image: ghcr.io/iewnfod/lumina-server:latest   # once published
+    ports:
+      - "4600:3000"
+    environment:
+      LUMINA_DATA_DIR: /data
+      # Set to "false" to close registration after everyone joined.
+      LUMINA_ALLOW_REGISTRATION: "true"
+      # "1" only when this port is TLS itself (no reverse proxy).
+      LUMINA_COOKIE_SECURE: "0"
+    volumes:
+      - lumina-data:/data
+    restart: unless-stopped
+
+volumes:
+  lumina-data:

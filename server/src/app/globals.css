@@ -1,0 +1,333 @@
+/* lumina-server admin UI — intentionally plain (the design system
+ * belongs to the desktop app). Light/dark via prefers-color-scheme. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f6f6f8;
+  --fg: #1c1c22;
+  --muted: #6b6b76;
+  --card: #ffffff;
+  --border: #dcdce4;
+  --accent: #6d5bd0;
+  --accent-fg: #ffffff;
+  --danger: #c23934;
+  --ok: #2e7d4f;
+  --row-alt: #f2f2f6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141418;
+    --fg: #e8e8ee;
+    --muted: #9a9aa6;
+    --card: #1e1e24;
+    --border: #34343e;
+    --accent: #8b7ae6;
+    --accent-fg: #14141a;
+    --danger: #ef6b66;
+    --ok: #6cc08b;
+    --row-alt: #232329;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+code,
+.mono {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+
+a {
+  color: var(--accent);
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0 0 12px;
+}
+
+h2 {
+  font-size: 15px;
+  margin: 24px 0 8px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.ok {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+/* --- nav + layout --- */
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+  position: sticky;
+  top: 0;
+}
+
+.nav .brand {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.nav .links {
+  display: flex;
+  gap: 14px;
+  flex: 1;
+}
+
+.nav .links a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.nav .links a:hover {
+  color: var(--fg);
+}
+
+.nav .who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.wrap {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+/* --- auth pages --- */
+
+.auth {
+  max-width: 360px;
+  margin: 10vh auto;
+  padding: 0 20px;
+}
+
+/* --- cards / forms --- */
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 12px 0;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.cards .card h2 {
+  margin: 0;
+  font-size: 26px;
+}
+
+.cards .card p {
+  margin: 4px 0 0;
+}
+
+label {
+  display: block;
+  margin: 10px 0;
+}
+
+input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+
+button.btn {
+  display: inline-block;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+button.btn:hover {
+  border-color: var(--accent);
+}
+
+button.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+  margin-top: 10px;
+}
+
+button.btn.small {
+  padding: 3px 10px;
+  font-size: 12.5px;
+}
+
+button.btn.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+/* --- tables --- */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin: 12px 0;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.table thead th {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.table tbody tr:nth-child(even) {
+  background: var(--row-alt);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.table.facts {
+  max-width: 560px;
+}
+
+.table.facts th {
+  width: 180px;
+  color: var(--muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.inline-reset {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.inline-reset input {
+  width: 140px;
+  margin-top: 0;
+  padding: 4px 8px;
+}
+
+/* --- badges --- */
+
+.badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+
+.badge.danger {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
+}
+
+/* --- transcript --- */
+
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.transcript .entry {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+
+.transcript .entry.user {
+  border-left: 3px solid var(--accent);
+}
+
+.transcript .role {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.transcript pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+
+.transcript .tools {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+}

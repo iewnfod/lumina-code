@@ -273,6 +273,24 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Adds a vision tool that text-only models can call to see images": "提供识图工具：纯文字模型可以调用它查看图片",
     "No vision-capable models found": "没有支持图片输入的模型",
     "Custom tools are stored in the global OpenCode config": "自定义工具保存在 OpenCode 全局配置中",
+    // --- Server sync（自部署 lumina-server） ---
+    "Server": "服务器",
+    "Server sync": "服务器同步",
+    "Server address": "服务器地址",
+    "Server address must start with http:// or https://": "服务器地址必须以 http:// 或 https:// 开头",
+    "The agent runs on this machine; sessions are mirrored to your server for other devices.": "agent 始终在本机运行；会话会镜像到你的服务器，供其他设备查看。",
+    "Username": "用户名",
+    "Password": "密码",
+    "Sign in": "登录",
+    "Signing in…": "登录中…",
+    "Sign out": "退出登录",
+    "Signed in": "已登录",
+    "Enter a username and password": "请输入用户名和密码",
+    "Sync status": "同步状态",
+    "Up to date": "已同步",
+    "Sync error": "同步出错",
+    "Idle": "空闲",
+    "Last mirror": "上次镜像",
 };
 
 export default zhCn;

@@ -2106,6 +2106,94 @@ dependency versions.
   the conf file's directory; commands (`beforeDevCommand`) run relative to
   the app dir (`cef/`) — hence `../../dist` vs `--dir ..`.
 
+### lumina-server (`server/`) — the self-hosted companion server
+
+A pnpm WORKSPACE MEMBER (`pnpm-workspace.yaml` lists `server/`; the
+desktop app stays the root package) — a single Next.js App Router
+application = **user system + web management UI + session-mirror API**,
+backed by ONE SQLite file (better-sqlite3, no ORM — the queries are a
+screenful; DDL lives in `server/src/db/schema.ts` with additive
+`MIGRATIONS` applied at startup). Deployed as one Docker container
+(`server/Dockerfile` + root `docker-compose.yml`); TLS/组网 is the
+user's affair (reverse proxy — see `server/README.md`).
+
+ARCHITECTURE — the RELAY MODEL (decided 2026-10): the agent NEVER runs
+on the server. Desktop Lumina Code keeps its local opencode + local
+files; when a server connection is configured (Settings → Server),
+the sync engine mirrors the session LIST + per-session message
+snapshots UP so other devices (mobile, milestone 2) can browse them.
+Model API keys, git repos, and code files stay on the desktop; the
+server only ever holds transcript mirrors + accounts. Prompt relay
+(mobile → desktop) is explicitly out of scope for v1.
+
+```
+src/
+├── db/            schema.ts (DDL + row types + meta-tracked migrations),
+│                  db.ts (createDatabase/getDb singleton on globalThis —
+│                  Next HMR re-imports must share one connection; WAL +
+│                  foreign_keys pragmas; LUMINA_DATA_DIR, default ./data)
+├── lib/           pure-ish core + vitest coverage:
+│   ├── auth.ts    argon2id (via @node-rs/argon2, no node-gyp) +
+│   │              opaque device tokens (`lum_…`, only sha256 stored;
+│   │              returned exactly once). FIRST registered user becomes
+│   │              admin. login() verifies against a cached DUMMY hash
+│   │              for unknown users so timing never reveals usernames.
+│   │              tokenFromRequest accepts Bearer OR the httpOnly
+│   │              `lumina_session` cookie — ONE credential mechanism
+│   │              for API clients and the web UI alike.
+│   ├── rateLimit.ts  in-memory fixed-window limiter (login endpoint;
+│   │                 per-instance by design; heavier protection = the
+│   │                 reverse proxy's job)
+│   ├── sync.ts    the mirror core: parseSessionPush (full-list push;
+│   │              tombstoning scoped to the PUSHER's own sessions so
+│   │              two desktops never delete each other's work),
+│   │              applyMessagesSnapshot (wholesale replace, auto-create
+│   │              session row, 64MB cap), listLiveSessions
+│   ├── transcript.ts  minimal text extraction from ChatMessage[]
+│   │              (walks user.text + assistant content parts; skips
+│   │              reasoning and marker messages) for the admin browse view
+│   └── pageAuth.ts    cookie-side guard for protected pages
+├── app/
+│   ├── actions.ts    no-JS server actions (login/register/logout/
+│   │                 changePassword/admin maintenance) — plain <form>
+│   │                 posts, errors via ?error= redirects; every action
+│   │                 re-checks auth from the cookie
+│   ├── login|register/  public auth pages
+│   ├── (protected)/     the console shell (layout redirects to /login):
+│   │                 / overview (counts + facts), /users admin
+│   │                 management (disable/enable + reset password; you
+│   │                 cannot disable yourself), /account (password +
+│   │                 device-token revocation), /sessions list +
+│   │                 /[id] read-only transcript
+│   └── api/         auth (register/login/me/logout), tokens (list/
+│                    revoke; admin may inspect others), admin/users
+│                    (GET/PATCH), sync (sessions GET+POST, per-session
+│                    messages GET+POST)
+└── middleware.ts   CORS for /api/* (webview origins fetch cross-origin
+                     with a bearer header; blanket origin allowance is
+                     safe because no cookies ride the API path) +
+                     preflight answering
+
+Desktop half: `src/opencode/serverConnection.ts` (the connection
+persistedStore `"lumina-code:server-connection"` + LuminaServerApi —
+the OpencodeApi pattern applied to the companion server; token lives in
+the webview's localStorage, revocable from the web console),
+`src/opencode/serverSync.ts` (pure shaping — mirrorableSessions keeps
+the sidebar's own view [root sessions minus lumina-tools helpers],
+stripUnconfirmed drops `local-*` optimistic bubbles, toSyncEntry
+flattens the model ref; + the serial createSyncQueue and the sync
+HEALTH module store), and `src/hooks/useServerSync.ts` (the engine,
+mounted once in AppBody: session.* bus events → debounced full-list
+re-pull+push; message-store notifies → per-session trailing-debounced
+snapshot pushes; failures log + mark health + stay dirty for the 60s
+liveness retry — sync NEVER blocks or degrades the local app).
+
+Scripts (root): `pnpm server:dev|build|test|typecheck`; CI:
+`.github/workflows/ci-server.yml` (vitest + next build). Server tests
+are vitest (its own runner — the desktop keeps node:test); they invoke
+route-level libs directly with :memory: databases.
+
+
 ---
 
 ## 3. Design Principles
