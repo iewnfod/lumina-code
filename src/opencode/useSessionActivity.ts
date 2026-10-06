@@ -144,6 +144,14 @@ function diffSnapshotOf(directory: string | null): {
     };
 }
 
+
+/** Read a directory's cached workspace diff OUTSIDE React — the
+ * server-sync engine mirrors whatever the stats card has loaded (null
+ * when this app never opened the directory: no push, no block). */
+export function peekWorkspaceDiff(directory: string | null): WorkspaceDiffEntry[] | null {
+    return diffSnapshotOf(directory).diff;
+}
+
 // --- Module wiring: api handle + one bus handler + one message watcher ---
 let apiSingleton: OpencodeApi | null = null;
 let busUnsubscribe: (() => void) | null = null;

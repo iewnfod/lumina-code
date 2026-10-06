@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Lumina Code",
+  "version": "0.1.0",
+  "identifier": "com.iewnfod.lumina-code-mobile",
+  "build": {
+    "beforeDevCommand": "pnpm run dev:mobile",
+    "devUrl": "http://localhost:1421",
+    "beforeBuildCommand": "pnpm run build:mobile",
+    "frontendDist": "../../dist-mobile"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [],
+    "icon": ["icons/icon.png"]
+  }
+}

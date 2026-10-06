@@ -23,6 +23,7 @@ import {useWindowOutline} from "./hooks/useWindowOutline.ts";
 import {probeBms, useBmsFocusRefresh, useCompositorBlurActive} from "./hooks/useBlurMyShell.ts";
 import {useNotifications} from "./hooks/useNotifications.ts";
 import {useServerSync} from "./hooks/useServerSync.ts";
+import {useServerRelay} from "./hooks/useServerRelay.ts";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {isColorDark, withAlpha} from "./lib/color.ts";
 import {isLinux, isCefRuntime} from "./lib/platform.ts";
@@ -453,6 +454,11 @@ function AppBody({
     // message snapshots up to it. Pure shaping lives in
     // opencode/serverSync.ts; the local app never depends on the mirror.
     useServerSync();
+
+    // The relay's forward path: consumes prompts queued by mobile
+    // clients for this desktop's sessions and injects them into the
+    // local OpenCode (at-least-once, deduped; see opencode/relay.ts).
+    useServerRelay();
 
     // The settings modal: the title-bar gear opens it, and the model
     // picker's "Configure models…" deep-links to its Model tab. App owns

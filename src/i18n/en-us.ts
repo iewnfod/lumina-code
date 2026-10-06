@@ -294,6 +294,12 @@ const enUs = {
     "Sync error": "Sync error",
     "Idle": "Idle",
     "Last mirror": "Last mirror",
+    // --- Mobile app ---
+    "Sessions": "Sessions",
+    "No sessions synced yet": "No sessions synced yet",
+    "Refresh": "Refresh",
+    "no snapshot": "no snapshot",
+    "Sent — waiting for the desktop": "Sent — waiting for the desktop",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;

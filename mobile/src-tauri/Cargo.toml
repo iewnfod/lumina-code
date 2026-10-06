@@ -1,0 +1,75 @@
+[package]
+name = "lumina-code-mobile"
+version = "0.1.0"
+description = "Lumina Code mobile client (remote companion for lumina-server)"
+authors = ["iewnfod"]
+edition = "2021"
+
+[lib]
+# The `_lib` suffix keeps the lib name unique vs. the bin (same pattern
+# as the webkit shell's crate).
+name = "lumina_code_mobile_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "=2.11.5", features = [] }
+# NOT a real dependency: pins wry to exactly 0.56.0 (the branch's
+# version) so the [patch.crates-io] below actually applies — crates.io
+# has a newer 0.56.1 that satisfies tauri-runtime-wry's `^0.56` and
+# would silently bypass the patch (the unused-patch trap; the ohos
+# build then compiles the stable wry's webkit2gtk path for the
+# linux-flavored ohos target and dies on pkg-config/glib).
+wry = { version = "=0.56.0", default-features = false }
+tauri-plugin-log = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The #[ability] macro (via tauri::mobile_entry_point's ohos expansion)
+# generates code referencing these directly — same 1.1 line as the
+# vendored openharmony-ability so the napi types unify.
+napi-ohos = { version = "1.1", features = ["napi8"] }
+napi-derive-ohos = "1.1"
+
+# --- HarmonyOS (OpenHarmony) support ---------------------------------
+#
+# Tauri's ohos support lives on the official `feat/open-harmony`
+# branches of tauri/wry/tao (based on tauri 2.11.5 / wry 0.56.0 /
+# tao 0.36.0 — NOT yet merged into a crates.io release). The patch
+# below redirects those three crates to the branch.
+#
+# VERSIONS MUST STAY EXACT (`=2.11.5`): the patch mechanism only
+# replaces the precise version cargo selected, so a looser `^2.11`
+# resolves to a newer crates.io release that BYPASSES the patch —
+# the classic ohos-port trap (see mobile/README.md's toolchain notes).
+#
+# This patch table is scoped to THIS crate's workspace: the webkit
+# shell (src-tauri) and the CEF shell (cef/src-tauri) are separate
+# workspaces and resolve their own (stable) dependency graphs.
+#
+# When the branch merges upstream: delete the patch block, bump to the
+# release that includes ohos, and drop the `=` pin.
+
+[patch.crates-io]
+tauri = { git = "https://github.com/tauri-apps/tauri", branch = "feat/open-harmony" }
+wry = { git = "https://github.com/tauri-apps/wry", branch = "feat/open-harmony" }
+tao = { git = "https://github.com/tauri-apps/tao", branch = "feat/open-harmony" }
+# CRITICAL: tauri-build decides the `mobile` cfg alias — the STABLE
+# crates.io tauri-build knows only ios/android and emits `desktop` for
+# the ohos target, which silently drops the #[ability] napi glue from
+# mobile_entry_point (the app then installs but stays blank: no
+# init/render napi exports). Must be patched alongside tauri.
+tauri-build = { git = "https://github.com/tauri-apps/tauri", branch = "feat/open-harmony" }
+
+# The branch wry's ohos backend rides on harmony-contrib's
+# openharmony-ability (git-only crate). Its HEAD has since REMOVED the
+# `webview` feature the branch requires, and cargo refuses a
+# same-source patch — so the exact rev the wry branch's own Cargo.lock
+# was built against (295a276a, version 0.3.0) is VENDORED at
+# mobile/vendor/openharmony-ability and patched in by path (the
+# cef/src-tauri/vendor pattern). Bump only together with the wry branch.
+[patch."https://github.com/harmony-contrib/openharmony-ability.git"]
+openharmony-ability = { path = "../vendor/openharmony-ability/crates/ability" }
+openharmony-ability-derive = { path = "../vendor/openharmony-ability/crates/derive" }

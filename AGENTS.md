@@ -2193,6 +2193,72 @@ Scripts (root): `pnpm server:dev|build|test|typecheck`; CI:
 are vitest (its own runner — the desktop keeps node:test); they invoke
 route-level libs directly with :memory: databases.
 
+### The mobile app (`mobile/` + `src/mobile/`) — the remote client
+
+The RELAY MODEL's third surface (after the desktop and lumina-server):
+a thin client that signs in to a self-hosted lumina-server, browses the
+mirrored sessions, and forwards prompts. HarmonyOS-first, built on
+Tauri's official `feat/open-harmony` branches (v2.11.5 line — the same
+minor the desktop shells are on; NOT the stale community fork).
+
+**Second-entry architecture**: the mobile frontend is `src/mobile/` in
+the ROOT package — a second vite entry (`mobile/index.html` +
+`mobile/vite.config.ts` → `dist-mobile/`), NOT a separate package. The
+desktop's transcript rendering chain (TranscriptList → MessageItem →
+ToolCard/Markdown/DiffViewBody…), design tokens (main.css), lib/ pure
+modules and i18n are imported directly — zero cross-package config,
+`pnpm build` typechecks both entries, `pnpm dev:mobile` serves 1421.
+Mobile-native code lives under `src/mobile/`: connection store
+(`lumina-mobile:connection`), server client additions
+(LuminaServerApi's sync-read + relay methods in serverConnection.ts —
+ONE client for all surfaces), screens (Login/SessionList/Session/
+ActivityPanel/ComposerBar — plain textarea, no Lexical), and a NULL-api
+ConnectionProvider stand-in so reused components' useConnection() is
+satisfied. ArkWeb's null localStorage is bridged by `src/mobile/kv.ts`
+— mobile.html imports it FIRST; it awaits kv_load (Rust, app-data JSON)
+, installs an in-memory Storage shim, then dynamically imports the app
+(module-level store reads happen only after hydration).
+
+**The relay loop** (desktop stays the agent): mobile `POST
+/api/relay/prompt` → lumina-server queues it (`relay_prompts`, at-least-
+once) → the OWNING desktop's `useServerRelay` (AppBody, beside
+useServerSync) long-polls `GET /api/relay/poll?wait=25`, dedupes by id
+(`opencode/relay.ts` ledger, ≤2 attempts then ack-and-drop poison),
+ensureSessionSeeded the target (a never-opened session would otherwise
+never mirror), injects via the plain prompt endpoint, acks — the reply
+flows back as the next mirrored snapshots (mobile polls 3s while
+visible). Desktop offline ⇒ prompts WAIT, delivered on reconnect.
+
+**Workspace activity on mobile**: `src/mobile/activity.ts` re-runs the
+desktop's sessionActivity folds (todos/shells/subagents — the mirror
+carries all their inputs) and the ActivityPanel renders them plus the
+MIRRORED working-copy diff: desktop useServerSync piggy-backs
+`POST /api/sync/diffs` (truncated: ≤200 files / ≤2MB patches —
+`truncateDiffForMirror`) off its session-list pushes, reading the stats
+card's diff cache via `peekWorkspaceDiff`; mobile fetches per session
+directory (30s poll) and expands files through the shared DiffViewBody.
+
+**The ohos shell** (`mobile/src-tauri`): its own workspace with
+`tauri = "=2.11.5"` + `[patch.crates-io]` to the feat/open-harmony
+branches (tauri/wry/tao) — EXACT versions, because crates.io publishing
+wry 0.56.1 silently bypassed a `^`-pinned patch once already (the build
+then pulled webkit2gtk's gtk stack for the linux-flavored ohos target
+and died in pkg-config); a bare `wry = "=0.56.0"` dep forces the
+patched version into the graph. openharmony-ability (git-only, its HEAD
+dropped the `webview` feature) is VENDORED at the rev the wry branch's
+own lockfile pins (`mobile/vendor/openharmony-ability`, rev 295a276a)
+and path-patched. The shell's Rust is minimal: kv_load/kv_set (the
+localStorage backing), log plugin (Stdout only — no home_dir on ohos),
+opener. The DevEco project lives in `gen/ohos` (sources committed,
+build outputs ignored) at `compatibleSdkVersion "26.0.0"`; build recipe
++ the full pitfall list (SDK symlinks, hvigor daemon env cache,
+beforeBuildCommand cwd) in `mobile/README.md`. Toolchain: branch-pinned
+cargo tauri-cli (`ohos` subcommand), `ohrs`, ohos rust targets.
+
+CI: `.github/workflows/ci-mobile.yml` — the web bundle + a HOST-target
+cargo check of the crate (catches patch drift; full HAP builds are
+local-only, they need the HarmonyOS SDK).
+
 
 ---
 

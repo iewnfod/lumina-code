@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"
+    />
+    <title>Lumina Code</title>
+    <!--
+      The localStorage hydrate gate (HarmonyOS/ArkWeb returns null for
+      localStorage under the tauri:// custom scheme): src/mobile/kv.ts
+      loads the persisted KV map from Rust BEFORE the app bundle is
+      imported, installs an in-memory localStorage shim over it, then
+      dynamically imports the app — every module-level store read
+      (persistedStore) happens after hydration, synchronously, exactly
+      as on the desktop.
+    -->
+    <script>
+      // DEV ERROR OVERLAY: ArkWeb has no reachable console on a retail
+      // device (remote debugging needs setWebDebuggingAccess + DevTools);
+      // surface every uncaught error / rejection on screen instead.
+      (function () {
+        function show(tag, text) {
+          var el = document.getElementById("splash") || document.body;
+          var p = document.createElement("p");
+          p.style.cssText =
+            "color:#ff6b66;font-size:12px;margin:6px 0;word-break:break-all";
+          p.textContent = "[" + tag + "] " + text;
+          el.appendChild(p);
+        }
+        window.addEventListener("error", function (e) {
+          show("error", (e.message || "?") + " @" + (e.filename || "") + ":" + (e.lineno || 0));
+        });
+        window.addEventListener("unhandledrejection", function (e) {
+          var r = e.reason;
+          show("reject", (r && (r.stack || r.message)) || String(r));
+        });
+      })();
+    </script>
+    <script type="module">
+      import "../src/mobile/kv.ts";
+    </script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #141418;
+        color: #e8e8ee;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      #splash {
+        display: flex;
+        height: 100%;
+        align-items: center;
+        justify-content: center;
+        opacity: 0.6;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="splash">Lumina Code…</div>
+    <div id="root"></div>
+  </body>
+</html>

@@ -167,3 +167,81 @@ export function listLiveSessions(db: Db): {
   }[];
   return rows.map((r) => ({...r, hasSnapshot: r.hasSnapshot === 1}));
 }
+
+// --- workspace diff mirror ---
+
+/** One entry of the mirrored working-copy diff (the desktop's
+ * WorkspaceDiffEntry shape — file, patch text, counts, status). */
+export interface DiffPushEntry {
+  file: string;
+  patch: string;
+  additions: number;
+  deletions: number;
+  status: string;
+}
+
+const MAX_DIFF_FILES = 500;
+
+/** Parse + sanitize a diff push body. Throws AuthError(400) on a
+ * malformed body; junk rows are skipped (same leniency as the session
+ * list push). */
+export function parseDiffPush(body: unknown): {directory: string; entries: DiffPushEntry[]} {
+  const b = body as {directory?: unknown; entries?: unknown};
+  const directory = typeof b?.directory === "string" ? b.directory.trim() : "";
+  if (!directory || directory.length > 1024) {
+    throw new AuthError("directory must be a non-empty string", 400);
+  }
+  const raw = b?.entries;
+  if (!Array.isArray(raw)) throw new AuthError("entries must be an array", 400);
+  if (raw.length > MAX_DIFF_FILES) {
+    throw new AuthError(`too many diff entries (>${MAX_DIFF_FILES})`, 400);
+  }
+  const entries: DiffPushEntry[] = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null) continue;
+    const e = item as Record<string, unknown>;
+    const file = typeof e.file === "string" ? e.file : "";
+    if (!file || file.length > 1024) continue;
+    entries.push({
+      file,
+      patch: typeof e.patch === "string" ? e.patch : "",
+      additions: Number.isFinite(e.additions) ? Number(e.additions) : 0,
+      deletions: Number.isFinite(e.deletions) ? Number(e.deletions) : 0,
+      status: typeof e.status === "string" ? e.status : "modified",
+    });
+  }
+  return {directory, entries};
+}
+
+/** Replace a directory's diff snapshot wholesale (last-write-wins; the
+ * desktop's stats-card cache is the writer). */
+export function applyDiffPush(
+  db: Db,
+  userId: number,
+  directory: string,
+  entries: DiffPushEntry[],
+): void {
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO diffs (directory, payload, updated_at, owner_user_id) VALUES (?, ?, ?, ?)
+     ON CONFLICT(directory) DO UPDATE SET
+       payload = excluded.payload, updated_at = excluded.updated_at`,
+  ).run(directory, JSON.stringify(entries), now, userId);
+}
+
+/** Read a directory's mirrored diff (null when never pushed). */
+export function getDiff(
+  db: Db,
+  directory: string,
+): {entries: DiffPushEntry[]; updatedAt: string} | null {
+  const row = db
+    .prepare("SELECT payload, updated_at FROM diffs WHERE directory = ?")
+    .get(directory) as {payload: string; updated_at: string} | undefined;
+  if (!row) return null;
+  try {
+    const entries = JSON.parse(row.payload) as DiffPushEntry[];
+    return Array.isArray(entries) ? {entries, updatedAt: row.updated_at} : null;
+  } catch {
+    return null;
+  }
+}

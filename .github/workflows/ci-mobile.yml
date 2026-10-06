@@ -1,0 +1,68 @@
+name: CI - Mobile
+
+# The mobile client's web bundle (second vite entry, reusing the desktop
+# components) plus a HOST-target `cargo check` of the mobile Tauri crate
+# — the crate pins tauri =2.11.5 and patches tauri/wry/tao to the
+# feat/open-harmony branches, so this catches patch/version drift early
+# (the classic trap: crates.io publishing a newer version that silently
+# bypasses the patch). Full ohos HAP builds need the HarmonyOS SDK +
+# DevEco toolchain and stay a LOCAL/release concern (see
+# mobile/README.md).
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-mobile-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Mobile web bundle (vite)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build mobile bundle
+        run: pnpm build:mobile
+
+  crate:
+    name: Mobile crate (cargo check, host target)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: mobile/src-tauri
+
+      - name: Placeholder frontend dist (tauri-build needs it)
+        run: |
+          mkdir -p dist-mobile
+          echo '<!doctype html><title>Lumina Code Mobile</title>' > dist-mobile/index.html
+
+      - name: cargo check
+        run: cargo check --manifest-path mobile/src-tauri/Cargo.toml

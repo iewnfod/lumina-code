@@ -25,3 +25,8 @@ dist-ssr
 
 # Lumina Code plan documents
 .lumina/
+
+# mobile build output (vite second entry)
+dist-mobile/
+
+target/

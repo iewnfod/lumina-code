@@ -210,6 +210,74 @@ export class LuminaServerApi {
             body: JSON.stringify({messages}),
         });
     }
+
+    /** The live session mirror (mobile's session list source). */
+    listSyncedSessions(): Promise<{
+        sessions: {
+            id: string;
+            title: string;
+            directory: string;
+            model: string;
+            agent: string;
+            updatedAt: string;
+            owner: string;
+            hasSnapshot: boolean;
+        }[];
+    }> {
+        return this.request("/api/sync/sessions");
+    }
+
+    /** One session's latest message snapshot (mobile transcript source). */
+    getSyncedMessages(
+        sessionId: string,
+    ): Promise<{messages: unknown[]; updatedAt: string}> {
+        return this.request(`/api/sync/sessions/${encodeURIComponent(sessionId)}/messages`);
+    }
+
+    /** Push one directory's working-copy diff snapshot (the stats card's
+     * cache mirrored up; wholesale replace server-side). */
+    pushWorkspaceDiff(
+        directory: string,
+        entries: {file: string; patch: string; additions: number; deletions: number; status: string}[],
+    ): Promise<{ok: boolean; files: number}> {
+        return this.request("/api/sync/diffs", {
+            method: "POST",
+            body: JSON.stringify({directory, entries}),
+        });
+    }
+
+    /** A directory's mirrored working-copy diff (mobile's Changes view). */
+    getWorkspaceDiff(
+        directory: string,
+    ): Promise<{entries: {file: string; patch: string; additions: number; deletions: number; status: string}[]; updatedAt: string | null}> {
+        return this.request(`/api/sync/diffs?directory=${encodeURIComponent(directory)}`);
+    }
+
+    /** The relay inbox: pending prompts for THIS account's sessions
+     * (long-poll; `waitSec` caps a single request at 25s). */
+    pollRelayPrompts(
+        waitSec = 25,
+    ): Promise<{prompts: {id: number; sessionId: string; from: string; text: string; createdAt: string}[]}> {
+        return this.request(`/api/relay/poll?wait=${waitSec}`);
+    }
+
+    /** Confirm a relayed prompt was injected (removes it from the queue). */
+    ackRelayPrompt(id: number): Promise<{ok: boolean}> {
+        return this.request("/api/relay/ack", {
+            method: "POST",
+            body: JSON.stringify({id}),
+        });
+    }
+
+    /** Queue a prompt for one of the mirrored sessions (the mobile send
+     * path — the owning desktop consumes and injects it; the reply
+     * arrives as the next mirrored snapshots). */
+    sendRelayPrompt(sessionId: string, text: string): Promise<{id: number}> {
+        return this.request("/api/relay/prompt", {
+            method: "POST",
+            body: JSON.stringify({sessionId, text}),
+        });
+    }
 }
 
 /** A convenience factory over the CURRENT stored connection (the sync
