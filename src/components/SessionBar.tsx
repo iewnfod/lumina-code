@@ -12,12 +12,16 @@ import {whileHoverTap} from "../lib/motion.ts";
 import {useI18n} from "../hooks/i18n.tsx";
 import {useScrollEdges} from "../hooks/useScrollEdges.ts";
 import {useSidebarResizing, useSidebarWidth} from "../hooks/useSidebarWidth.ts";
-import {groupByDirectory, type SessionInfo} from "./sessionGrouping.ts";
+import {groupByDirectory, projectDirOf, type SessionInfo} from "./sessionGrouping.ts";
+import {useWorktreeDirs} from "../opencode/worktreeSessions.ts";
 import SessionFolder, {MAX_VISIBLE_SESSIONS} from "./SessionFolder.tsx";
 import type {CSSProperties} from "react";
 
 /**
- * The app's sidebar — a vertical session list grouped by working directory.
+ * The app's sidebar — a vertical session list grouped by PROJECT
+ * directory: a branch-worktree session joins its main repo's folder
+ * (the branch rides the row as a chip, see SessionFolder) instead of
+ * forking a second block for the worktree's codename path.
  * Ported from lumina-terminal's TabBar with the terminal-only machinery
  * stripped (tab tear-off/reorder drag controller, shell/app icons, update
  * banner, privileged-command dot); the layout, glass material, row anatomy
@@ -78,6 +82,10 @@ export default function SessionBar(props: SessionBarProps) {
     // the top (px-1.5 only), so the fades must appear only while a side
     // actually has hidden content — a short list renders fade-free.
     const listEdges = useScrollEdges<HTMLDivElement>();
+    // Branch-worktree bindings feed the PROJECT grouping (a worktree
+    // session merges into its main repo's folder) — subscribing here
+    // also re-groups live the moment sendFirst records a new binding.
+    const worktreeDirs = useWorktreeDirs();
 
     // Folders the user has collapsed (by directory path). The active
     // session's folder always re-expands so the open tab can't vanish.
@@ -95,9 +103,12 @@ export default function SessionBar(props: SessionBarProps) {
     }, []);
     useEffect(() => {
         if (activeId === null) return;
-        const dir = sessions.find((s) => s.id === activeId)?.directory ?? "";
+        // The folder key is the PROJECT directory — a branch-worktree
+        // session's folder is its main repo's, so the re-expand lookup
+        // maps through the same bindings the grouping uses.
+        const dir = projectDirOf(sessions.find((s) => s.id === activeId)?.directory, worktreeDirs);
         setCollapsedDirs((prev) => (prev.has(dir) ? new Set([...prev].filter((d) => d !== dir)) : prev));
-    }, [activeId, sessions]);
+    }, [activeId, sessions, worktreeDirs]);
 
     const showMore = useCallback((directory: string, visibleCount: number) => {
         setExtraDirs((prev) => new Map(prev).set(directory, visibleCount));
@@ -162,7 +173,7 @@ export default function SessionBar(props: SessionBarProps) {
                 }${listEdges.bottom ? " lum-fade-bottom" : ""}`}
                 data-tauri-drag-region
             >
-                {groupByDirectory(sessions).map(([directory, groupSessions]) => {
+                {groupByDirectory(sessions, worktreeDirs).map(([directory, groupSessions]) => {
                     const collapsedFolder = collapsedDirs.has(directory);
                     const activeIndex = activeId === null ? -1 : groupSessions.findIndex((s) => s.id === activeId);
                     // Cap each folder at its 5 most-recent sessions; each

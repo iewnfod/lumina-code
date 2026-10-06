@@ -30,6 +30,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Recent Projects": "最近的项目",
     "Branch": "分支",
     "Main branch": "主分支",
+    "Current branch": "当前分支",
     "Browse...": "浏览...",
     "Choose This Folder": "选择此文件夹",
     "Add attachment": "添加附件",

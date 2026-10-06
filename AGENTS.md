@@ -831,8 +831,15 @@ src/
 │                          #   NAMES ("origin") and remote refs ("origin/x") —
 │                          #   the prefix relation classifies them; local names
 │                          #   may contain slashes, so the "/" split alone
-│                          #   doesn't), shortSha. Feeds the title-bar chip and
-│                          #   the picker's branch section.
+│                          #   doesn't), shortSha, PLUS the default-branch
+│                          #   pair feeding BranchPicker's 「主分支」chip:
+│                          #   parseRemoteHead (`.git/refs/remotes/<remote>/HEAD`
+│                          #   symref → the remote's default branch; symrefs
+│                          #   are always loose files, so fs/read is reliable)
+│                          #   and pickDefaultBranch (remote HEAD wins when
+│                          #   local, else conventional main → master, else
+│                          #   null — no chip rather than a guess). Feeds the
+│                          #   title-bar chip and the picker's branch section.
 │   ├── useDirectoryBranch.ts # The title bar's per-directory branch, cached in
 │                          #   a MODULE store keyed by directory (the
 │                          #   useSessionActivity directory-map pattern —
@@ -852,10 +859,12 @@ src/
 │                          #   worktreeDir → {branch, mainDir} — the app's ONLY
 │                          #   branch truth for managed worktrees (detached HEAD
 │                          #   + the server's worktree list carries no branch on
-│                          #   this build). Written by sendFirst when it creates
-│                          #   a branch worktree (POST /api/worktree); read by
-│                          #   useDirectoryBranch, the sidebar's folder labels
-│                          #   (folderGroupLabel) and newSession's seeding (a
+│                          #   this build). Written by sendFirst when it
+│                          #   creates a branch worktree (POST /api/worktree);
+│                          #   read by useDirectoryBranch, the sidebar's
+│                          #   PROJECT grouping + per-row branch chips
+│                          #   (sessionGrouping/SessionFolder) and
+│                          #   newSession's seeding (a
 │                          #   worktree session's successor seeds the MAIN repo).
 │                          #   Entries never cleaned — worktree REMOVAL is never
 │                          #   automatic (a detached commit doesn't dirty the
@@ -1160,7 +1169,10 @@ src/
     ├── SessionBar.tsx     # Left glass sidebar shell: brand row, folder
     │                      #   collapse/expand state, relative-age ticker,
     │                      #   bottom new-session button; groups render
-    │                      #   through SessionFolder. Session-row hover
+    │                      #   through SessionFolder, keyed by PROJECT
+    │                      #   directory (groupByDirectory + the worktree
+    │                      #   bindings — branch sessions merge into the
+    │                      #   main repo's folder). Session-row hover
     │                      #   fires onSessionHover → App's
     │                      #   prefetchSessionActivity (warms the stats
     │                      #   card's data before the click). Expanded
@@ -1182,14 +1194,22 @@ src/
     │                      #   reset.
     ├── SessionTitle.tsx   # Single-line label: edge-fade truncation + a
     │                      #   hover-debounced HeroUI tooltip when overflowing.
-    ├── SessionFolder.tsx  # One directory group: collapsible header (+/chevron),
-    │                      #   animated session rows (busy dot; pending badge,
-    │                      #   age and close button share one cross-fade slot;
-    │                      #   deleted rows collapse in place via ExitList,
-    │                      #   budget-limited), "Show more/less" expander.
+    ├── SessionFolder.tsx  # One PROJECT group: collapsible header (+/chevron),
+    │                      #   animated session rows (busy dot; branch-worktree
+    │                      #   sessions wear their branch as a quiet chip after
+    │                      #   the title — hint carries the worktree path;
+    │                      #   pending badge, age and close button share one
+    │                      #   cross-fade slot; deleted rows collapse in place
+    │                      #   via ExitList, budget-limited), "Show more/less"
+    │                      #   expander.
     ├── sessionGrouping.ts # Pure sidebar mapping: SessionInfo view-model,
-    │                      #   relativeAge, groupByDirectory, folderGroupLabel
-    │                      #   (a managed worktree dir → "<repo> · <branch>").
+    │                      #   relativeAge, groupByDirectory + projectDirOf —
+    │                      #   the sidebar groups by PROJECT directory: a
+    │                      #   managed worktree's sessions merge into their
+    │                      #   main repo's ONE folder (the branch rides the
+    │                      #   row as a chip in SessionFolder, never forks a
+    │                      #   second block); an unbound worktree dir falls
+    │                      #   back to grouping under itself.
     │                      #   node-testable.
     ├── ChatPlaceholder.tsx # Welcome-screen logo + greeting
     │                      #   (picked once per mount via greetings.ts).
@@ -1846,12 +1866,21 @@ src/
                           #   picker's sibling): the plain LOCAL branch
                           #   list; picking a branch → sendFirst pins the
                           #   next session to a server worktree. The
-                          #   repo's CURRENT branch wears a 「主分支」chip
-                          #   (row's right edge, always sorted to the TOP)
-                          #   and selecting IT means the plain main
-                          #   worktree (that row doubles as the default/
-                          #   null binding — no isolation, the session
-                          #   runs where the user's checkout already is).
+                          #   repo's DEFAULT branch (remote HEAD symref
+                          #   `.git/refs/remotes/<remote>/HEAD`, read via
+                          #   fs/read → gitInfo.parseRemoteHead, with the
+                          #   conventional main/master fallback of
+                          #   pickDefaultBranch; none determinable → no
+                          #   chip) wears a 「主分支」chip; the CURRENT
+                          #   branch wears 「当前分支」 when it is not the
+                          #   default, stays sorted to the TOP, and
+                          #   selecting IT means the plain main worktree
+                          #   (that row doubles as the default/null
+                          #   binding — no isolation, the session runs
+                          #   where the user's checkout already is; the
+                          #   null binding is tied to the CHECKOUT, never
+                          #   to the default branch — picking 「主分支」
+                          #   from a `dev` checkout still pins a worktree).
                           #   Remote refs are classified away, not listed.
                           #   The button shows the STAGED branch, else the
                           #   CURRENT one (a "following" state); hidden

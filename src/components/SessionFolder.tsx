@@ -4,7 +4,7 @@ import {ChevronRight, Plus, X} from "lucide-react";
 import {useColors} from "../hooks/colors.tsx";
 import {whileHoverTap} from "../lib/motion.ts";
 import ExitPresence, {ExitList} from "./ui/ExitPresence.tsx";
-import {folderGroupLabel} from "./sessionGrouping.ts";
+import {folderLabel} from "../lib/path.ts";
 import {useWorktreeDirs} from "../opencode/worktreeSessions.ts";
 import {useI18n} from "../hooks/i18n.tsx";
 import {relativeAge, type SessionInfo} from "./sessionGrouping.ts";
@@ -45,7 +45,9 @@ export default function SessionFolder({
     onShowMore,
     onShowLess,
 }: {
-    /** The group's working directory ("" = the no-directory bucket). */
+    /** The group's PROJECT directory — branch-worktree sessions arrive
+     * merged into their main repo's folder ("" = the no-directory
+     * bucket). */
     directory: string;
     /** Every session in the folder. */
     sessions: SessionInfo[];
@@ -72,8 +74,9 @@ export default function SessionFolder({
 }) {
     const colors = useColors();
     const t = useI18n();
-    // Branch-worktree directories relabel as "<repo> · <branch>"
-    // (their own last segment is a server codename).
+    // Branch-worktree bindings feed the per-row branch chips — the
+    // group is the PROJECT (the parent already grouped by main repo),
+    // the branch is per-session metadata.
     const worktreeDirs = useWorktreeDirs();
     const visibleCount = visibleSessions.length;
 
@@ -84,12 +87,12 @@ export default function SessionFolder({
                 style={{color: colors.inactiveText}}
                 onClick={() => onToggleFolder(directory)}
             >
-                {/* The header shows the directory's last segment — a
-                 * branch worktree shows "<repo> · <branch>" instead — the
-                 * hint carries the full path. */}
+                {/* The header shows the project directory's last segment
+                  * (branch sessions share this folder; their branch is
+                  * the row chip below) — the hint carries the full path. */}
                 <Hint label={directory || undefined} className="min-w-0 flex-1">
                     <span className="block truncate text-left">
-                        {directory ? folderGroupLabel(directory, worktreeDirs) : t["Other Sessions"]}
+                        {directory ? folderLabel(directory) : t["Other Sessions"]}
                     </span>
                 </Hint>
                 <Hint label={t["New Session"]}>
@@ -137,6 +140,11 @@ export default function SessionFolder({
                         {(session) => {
                             const isActive = session.id === activeId;
                             const pendingCount = pendingCounts?.get(session.id);
+                            // The session's branch binding — present only
+                            // for branch-worktree sessions (rows of the
+                            // merged project folder).
+                            const worktreeBinding =
+                                session.directory != null ? worktreeDirs[session.directory] : undefined;
                             return (
                                 <div className="lum-enter relative -mx-1.5 px-1.5 cursor-pointer">
                                     <div
@@ -166,6 +174,20 @@ export default function SessionFolder({
                                                 }}
                                             />
                                         </div>
+                                        {/* A branch-worktree session wears its branch
+                                         * as a quiet chip — the folder is the PROJECT,
+                                         * the branch is per-session metadata; the hint
+                                         * carries the worktree's full (codename) path. */}
+                                        {worktreeBinding && (
+                                            <Hint label={session.directory ?? undefined} className="shrink-0">
+                                                <span
+                                                    className="text-2xs px-1.5 py-px rounded-[var(--radius-xs)]"
+                                                    style={{background: "var(--lum-neutral-fill)", color: "var(--lum-neutral-text)"}}
+                                                >
+                                                    {worktreeBinding.branch}
+                                                </span>
+                                            </Hint>
+                                        )}
                                         {/* Pending badge, age and the delete button
                                             share one fixed-width slot; hover cross-fades
                                             to the delete button so the title never shifts.

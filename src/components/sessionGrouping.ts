@@ -4,13 +4,13 @@
  * the reduction is node-testable.
  */
 
-import {folderLabel} from "../lib/path.ts";
-import type {WorktreeDirs} from "../opencode/worktreeSessions.ts";
+import {type WorktreeDirs} from "../opencode/worktreeSessions.ts";
 
 export interface SessionInfo {
     id: string;
     name: string;
-    /** Working directory the session lives in — tabs group under it. */
+    /** Working directory the session lives in — it groups under its
+     * PROJECT directory (a branch worktree merges into its main repo). */
     directory?: string;
     /** Last update time (epoch ms) — rendered as a relative age. */
     updatedAt?: number;
@@ -27,28 +27,32 @@ export function relativeAge(updatedAt: number, now: number): string {
     return `${Math.floor(hours / 24)}d`;
 }
 
-/** Sessions bucketed by working directory, folders in order of each
- *  folder's most recently updated session (the server's list order). */
-export function groupByDirectory(sessions: SessionInfo[]): [string, SessionInfo[]][] {
+/** The PROJECT directory a working directory belongs to: a MANAGED
+ * branch worktree maps to its main repo — the sidebar distinguishes by
+ * PROJECT, never by branch, so the worktree's own codename path
+ * (".../worktree/abc123/lucky-lagoon") must not fork a second block;
+ * anything else is itself, and no directory is "". */
+export function projectDirOf(
+    directory: string | null | undefined,
+    bindings: WorktreeDirs,
+): string {
+    if (!directory) return "";
+    return bindings[directory]?.mainDir ?? directory;
+}
+
+/** Sessions bucketed by PROJECT directory (branch-worktree sessions
+ * merge into their main repo's group), folders in order of each
+ * folder's most recently updated session (the server's list order). */
+export function groupByDirectory(
+    sessions: SessionInfo[],
+    bindings: WorktreeDirs,
+): [string, SessionInfo[]][] {
     const groups = new Map<string, SessionInfo[]>();
     for (const session of sessions) {
-        const key = session.directory ?? "";
+        const key = projectDirOf(session.directory, bindings);
         const bucket = groups.get(key);
         if (bucket) bucket.push(session);
         else groups.set(key, [session]);
     }
     return Array.from(groups.entries());
-}
-
-/** The sidebar's folder label for a working directory: a MANAGED branch
- *  worktree reads as "<main repo> · <branch>" — the worktree's own last
- *  path segment is a server-generated codename ("lucky-lagoon"),
- *  meaningless to the user; anything else is its own last segment. */
-export function folderGroupLabel(
-    directory: string | null | undefined,
-    bindings: WorktreeDirs,
-): string {
-    if (!directory) return "";
-    const binding = bindings[directory];
-    return binding ? `${folderLabel(binding.mainDir)} · ${binding.branch}` : folderLabel(directory);
 }
