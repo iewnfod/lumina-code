@@ -1,14 +1,17 @@
 import {memo, useCallback, useEffect, useLayoutEffect, useRef, useState} from "react";
-import {Bot, ChevronLeft, ChevronUp, Diff, ListChecks, Square, SquareTerminal} from "lucide-react";
+import {Bot, ChevronLeft, ChevronUp, Diff, GitBranch, ListChecks, Square, SquareTerminal} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {useStatsExpanded, useStatsPanelMode, usePendingStatsFileDrill, clearStatsFileDrill} from "../../hooks/useStatsPanelMode.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import type {SessionShellRef, SessionSubagentRef, SessionTodos} from "../../opencode/sessionActivity.ts";
+import {driftNeedsSync} from "../../opencode/worktreeSync.ts";
 import ExitPresence, {Reveal} from "../ui/ExitPresence.tsx";
 import IconButton from "../ui/IconButton.tsx";
 import Hint from "../ui/Hint.tsx";
+import {BranchSyncSection} from "./BranchSyncSection.tsx";
+import type {BranchSyncProps} from "./BranchSyncSection.tsx";
 import {ChangesSection, DiffCountsBadge, FileDiffBody, FileTitle} from "./ChangesSection.tsx";
 import {ShellStateChip, TerminalsSection, TerminalBody} from "./TerminalsSection.tsx";
 import {SubagentsSection, SubagentBody, SubagentStateChip, SubagentTitle} from "./SubagentsSection.tsx";
@@ -44,6 +47,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
     activity,
     directory,
     busyIds,
+    worktree,
 }: {
     /** The active session — terminals/subagents are ITS (see
      *  WorkspaceStatsCard). The card outlives same-directory session
@@ -63,6 +67,10 @@ const SessionStatsCard = memo(function SessionStatsCard({
     };
     directory: string | null;
     busyIds: ReadonlySet<string>;
+    /** The worktree write-back scope for the active DIRECTORY (null when
+     *  it is not a managed worktree — no pill row, no section). Built by
+     *  WorkspaceStatsCard from the binding + the drift store. */
+    worktree?: BranchSyncProps | null;
 }) {
     const t = useI18n();
     const colors = useColors();
@@ -85,6 +93,10 @@ const SessionStatsCard = memo(function SessionStatsCard({
     }, []);
     const [view, setView] = useState<StatsView>({kind: "overview"});
     const rootRef = useRef<HTMLDivElement>(null);
+    // The worktree refresh rides expand() through a ref — the worktree
+    // prop object rebuilds per render (the drillRequest pattern).
+    const wtRefreshRef = useRef<(() => void) | undefined>(undefined);
+    wtRefreshRef.current = worktree?.refresh;
 
     const {diff, diffLoading, diffTotals, shells, subagents, todos, stopShell} = activity;
     const runningShells = shells.filter((s) => s.running).length;
@@ -97,6 +109,17 @@ const SessionStatsCard = memo(function SessionStatsCard({
     const todoLive = Boolean(
         todos && (todos.pendingApproval || (busyIds.has(sessionId) && todos.items.some((i) => i.status === "pending"))),
     );
+
+    // The worktree write-back's derived presence: the collapsed pill is
+    // an ATTENTION signal (drift or an in-flight sync only), while the
+    // expanded section also stays for the LAST sync's outcome — the
+    // "已同步 · N 个提交" closure the click asked for.
+    const wtSyncing = worktree?.entry.syncing ?? false;
+    const wtSnapshot = worktree?.entry.snapshot ?? null;
+    const wtNeedsSync = wtSnapshot ? driftNeedsSync(wtSnapshot) : false;
+    const showWorktreePill = Boolean(worktree) && (wtSyncing || wtNeedsSync);
+    const showWorktreeSection =
+        Boolean(worktree) && (wtSyncing || wtNeedsSync || worktree?.entry.lastOutcome != null);
 
     // The card exists from the moment a session is entered and its first
     // diff pull has landed — even at zero changes (entering a session
@@ -120,6 +143,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
         // Refresh on open so the panel doesn't show stale counts; a CSS
         // width transition doesn't fight a re-render, so no deferral.
         activity.refreshDiff();
+        wtRefreshRef.current?.();
     }, [setExpanded, activity]);
 
     const collapse = useCallback(() => {
@@ -260,6 +284,33 @@ const SessionStatsCard = memo(function SessionStatsCard({
                     className="flex flex-col items-stretch gap-1 px-3 py-2.5 cursor-pointer rounded-[var(--radius-xl)] text-xs lum-wash"
                     aria-label={t["Workspace activity"]}
                 >
+                    <Reveal as="span" present={showWorktreePill}>
+                        {showWorktreePill ? (
+                            // The write-back's ATTENTION row rides on
+                            // top — "your local branch is stale" is the
+                            // most actionable thing the pill can say.
+                            // Diverged warns; drift counts stay quiet.
+                            <span className="flex items-center justify-between gap-2">
+                                <GitBranch
+                                    size={13}
+                                    className={`shrink-0 opacity-70${wtSyncing ? " animate-pulse" : ""}`}
+                                />
+                                {wtSyncing ? (
+                                    <span className="text-2xs opacity-40 select-none">{t["Syncing…"]}</span>
+                                ) : wtSnapshot?.diverged ? (
+                                    <span className="text-2xs select-none" style={{color: "var(--color-warning)"}}>
+                                        {t["Branch diverged"]}
+                                    </span>
+                                ) : (
+                                    <span className="text-2xs opacity-60 select-none tabular-nums">
+                                        {wtSnapshot && wtSnapshot.dirtyFiles > 0
+                                            ? `${wtSnapshot.dirtyFiles} ${t["files to sync"]}`
+                                            : `${wtSnapshot?.commitsAhead ?? 0} ${t["commits to sync"]}`}
+                                    </span>
+                                )}
+                            </span>
+                        ) : null}
+                    </Reveal>
                     <Reveal as="span" present={todos !== null && todos.items.length > 0}>
                         {todos && todos.items.length > 0 ? (
                             // The plan's progress rides ABOVE the diff row —
@@ -445,6 +496,9 @@ const SessionStatsCard = memo(function SessionStatsCard({
                                             directory={directory}
                                         />
                                     ) : null}
+                                </Reveal>
+                                <Reveal present={showWorktreeSection}>
+                                    {worktree ? <BranchSyncSection {...worktree}/> : null}
                                 </Reveal>
                                 <Reveal present={showChanges}>
                                     {showChanges ? (

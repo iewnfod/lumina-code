@@ -427,6 +427,54 @@ export class OpencodeApi {
         ).then((r) => r?.data ?? {output: "", cursor: 0, size: 0, truncated: false});
     }
 
+    /** Spawn a shell command (POST /api/shell — server v2.0.11
+     * "shell.create", curl-verified). The body's `command` is a SINGLE
+     * command string executed through the USER'S LOGIN SHELL (observed
+     * fish on this machine) — an argv-style `args` field is silently
+     * IGNORED (verified: `{"command":"git","args":["--version"]}` ran
+     * bare `git`), so compose one shell-neutral line and rely on nothing
+     * beyond `&&` (fish 3+ supports it; no `$?`/pipes-capture bashisms).
+     * `cwd` overrides the working directory (the shell record keeps it
+     * in `data.cwd`); the id-addressed get/output routes below then work
+     * WITHOUT a location param. Returns the RUNNING shell. */
+    spawnShell(command: string, cwd: string): Promise<ShellInfo> {
+        return this.requestRaw<{data?: ShellInfo}>("/api/shell", {
+            method: "POST",
+            body: JSON.stringify({command, cwd}),
+        }).then((r) => {
+            if (!r?.data) throw new Error(`spawn "${command}" came back empty`);
+            return r.data;
+        });
+    }
+
+    /** Poll a spawned shell until it exits and resolve `{exit, output}` —
+     * the exit code comes from the shell RECORD (`data.exit`), not from
+     * echoing `$?` inside the command (that would be a bashism; see
+     * {@link spawnShell}). 250ms cadence, 60s cap: past it the shell is
+     * killed via {@link removeShell} (dropping its retained output) and
+     * the promise rejects. Exited shells drop off the list endpoint but
+     * stay readable here until the server evicts them. */
+    awaitShell(shellId: string, directory?: string | null): Promise<{exit: number; output: string}> {
+        const poll = (attempt: number): Promise<{exit: number; output: string}> =>
+            this.getShell(shellId, directory).then((info) => {
+                if (info.status === "exited") {
+                    return this.shellOutput(shellId, {directory}).then((out) => ({
+                        exit: info.exit ?? -1,
+                        output: out.output,
+                    }));
+                }
+                if (attempt >= 240) {
+                    return this.removeShell(shellId, directory)
+                        .catch(() => {})
+                        .then(() => {
+                            throw new Error(`shell ${shellId} did not exit within 60s`);
+                        });
+                }
+                return new Promise((resolve) => setTimeout(resolve, 250)).then(() => poll(attempt + 1));
+            });
+        return poll(0);
+    }
+
     /** Available models (includes each model's thinking-depth variants). */
     listModels(): Promise<OpencodeModel[]> {
         return this.request<OpencodeModel[]>("/api/model");

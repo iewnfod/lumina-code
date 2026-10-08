@@ -292,6 +292,22 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Sync error": "同步出错",
     "Idle": "空闲",
     "Last mirror": "上次镜像",
+    // --- Worktree 写回（统计面板 → 分支同步） ---
+    "Branch sync": "分支同步",
+    "Sync to local branch": "同步到本地分支",
+    "Syncing…": "同步中…",
+    "Stop the AI before syncing": "请先停止 AI 再同步",
+    "commits to sync": "个提交待同步",
+    "files to sync": "个文件待同步",
+    "Synced": "已同步",
+    "commits": "个提交",
+    "files": "个文件",
+    "Branch diverged": "分支已分叉",
+    "Merge manually in the main repo": "请在主仓库手动合并",
+    "Local branch missing": "本地分支不存在",
+    "Sync failed": "同步失败",
+    "Nothing to sync": "无需同步",
+    "Sync status unavailable": "无法读取同步状态",
 };
 
 export default zhCn;

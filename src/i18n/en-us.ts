@@ -295,6 +295,22 @@ const enUs = {
     "Sync error": "Sync error",
     "Idle": "Idle",
     "Last mirror": "Last mirror",
+    // --- Worktree write-back (stats panel → branch sync) ---
+    "Branch sync": "Branch sync",
+    "Sync to local branch": "Sync to local branch",
+    "Syncing…": "Syncing…",
+    "Stop the AI before syncing": "Stop the AI before syncing",
+    "commits to sync": "commits to sync",
+    "files to sync": "files to sync",
+    "Synced": "Synced",
+    "commits": "commits",
+    "files": "files",
+    "Branch diverged": "Branch diverged",
+    "Merge manually in the main repo": "Merge manually in the main repo",
+    "Local branch missing": "Local branch missing",
+    "Sync failed": "Sync failed",
+    "Nothing to sync": "Nothing to sync",
+    "Sync status unavailable": "Sync status unavailable",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;

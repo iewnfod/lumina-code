@@ -385,7 +385,15 @@ src/
 │   │                      #   refuses dirty worktrees unless force — see
 │   │                      #   worktreeSessions for why removal is never
 │   │                      #   automatic). Current branch = readTextFile of
-│   │                      #   .git/HEAD + gitInfo.parseGitHead.
+│   │                      #   .git/HEAD + gitInfo.parseGitHead. PLUS the
+│   │                      #   SHELL EXECUTION PRIMITIVE feeding the worktree
+│   │                      #   write-back (worktreeSync.ts): spawnShell
+│   │                      #   (POST /api/shell — single command string via
+│   │                      #   the user's LOGIN SHELL, argv-style args
+│   │                      #   silently ignored, curl-verified) + awaitShell
+│   │                      #   (polls the shell RECORD until exited; the
+│   │                      #   exit code comes from data.exit — echoing $?
+│   │                      #   would be a bashism under fish).
 │   ├── configFiles.ts     # globalConfigTarget — where the global opencode.json
 │   │                      #   lives, derived from GET /api/config (pure; shared
 │   │                      #   by the settings config editor and the attachment
@@ -854,7 +862,7 @@ src/
 │                          #   have checked out in their own terminal) and on
 │                          #   worktree-record changes (a branch session just
 │                          #   created).
-│   └── worktreeSessions.ts # THE branch-bound session bookkeeping: a
+│   ├── worktreeSessions.ts # THE branch-bound session bookkeeping: a
 │                          #   persistedStore.ts map ("lumina-code:worktree-dirs")
 │                          #   worktreeDir → {branch, mainDir} — the app's ONLY
 │                          #   branch truth for managed worktrees (detached HEAD
@@ -874,6 +882,49 @@ src/
 │                          #   worktree routes' projectID from GET /api/project
 │                          #   — duplicate canonicals exist (observed live);
 │                          #   prefer the vcs:"git" entry, newest first.
+│   ├── worktreeSync.ts    # THE worktree→local-branch WRITE-BACK, pure
+│   │                      #   planning + api-bound runner (types-only
+│   │                      #   imports — node-testable, the
+│   │                      #   sessionActivity pattern). Fixes the
+│   │                      #   isolation trap: AI edits land in the
+│   │                      #   worktree (uncommitted changes and/or
+│   │                      #   detached-HEAD commits) while the LOCAL
+│   │                      #   branch ref never moves, so the user's
+│   │                      #   own checkout looks untouched. All git
+│   │                      #   sequences curl-verified against server
+│   │                      #   v2.0.11's shell API (POST /api/shell —
+│   │                      #   see api.ts spawnShell): commit the dirty
+│   │                      #   tree on the detached HEAD (`git add -A &&
+│   │                      #   git commit`, fixed message, "nothing to
+│   │                      #   commit" race tolerated), then advance the
+│   │                      #   local branch — `git merge --ff-only` when
+│   │                      #   the main checkout HOLDS the branch (ref +
+│   │                      #   working copy together), `git branch -f`
+│   │                      #   otherwise (linked worktrees share the
+│   │                      #   object db). DIVERGENCE (branch tip not an
+│   │                      #   ancestor of the wt HEAD, via
+│   │                      #   merge-base --is-ancestor's exit code read
+│   │                      #   off the shell RECORD — no $? bashism)
+│   │                      #   REFUSES before touching anything: manual
+│   │                      #   merge is the user's call, never an
+│   │                      #   automatic one. probeWorktreeDrift is the
+│   │                      #   read-only half (HEAD/tip shas, dirty
+│   │                      #   count, commitsAhead, diverged);
+│   │                      #   outcomes (up-to-date / synced / diverged
+│   │                      #   / error incl. branch-missing) RETURN —
+│   │                      #   the runner never throws.
+│   └── useWorktreeSync.ts # The write-back's STATEFUL half (drift store
+│                          #   + sync action, keyed by worktree
+│                          #   directory — the turnEdits module-store
+│                          #   pattern): one entry per MANAGED worktree
+│                          #   dir holding the drift snapshot, the
+│                          #   syncing flag and the last sync's outcome;
+│                          #   probes are event-driven (mount via
+│                          #   useWorktreeSyncOf, stats-panel expand, the
+│                          #   active session's run end, every sync's
+│                          #   own re-probe — never timers). Logs through
+│                          #   the plugin logger at every outcome
+│                          #   (§3.5); syncWorktreeNow guards re-entry.
 │
 ├── lib/                   # Pure, framework-agnostic (NO React) — ported from
 │   │                      #   lumina-terminal; keep in sync with its sibling when fixed.
@@ -1698,16 +1749,27 @@ src/
     │                      #   75vh); outside-click/Escape collapse is the
     │                      #   useStatsPanelMode "auto" mode)
     │   ├── WorkspaceStatsCard.tsx # The card's data owner: consumes the
-    │                      #   two context scope hooks (workspace diff by
-    │                      #   directory, session terminals/subagents),
+    │                      #   context scope hooks (workspace diff by
+    │                      #   directory, session terminals/subagents)
+    │                      #   PLUS the worktree write-back scope
+    │                      #   (useWorktreeSyncOf + the directory's
+    │                      #   binding — null for non-managed
+    │                      #   directories, hiding pill + section; the
+    │                      #   active session's busy→idle flip is one of
+    │                      #   the drift probe's refresh triggers),
     │                      #   then renders SessionStatsCard (colors via
     │                      #   context).
     │   ├── SessionStatsCard.tsx # The card (presentation + local
     │                      #   navigation only): collapsed summary rows
-    │                      #   (plan progress ✓n/N, +N −N lines,
-    │                      #   terminal/subagent counts) expanding into
+    │                      #   (branch-sync drift, plan progress ✓n/N,
+    │                      #   +N −N lines, terminal/subagent counts)
+    │                      #   expanding into
     │                      #   the detail panel (TodoSection rides ABOVE
-    │                      #   ChangesSection — see stats/TodoSection).
+    │                      #   BranchSyncSection ABOVE
+    │                      #   ChangesSection — see stats/TodoSection;
+    │                      #   the write-back's section/pill exist only
+    │                      #   for managed-worktree directories with
+    │                      #   drift or a last outcome).
     │                      #   ALL motion
     │                      #   is CSS (§3.7): the root wears .lum-enter /
     │                      #   .lum-fade-exit (the exit engine holds the
@@ -1800,6 +1862,20 @@ src/
     │                      #   a completed work_submit → "archived"
     │                      #   (terminal; the record lives in
     │                      #   .lumina/archived/).
+    │   └── BranchSyncSection.tsx # The worktree write-back's expanded
+    │                      #   section (opencode/worktreeSync.ts runs
+    │                      #   the git, useWorktreeSync.ts holds the
+    │                      #   state): the binding line (branch → main
+    │                      #   repo, full path on hover), the drift
+    │                      #   counts (commits ahead / dirty files), the
+    │                      #   同步到本地分支 button (disabled while the
+    │                      #   session runs — hint explains why) and the
+    │                      #   last outcome line (synced summary /
+    │                      #   diverged + the exact `git -C <main> merge
+    │                      #   <sha>` to run / error + git's own text).
+    │                      #   The collapsed pill lives in
+    │                      #   SessionStatsCard (attention signal:
+    │                      #   drift or an in-flight sync).
     ├── composer/          # The prompt composer
         ├── ChatInput.tsx  # Composer shell: staged attachments (chips),
         │                  #   slash-command fetch (per-directory, retried),
