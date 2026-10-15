@@ -13,8 +13,10 @@ import {useSessionStopping} from "../../opencode/sessionStopping.ts";
 import {
     clearSessionQueue,
     enqueuePrompt,
+    expeditePrompt,
     moveQueuedPrompt,
     removeQueuedPrompt,
+    takeExpeditedPrompts,
     takeQueuedPrompt,
     useQueuedPrompts,
 } from "../../opencode/promptQueue.ts";
@@ -273,23 +275,45 @@ const ChatView = memo(function ChatView({
             flushedIdleRef.current = false;
             return;
         }
-        if (flushedIdleRef.current || queued.length === 0) return;
+        if (flushedIdleRef.current) return;
+        // The "stop and send" batch owns the first idle window: every
+        // expedited row delivers in click order — the first POST starts
+        // the fresh turn, the rest join at its first step boundary
+        // (promote runs BEFORE the first model call, so they share one
+        // turn) — and the regular queue resumes one-per-window after.
+        const expedited = takeExpeditedPrompts(sessionId);
+        if (expedited.length > 0) {
+            flushedIdleRef.current = true;
+            for (const entry of expedited) {
+                deliver(entry.text, entry.files, entry.fileRefs, entry.command);
+            }
+            return;
+        }
+        if (queued.length === 0) return;
         const head = takeQueuedPrompt(sessionId);
         if (!head) return;
         flushedIdleRef.current = true;
         deliver(head.text, head.files, head.fileRefs, head.command);
     }, [busy, queued, sessionId, deliver]);
-    // "Send now" pulls one row out of the queue and delivers it
-    // immediately — the server accepts prompts mid-run (they join the
-    // running turn), so this is a deliberate steer, not a queue jump.
+    // "Stop and send" pulls one row out of the queue's waiting line:
+    // idle it delivers immediately; mid-run it NEVER steers the running
+    // turn (parked steers are what made interrupts unreliable — they
+    // survive the stop server-side, see useSessionMessages' sweep).
+    // Instead the row is expedited and the current run interrupted;
+    // the flush effect above delivers the batch once it settles.
     const handleSendQueuedNow = useCallback(
         (id: string) => {
             const entry = queued.find((q) => q.id === id);
             if (!entry) return;
+            if (busy) {
+                expeditePrompt(sessionId, id);
+                void interrupt();
+                return;
+            }
             removeQueuedPrompt(sessionId, id);
             deliver(entry.text, entry.files, entry.fileRefs, entry.command);
         },
-        [queued, sessionId, deliver],
+        [queued, sessionId, deliver, busy, interrupt],
     );
     // Edit: the row's text + attachments load back into the composer
     // (ChatInput's draftLoad prop) and the entry leaves the queue;

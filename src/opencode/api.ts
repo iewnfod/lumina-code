@@ -47,6 +47,17 @@ export interface MessagesPage {
     cursor?: {previous?: string | null; next?: string | null};
 }
 
+/** One PENDING row of `GET /api/session/{id}/inbox` (server v2.0.11): a
+ * prompt parked as `steer` or `queue` that no step boundary has promoted
+ * into the live turn yet. `type` is "user" | "synthetic" | "compaction" |
+ * "move"; `delivery` is "steer" | "queue". Only the fields the interrupt
+ * sweep reads are declared. */
+export interface SessionInboxItem {
+    id: string;
+    type: string;
+    delivery: string;
+}
+
 /**
  * Thin typed REST client for the opencode server.
  *
@@ -60,6 +71,8 @@ export interface MessagesPage {
  *   GET    /api/session/{id}/message     → messages (order=asc)
  *   POST   /api/session/{id}/prompt      → send prompt `{text}`
  *   POST   /api/session/{id}/interrupt   → stop a running session
+ *   GET    /api/session/{id}/inbox       → pending (undelivered) input rows
+ *   DELETE /api/session/{id}/inbox/{iid} → cancel one pending input row
  *
  * The SDK stays as the source of some TypeScript shapes (types-only import).
  *
@@ -191,12 +204,52 @@ export class OpencodeApi {
         });
     }
 
-    /** Stop a running session. Returns whether an execution was interrupted. */
+    /** Stop a running session. Returns whether an execution was interrupted.
+     *
+     * v2.0.11 caveat (source-verified): the interrupt kills ONLY the
+     * in-flight execution fiber — prompts sent mid-run ("send now") are
+     * parked in the session's PERSISTED inbox as pending `steer` rows until
+     * a step boundary promotes them, and the interrupt does NOT touch them.
+     * They restart the run (a POST landing after the interrupt rings the
+     * doorbell again at settle) or resurface inside the NEXT turn's first
+     * promotion. Callers that mean "stop everything" must also sweep the
+     * inbox — see {@link listSessionInbox}/{@link cancelSessionInbox} and
+     * useSessionMessages' interrupt. */
     interruptSession(sessionId: string): Promise<boolean> {
         return this.request<{interrupted: boolean}>(
             `/api/session/${encodeURIComponent(sessionId)}/interrupt`,
             {method: "POST"},
         ).then((r) => r?.interrupted ?? false);
+    }
+
+    // --- Session inbox (verified against server v2.0.11) ---
+    //
+    // The inbox is the server's PENDING-ONLY input table: every prompt sent
+    // while a run is active (a `delivery`-less POST defaults to "steer" in
+    // SessionPrompt.prepare) waits here until the runner's step boundary
+    // promotes it into the live turn. Rows survive interrupts and app
+    // restarts, so "stop means stop" needs an explicit sweep.
+
+    /** List the session's PENDING input rows (steers + queued). An idle
+     * session with rows here is the "interrupted but they survived" state
+     * the sweep cleans up. */
+    listSessionInbox(sessionId: string): Promise<SessionInboxItem[]> {
+        return this.request<SessionInboxItem[]>(
+            `/api/session/${encodeURIComponent(sessionId)}/inbox`,
+        ).then((rows) => Array.isArray(rows) ? rows : []);
+    }
+
+    /** Cancel one pending inbox item. Already-delivered items are a NO-OP
+     * (204, the projector only deletes rows still marked queue/steer —
+     * delivery consumes rows inside uninterruptible transactions, so a row
+     * is either still cancellable or fully delivered; there is no in-between
+     * a client could race into). A cancelled row emits
+     * `session.inbox.cancelled` on the bus. */
+    cancelSessionInbox(sessionId: string, inboxID: string): Promise<void> {
+        return this.request<void>(
+            `/api/session/${encodeURIComponent(sessionId)}/inbox/${encodeURIComponent(inboxID)}`,
+            {method: "DELETE"},
+        );
     }
 
     // --- Session revert (verified against server v2.0.11) ---

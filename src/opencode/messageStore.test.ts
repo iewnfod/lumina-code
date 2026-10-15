@@ -429,6 +429,46 @@ test("rapid double-send adopts each bubble in place, never duplicates", () => {
     );
 });
 
+// --- Inbox cancellation (the interrupt sweep's ghost cleanup) ---
+
+test("inbox cancelled drops the ghost bubble by inboxID, others untouched", () => {
+    // Steered prompt rendered at enqueued time under its inboxID; the
+    // interrupt sweep cancels the pending row server-side → the ghost
+    // must leave without disturbing its neighbors (identity kept for
+    // the memoized rows).
+    let list: ChatMessage[] = [
+        {id: "msg_user_prev", type: "user", text: "earlier"},
+    ];
+    list = applyEvent(list, enqueue("do A", "msg_user_a"));
+    list = applyEvent(list, enqueue("do B", "msg_user_b"));
+    assert.equal(list.length, 3);
+    const prev = list[0];
+    const next = applyEvent(list, ev("session.inbox.cancelled", {inboxID: "msg_user_a"}));
+    assert.deepEqual(
+        next.map((m) => m.id),
+        ["msg_user_prev", "msg_user_b"],
+        "only the cancelled ghost leaves",
+    );
+    assert.equal(next[0], prev, "untouched rows keep identity (clone-on-write)");
+    // A second cancel of the same id is a no-op.
+    const again = applyEvent(next, ev("session.inbox.cancelled", {inboxID: "msg_user_a"}));
+    assert.equal(again, next, "no-op keeps the array identity");
+    // Cancelling an unknown id changes nothing.
+    assert.equal(applyEvent(next, ev("session.inbox.cancelled", {inboxID: "msg_nope"})), next);
+});
+
+test("inbox cancelled does not touch a local optimistic bubble still awaiting adoption", () => {
+    // The cancel event names the SERVER inboxID; an unadopted `local-*`
+    // bubble can never match it (adoption happens at enqueued time,
+    // strictly before any cancel of the same row).
+    const list: ChatMessage[] = [
+        {id: "local-1", type: "user", text: "hi", localKey: "local-1"},
+    ];
+    const out = applyEvent(list, ev("session.inbox.cancelled", {inboxID: "msg_user_x"}));
+    assert.equal(out, list, "unrelated cancel is a no-op");
+    assert.equal(out.length, 1);
+});
+
 test("adoption replaces a bubble even when a later assistant shell raced it", () => {
     // A step.started for the RESPONSE can append after the optimistic
     // bubble; the enqueued event must still find the bubble under it

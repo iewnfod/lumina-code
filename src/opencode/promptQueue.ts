@@ -16,6 +16,13 @@ import type {ComposerAttachment, ComposerFileRef, PendingCommand} from "./types.
  * - The flush is ChatView's (the active session's view owns the send
  *   path); a backgrounded session's queue flushes when it is reopened
  *   (mount + already idle).
+ * - "Stop and send" (a queued row's lightning action) NEVER steers the
+ *   running turn — parked steers are what made interrupts unreliable on
+ *   server v2.0.11 (they survive the stop and resurrect/restart the
+ *   run; see useSessionMessages' sweep). Instead the row is EXPEDITED
+ *   (expeditePrompt, click order) and the current run is interrupted;
+ *   when it settles, the flush effect delivers the whole expedited
+ *   batch as the fresh turn's opening prompts (takeExpeditedPrompts).
  * - `interrupt` CLEARS the queue (ChatView.handleInterrupt): pressing
  *   stop means "stop" — an auto-flush right after the interrupted run
  *   would immediately restart the work the user just aborted. Dropping
@@ -35,6 +42,10 @@ export interface QueuedPrompt {
 
 /** Per-session FIFO (insertion order = send order). */
 const queues = new Map<string, QueuedPrompt[]>();
+/** Per-session ordered ids expedited via "stop and send" (click order =
+ * delivery order). Rows STAY in the queue (rendering in place) until the
+ * interrupted run settles and the flush effect delivers the batch. */
+const expeditedIds = new Map<string, string[]>();
 const listeners = new Set<() => void>();
 /** Stable empty snapshot for the React binding (never changes identity). */
 const EMPTY: readonly QueuedPrompt[] = [];
@@ -48,6 +59,15 @@ function emit(): void {
  * Maximum update depth exceeded). */
 function queueOf(sessionId: string): readonly QueuedPrompt[] {
     return queues.get(sessionId) ?? EMPTY;
+}
+
+/** Drop one id from the expedited marks (row deleted/delivered). */
+function unmarkExpedited(sessionId: string, id: string): void {
+    const marks = expeditedIds.get(sessionId);
+    if (!marks) return;
+    const next = marks.filter((x) => x !== id);
+    if (next.length === 0) expeditedIds.delete(sessionId);
+    else expeditedIds.set(sessionId, next);
 }
 
 /** Queue a prompt for later delivery. */
@@ -64,7 +84,39 @@ export function removeQueuedPrompt(sessionId: string, id: string): void {
     if (!list.some((q) => q.id === id)) return;
     queues.set(sessionId, list.filter((q) => q.id !== id));
     if (queues.get(sessionId)?.length === 0) queues.delete(sessionId);
+    unmarkExpedited(sessionId, id);
     emit();
+}
+
+/** Expedite one row for "stop and send": the caller interrupts the
+ * running turn right after this; when the run settles, the flush effect
+ * delivers every expedited row (click order) as the fresh turn's opening
+ * prompts. The row itself stays queued and visible until then. */
+export function expeditePrompt(sessionId: string, id: string): void {
+    if (!queueOf(sessionId).some((q) => q.id === id)) return;
+    const marks = expeditedIds.get(sessionId) ?? [];
+    if (marks.includes(id)) return;
+    expeditedIds.set(sessionId, [...marks, id]);
+    emit();
+}
+
+/** Pop the whole expedited batch (click order) for delivery, removing
+ * the rows from the queue. Empty when nothing was expedited. */
+export function takeExpeditedPrompts(sessionId: string): QueuedPrompt[] {
+    const marks = expeditedIds.get(sessionId);
+    if (!marks || marks.length === 0) return [];
+    expeditedIds.delete(sessionId);
+    const list = queueOf(sessionId);
+    const batch: QueuedPrompt[] = [];
+    for (const id of marks) {
+        const entry = list.find((q) => q.id === id);
+        if (entry) batch.push(entry);
+    }
+    const remaining = list.filter((q) => !marks.includes(q.id));
+    if (remaining.length === 0) queues.delete(sessionId);
+    else queues.set(sessionId, remaining);
+    emit();
+    return batch;
 }
 
 /** Pop the head for delivery (the flush). Null when nothing is queued. */
@@ -97,8 +149,10 @@ export function moveQueuedPrompt(sessionId: string, id: string, beforeId: string
 }
 
 /** Drop the whole queue (the user pressed stop — see ChatView's
- *  handleInterrupt; the session-deleted bus fold below shares it). */
+ *  handleInterrupt; the session-deleted bus fold below shares it).
+ *  Expedited ("stop and send") marks die with it — stop means stop. */
 export function clearSessionQueue(sessionId: string): void {
+    expeditedIds.delete(sessionId);
     if (!queues.delete(sessionId)) return;
     emit();
 }

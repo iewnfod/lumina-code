@@ -393,7 +393,20 @@ src/
 │   │                      #   silently ignored, curl-verified) + awaitShell
 │   │                      #   (polls the shell RECORD until exited; the
 │   │                      #   exit code comes from data.exit — echoing $?
-│   │                      #   would be a bashism under fish).
+│   │                      #   would be a bashism under fish). PLUS THE
+│   │                      #   SESSION INBOX trio feeding the interrupt
+│   │                      #   sweep (source-verified v2.0.11):
+│   │                      #   listSessionInbox (GET /api/session/{id}/inbox
+│   │                      #   — the PENDING-ONLY input table; a prompt
+│   │                      #   POSTed mid-run without `delivery` parks
+│   │                      #   there as a steer row until a step boundary
+│   │                      #   promotes it) + cancelSessionInbox (DELETE
+│   │                      #   /api/session/{id}/inbox/{inboxID} — no-op
+│   │                      #   on already-delivered rows; emits
+│   │                      #   session.inbox.cancelled) — the server's
+│   │                      #   interrupt endpoint does NOT clear the
+│   │                      #   inbox, so "stop means stop" needs the sweep
+│   │                      #   (useSessionMessages.interrupt).
 │   ├── configFiles.ts     # globalConfigTarget — where the global opencode.json
 │   │                      #   lives, derived from GET /api/config (pure; shared
 │   │                      #   by the settings config editor and the attachment
@@ -502,6 +515,11 @@ src/
 │   │                      #   true response never re-marks); a stale
 │   │                      #   marker is inert — the indicator also needs
 │   │                      #   busy, and the next execution.started clears.
+│   │                      #   The marker ALSO fences sends: send() and
+│   │                      #   editResend() refuse to POST while it is up
+│   │                      #   (see useSessionMessages — a prompt landing
+│   │                      #   during the stop's cleanup would restart the
+│   │                      #   run server-side).
 │   ├── promptQueue.ts    # The per-session QUEUED-PROMPT store (module store +
 │   │                      #   useSyncExternalStore, the sessionStopping
 │   │                      #   pattern): prompts composed mid-run QUEUE here
@@ -521,9 +539,23 @@ src/
 │   │                      #   CLEARS the queue (stopping means stop — an
 │   │                      #   auto-flush right after would restart the
 │   │                      #   aborted work; rows collapse away with their
-│   │                      #   exit animation); "send now" delivers one row
-│   │                      #   immediately (the server accepts prompts
-│   │                      #   mid-run — a deliberate steer); "edit" loads
+│   │                      #   exit animation). The SERVER half of the same
+│   │                      #   doctrine is the inbox sweep in
+│   │                      #   useSessionMessages.interrupt: "send now"
+│   │                      #   prompts already POSTed park in the server's
+│   │                      #   pending inbox as steer rows and must be
+│   │                      #   cancelled too, or the next wake resurrects
+│   │                      #   them (send() also fences on the stopping
+│   │                      #   marker). "STOP AND SEND" (the row's
+│   │                      #   lightning action) NEVER steers the running
+│   │                      #   turn — the row is EXPEDITED
+│   │                      #   (expeditePrompt, click order; stays
+│   │                      #   visible) and the run interrupted; when it
+│   │                      #   settles, the flush effect delivers the
+│   │                      #   batch as the fresh turn's opening prompts
+│   │                      #   (takeExpeditedPrompts; interrupt() is
+│   │                      #   idempotent so stacked rows share one stop);
+│   │                      #   "edit" loads
 │   │                      #   text + attachments back into the composer via
 │   │                      #   ChatInput's draftLoad prop (mention nodes
 │   │                      #   degrade to plain @path text — Lexical nodes
@@ -700,7 +732,30 @@ src/
 │   │                      #   parsed back out and re-appended, keeping
 │   │                      #   a text-only model's image paths).
 │   │                      #   A failed commit unwinds via clearRevert
-│   │                      #   and returns false.
+│   │                      #   and returns false. THE INTERRUPT SWEEP +
+│   │                      #   SEND FENCE (v2.0.11, source-verified):
+│   │                      #   the server's interrupt kills ONLY the
+│   │                      #   in-flight execution — prompts POSTed
+│   │                      #   mid-run (a raw steer — this client no
+│   │                      #   longer produces them, see promptQueue's
+│   │                      #   "stop and send") park in the PERSISTED session
+│   │                      #   inbox as pending steer rows (a delivery-less
+│   │                      #   POST defaults to steer; only a step boundary promotes them
+│   │                      #   into the turn), and they SURVIVE the stop:
+│   │                      #   a POST landing after the interrupt restarts
+│   │                      #   the run as a successor execution, and rows
+│   │                      #   left parked resurrect inside the NEXT turn's
+│   │                      #   first promotion. interrupt() therefore (1)
+│   │                      #   SWEEPS the inbox after the interrupt POST
+│   │                      #   (list + DELETE every pending row — api.ts
+│   │                      #   listSessionInbox/cancelSessionInbox; best-
+│   │                      #   effort, logged) and (2) FENCES send()/
+│   │                      #   editResend() on the stopping marker: a
+│   │                      #   prompt whose POST would fire inside the
+│   │                      #   stop window is dropped instead (stop means
+│   │                      #   stop). messageStore drops the cancelled
+│   │                      #   rows' ghost bubbles on
+│   │                      #   session.inbox.cancelled.
 │   ├── useSessionFlow.ts  # App-level session flow: active session id + composer
 │   │                      #   staging (pendingModel/pendingAgent/pendingDirectory
 │   │                      #   seeded from lib/persist.ts, plus the NOT-persisted
@@ -1443,7 +1498,9 @@ src/
     │   │                  #   THE QUEUED-PROMPT SITE too: handleSend
     │   │                  #   branches on busy (enqueue vs deliver), the
     │   │                  #   ONE shared `deliver` feeds the live send /
-    │   │                  #   the flush effect / "send now" rows (see
+    │   │                  #   the flush effect (which delivers the
+    │   │                  #   "stop and send" expedited batch first, then
+    │   │                  #   the regular queue one-per-window; see
     │   │                  #   opencode/promptQueue.ts for the rules),
     │   │                  #   and the rows' ExitList sits at the top of
     │   │                  #   the pinned stack above the composer.
@@ -1748,7 +1805,9 @@ src/
     │   │                  #   beneath it),
     │   │                  #   the text preview (a slash-command entry shows
     │   │                  #   its compact /name args form, not the expanded
-    │   │                  #   template), and send-now / edit / remove.
+    │   │                  #   template), and stop-and-send (expedite +
+    │   │                  #   interrupt, NEVER a mid-run steer — see
+    │   │                  #   promptQueue.ts) / edit / remove.
     │   │                  #   The edit pencil locks while edit-last-message
     │   │                  #   owns the composer (the two buffers must not
     │   │                  #   clobber each other). ENTRANCE is SYNCED

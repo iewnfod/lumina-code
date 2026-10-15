@@ -8,10 +8,11 @@ import Hint from "../ui/Hint.tsx";
 /**
  * One QUEUED prompt row (promptQueue.ts): composed mid-run, rendered
  * above the composer, delivered automatically when the run ends. The
- * mock's affordances: a drag grip (reorder), the text preview, then
- * "send now" (deliver immediately — the server accepts prompts mid-run,
- * so this steers the running turn), edit (text + attachments load back
- * into the composer) and remove.
+ * row's affordances: a drag grip (reorder), the text preview, then
+ * "stop and send" (expedite the row + interrupt the current run — it
+ * delivers as the fresh turn's opening prompt once the run settles;
+ * never a mid-run steer, see promptQueue.ts), edit (text + attachments
+ * load back into the composer) and remove.
  *
  * ENTRANCE: the surrounding ExitList's wrapper wears .lum-queue-enter
  * (grid track 0fr→1fr — the content above is pushed up SMOOTHLY, in
@@ -94,7 +95,7 @@ const QueuedPromptRow = memo(function QueuedPromptRow({
                 style={{background: colors.activeOverlay, "--lum-chip-hover": colors.hoverOverlay} as React.CSSProperties}
             >
                 <ArrowUp size={11}/>
-                <span>{t["Send now"]}</span>
+                <span>{t["Stop and send"]}</span>
             </button>
             <Hint label={t["Edit"]}>
                 <button

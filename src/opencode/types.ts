@@ -501,6 +501,14 @@ export interface EventMap {
         inboxID: string;
         item: {type: string; payload?: {text?: string; files?: UserMessageFile[]}};
     };
+    /** A pending inbox row was cancelled (server v2.0.11: the interrupt
+     * sweep's DELETE, or another client's cancel). The row's ghost bubble
+     * — rendered at enqueued time under the inboxID — must leave the
+     * transcript (messageStore drops it by id). A PROMOTED (delivered)
+     * message never fires this: delivery consumes the row inside an
+     * uninterruptible transaction, so cancellation and delivery are
+     * mutually exclusive server-side. */
+    "session.inbox.cancelled": {sessionID: string; inboxID: string};
     "session.execution.started": {sessionID: string};
     "session.execution.succeeded": {sessionID: string};
     "session.execution.failed": {sessionID: string};

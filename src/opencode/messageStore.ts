@@ -73,6 +73,18 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
             // …or append when the prompt came from another client.
             return [...list, incoming];
         }
+        case "session.inbox.cancelled": {
+            // The interrupt sweep (see useSessionMessages) or another
+            // client cancelled a pending inbox row: the ghost bubble the
+            // enqueued case rendered under the inboxID must leave the
+            // transcript — the server will never promote it. A message
+            // that WAS promoted never fires this event (delivery consumes
+            // the row inside an uninterruptible transaction, so cancel
+            // and delivery are mutually exclusive server-side).
+            const d = data as EventMap["session.inbox.cancelled"];
+            if (!list.some((m) => m.id === d.inboxID)) return list;
+            return list.filter((m) => m.id !== d.inboxID);
+        }
         case "session.step.started": {
             const d = data as EventMap["session.step.started"];
             return list.some((m) => m.id === d.assistantMessageID)

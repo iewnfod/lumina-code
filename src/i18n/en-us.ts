@@ -221,7 +221,7 @@ const enUs = {
     "Save": "Save",
     "Editing message": "Editing message",
     "Stop the AI to edit": "Stop the AI to edit",
-    "Send now": "Send now",
+    "Stop and send": "Stop and send",
     "Queue message": "Queue message",
     "Keep typing to queue messages": "Keep typing to queue messages",
     "Saving...": "Saving...",

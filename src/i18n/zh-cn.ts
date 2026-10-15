@@ -218,7 +218,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Save": "保存",
     "Editing message": "正在编辑消息",
     "Stop the AI to edit": "停止 AI 后才能编辑",
-    "Send now": "立即发送",
+    "Stop and send": "停止并发送",
     "Queue message": "排队发送",
     "Keep typing to queue messages": "继续输入以排队发送",
     "Saving...": "保存中...",

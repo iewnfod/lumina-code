@@ -1,9 +1,9 @@
 import {useCallback, useEffect, useRef, useState, useSyncExternalStore} from "react";
-import {error as logError} from "@tauri-apps/plugin-log";
+import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
 import {OpencodeApi} from "./api.ts";
 import {applyEvent, applyOlderPage, applySeedPage, dropFromBoundary} from "./messageStore.ts";
 import {dropPendingCommands, recordPendingCommand} from "./pendingCommands.ts";
-import {clearSessionStopping, markSessionStopping} from "./sessionStopping.ts";
+import {clearSessionStopping, isSessionStopping, markSessionStopping} from "./sessionStopping.ts";
 import {attachmentNoteLine, splitAttachmentNote} from "./visionAttachments.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {
@@ -367,6 +367,21 @@ export function useSessionMessages(
         const a = apiRef.current;
         const sid = sessionRef.current;
         if (!a || !sid || !trimmed) return;
+        // INTERRUPT FENCE: a stop was pressed but the run hasn't unwound
+        // yet (the stopping marker spans exactly that window). A prompt
+        // POST landing now would be admitted to the server inbox during
+        // the interrupt's cleanup and RESTART the run as a successor
+        // execution (v2.0.11: "wakes arriving during cleanup are new
+        // admissions and restart normally at settle") — the stop would
+        // visibly fail. The gap this closes is real: ChatView's `deliver`
+        // awaits the vision-divert before calling here, so a send-now
+        // click can still be in flight when the user presses stop.
+        // Suppressed means dropped (stop means stop — same doctrine as
+        // handleInterrupt clearing the local queue).
+        if (isSessionStopping(sid)) {
+            logInfo("Send suppressed: session stop is in flight").catch(() => {});
+            return;
+        }
         const promptFiles = [
             ...(files ?? []).map((f) => ({uri: f.uri, name: f.name})),
             ...(fileRefs ?? []).map((r) => OpencodeApi.fileRefToPromptFile(r)),
@@ -437,6 +452,13 @@ export function useSessionMessages(
         const a = apiRef.current;
         const sid = sessionRef.current;
         if (!a || !sid || !trimmed) return false;
+        // Same interrupt fence as send(): a revert+resend racing an
+        // in-flight stop would re-admit work the user just aborted.
+        // False keeps the composer in edit mode (buffer preserved).
+        if (isSessionStopping(sid)) {
+            logInfo("Edit-resend suppressed: session stop is in flight").catch(() => {});
+            return false;
+        }
         try {
             await a.stageSessionRevert(sid, message.id);
             try {
@@ -503,6 +525,7 @@ export function useSessionMessages(
         const a = apiRef.current;
         const sid = sessionRef.current;
         if (!a || !sid) return;
+        const wasStopping = isSessionStopping(sid);
         // The stopping marker goes up the MOMENT the button is pressed:
         // the server takes a moment to actually unwind the run, and the
         // tail's indicator must say "Stopping" through that window (see
@@ -514,13 +537,47 @@ export function useSessionMessages(
         // the marker (either order is safe — clearing is idempotent and
         // never resurrected here).
         markSessionStopping(sid);
+        // Idempotent stop: a marker already up means an interrupt POST is
+        // in flight and owns the abort — a second POST here would return
+        // false (the coordinator reports stopping-already as idle) and
+        // prematurely drop the marker, re-opening the send fence inside
+        // the stop window. Callers that stack actions during one stop
+        // ("stop and send" expediting several rows) rely on this.
+        if (wasStopping) return;
+        let interrupted = false;
+        let failed = false;
         try {
-            const interrupted = await a.interruptSession(sid);
-            if (!interrupted) clearSessionStopping(sid);
+            interrupted = await a.interruptSession(sid);
         } catch (e) {
-            clearSessionStopping(sid);
+            failed = true;
             logError(`Failed to interrupt session: ${e}`).catch(() => {});
         }
+        // SWEEP the server inbox (v2.0.11, source-verified): the interrupt
+        // only kills the in-flight execution — prompts POSTed mid-run (a
+        // raw steer; this client no longer produces them — "stop and
+        // send" expedites + interrupts instead — but a racing client or
+        // an in-flight POST can) sit in the PERSISTED inbox as pending
+        // steer rows that no step boundary has promoted yet, and they
+        // survive the
+        // stop: a prompt POST landing after the interrupt restarts the run
+        // as a successor execution, and anything left parked resurrects
+        // inside the NEXT turn's first promotion. Cancelling every pending
+        // row makes "stop" final server-side. Runs on every interrupt
+        // outcome (the parked rows are there whatever the POST said) and
+        // is best-effort: a failed sweep logs and leaves the rows for the
+        // next stop to retry.
+        try {
+            const pending = await a.listSessionInbox(sid);
+            for (const row of pending) {
+                await a.cancelSessionInbox(sid, row.id);
+            }
+            if (pending.length > 0) {
+                logInfo(`Interrupt swept ${pending.length} pending inbox input(s)`).catch(() => {});
+            }
+        } catch (e) {
+            logWarn(`Failed to sweep session inbox after interrupt: ${e}`).catch(() => {});
+        }
+        if (failed || !interrupted) clearSessionStopping(sid);
     }, []);
 
     return {messages, hasMore, loadingOlder, seeding, loadOlder, send, editResend, interrupt};
