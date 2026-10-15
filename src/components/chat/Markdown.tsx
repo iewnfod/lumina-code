@@ -2,8 +2,13 @@ import {memo, type ReactNode} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {openUrl} from "@tauri-apps/plugin-opener";
+import {Check, Copy} from "lucide-react";
 import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {useCopy} from "../../hooks/useCopy.ts";
+import {useI18n} from "../../hooks/i18n.tsx";
+import Hint from "../ui/Hint.tsx";
 import {splitMarkdownBlocks} from "./markdownBlocks.ts";
+import {mdCodeText} from "./mdCodeText.ts";
 
 /**
  * Markdown renderer for assistant text. Scoped styles live under `.lum-md`
@@ -41,18 +46,43 @@ import {splitMarkdownBlocks} from "./markdownBlocks.ts";
 // the horizontal scroller wearing the CONDITIONAL fades — a block that
 // fits its column renders mask-free; each side fades only while code is
 // actually hidden beyond it.
+//
+// The COPY affordance: MdPre wraps everything in a host span
+// (.lum-md-pre-host, display:block + relative) so the floating button
+// can live OUTSIDE the pre — Hint's trigger wrapper is a div, which
+// must not enter pre (phrasing content only). The button fades in on
+// host hover and copies the code's raw text (mdCodeText extracts it
+// lazily at click time, so streaming renders never pay for it), with
+// the shared useCopy ✓ linger. The chip's chrome (elevated surface,
+// reveal ladder, translateZ compositing for WebKitGTK) lives with the
+// other .lum-md styles in main.css.
 function MdPre({children}: {children?: ReactNode}) {
     const edges = useScrollEdges<HTMLSpanElement>();
+    const {copied, copy} = useCopy();
+    const t = useI18n();
     return (
-        <pre>
-            <span
-                ref={edges.ref}
-                onScroll={edges.onScroll}
-                className={`lum-md-pre-scroll${edges.left ? " lum-fade-left" : ""}${edges.right ? " lum-fade-right" : ""}`}
-            >
-                {children}
-            </span>
-        </pre>
+        <span className="lum-md-pre-host">
+            <pre>
+                <span
+                    ref={edges.ref}
+                    onScroll={edges.onScroll}
+                    className={`lum-md-pre-scroll${edges.left ? " lum-fade-left" : ""}${edges.right ? " lum-fade-right" : ""}`}
+                >
+                    {children}
+                </span>
+            </pre>
+            <Hint label={copied ? t["Copied"] : t["Copy"]}>
+                <button
+                    type="button"
+                    onClick={() => void copy(mdCodeText(children))}
+                    className={`lum-md-copy${copied ? " copied" : ""}`}
+                >
+                    {copied
+                        ? <Check size={14} className="shrink-0"/>
+                        : <Copy size={14} className="shrink-0"/>}
+                </button>
+            </Hint>
+        </span>
     );
 }
 

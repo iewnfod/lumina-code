@@ -1732,6 +1732,11 @@ src/
     │   │                  #   tail chunk re-parses per streamed delta) and gates
     │   │                  #   the CSS entrance fade to `live` (streaming)
     │   │                  #   messages — see markdownBlocks.ts + main.css.
+    │   │                  #   Code blocks carry a floating COPY chip
+    │   │                  #   (top-right, host-span anchored, elevated
+    │   │                  #   surface + reveal ladder in main.css):
+    │   │                  #   mdCodeText.ts (pure, node-testable)
+    │   │                  #   extracts the raw text lazily at click.
     │   ├── markdownBlocks.ts # Pure markdown chunker: cuts at blank-line
     │   │                  #   boundaries outside fenced code, conservatively
     │   │                  #   (loose lists / indented continuations / ref-defs

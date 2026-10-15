@@ -517,11 +517,20 @@ body {
     padding: 0.15em 0.4em;
     border-radius: var(--radius-xs);
 }
+/* The MdPre host span (Markdown.tsx) — the block-level wrapper carrying
+ * the position context for the floating copy chip, plus the block's
+ * margin. The margin deliberately lives HERE, not on the pre: a child's
+ * vertical margins collapse out of an unpadded host and would skew the
+ * chip's absolute anchor. */
+.lum-md .lum-md-pre-host {
+    display: block;
+    position: relative;
+    margin: 0.6em 0;
+}
 .lum-md pre {
     background: var(--lum-neutral-fill);
     padding: 0.75em 1em;
     border-radius: var(--radius-md);
-    margin: 0.6em 0;
 }
 /* The span (display: block — a div would be invalid inside pre) inserted
  * by Markdown.tsx's MdPre override is the horizontal scroller wearing
@@ -537,6 +546,44 @@ body {
     background: transparent;
     padding: 0;
     font-size: var(--lum-code-size);
+}
+/* The code-block COPY chip (Markdown.tsx's MdPre) — floats over the
+ * pre's top-right corner, anchored to the host span. It rides the
+ * Elevated family (§3.8): a SOLID --color-elevated surface with a
+ * hairline border, so it occludes the code underneath it instead of
+ * tinting over it (the pre's translucent wash can't cut the text out).
+ * Deliberately NOT .lum-wash: the wash replaces `background` wholesale
+ * and would turn the chip translucent on hover. Reveal ladder matches
+ * the quiet copy affordances (MessageItem/RunFooter): hidden until the
+ * block hovers, half-lit on block hover, full on its own hover, pinned
+ * full while the ✓ lingers (.copied). */
+.lum-md .lum-md-copy {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    height: 24px;
+    width: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--lum-neutral-hairline);
+    border-radius: var(--radius-xs);
+    background: var(--color-elevated);
+    cursor: pointer;
+    user-select: none;
+    opacity: 0;
+    transform: translateZ(0);
+    transition:
+        opacity var(--duration-fast) var(--ease-glass),
+        border-color var(--duration-fast) var(--ease-glass);
+}
+.lum-md .lum-md-pre-host:hover .lum-md-copy {
+    opacity: 0.5;
+}
+.lum-md .lum-md-copy:hover,
+.lum-md .lum-md-copy.copied {
+    opacity: 1;
+    border-color: var(--lum-neutral-divider);
 }
 .lum-md blockquote {
     border-left: 2px solid var(--lum-neutral-divider);
