@@ -6,6 +6,8 @@ import {applyPromptQueueBusEvent} from "./promptQueue.ts";
 import {applyTurnEditsBusEvent} from "./turnEdits.ts";
 import {
     adoptSessions,
+    importableSessions,
+    isRootSession,
     isSessionRegistered,
     missingRegisteredIds,
     registerSession,
@@ -16,29 +18,16 @@ import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {EventMap, OpencodeSession} from "./types.ts";
 
 /**
- * Only user-initiated sessions belong in the sidebar: OpenCode's subagents
- * (explore/review/…) spawn child sessions with `parentID` set, which would
- * otherwise flood the list with internal transcripts. The server's
- * `?roots=true` filter does not work on v2.0.x, so filter client-side.
- * Transient helper sessions created by Lumina Code's tools plugin (the
- * vision delegation) are filtered the same way — via their
- * `{source: "lumina-tools"}` metadata marker (v2.0.11's public create API
- * ignores `parentID`, so the marker is the only hiding mechanism); the
- * marker check is load-bearing for the registry's one-time ADOPTION below
- * even though display membership already implies it.
- */
-function isRootSession(s: OpencodeSession): boolean {
-    return !s.parentID && s.metadata?.["source"] !== "lumina-tools";
-}
-
-/**
  * The sidebar's session list — a WHITELIST view: only sessions recorded in
  * the local session registry (sessionRegistry.ts, persisted per app
  * instance) are listed, no matter who else creates sessions in the shared
  * server storage (the TUI/CLI in the home dir, other desktop instances).
- * Membership is granted at the single creation choke-point (`create` below,
- * reached only through sendFirst) and revoked on every deletion path (the
- * `remove` here, the session.deleted event, and seed-time reconciliation).
+ * Membership is granted at the creation choke-point (`create` below,
+ * reached only through sendFirst) or by the user through IMPORT
+ * (`importSessions`, fed by `foreignSessions` — the root sessions the
+ * server lists but the registry does not hold), and revoked on every
+ * deletion path (the `remove` here, the session.deleted event, and
+ * seed-time reconciliation).
  *
  * Listed sessions stay in sync with the OpenCode server: seeded from
  * `GET /api/session` (intersected with the registry — and the seed is also
@@ -73,8 +62,16 @@ export function useSessions(
     /** Optimistically patch a session's local fields (model/agent after a
      *  switch — the server confirms via its own session object). */
     patch: (id: string, fields: Partial<OpencodeSession>) => void;
+    /** Root sessions the server lists but the registry does NOT hold —
+     *  the IMPORT candidates (TUI/CLI/other-instance sessions in the
+     *  shared storage), live-updated alongside `sessions`. */
+    foreignSessions: OpencodeSession[];
+    /** Grant registry membership to existing server sessions (the
+     *  import picker's action) and refresh both lists. */
+    importSessions: (ids: string[]) => void;
 } {
     const [sessions, setSessions] = useState<OpencodeSession[]>([]);
+    const [foreignSessions, setForeignSessions] = useState<OpencodeSession[]>([]);
     const [loaded, setLoaded] = useState(false);
     const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
     const apiRef = useRef(api);
@@ -138,13 +135,17 @@ export function useSessions(
     }, [deleteToolSession]);
 
     // Re-list helper: registered root sessions only (the registry is the
-    // membership truth), server order (most recently updated first).
+    // membership truth), server order (most recently updated first). The
+    // complement — root sessions NOT in the registry — feeds the import
+    // picker as `foreignSessions`.
     const relist = useCallback(() => {
         const a = apiRef.current;
         if (!a) return Promise.resolve();
         return a.listSessions().then((list) => {
-            setSessions((list ?? []).filter((s) => isRootSession(s) && isSessionRegistered(s.id)));
-            trackToolSessions(list ?? []);
+            const raw = list ?? [];
+            setSessions(raw.filter((s) => isRootSession(s) && isSessionRegistered(s.id)));
+            setForeignSessions(importableSessions(raw, registeredSessionIds()));
+            trackToolSessions(raw);
         }).catch((e) => {
             logError(`Failed to load sessions: ${e}`).catch(() => {});
         });
@@ -177,6 +178,7 @@ export function useSessions(
             }
             const listed = roots.filter((s) => isSessionRegistered(s.id));
             setSessions(listed);
+            setForeignSessions(importableSessions(raw, registeredSessionIds()));
             trackToolSessions(raw);
             setLoaded(true);
             info(`Loaded ${listed.length} registered OpenCode session(s) (${raw.length - listed.length} unregistered/subagent session(s) hidden)`).catch(() => {});
@@ -258,6 +260,9 @@ export function useSessions(
                     // Every deletion path revokes whitelist membership —
                     // ours, another instance's, the helper sweep. Idempotent.
                     unregisterSession(sessionID);
+                    // The import candidates lose it too (deleted elsewhere
+                    // while the picker list is live).
+                    setForeignSessions((prev) => prev.filter((s) => s.id !== sessionID));
                     setSessions((prev) => prev.filter((s) => s.id !== sessionID));
                     break;
                 }
@@ -349,5 +354,18 @@ export function useSessions(
         setSessions((prev) => prev.map((s) => (s.id === id ? {...s, ...fields} : s)));
     }, []);
 
-    return {sessions, loaded, busyIds, create, remove, patch};
+    /** The import picker's action: register each id locally (the session
+     *  itself already lives on the server — importing only grants
+     *  whitelist membership), then relist so both lists re-derive from
+     *  the registry. Idempotent per id; registering is a local write, so
+     *  this cannot fail — the next relist reconciles anything the server
+     *  dropped in between. */
+    const importSessions = useCallback((ids: string[]) => {
+        if (ids.length === 0) return;
+        for (const id of ids) registerSession(id);
+        info(`Imported ${ids.length} session(s) into the sidebar`).catch(() => {});
+        void relist();
+    }, [relist]);
+
+    return {sessions, loaded, busyIds, create, remove, patch, foreignSessions, importSessions};
 }

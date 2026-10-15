@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useState} from "react";
 import {motion} from "framer-motion";
-import {Plus} from "lucide-react";
+import {FolderInput, Plus} from "lucide-react";
 import Icon from "../assets/icon.svg";
 import {isMacOS} from "../lib/platform.ts";
 import {CHROME_TITLE_BAR_HEIGHT} from "../constants.ts";
@@ -41,6 +41,12 @@ interface SessionBarProps {
     onClose: (id: string) => void;
     /** Create a session — in the given folder's directory, if any. */
     onNew: (directory?: string) => void;
+    /** Open the import picker (external OpenCode sessions → sidebar).
+     *  Absent renders no entry (the lumina-terminal port surface). */
+    onImport?: () => void;
+    /** How many external sessions the picker would offer (0/undefined
+     *  hides the count, not the entry). */
+    importableCount?: number;
     /** Hover prefetch — warms a session's stats before it's opened. */
     onSessionHover?: (id: string) => void;
     backgroundColor: string;
@@ -56,7 +62,7 @@ interface SessionBarProps {
 }
 
 export default function SessionBar(props: SessionBarProps) {
-    const {sessions, activeId, onSelect, onClose, onNew, onSessionHover, backgroundColor, foregroundColor, collapsed, brandTitle, busyIds, pendingCounts} = props;
+    const {sessions, activeId, onSelect, onClose, onNew, onImport, importableCount, onSessionHover, backgroundColor, foregroundColor, collapsed, brandTitle, busyIds, pendingCounts} = props;
     const t = useI18n();
 
     // Ticking "now" so relative ages stay fresh (minute resolution —
@@ -206,6 +212,37 @@ export default function SessionBar(props: SessionBarProps) {
                     );
                 })}
             </div>
+
+            {/* Bottom actions. Import sits ABOVE the new-session row — a
+                secondary action leading external OpenCode sessions
+                (TUI/CLI/other instances) into the sidebar via the picker
+                modal; the trailing count (import candidates in the shared
+                storage) surfaces multi-instance activity at a glance. */}
+            {onImport && (
+                <div className="shrink-0 px-1.5 pt-0.5">
+                    <motion.button
+                        type="button"
+                        {...whileHoverTap}
+                        className="w-full flex flex-row items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)] cursor-pointer hover:bg-[var(--lum-new-session-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
+                        style={{
+                            "--lum-new-session-hover": colors.hoverOverlay,
+                            color: colors.inactiveText,
+                        } as CSSProperties}
+                        onClick={onImport}
+                    >
+                        <FolderInput size={14}/>
+                        <span className="text-sm truncate leading-tight">{t["Import Session"]}</span>
+                        {importableCount != null && importableCount > 0 && (
+                            <span
+                                className="ml-auto shrink-0 min-w-4 h-4 px-1 rounded-full text-2xs font-semibold leading-4 text-center tabular-nums select-none"
+                                style={{background: "var(--lum-neutral-fill)", color: "var(--lum-neutral-text)"}}
+                            >
+                                {importableCount}
+                            </span>
+                        )}
+                    </motion.button>
+                </div>
+            )}
 
             {/* New session — its own full-width row at the sidebar's bottom
                 (bottom-left of the window). No folder given → App defaults

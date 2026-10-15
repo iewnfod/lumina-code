@@ -1,5 +1,6 @@
 import {info} from "@tauri-apps/plugin-log";
 import {createPersistedStore} from "../lib/persistedStore.ts";
+import type {OpencodeSession} from "./types.ts";
 
 /**
  * THE sidebar's session whitelist: the ids of sessions created by THIS app's
@@ -52,8 +53,9 @@ const store = createPersistedStore<string[] | null>({
     eq: (a, b) => JSON.stringify(a) === JSON.stringify(b),
 });
 
-/** Register a session WE created (idempotent; appends in registration
- *  order). The only writer is the create path in useSessions. */
+/** Register a session WE created or the user chose to IMPORT
+ *  (idempotent; appends in registration order). The writers are the
+ *  create and import paths in useSessions. */
 export function registerSession(id: string): void {
     if (id === "") return;
     const current = store.get() ?? [];
@@ -74,6 +76,34 @@ export function unregisterSession(id: string): void {
 /** Synchronous membership check against the current snapshot. */
 export function isSessionRegistered(id: string): boolean {
     return (store.get() ?? []).includes(id);
+}
+
+/** A user-initiated (root) session: OpenCode's subagents
+ *  (explore/review/…) spawn children with `parentID` set, which would
+ *  otherwise flood the sidebar with internal transcripts, and Lumina
+ *  Code's tools plugin stamps its transient helper sessions with
+ *  `{source: "lumina-tools"}` (v2.0.11's public create API ignores
+ *  `parentID`, so the marker is the only hiding mechanism). The
+ *  server's `?roots=true` filter does not work on v2.0.x — filter
+ *  client-side. Both the sidebar view and the import candidate set
+ *  filter on this, and the registry's one-time ADOPTION depends on it
+ *  too (helper sessions must never be adopted wholesale). */
+export function isRootSession(s: OpencodeSession): boolean {
+    return !s.parentID && s.metadata?.["source"] !== "lumina-tools";
+}
+
+/** The IMPORT CANDIDATE set: root sessions from the server's list that
+ *  are NOT registry members, in server order (most recently updated
+ *  first) — what the import picker offers. `registered === null` (the
+ *  registry not adopted yet — the seed's one-time adoption runs before
+ *  any import UI is reachable) imports nothing. */
+export function importableSessions(
+    raw: readonly OpencodeSession[],
+    registered: readonly string[] | null,
+): OpencodeSession[] {
+    if (registered === null) return [];
+    const members = new Set(registered);
+    return raw.filter((s) => isRootSession(s) && !members.has(s.id));
 }
 
 /** The registered ids in registration order, or `null` when the registry

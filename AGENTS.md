@@ -566,7 +566,11 @@ src/
 │   │                      #   not with the session list.
 │   ├── sessionDataContext.tsx # Session-domain layer: SessionDataProvider hosts
 │   │                      #   useSessions + useSessionRequests ONCE;
-│   │                      #   useSessionData() (list/busy/CRUD/pending asks),
+│   │                      #   useSessionData() (list/busy/CRUD/pending
+│   │                      #   asks + the IMPORT surfaces —
+│   │                      #   foreignSessions/importSessions for
+│   │                      #   ImportSessionsModal and the sidebar's
+│   │                      #   count badge),
 │   │                      #   useSessionTranscript(sessionId) (message store
 │   │                      #   binding — mounting it still seeds an unseeded
 │   │                      #   session), usePendingRequests(sessionId),
@@ -587,13 +591,23 @@ src/
 │   │                      #   dir" strangers): the ids of sessions created
 │   │                      #   by THIS app's UI, persisted via the factory
 │   │                      #   ("lumina-code:session-registry") — membership
-│   │                      #   is granted at the single creation choke-point
-│   │                      #   (useSessions.create ← sendFirst) and revoked
-│   │                      #   on every deletion path (useSessions.remove,
-│   │                      #   the session.deleted event, seed-time prune);
-│   │                      #   sessions created by anything else (TUI/CLI,
-│   │                      #   other instances — OpenCode storage is shared)
-│   │                      #   never enter the sidebar. `null` = NOT YET
+│   │                      #   is granted at the creation choke-point
+│   │                      #   (useSessions.create ← sendFirst), by USER
+│   │                      #   IMPORT (useSessions.importSessions ←
+│   │                      #   ImportSessionsModal, fed by
+│   │                      #   importableSessions — the root sessions the
+│   │                      #   server lists but the registry does not
+│   │                      #   hold), and revoked on every deletion path
+│   │                      #   (useSessions.remove, the session.deleted
+│   │                      #   event, seed-time prune); sessions created
+│   │                      #   by anything else (TUI/CLI, other instances
+│   │                      #   — OpenCode storage is shared) stay out of
+│   │                      #   the sidebar until imported. Also the ROOT
+│   │                      #   predicate (isRootSession: no parentID, not
+│   │                      #   a lumina-tools helper — the server's
+│   │                      #   ?roots=true does not work) shared by the
+│   │                      #   sidebar view, the import candidates and
+│   │                      #   the one-time ADOPTION. `null` = NOT YET
 │   │                      #   ADOPTED (key absent / malformed — write(null)
 │   │                      #   removes the key, the factory's absence
 │   │                      #   semantics): the first successful session list
@@ -634,6 +648,18 @@ src/
 │   │                      #   composer forever — the seed must not resurrect ids watched
 │   │                      #   end); create/remove/patch (optimistic model/agent)
 │   │                      #   also grant/revoke the whitelist membership.
+│   │                      #   THE IMPORT HALF: foreignSessions — the same
+│   │                      #   list's root-session complement (server roots
+│   │                      #   NOT in the registry — TUI/CLI/other-instance
+│   │                      #   sessions in the shared storage), maintained by
+│   │                      #   the same seed/relist folds — feeds the import
+│   │                      #   picker (ImportSessionsModal via the session-
+│   │                      #   data context), and importSessions(ids) grants
+│   │                      #   membership (registerSession + relist; the
+│   │                      #   session itself already lives on the server —
+│   │                      #   importing moves nothing but the whitelist
+│   │                      #   entry; busy state is id-tracked globally and
+│   │                      #   just works).
 │   ├── useSessionMessages.ts # React binding over a MODULE-LEVEL store (one entry per
 │   │                      #   session, surviving ChatView unmounts AND webview reloads
 │   │                      #   — backgrounded sessions keep accumulating deltas; entries
@@ -1219,7 +1245,11 @@ src/
     │                      #   or the welcome screen's STAGED branch.
     ├── SessionBar.tsx     # Left glass sidebar shell: brand row, folder
     │                      #   collapse/expand state, relative-age ticker,
-    │                      #   bottom new-session button; groups render
+    │                      #   bottom action rows — new-session plus the
+    │                      #   IMPORT entry (FolderInput icon; the trailing
+    │                      #   count badge = importable foreign sessions,
+    │                      #   AppBody feeds onImport/importableCount and
+    │                      #   mounts ImportSessionsModal); groups render
     │                      #   through SessionFolder, keyed by PROJECT
     │                      #   directory (groupByDirectory + the worktree
     │                      #   bindings — branch sessions merge into the
@@ -1230,6 +1260,22 @@ src/
     │                      #   width comes from the sidebar-width store
     │                      #   (useSidebarWidth) — transition suppressed
     │                      #   while the seam is dragged.
+    ├── ImportSessionsModal.tsx # The session-import picker (the sidebar's
+    │                      #   Import row): external OpenCode sessions —
+    │                      #   TUI/CLI/other-instance roots in the shared
+    │                      #   storage — joining the whitelist. Data via
+    │                      #   useSessionData (foreignSessions, live-patched
+    │                      #   by the same folds as the sidebar, so another
+    │                      #   client's new session appears while open);
+    │                      #   importSessions grants membership, the rows
+    │                      #   collapse away through ExitList and land in
+    │                      #   the sidebar's project folders (nothing is
+    │                      #   copied — the transcript already lives on
+    │                      #   the server). Grouped like the sidebar
+    │                      #   (groupByDirectory + worktree bindings, "" →
+    │                      #   "Other Sessions"); the whole row is the
+    │                      #   action; "Import All" when >1; busy foreign
+    │                      #   sessions wear the pulse dot.
     ├── SidebarResizer.tsx # The drag seam between the sidebar and the
     │                      #   conversation area: an invisible OVERLAY sash
     │                      #   (VS Code style) absolutely positioned over the

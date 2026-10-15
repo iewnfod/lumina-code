@@ -34,6 +34,8 @@ const {
     adoptSessions,
     missingRegisteredIds,
     parseRegistryRaw,
+    isRootSession,
+    importableSessions,
 } = await import("./sessionRegistry.ts");
 
 test("fresh storage reads as not adopted; adopt then register/unregister roundtrip", () => {
@@ -95,4 +97,32 @@ test("missingRegisteredIds: intersection gap, with the empty-list guard", () => 
     assert.deepEqual(missingRegisteredIds(["ses_1", "ses_2"], []), []);
     assert.deepEqual(missingRegisteredIds(["ses_1", "ses_2", "ses_3"], ["ses_1", "ses_3"]), ["ses_2"]);
     assert.deepEqual(missingRegisteredIds(["ses_1"], ["ses_1"]), []);
+});
+
+test("isRootSession: subagent children and lumina-tools helpers are not roots", () => {
+    const base = {id: "ses_1", projectID: "prj"};
+    assert.equal(isRootSession({...base}), true);
+    assert.equal(isRootSession({...base, parentID: "ses_parent"}), false);
+    assert.equal(isRootSession({...base, metadata: {source: "lumina-tools"}}), false);
+});
+
+test("importableSessions: unregistered roots only, server order; null registry imports nothing", () => {
+    const root = (id: string) => ({id, projectID: "prj"});
+    // Not adopted yet → nothing to import (the seed adopts first).
+    assert.deepEqual(importableSessions([root("ses_1")], null), []);
+    assert.deepEqual(
+        importableSessions(
+            [
+                root("ses_1"),
+                root("ses_2"),
+                {...root("ses_3"), parentID: "ses_0"},
+                {...root("ses_4"), metadata: {source: "lumina-tools"}},
+            ],
+            ["ses_2"],
+        ),
+        [root("ses_1")],
+    );
+    // A registered id missing from the server list is the prune's
+    // concern, not the import set's.
+    assert.deepEqual(importableSessions([root("ses_1")], ["ses_gone"]), [root("ses_1")]);
 });

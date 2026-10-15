@@ -9,6 +9,7 @@ import WelcomeScreen from "./components/WelcomeScreen.tsx";
 import ChatView from "./components/chat/ChatView.tsx";
 import WorkspaceStatsCard from "./components/stats/WorkspaceStatsCard.tsx";
 import SettingsModal, {type SettingsTab} from "./components/settings/SettingsModal.tsx";
+import ImportSessionsModal from "./components/ImportSessionsModal.tsx";
 import MaskedSurface from "./components/ui/MaskedSurface.tsx";
 import {useMaximized} from "./hooks/maximized.ts";
 import {usePaddingOffset} from "./hooks/paddingOffset.ts";
@@ -396,7 +397,7 @@ function AppBody({
     const t = useI18n();
     const colors = useColors();
     const {api, subscribe, status: connectionStatus} = useConnection();
-    const {pendingCounts} = useSessionData();
+    const {pendingCounts, foreignSessions} = useSessionData();
     const {
         sessions,
         busyIds,
@@ -470,6 +471,14 @@ function AppBody({
     // Stable so the memoized ChatView/ChatInput subtree skips re-rendering.
     const openModelConfig = useCallback(() => openSettings("model"), [openSettings]);
 
+    // The session-import picker (the sidebar's Import row): external
+    // OpenCode sessions (TUI/CLI/other instances) joining the whitelist.
+    // The modal consumes the session-data context itself; App owns only
+    // the open flag, like the settings modal.
+    const [importOpen, setImportOpen] = useState(false);
+    const openImportPicker = useCallback(() => setImportOpen(true), []);
+    const closeImportPicker = useCallback(() => setImportOpen(false), []);
+
     const sessionInfos = sessions.map((s) => ({
         id: s.id,
         name: s.title?.trim() || t["Untitled"],
@@ -524,6 +533,8 @@ function AppBody({
                 onSelect={setActiveId}
                 onClose={deleteSession}
                 onNew={newSession}
+                onImport={openImportPicker}
+                importableCount={foreignSessions.length}
                 onSessionHover={hoverPrefetchSession}
                 backgroundColor={effectiveBg}
                 foregroundColor={effectiveFg}
@@ -676,6 +687,11 @@ function AppBody({
                 onClose={closeSettings}
                 api={api}
                 serverVersion={connected ? connectionStatus.version : null}
+            />
+            {/* The session-import picker (the sidebar's Import row). */}
+            <ImportSessionsModal
+                open={importOpen}
+                onClose={closeImportPicker}
             />
             {/* Linux window outline: some desktop environments draw no
                 compositor shadow, so the borderless window's edge is

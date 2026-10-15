@@ -6,6 +6,11 @@
 const enUs = {
     "New Session": "New Session",
     "Other Sessions": "Other Sessions",
+    "Import Session": "Import Session",
+    "Import All": "Import All",
+    "No sessions to import": "No sessions to import",
+    "Sessions created outside Lumina Code (the TUI, CLI or another instance) appear here.":
+        "Sessions created outside Lumina Code (the TUI, CLI or another instance) appear here.",
     "Show more": "Show more",
     "Show less": "Show less",
     "Drag to resize; double-click to reset": "Drag to resize; double-click to reset",

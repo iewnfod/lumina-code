@@ -8,6 +8,11 @@ import type {TranslationKey} from "./en-us.ts";
 const zhCn: Partial<Record<TranslationKey, string>> = {
     "New Session": "新建会话",
     "Other Sessions": "其他会话",
+    "Import Session": "导入会话",
+    "Import All": "全部导入",
+    "No sessions to import": "没有可导入的会话",
+    "Sessions created outside Lumina Code (the TUI, CLI or another instance) appear here.":
+        "在 Lumina Code 之外创建的会话（TUI、CLI 或其他实例）会显示在这里。",
     "Show more": "显示更多",
     "Show less": "收起",
     "Drag to resize; double-click to reset": "拖动调整宽度；双击复位",
