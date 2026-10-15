@@ -50,7 +50,7 @@ import {
  *  classes): one text line = 20px, vertical padding = 12 + 6, growth
  *  capped at 5 lines. */
 const LINE_HEIGHT = 20;
-const MAX_LINES = 5;
+const MAX_LINES = 8;
 
 /** Imperative handle into the editor (ChatInput's composerApiRef). */
 export interface ComposerHandle {
