@@ -1,21 +1,21 @@
-# lumina-server — one container + one data volume.
+# lumina-server — 生产用 compose：拉取 CI 发布的镜像直接运行。
 #
-#   docker compose up -d
+#   docker compose up -d                                # 首次运行自动建卷
+#   docker compose pull && docker compose up -d          # 更新到新版 :latest
 #
-# Then open http://<host>:4600/ and register the FIRST account (it
-# becomes admin). Put TLS in front for anything past the LAN (see
-# server/README.md).
+# 打开 http://<host>:4600/ 注册第一个账号（自动成为 admin）。数据就是
+# 卷里的 lumina.db 一个文件，备份即拷贝。TLS/组网见 server/README.md。
+#
+# 镜像由 .github/workflows/docker-server.yml 自动构建推送：
+# master 推送 → :edge；GitHub Release → :<版本号> + :latest。
+# 想锁定版本就把下面的 tag 换成具体版本号（如 0.5.0）。
+#
+# 从源码自建镜像？见 server/README.md 的构建段
+# （docker build -f server/Dockerfile -t lumina-code-server .）。
 
 services:
   lumina-server:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
-    # Prebuilt alternative to the local build above — published by
-    # .github/workflows/docker-server.yml (master pushes → :edge,
-    # releases → :<version> + :latest). Swap `build:` for this once you
-    # prefer pulling over building:
-    # image: docker.io/iewnfod/lumina-code-server:latest
+    image: iewnfod/lumina-code-server:latest
     ports:
       - "4600:3000"
     environment:

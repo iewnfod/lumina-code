@@ -23,14 +23,25 @@ Web 管理界面 + session 镜像 API**，SQLite 单文件存储。
 ### Docker（推荐）
 
 ```bash
-# 方式一：拉取已发布的镜像（CI 自动构建，amd64 + arm64）
+# 仓库根目录 — compose 拉取 CI 发布的镜像（amd64 + arm64）
 # master 推送 → :edge；GitHub Release → :<版本号> + :latest
-docker run -d --name lumina-server -p 4600:3000 \
-  -v lumina-data:/data docker.io/iewnfod/lumina-code-server:latest
-
-# 方式二：本地构建（仓库根目录）
 docker compose up -d
+# 更新到新版 :latest：docker compose pull && docker compose up -d
 # 打开 http://<host>:4600/ 注册第一个账号（自动成为 admin）
+```
+
+不想用 compose 也可以直接 run：
+
+```bash
+docker run -d --name lumina-server -p 4600:3000 \
+  -v lumina-data:/data iewnfod/lumina-code-server:latest
+```
+
+### 从源码构建镜像
+
+```bash
+docker build -f server/Dockerfile -t lumina-code-server .
+docker run -d -p 4600:3000 -v lumina-data:/data lumina-code-server
 ```
 
 数据就是卷里的 `lumina.db` 一个文件，备份即拷贝。

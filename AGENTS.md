@@ -2340,8 +2340,11 @@ desktop app stays the root package) — a single Next.js App Router
 application = **user system + web management UI + session-mirror API**,
 backed by ONE SQLite file (better-sqlite3, no ORM — the queries are a
 screenful; DDL lives in `server/src/db/schema.ts` with additive
-`MIGRATIONS` applied at startup). Deployed as one Docker container
-(`server/Dockerfile` + root `docker-compose.yml`); TLS/组网 is the
+`MIGRATIONS` applied at startup). Deployed as one Docker container:
+the root `docker-compose.yml` is the PRODUCTION entry (pulls the
+CI-published `iewnfod/lumina-code-server:latest` — see
+docker-server.yml above), while `server/Dockerfile` builds the image
+from a source checkout; TLS/组网 is the
 user's affair (reverse proxy — see `server/README.md`).
 
 ARCHITECTURE — the RELAY MODEL (decided 2026-10): the agent NEVER runs
