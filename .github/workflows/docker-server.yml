@@ -1,0 +1,133 @@
+name: Docker - lumina-server
+
+# Builds the self-hosted companion server's image and pushes it to
+# Docker Hub (docker.io/iewnfod/lumina-code-server). Two lanes, one job:
+#   • master pushes touching the image's INPUTS (server/, the workspace
+#     manifests feeding the deps stage, this file) → the rolling :edge
+#     tag — the merge was already gated by ci-server.yml's test+build.
+#   • published GitHub Releases (v* tags) → :<version> + :latest. The
+#     version IS the release tag (v0.5.0 → 0.5.0): the repo ships one
+#     version across all surfaces, even though server/package.json
+#     carries its own 0.x line (that one tracks server-only breakage).
+# workflow_dispatch re-runs either lane: a `tag` input selects the
+# version lane (re-publish, like Release.yml's dispatch), empty = :edge.
+#
+# One-time Docker Hub + repo setup:
+#   • create the iewnfod/lumina-code-server repository on docker.io
+#     (web UI, so its visibility is an explicit choice, not the
+#     auto-create default),
+#   • Account Settings → Personal access tokens → generate one with
+#     Read & Write, then add repo secrets DOCKERHUB_USERNAME and
+#     DOCKERHUB_TOKEN (same one-time-secret doctrine as AUR/COPR).
+#
+# Multi-arch linux/amd64 + linux/arm64 via QEMU: the image is plain
+# node:22-alpine and better-sqlite3 13.x ships prebuilt bindings for
+# every platform (incl. linuxmusl-arm64) inside its tarball — the
+# cross-build never invokes a compiler, so emulation stays cheap. ARM
+# self-hosting (Pi etc.) is a real deployment for a companion server.
+#
+# NOT wired into pkg-trigger.yml's dispatch chain: that relay exists to
+# work around release-event GITHUB_TOKEN restrictions on repo API
+# calls; this workflow only needs a checkout + an external registry, so
+# it triggers on the release event directly.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - server/**
+      - package.json
+      - pnpm-workspace.yaml
+      - pnpm-lock.yaml
+      - .github/workflows/docker-server.yml
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to (re)publish (e.g. v0.5.0); empty = :edge"
+        required: false
+        type: string
+
+# Same dedup/cancel policy as the other CI workflows; keyed by ref so a
+# release never cancels a concurrent edge build (or vice versa).
+concurrency:
+  group: docker-server-${{ github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: docker.io/iewnfod/lumina-code-server
+
+jobs:
+  push:
+    name: Build & push (amd64 + arm64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # master (or a bare dispatch) → :edge; anything else is a release
+      # tag (dispatch input wins) → :<version>-sans-v + :latest.
+      - name: Resolve image tags
+        id: tags
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ref="${DISPATCH_TAG:-$REF}"
+          if [[ "${ref}" == "master" ]]; then
+            echo "tags=${IMAGE}:edge" >> "$GITHUB_OUTPUT"
+            echo "version=edge" >> "$GITHUB_OUTPUT"
+          else
+            version="${ref#v}"
+            if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+              echo "::error::Ref '${ref}' is neither master nor a vX.Y.Z tag" >&2
+              exit 1
+            fi
+            echo "tags=${IMAGE}:${version},${IMAGE}:latest" >> "$GITHUB_OUTPUT"
+            echo "version=${version}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Fail with a pointed message instead of a cryptic login error
+      # when the one-time secrets were never added.
+      - name: Check Docker Hub credentials
+        env:
+          USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [[ -z "${USERNAME}" || -z "${TOKEN}" ]]; then
+            echo "::error::Missing DOCKERHUB_USERNAME / DOCKERHUB_TOKEN repo secrets — see this workflow's header comment for the one-time setup." >&2
+            exit 1
+          fi
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Build from the REPO ROOT (the Dockerfile's contract — the deps
+      # stage needs the workspace manifests + lockfile).
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.tags.outputs.version }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

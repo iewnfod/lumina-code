@@ -77,6 +77,18 @@ Mirrors lumina-terminal's pipeline (keep the two in sync when fixing one):
   (Fedora COPR) from the `.aur/PKGBUILD` / `.copr/lumina-code.spec`
   templates. One-time repo secrets: `AUR_SSH_PRIVATE_KEY`, `COPR_CONFIG`
   (plus a manually created COPR project `iewnfod/lumina-code`).
+- **docker-server.yml** — builds the lumina-server image and pushes it
+  to Docker Hub (`docker.io/iewnfod/lumina-code-server`, multi-arch
+  amd64+arm64 via QEMU — better-sqlite3 ships prebuilt musl bindings,
+  the cross-build never compiles). Two lanes: master pushes touching
+  the image's inputs (server/, the workspace manifests, the workflow
+  file) → `:edge`; published Releases → `:<version>` + `:latest`
+  (version = the release tag, sans v). Deliberately NOT on the
+  pkg-trigger dispatch chain — it needs no repo-API calls, so it
+  triggers on the release event directly. One-time secrets:
+  `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (Read & Write; plus the
+  manually created Docker Hub repo, so visibility is an explicit
+  choice).
 
 Release notes are written by hand (see `docs/RELEASE_PROMPT.md`), then the
 release publish fills in the assets. Asset names derive from productName

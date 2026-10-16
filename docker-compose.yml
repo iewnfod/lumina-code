@@ -11,7 +11,11 @@ services:
     build:
       context: .
       dockerfile: server/Dockerfile
-    # image: ghcr.io/iewnfod/lumina-server:latest   # once published
+    # Prebuilt alternative to the local build above — published by
+    # .github/workflows/docker-server.yml (master pushes → :edge,
+    # releases → :<version> + :latest). Swap `build:` for this once you
+    # prefer pulling over building:
+    # image: docker.io/iewnfod/lumina-code-server:latest
     ports:
       - "4600:3000"
     environment:

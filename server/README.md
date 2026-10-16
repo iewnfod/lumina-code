@@ -14,7 +14,8 @@ Web 管理界面 + session 镜像 API**，SQLite 单文件存储。
 
 - **代码不离开你的机器之外的地方**：agent、模型 API key、git 仓库都留在桌面；
   服务器只接收会话列表与消息快照（transcript 镜像），供其他设备浏览。
-- 桌面在线是移动端交互的前提（v1 不含 prompt 转发——那是下一个里程碑）。
+- 桌面在线是移动端交互的前提；prompt 转发（relay 环路）的服务端与桌面侧已就绪，
+  移动端客户端随移动里程碑发布。
 - 信任圈模型：所有登录用户可见全部已同步会话；目录级 ACL 是后续工作。
 
 ## 快速开始
@@ -22,7 +23,12 @@ Web 管理界面 + session 镜像 API**，SQLite 单文件存储。
 ### Docker（推荐）
 
 ```bash
-# 仓库根目录
+# 方式一：拉取已发布的镜像（CI 自动构建，amd64 + arm64）
+# master 推送 → :edge；GitHub Release → :<版本号> + :latest
+docker run -d --name lumina-server -p 4600:3000 \
+  -v lumina-data:/data docker.io/iewnfod/lumina-code-server:latest
+
+# 方式二：本地构建（仓库根目录）
 docker compose up -d
 # 打开 http://<host>:4600/ 注册第一个账号（自动成为 admin）
 ```
