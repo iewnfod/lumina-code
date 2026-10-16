@@ -58,6 +58,37 @@ export function stripUnconfirmed(messages: readonly ChatMessage[]): ChatMessage[
     return messages.filter((m) => !m.id.startsWith("local-"));
 }
 
+/** Caps for the diff mirror: file rows and total patch bytes. Keeps a
+ * huge working copy from flooding the snapshot (the count still tells
+ * the truth — truncated entries are counted, not silently dropped). */
+const MAX_DIFF_MIRROR_FILES = 200;
+const MAX_DIFF_MIRROR_BYTES = 2 * 1024 * 1024;
+
+/** Trim a workspace diff for mirroring: at most N files and B patch
+ * bytes total (a file whose patch crosses the budget is clipped; the
+ * remaining files drop their patch and keep counts). Pure. */
+export function truncateDiffForMirror(
+    entries: readonly {file: string; patch: string; additions: number; deletions: number; status: string}[],
+): {file: string; patch: string; additions: number; deletions: number; status: string}[] {
+    const out: {file: string; patch: string; additions: number; deletions: number; status: string}[] = [];
+    let budget = MAX_DIFF_MIRROR_BYTES;
+    for (const entry of entries) {
+        if (out.length >= MAX_DIFF_MIRROR_FILES) break;
+        if (budget <= 0) {
+            out.push({...entry, patch: ""});
+            continue;
+        }
+        if (entry.patch.length <= budget) {
+            out.push({...entry});
+            budget -= entry.patch.length;
+        } else {
+            out.push({...entry, patch: entry.patch.slice(0, budget)});
+            budget = 0;
+        }
+    }
+    return out;
+}
+
 /** A serial one-at-a-time task queue: pushes never overlap (the server
  * is SQLite, and ordering list-before-messages matters on first sync).
  * A rejected task logs itself and the chain continues. */

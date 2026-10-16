@@ -5,6 +5,7 @@ import path from "node:path";
 import {afterAll, describe, expect, it} from "vitest";
 
 import {createDatabase, type Db} from "./db.ts";
+import {SCHEMA_VERSION} from "./schema.ts";
 
 /** A throwaway on-disk database (exercises the dir-creation path too). */
 function tempDb(): {db: Db; dir: string} {
@@ -16,13 +17,13 @@ function tempDb(): {db: Db; dir: string} {
 const dirs: string[] = [];
 
 describe("createDatabase", () => {
-  it("creates tables and starts at schema_version 1", () => {
+  it("creates tables and stamps the current schema version", () => {
     const db = createDatabase(":memory:");
     const row = db
       .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
       .get() as {value: string};
-    expect(row.value).toBe("1");
-    for (const table of ["users", "tokens", "sessions", "messages"]) {
+    expect(row.value).toBe(String(SCHEMA_VERSION));
+    for (const table of ["users", "tokens", "sessions", "messages", "diffs"]) {
       expect(
         db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table),
       ).toBeTruthy();

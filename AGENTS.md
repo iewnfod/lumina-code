@@ -2338,8 +2338,19 @@ files; when a server connection is configured (Settings → Server),
 the sync engine mirrors the session LIST + per-session message
 snapshots UP so other devices (mobile, milestone 2) can browse them.
 Model API keys, git repos, and code files stay on the desktop; the
-server only ever holds transcript mirrors + accounts. Prompt relay
-(mobile → desktop) is explicitly out of scope for v1.
+server only ever holds transcript mirrors + accounts. The PROMPT RELAY
+forward path is now IN (the server-side half + the desktop consumer;
+the mobile client that queues prompts lives on feat/mobile-ohos):
+a remote client `POST /api/relay/prompt`s into a per-account queue
+(`relay_prompts`, at-least-once), the OWNING desktop's `useServerRelay`
+(AppBody, beside useServerSync) long-polls `GET /api/relay/poll?wait=25`,
+dedupes by id (opencode/relay.ts ledger, ≤2 attempts then ack-and-drop
+poison), ensureSessionSeeded's the target and injects via the plain
+prompt endpoint; the reply flows back as the next mirrored snapshots.
+Plus the WORKSPACE DIFF mirror: useServerSync piggy-backs
+`POST /api/sync/diffs` off its session-list pushes (truncated ≤200
+files / ≤2MB patches — truncateDiffForMirror), reading the stats
+card's diff cache via peekWorkspaceDiff.
 
 ```
 src/
@@ -2397,11 +2408,20 @@ the webview's localStorage, revocable from the web console),
 the sidebar's own view [root sessions minus lumina-tools helpers],
 stripUnconfirmed drops `local-*` optimistic bubbles, toSyncEntry
 flattens the model ref; + the serial createSyncQueue and the sync
-HEALTH module store), and `src/hooks/useServerSync.ts` (the engine,
+HEALTH module store; + truncateDiffForMirror capping the diff mirror),
+`src/hooks/useServerSync.ts` (the engine,
 mounted once in AppBody: session.* bus events → debounced full-list
 re-pull+push; message-store notifies → per-session trailing-debounced
 snapshot pushes; failures log + mark health + stay dirty for the 60s
-liveness retry — sync NEVER blocks or degrades the local app).
+liveness retry — sync NEVER blocks or degrades the local app), and the
+relay pair: `src/opencode/relay.ts` (pure at-least-once delivery
+ledger — dedupe by prompt id, FIFO-evicted, ≤2 attempts) +
+`src/hooks/useServerRelay.ts` (the consumer, mounted once in AppBody
+beside useServerSync: long-polls the relay inbox while a connection is
+enabled, ensureSessionSeeded + injects via the plain prompt endpoint,
+acks; poison prompts are acked and dropped, poll failures back off 5s).
+LuminaServerApi carries the full surface (sync-read + diffs + relay
+methods) — ONE client for every consumer.
 
 Scripts (root): `pnpm server:dev|build|test|typecheck`; CI:
 `.github/workflows/ci-server.yml` (vitest + next build). Server tests

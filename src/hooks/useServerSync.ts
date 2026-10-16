@@ -8,7 +8,9 @@ import {
     setSyncHealth,
     stripUnconfirmed,
     toSyncEntry,
+    truncateDiffForMirror,
 } from "../opencode/serverSync.ts";
+import {peekWorkspaceDiff} from "../opencode/useSessionActivity.ts";
 import {useConnection} from "../opencode/connectionContext.tsx";
 
 /**
@@ -108,6 +110,25 @@ export function useServerSync(): void {
                         message: "",
                         lastPushAt: new Date().toISOString(),
                     });
+                    // Piggy-back the workspace DIFF mirror: one push per
+                    // unique directory the stats card has a cached diff
+                    // for (never-opened directories push nothing).
+                    const seenDirs = new Set<string>();
+                    for (const session of mirrorable) {
+                        const dir = session.directory ?? session.location?.directory ?? "";
+                        if (!dir || seenDirs.has(dir)) continue;
+                        seenDirs.add(dir);
+                        const diff = peekWorkspaceDiff(dir);
+                        if (!diff || diff.length === 0) continue;
+                        const trimmed = truncateDiffForMirror(diff);
+                        try {
+                            await client.pushWorkspaceDiff(dir, trimmed);
+                        } catch (e) {
+                            // A diff push failing must never block the
+                            // session mirror — the next list push retries.
+                            logError(`[server-sync] diff ${dir}: ${e}`).catch(() => {});
+                        }
+                    }
                     if (!firstListDone) {
                         // First full sync: also mirror every session this
                         // app already holds a message store for (backgrounded

@@ -2,8 +2,11 @@ import {createDatabase} from "../db/db.ts";
 import {AuthError, createTokenForUser, createUser} from "./auth.ts";
 import {
   applyMessagesSnapshot,
+  applyDiffPush,
   applySessionPush,
+  getDiff,
   listLiveSessions,
+  parseDiffPush,
   parseSessionPush,
   type SessionPushEntry,
 } from "./sync.ts";
@@ -117,5 +120,51 @@ describe("applyMessagesSnapshot", () => {
     const {db, u1} = await setup();
     expect(() => applyMessagesSnapshot(db, u1.id, "ses_x", {nope: 1})).toThrow(AuthError);
     expect(() => applyMessagesSnapshot(db, u1.id, "", [])).toThrow(AuthError);
+  });
+});
+
+describe("diff mirror", () => {
+  it("push and read roundtrip, wholesale replace", async () => {
+    const {db, u1} = await setup();
+    applyDiffPush(
+      db,
+      u1.id,
+      "/repo",
+      parseDiffPush({
+        directory: "/repo",
+        entries: [{file: "a.ts", patch: "@@", additions: 3, deletions: 1, status: "modified"}],
+      }).entries,
+    );
+    let result = getDiff(db, "/repo");
+    expect(result?.entries).toHaveLength(1);
+    expect(result?.entries[0]).toEqual({
+      file: "a.ts",
+      patch: "@@",
+      additions: 3,
+      deletions: 1,
+      status: "modified",
+    });
+    // second push replaces
+    applyDiffPush(
+      db,
+      u1.id,
+      "/repo",
+      parseDiffPush({directory: "/repo", entries: [{file: "b.ts", patch: "", additions: 0, deletions: 0, status: "added"}]}).entries,
+    );
+    result = getDiff(db, "/repo");
+    expect(result?.entries.map((e) => e.file)).toEqual(["b.ts"]);
+    expect(getDiff(db, "/never")).toBeNull();
+  });
+
+  it("validates the push body", () => {
+    expect(() => parseDiffPush({entries: []})).toThrow(AuthError);
+    expect(() => parseDiffPush({directory: "/repo", entries: "x"})).toThrow(AuthError);
+    expect(() => parseDiffPush({directory: "/repo", entries: Array(501).fill({file: "x"})})).toThrow(AuthError);
+    // junk rows skipped, not fatal
+    const ok = parseDiffPush({
+      directory: "/repo",
+      entries: [{file: ""}, "junk", {file: "ok.ts", patch: "p"}],
+    });
+    expect(ok.entries.map((e) => e.file)).toEqual(["ok.ts"]);
   });
 });

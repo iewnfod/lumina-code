@@ -22,7 +22,7 @@
  *             one desktop, so snapshots never conflict).
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 3;
 
 export const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS users (
@@ -60,6 +60,23 @@ CREATE TABLE IF NOT EXISTS messages (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS diffs (
+  directory     TEXT PRIMARY KEY,
+  payload       TEXT NOT NULL, -- JSON array of WorkspaceDiffEntry (working-copy diff)
+  updated_at    TEXT NOT NULL,
+  owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS relay_prompts (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id   TEXT NOT NULL, -- target opencode session
+  from_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  text         TEXT NOT NULL,
+  created_at   TEXT NOT NULL
+  -- no FK to sessions: tombstoned sessions may still hold undelivered
+  -- prompts; the consumers' queries join against sessions anyway.
+);
+
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -68,7 +85,25 @@ CREATE TABLE IF NOT EXISTS meta (
 
 /** Additive schema changes for future versions; each entry runs once,
  * recorded in `meta`. Keyed `schema:<version>`. */
-export const MIGRATIONS: Record<string, string> = {};
+export const MIGRATIONS: Record<string, string> = {
+  // v2: the per-directory workspace diff mirror (mobile's Changes view).
+  "schema:2": `
+CREATE TABLE IF NOT EXISTS diffs (
+  directory     TEXT PRIMARY KEY,
+  payload       TEXT NOT NULL,
+  updated_at    TEXT NOT NULL,
+  owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
+);`,
+  // v3: the prompt-relay queue (mobile → desktop forwarding).
+  "schema:3": `
+CREATE TABLE IF NOT EXISTS relay_prompts (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id   TEXT NOT NULL,
+  from_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  text         TEXT NOT NULL,
+  created_at   TEXT NOT NULL
+);`,
+};
 
 export interface UserRow {
   id: number;
