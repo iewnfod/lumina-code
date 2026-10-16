@@ -1,0 +1,40 @@
+[package]
+name = "lumina-code-mobile"
+version = "0.1.0"
+description = "Lumina Code mobile client (remote companion for lumina-server)"
+authors = ["iewnfod"]
+edition = "2021"
+
+[lib]
+# The `_lib` suffix keeps the lib name unique vs. the bin (same pattern
+# as the webkit shell's crate).
+name = "lumina_code_mobile_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+# Pinned to the desktop shell's lock version (see the alignment note
+# below — tauri-build and tauri release in lockstep).
+tauri-build = { version = "=2.6.3", features = [] }
+
+[dependencies]
+# Version alignment: the tauri CLI ENFORCES crate↔npm major/minor
+# parity at mobile build time, and this repo has ONE package.json
+# shared with the desktop shells — so these are `=`-PINNED to the
+# desktop lock/npm versions (@tauri-apps/api 2.11.x, plugin-log 2.9.2,
+# plugin-opener 2.5.5). Caret reqs CANNOT express "stay on 2.11":
+# ^2.11 means <3.0.0, so a fresh resolve jumps to the newest minor
+# and trips the CLI's parity check (live-observed: ^2.11 → tauri
+# 2.12.4 vs npm api 2.11.1). Bump together with package.json.
+tauri = { version = "=2.11.6", features = [] }
+tauri-plugin-log = "=2.9.2"
+tauri-plugin-opener = "=2.5.5"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# iOS + Android ride the STABLE crates.io tauri 2 line — no branch
+# patches, no vendored crates (that was the HarmonyOS story, frozen on
+# the feat/mobile-ohos branch: tauri =2.11.5 patched to the official
+# `feat/open-harmony` branches of tauri/wry/tao/tauri-build plus a
+# vendored openharmony-ability, blocked on a device black-screen; see
+# mobile/README.md's HarmonyOS section before resuming it).

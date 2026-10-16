@@ -32,6 +32,7 @@ or ask the user to enter the plan mode for you.
 | Run the app (CEF/Chromium shell, Linux) | `pnpm dev:cef` — needs `~/.local/share/cef/cef_linux_x86_64` (the shared CEF binary distribution; the first cold build downloads it into OUT_DIR otherwise — through a proxy if the direct route stalls) |
 | Release-build the webkit shell | `pnpm tauri build` |
 | Release-build the CEF shell | `pnpm build:cef` |
+| Mobile web bundle dev / build (second vite entry, port 1421) | `pnpm dev:mobile` / `pnpm build:mobile` |
 | Typecheck + build frontend | `pnpm build` (`tsc && vite build`) |
 | Unit tests (pure frontend logic) | `pnpm test` (`node --test "src/**/*.test.ts" "src/**/*.test.js"`) |
 | Point dev at a different server binary | `OPENCODE_BIN=/path/to/opencode pnpm tauri dev` |
@@ -2332,6 +2333,42 @@ dependency versions.
 - Path asymmetry to remember: config paths (`frontendDist`) are relative to
   the conf file's directory; commands (`beforeDevCommand`) run relative to
   the app dir (`cef/`) — hence `../../dist` vs `--dir ..`.
+
+### The mobile app (`mobile/` + `src/mobile/`) — the remote companion
+
+iOS/Android client on **stable crates.io Tauri 2** (same version line as
+the webkit shell — no git patches, no vendored crates). The RELAY MODEL's
+third surface: the agent NEVER runs here; the app talks to a self-hosted
+lumina-server (mirrored sessions + prompt relay), so `mobile/src-tauri`
+deliberately ships no sidecar/no opencode — its Rust side is a KV store
+backing the webview's localStorage (kv_load/kv_set; the ArkWeb-null-
+localStorage shim from the HarmonyOS attempt, no-op on iOS/Android) plus
+the log plugin (ONE Stdout target — the plugin itself routes it to
+logcat/os_log on mobile, verified against tauri-plugin-log 2.10 source)
+and the opener plugin (markdown links).
+
+- **Frontend = second vite entry**: `mobile/index.html` → `src/mobile/`
+  (config `mobile/vite.config.ts`, port 1421, outDir `dist-mobile/`,
+  publicDir/node_modules shared with the root package). It REUSES the
+  desktop's rendering chain wholesale (`TranscriptList`, DiffViewBody,
+  sessionActivity folds, SurfaceColors/i18n/persistedStore) behind a
+  null-api ConnectionProvider; the shell is Login → SessionList →
+  read-only Session (3s snapshot poll + ActivityPanel + ComposerBar
+  relay prompt). `src/mobile/activity.ts` (+test) is the pure
+  derivation shared with the stats card.
+- **beforeBuildCommand runs at the REPO ROOT** (`pnpm run build:mobile`),
+  not in src-tauri — same asymmetry as the CEF shell.
+- `gen/android`/`gen/ios` (from `cargo tauri android/ios init`) are
+  committed project sources, build outputs ignored. iOS init/build needs
+  macOS (cc-rs requires xcrun); Linux covers `pnpm build:mobile` +
+  host/`aarch64-linux-android` `cargo check` only.
+- **HarmonyOS is FROZEN on the `feat/mobile-ohos` branch** (tauri
+  =2.11.5 patched to the official feat/open-harmony branches +
+  vendored openharmony-ability; blocked on a device black-screen, plus
+  tauri-plugin-log SIGABRT on ohos — this branch's lib.rs must cfg the
+  plugin out if that port resumes). Full investigation notes live in
+  that branch's `mobile/README.md`; a summary is kept in this branch's
+  `mobile/README.md` HarmonyOS section.
 
 ### lumina-server (`server/`) — the self-hosted companion server
 

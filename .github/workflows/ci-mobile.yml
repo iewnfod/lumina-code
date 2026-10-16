@@ -1,0 +1,80 @@
+name: CI - Mobile
+
+# The mobile client's web bundle (second vite entry, reusing the desktop
+# components) plus a HOST-target `cargo check` of the mobile Tauri crate
+# (stable crates.io tauri 2 — the same version line as the webkit shell,
+# so this catches dependency drift into mobile-incompatible shapes).
+# Full Android/iOS builds need the SDK toolchains / macOS and stay a
+# LOCAL/release concern (see mobile/README.md).
+
+on:
+  push:
+    paths:
+      - "mobile/**"
+      - "src/mobile/**"
+      - "src/i18n/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/ci-mobile.yml"
+  pull_request:
+    paths:
+      - "mobile/**"
+      - "src/mobile/**"
+      - "src/i18n/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/ci-mobile.yml"
+
+concurrency:
+  group: ci-mobile-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Mobile web bundle (vite)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build mobile bundle
+        run: pnpm build:mobile
+
+  crate:
+    name: Mobile crate (cargo check, host target)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: mobile/src-tauri
+
+      - name: Placeholder frontend dist (tauri-build needs it)
+        run: |
+          mkdir -p dist-mobile
+          echo '<!doctype html><title>Lumina Code Mobile</title>' > dist-mobile/index.html
+
+      - name: cargo check
+        run: cargo check --manifest-path mobile/src-tauri/Cargo.toml

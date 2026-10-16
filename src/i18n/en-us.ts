@@ -316,6 +316,12 @@ const enUs = {
     "Sync failed": "Sync failed",
     "Nothing to sync": "Nothing to sync",
     "Sync status unavailable": "Sync status unavailable",
+    // --- Mobile app ---
+    "Sessions": "Sessions",
+    "No sessions synced yet": "No sessions synced yet",
+    "Refresh": "Refresh",
+    "no snapshot": "no snapshot",
+    "Sent — waiting for the desktop": "Sent — waiting for the desktop",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;

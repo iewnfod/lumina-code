@@ -313,6 +313,12 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Sync failed": "同步失败",
     "Nothing to sync": "无需同步",
     "Sync status unavailable": "无法读取同步状态",
+    // --- 移动端 ---
+    "Sessions": "会话",
+    "No sessions synced yet": "还没有同步的会话",
+    "Refresh": "刷新",
+    "no snapshot": "无快照",
+    "Sent — waiting for the desktop": "已发送 — 等待桌面执行",
 };
 
 export default zhCn;
