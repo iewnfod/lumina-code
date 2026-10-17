@@ -39,10 +39,11 @@ services:
     restart: unless-stopped
 
   # frp 服务端：桌面 frpc 的出站信道 + 移动端直连的 vhost 路由。
-  # 配置见 server/deploy/frps.toml（改 auth.token）。
+  # 配置见 frps.toml（改 auth.token）。镜像用社区维护的 snowdreamtech/frps
+  # —— 官方 fatedier/frps 的 Docker Hub 仓库已停止发布新版本标签。
   frps:
     container_name: lumina-code-frps
-    image: fatedier/frps:0.61.1
+    image: snowdreamtech/frps:0.61.1
     restart: unless-stopped
     command: -c /etc/frps/frps.toml
     volumes:
