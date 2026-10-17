@@ -2216,14 +2216,23 @@ src-tauri/src/
 ├── system.rs      # is_wayland command (XDG_SESSION_TYPE, WAYLAND_DISPLAY fallback)
 ├── frp.rs         # REMOTE ACCESS: the frpc sidecar lifecycle (the tunnel's
 │                  #   replacement). frp_start {addr, port, token, routeId,
-│                  #   localPort} writes a throwaway frpc.toml into the app
-│                  #   data dir (TOML-escaped, routeId charset-validated —
-│                  #   it doubles as the frp proxy name AND the nginx
-│                  #   /t/<id>/ segment) and spawns the resource sidecar
-│                  #   (fetch-frp.mjs; $FRPC_BIN overrides); a monitor
-│                  #   thread emits "frp-status" running/exited, frp_stop
-│                  #   kills + removes the config, and the app-exit hook
-│                  #   calls frp::shutdown so the route drops with the app.
+│                  #   localPort, secure} writes a throwaway frpc.toml into
+│                  #   the app data dir (TOML-escaped, routeId
+│                  #   charset-validated — it doubles as the frp proxy name
+│                  #   AND the nginx /t/<id>/ segment) and spawns the
+│                  #   resource sidecar (fetch-frp.mjs; $FRPC_BIN
+│                  #   overrides); a monitor thread emits "frp-status"
+│                  #   running/exited, frp_stop kills + removes the config,
+│                  #   and the app-exit hook calls frp::shutdown so the
+│                  #   route drops with the app. TRANSPORT, by the secure
+│                  #   flag (server's LUMINA_FRPS_CONTROL decides):
+│                  #   secure=true → transport.protocol = "wss" — frpc
+│                  #   dials wss://addr:port/~!frp (path FIXED in frp
+│                  #   0.71.x) through nginx's WebSocket upgrade; the ONLY
+│                  #   shape that passes Cloudflare (CF fronts HTTP(S)
+│                  #   only and cuts frp's raw TCP frame — live-observed
+│                  #   as "session shutdown"). secure=false → legacy raw
+│                  #   TCP + frp's own TLS (direct-reach deployments).
 │                  #   Binary resolution mirrors resolve.rs: resource dir →
 │                  #   dev checkout binaries/ → PATH. The frontend half is
 │                  #   hooks/useServerFrp.ts (registration/heartbeat live
@@ -2412,12 +2421,17 @@ src/mobile/.
 The route's other halves: **server** `server/src/lib/frp.ts` +
 `server/src/app/api/frp/**` (config / routes / connect — the credential
 exchange over the `frp_routes` table, one CURRENT route per user with
-fresh-route takeover) + the frps container (server/deploy/frps.toml,
+fresh-route takeover; config also serves the CONTROL-CHANNEL WebSocket
+ride `LUMINA_FRPS_CONTROL` → `{control:{host,port,secure}}` — CF-fronted
+deployments MUST set it: Cloudflare passes only HTTP(S) and cuts frp's
+raw TCP frame at the edge) + the frps container (server/deploy/frps.toml,
 mounted by docker-compose: host ports are a contiguous block — 14600
-web / 14601 the frpc control channel (public) / 14602 the HTTP vhost
-(published loopback-only via the compose `127.0.0.1:` prefix — frps
-binds 0.0.0.0 INSIDE the container, because Docker's DNAT publishing
-cannot reach a container-loopback listener)); **desktop**
+web / 14601 the frpc control channel / 14602 the HTTP vhost (BOTH
+published loopback-only by default — the control channel rides nginx's
+`location = /~!frp` WebSocket upgrade (frp 0.71.x dials that exact path
+with `transport.protocol = "wss"`, frps accepts ws on bindPort natively —
+spike-verified); unset LUMINA_FRPS_CONTROL reverts to the legacy direct
+TCP mode, which needs 14601 published publicly)); **desktop**
 `src-tauri/src/frp.rs` (frpc child lifecycle, the opencode.rs pattern)
 driven by `src/hooks/useServerFrp.ts` (AppBody, gated by the Server
 settings' 远程访问开关 — registers the password + heartbeat, derives

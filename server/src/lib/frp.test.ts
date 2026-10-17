@@ -7,6 +7,7 @@ import {
   getFrpConnect,
   listFrpRoutes,
   mintRouteId,
+  parseControlUrl,
   parsePassword,
   registerFrpRoute,
 } from "./frp.ts";
@@ -22,7 +23,7 @@ async function setup() {
 
 describe("frpServerConfig", () => {
   it("disabled without a token", () => {
-    expect(frpServerConfig({})).toEqual({enabled: false, bindPort: 7000, token: ""});
+    expect(frpServerConfig({})).toEqual({enabled: false, bindPort: 7000, token: "", control: null});
     expect(frpServerConfig({LUMINA_FRPS_TOKEN: "  "}).enabled).toBe(false);
   });
 
@@ -31,9 +32,53 @@ describe("frpServerConfig", () => {
       enabled: true,
       bindPort: 8123,
       token: "t",
+      control: null,
     });
     expect(frpServerConfig({LUMINA_FRPS_TOKEN: "t", LUMINA_FRPS_BIND_PORT: "nope"}).bindPort).toBe(7000);
     expect(frpServerConfig({LUMINA_FRPS_TOKEN: "t", LUMINA_FRPS_BIND_PORT: "-5"}).bindPort).toBe(7000);
+  });
+});
+
+describe("parseControlUrl", () => {
+  it("null when unset or blank", () => {
+    expect(parseControlUrl(undefined)).toBeNull();
+    expect(parseControlUrl("   ")).toBeNull();
+  });
+
+  it("parses wss with the scheme-default port", () => {
+    expect(parseControlUrl("wss://lumina.example.com")).toEqual({
+      host: "lumina.example.com",
+      port: 443,
+      secure: true,
+    });
+  });
+
+  it("parses ws with an explicit port", () => {
+    expect(parseControlUrl("ws://frps.example.com:7000/")).toEqual({
+      host: "frps.example.com",
+      port: 7000,
+      secure: false,
+    });
+  });
+
+  it("parses wss with an explicit port", () => {
+    expect(parseControlUrl("wss://a.b:8443")).toEqual({host: "a.b", port: 8443, secure: true});
+  });
+
+  it("rejects junk instead of half-parsing", () => {
+    expect(parseControlUrl("not a url")).toBeNull();
+    expect(parseControlUrl("https://a.b")).toBeNull(); // ws/wss only
+    expect(parseControlUrl("wss://user:pw@a.b")).toBeNull();
+    expect(parseControlUrl("wss://a.b/~!frp")).toBeNull(); // path is frpc's own business
+    expect(parseControlUrl("wss://a.b?x=1")).toBeNull();
+  });
+
+  it("rides along in frpServerConfig", () => {
+    expect(
+      frpServerConfig({LUMINA_FRPS_TOKEN: "t", LUMINA_FRPS_CONTROL: "wss://lumina.example.com"})
+        .control,
+    ).toEqual({host: "lumina.example.com", port: 443, secure: true});
+    expect(frpServerConfig({LUMINA_FRPS_TOKEN: "t", LUMINA_FRPS_CONTROL: "junk"}).control).toBeNull();
   });
 });
 

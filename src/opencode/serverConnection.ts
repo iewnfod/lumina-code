@@ -204,8 +204,18 @@ export class LuminaServerApi {
 
     /** What the desktop needs to point frpc at the server's frps:
      * the control-channel bind port + shared token. `enabled: false`
-     * means the operator did not configure LUMINA_FRPS_TOKEN. */
-    frpConfig(): Promise<{enabled: boolean; bindPort?: number; token?: string}> {
+     * means the operator did not configure LUMINA_FRPS_TOKEN.
+     * `control`, when present (LUMINA_FRPS_CONTROL set server-side):
+     * the WebSocket ride — frpc dials `wss://host:port/~!frp` through
+     * nginx instead of raw TCP (Cloudflare-fronted deployments; the
+     * dial path is FIXED in frp 0.71.x). Absent = legacy direct
+     * `host:bindPort`. */
+    frpConfig(): Promise<{
+        enabled: boolean;
+        bindPort?: number;
+        token?: string;
+        control?: {host: string; port: number; secure: boolean};
+    }> {
         return this.request("/api/frp/config");
     }
 

@@ -122,16 +122,26 @@ export function useServerFrp(): void {
                 currentRoute = route.routeId;
                 if (cancelled) return;
                 setServerFrpRouteId(route.routeId);
+                // Control channel: the WebSocket ride when the server
+                // fronts frps through an HTTP proxy (LUMINA_FRPS_CONTROL
+                // — Cloudflare deployments MUST use it; frp's raw TCP
+                // frame gets cut at the edge), else the legacy direct
+                // `host:bindPort`.
+                const frpsHost = config.control?.host ?? new URL(url).hostname;
+                const frpsPort = config.control?.port ?? config.bindPort;
                 await invoke("frp_start", {
-                    addr: new URL(url).hostname,
-                    port: config.bindPort,
+                    addr: frpsHost,
+                    port: frpsPort,
                     token: config.token,
                     routeId: route.routeId,
                     localPort,
+                    secure: config.control?.secure === true,
                 });
                 if (cancelled) return;
                 setFrpStatus("running");
-                logInfo(`[server-frp] route ${route.routeId} live (frps ${new URL(url).hostname}:${config.bindPort})`).catch(() => {});
+                logInfo(
+                    `[server-frp] route ${route.routeId} live (frps ${frpsHost}:${frpsPort}${config.control ? (config.control.secure ? " wss" : " ws") : ""})`,
+                ).catch(() => {});
                 // attempt() can re-run after an unexpected frpc exit —
                 // drop any heartbeat a previous success armed first.
                 if (heartbeat !== null) clearInterval(heartbeat);

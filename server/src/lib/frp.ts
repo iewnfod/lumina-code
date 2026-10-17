@@ -37,6 +37,51 @@ export interface FrpServerConfig {
   enabled: boolean;
   bindPort: number;
   token: string;
+  /** How frpc reaches the frps CONTROL channel over WebSocket instead
+   * of raw TCP (null = legacy direct `host:bindPort`). See
+   * parseControlUrl. */
+  control: FrpControlConfig | null;
+}
+
+/** The WebSocket ride for frps's control channel. Needed when the
+ * server is fronted by an HTTP-only reverse proxy (Cloudflare's free
+ * tier passes just HTTP(S) ports and speaks HTTP, so frp's raw TCP
+ * frame gets cut at the edge — live-observed as `session shutdown`).
+ * frpc then dials `wss://host:port/~!frp` (the path is FIXED in frp
+ * 0.71.x, spike-verified) and nginx routes that exact location to
+ * frps's bind port — frps accepts WebSocket on it natively, zero
+ * config. TLS is the wss layer itself. */
+export interface FrpControlConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+}
+
+/** Parse LUMINA_FRPS_CONTROL (`wss://lumina.example.com`,
+ * `ws://frps.example.com:7000`). Strict: ws/wss only, no path/query/
+ * credentials, explicit or scheme-default port. Null when unset or
+ * junk — the operator's typo must degrade to the documented legacy
+ * mode, not a half-parsed host. Pure. */
+export function parseControlUrl(raw: string | undefined): FrpControlConfig | null {
+  const trimmed = (raw ?? "").trim();
+  if (trimmed === "") return null;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  const secure = url.protocol === "wss:";
+  if (!secure && url.protocol !== "ws:") return null;
+  if (url.username || url.password || url.search || url.hash) return null;
+  if (url.pathname !== "/" && url.pathname !== "") return null;
+  const port = url.port
+    ? Number.parseInt(url.port, 10)
+    : secure
+      ? 443
+      : 80;
+  if (!Number.isFinite(port) || port <= 0 || port >= 65536) return null;
+  return {host: url.hostname, port, secure};
 }
 
 /** Read LUMINA_FRPS_* (compose wires them next to the frps service). */
@@ -49,6 +94,7 @@ export function frpServerConfig(
     enabled: token !== "",
     bindPort: Number.isFinite(bindPort) && bindPort > 0 && bindPort < 65536 ? bindPort : 7000,
     token,
+    control: parseControlUrl(env.LUMINA_FRPS_CONTROL),
   };
 }
 
