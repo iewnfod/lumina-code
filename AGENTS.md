@@ -2408,8 +2408,11 @@ The route's other halves: **server** `server/src/lib/frp.ts` +
 `server/src/app/api/frp/**` (config / routes / connect — the credential
 exchange over the `frp_routes` table, one CURRENT route per user with
 fresh-route takeover) + the frps container (server/deploy/frps.toml,
-mounted by docker-compose: control channel 7000 public, HTTP vhost
-7100 loopback-only via `proxyBindAddr`); **desktop**
+mounted by docker-compose: host ports are a contiguous block — 14600
+web / 14601 the frpc control channel (public) / 14602 the HTTP vhost
+(published loopback-only via the compose `127.0.0.1:` prefix — frps
+binds 0.0.0.0 INSIDE the container, because Docker's DNAT publishing
+cannot reach a container-loopback listener)); **desktop**
 `src-tauri/src/frp.rs` (frpc child lifecycle, the opencode.rs pattern)
 driven by `src/hooks/useServerFrp.ts` (AppBody, gated by the Server
 settings' 远程访问开关 — registers the password + heartbeat, derives

@@ -7,8 +7,8 @@ Web 管理界面 + 远程访问凭证交换**，SQLite 单文件存储；与 frp
 ## 架构定位（frp 直连模型）
 
 ```
-桌面 Lumina Code ──frpc 出站（TLS）──▶ frps :7000（控制信道）
-  本地 opencode（agent 始终在本机）              ▲ HTTP vhost :7100（仅回环）
+桌面 Lumina Code ──frpc 出站（TLS）──▶ frps :14601（控制信道）
+  本地 opencode（agent 始终在本机）              ▲ HTTP vhost :14602（仅回环）
   └─ 注册引擎：opencode 密码 + 路由 id ◀─凭证交换─┤
                                                 │
 移动端 App ──HTTPS──▶ 你的 nginx ──/t/<routeId>/─┘ （Host 改写路由）
@@ -30,14 +30,14 @@ Web 管理界面 + 远程访问凭证交换**，SQLite 单文件存储；与 frp
 # master 推送 → :edge；GitHub Release → :<版本号> + :latest
 docker compose up -d
 # 更新到新版 :latest：docker compose pull && docker compose up -d
-# 打开 http://<host>:4600/ 注册第一个账号（自动成为 admin）
+# 打开 http://<host>:14600/ 注册第一个账号（自动成为 admin）
 ```
 
 不想用 compose 也可以直接 run（远程访问需自行在旁边跑一个 frps，
 配置对齐 `server/deploy/frps.toml` 与 `LUMINA_FRPS_TOKEN`）：
 
 ```bash
-docker run -d --name lumina-server -p 4600:3000 \
+docker run -d --name lumina-server -p 14600:3000 \
   -v lumina-data:/data iewnfod/lumina-code-server:latest
 ```
 
@@ -45,7 +45,7 @@ docker run -d --name lumina-server -p 4600:3000 \
 
 ```bash
 docker build -f server/Dockerfile -t lumina-code-server .
-docker run -d -p 4600:3000 -v lumina-data:/data lumina-code-server
+docker run -d -p 14600:3000 -v lumina-data:/data lumina-code-server
 ```
 
 数据就是卷里的 `lumina.db` 一个文件，备份即拷贝。
@@ -54,7 +54,7 @@ docker run -d -p 4600:3000 -v lumina-data:/data lumina-code-server
 
 ```bash
 pnpm install
-pnpm server:dev        # http://localhost:4600
+pnpm server:dev        # http://localhost:14600
 pnpm server:build && (cd server && npx next start)
 ```
 
@@ -66,8 +66,8 @@ pnpm server:build && (cd server && npx next start)
 | `LUMINA_ALLOW_REGISTRATION` | `true` | `false` 关闭注册（已有账号仍可登录） |
 | `LUMINA_COOKIE_SECURE` | `0` | `1` 时登录 cookie 标记 Secure（仅当本服务自身走 TLS） |
 | `LUMINA_FRPS_TOKEN` | 空 | frp 远程访问开关：与 `server/deploy/frps.toml` 的 `auth.token` 一致；留空 = 不提供远程访问 |
-| `LUMINA_FRPS_BIND_PORT` | `7000` | frps 控制信道端口（桌面 frpc 连这里） |
-| `PORT` | Next 默认 | 容器内监听 3000，compose 映射到 4600 |
+| `LUMINA_FRPS_BIND_PORT` | `7000` | frps 控制信道的【宿主机】端口（桌面 frpc 连它；compose 里是 14601） |
+| `PORT` | Next 默认 | 容器内监听 3000，compose 映射到 14600 |
 
 ## 桌面端接入
 
@@ -81,8 +81,8 @@ Lumina Code → 设置 → **服务器**：填服务器地址 + 用户名密码�
 SSE 流式）。服务器只做凭证交换：
 
 ```
-桌面 frpc ──出站 TLS──▶ frps :7000（控制信道）
-移动端 ──HTTPS──▶ nginx ──/t/<routeId>/ + Host 改写──▶ frps vhost :7100（仅回环）
+桌面 frpc ──出站 TLS──▶ frps :14601（控制信道）
+移动端 ──HTTPS──▶ nginx ──/t/<routeId>/ + Host 改写──▶ frps vhost :14602（仅回环）
                                                           │ 按 Host 路由
                                                           ▼
                                                      桌面 opencode
@@ -92,19 +92,19 @@ SSE 流式）。服务器只做凭证交换：
 
 1. **改 token**：`server/deploy/frps.toml` 的 `auth.token` 与 compose 里
    `LUMINA_FRPS_TOKEN` 填同一个随机串（`openssl rand -hex 16`）。
-2. **`docker compose up -d`**：frps 服务随 compose 一起起来（7000 公网、
-   7100 仅宿主机回环）。
+2. **`docker compose up -d`**：frps 服务随 compose 一起起来（14601 公网、
+   14602 仅宿主机回环）。
 3. **nginx 加 /t/ 路由**（TLS 终结 + 路径剥离 + Host 改写；`proxy_buffering
    off` 三件套对流式是硬要求，nginx 默认开 buffering 会把 SSE 攒批）：
 
 ```nginx
 location / {
-    proxy_pass http://127.0.0.1:4600;                    # lumina-server 本体
+    proxy_pass http://127.0.0.1:14600;                   # lumina-server 本体
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 }
 
 location ~ ^/t/(?<frp_route>[A-Za-z0-9_-]+)/(?<frp_path>.*) {
-    proxy_pass http://127.0.0.1:7100/$frp_path$is_args$args;
+    proxy_pass http://127.0.0.1:14602/$frp_path$is_args$args;
     proxy_set_header Host $frp_route.frp.internal;       # frps 按此路由
     proxy_http_version 1.1;
     proxy_set_header Connection "";
@@ -116,8 +116,8 @@ location ~ ^/t/(?<frp_route>[A-Za-z0-9_-]+)/(?<frp_path>.*) {
 }
 ```
 
-nginx 在容器里跑的话，把 `127.0.0.1:7100` 换成 compose 网络里的
-`frps:7100`，并去掉 compose 里 7100 的回环发布。
+nginx 在容器里跑的话，把 `127.0.0.1:14602` 换成 compose 网络里的
+`frps:7100`（容器内端口），并去掉 compose 里 14602 的回环发布。
 
 **信任模型（务必知悉）**：
 
@@ -132,7 +132,7 @@ nginx 在容器里跑的话，把 `127.0.0.1:7100` 换成 compose 网络里的
 
 服务器本身不做 TLS。公网/跨网访问请放在反向代理后面：
 
-- **Caddy**（自动 HTTPS）：`lumina.example.com { reverse_proxy 127.0.0.1:4600 }`
+- **Caddy**（自动 HTTPS）：`lumina.example.com { reverse_proxy 127.0.0.1:14600 }`
 - **nginx + certbot** 同理。
 - 内网/家庭网络：Tailscale / WireGuard / frp 都是常见选择——客户端只是
   填一个可达的地址，组网方式完全由你决定。

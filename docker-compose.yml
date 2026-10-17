@@ -3,7 +3,7 @@
 #   docker compose up -d                                # 首次运行自动建卷
 #   docker compose pull && docker compose up -d          # 更新到新版 :latest
 #
-# 打开 http://<host>:4600/ 注册第一个账号（自动成为 admin）。数据就是
+# 打开 http://<host>:14600/ 注册第一个账号（自动成为 admin）。数据就是
 # 卷里的 lumina.db 一个文件，备份即拷贝。TLS/组网见 server/README.md。
 #
 # 镜像由 .github/workflows/docker-server.yml 自动构建推送：
@@ -17,7 +17,7 @@ services:
   lumina-server:
     image: iewnfod/lumina-code-server:latest
     ports:
-      - "4600:3000"
+      - "14600:3000"
     environment:
       LUMINA_DATA_DIR: /data
       # Set to "false" to close registration after everyone joined.
@@ -25,8 +25,11 @@ services:
       # "1" only when this port is TLS itself (no reverse proxy).
       LUMINA_COOKIE_SECURE: "0"
       # frp 远程访问：必须与 server/deploy/frps.toml 的 auth.token 一致
-      # （留空 = 服务器不提供远程访问）。bindPort 默认 7000。
+      # （留空 = 服务器不提供远程访问）。bindPort 必须填 frps 的
+      # 【宿主机】公开端口（= 下方 frps 服务的发布端口），桌面 frpc
+      # 连的是它。
       LUMINA_FRPS_TOKEN: "CHANGE_ME_TOO"
+      LUMINA_FRPS_BIND_PORT: "14601"
     volumes:
       - lumina-data:/data
     restart: unless-stopped
@@ -40,10 +43,11 @@ services:
     volumes:
       - ./server/deploy/frps.toml:/etc/frps/frps.toml:ro
     ports:
-      # frpc 控制信道（公网可达；frpc 侧启用 TLS）
-      - "7000:7000"
-      # HTTP vhost —— 只绑宿主机回环，nginx 的 /t/ 路由从这里转发
-      - "127.0.0.1:7100:7100"
+      # 端口连排：14600 web / 14601 frps 控制信道 / 14602 frps vhost。
+      # 14601 公网可达（frpc 侧 transport.tls.enable 加密）；vhost 只
+      # 发布到宿主机回环 —— 唯一入口是 nginx 的 /t/ 路由（TLS 在那终结）。
+      - "14601:7000"
+      - "127.0.0.1:14602:7100"
 
 volumes:
   lumina-data:

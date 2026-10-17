@@ -6,17 +6,17 @@
 #
 #   openssl rand -hex 16
 #
-# 端口约定：
-#   7000  frpc 控制信道（公网可达；frpc 侧 transport.tls.enable 加密）
-#   7100  HTTP vhost（只发布到宿主机回环，由 nginx /t/ 路由转发进来）
+# 端口约定（compose 里的【宿主机】端口连排，容器内端口不变）：
+#   14601 → 7000   frpc 控制信道（公网可达；frpc 侧 transport.tls 加密）
+#   14602 → 7100   HTTP vhost（仅宿主机回环发布，nginx /t/ 路由转发进来）
 #
-# proxy_bind_address 把代理端口绑在回环上：即使有人误把 7100 发布
-# 到公网，frps 也只听 127.0.0.1 —— 路由必须经过 nginx 的 TLS。
+# vhost 在容器内必须绑 0.0.0.0：Docker 的端口发布是 DNAT 到容器 IP，
+# 容器内进程若只绑容器自己的 loopback，发布端口转发不进去。"只允许
+# 宿主机回环访问"由 compose 发布规则的 127.0.0.1: 前缀保证，而不是这里。
 
 bindAddr = "0.0.0.0"
 bindPort = 7000
 
 vhostHTTPPort = 7100
-proxyBindAddr = "127.0.0.1"
 
 auth.token = "CHANGE_ME"
