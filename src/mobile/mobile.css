@@ -31,11 +31,9 @@ body,
     min-height: 0;
     display: flex;
     flex-direction: column;
-    /* Notch/home-indicator aware paddings. */
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
+    /* Safe-area insets arrive NATIVELY (MainActivity pads the content
+     * view) — no env() here, see the note above the desktop-tree
+     * adaptations. */
     -webkit-user-select: none;
     user-select: none;
     overscroll-behavior: none;
@@ -88,17 +86,10 @@ body,
  * mobile adaptations. mobile.css loads ONLY in the mobile bundle, so
  * plain selectors here are mobile-scoped by construction. */
 
-/* Edge-to-edge: tauri's MainActivity calls enableEdgeToEdge(), so the
- * webview starts at y=0 BEHIND the system status bar — the desktop
- * tree's title bar would collide with the clock/battery. Pad the app
- * root (the single full-screen div) by the safe-area insets. */
-#root > div {
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
-    box-sizing: border-box;
-}
+/* Safe areas are handled NATIVELY: MainActivity pads the content view
+ * by the real window insets (Android WebView does not reliably surface
+ * env(safe-area-inset-*) to CSS — live-observed device overlap). No
+ * env() padding here, or devices where it DOES work would double-pad. */
 
 /* The composer toolbar's fixed-size cluster overflows a phone's width
  * (attach + mode + project + usage ring + model + thinking): let it
@@ -118,7 +109,7 @@ body,
     display: flex;
     flex-direction: column;
     gap: 22px;
-    padding: calc(28px + env(safe-area-inset-top)) 18px 24px;
+    padding: 28px 18px 24px;
     max-width: 460px;
     width: 100%;
     margin: 0 auto;
