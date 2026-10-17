@@ -122,6 +122,14 @@ jobs:
           LUMINA_BINARIES_DIR: ${{ matrix.shell == 'cef' && 'cef/src-tauri/binaries' || '' }}
         run: pnpm fetch:opencode ${{ matrix.target }}
 
+      # The frpc resource sidecar (remote access), same per-target pattern
+      # and same LUMINA_BINARIES_DIR redirect for the CEF leg. Go binary —
+      # the same patchelf pitfalls as the opencode sidecar below apply.
+      - name: Fetch frpc sidecar (${{ matrix.target }})
+        env:
+          LUMINA_BINARIES_DIR: ${{ matrix.shell == 'cef' && 'cef/src-tauri/binaries' || '' }}
+        run: pnpm fetch:frp ${{ matrix.target }}
+
       # aarch64-unknown-linux-gnu only: the Go sidecar's ELF (64K-aligned
       # PT_LOADs, Go's aarch64 layout) cannot survive ANY patchelf rewrite —
       # linuxdeploy's bundled patchelf corrupts it during --set-rpath, and

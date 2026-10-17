@@ -26,20 +26,40 @@ export function isCefRuntime() {
     return isLinux() && / Chrome\/\d+/.test(navigator.userAgent);
 }
 
+/**
+ * Extra CORS origins the local opencode server must allow beyond the
+ * desktop webview's own: the REMOTE clients that reach it through the
+ * frp route. These are the fixed webview origins of a Tauri v2 mobile
+ * app (verified constants — Android serves assets from
+ * http://tauri.localhost, Windows-flavored builds use https, iOS uses
+ * the custom scheme) plus the mobile dev server. All of them are
+ * still gated by opencode's basic auth — CORS only lets the preflight
+ * through. Passed to the repeatable `--cors` flag at spawn
+ * (opencode_start's `origins`).
+ */
+export function remoteCorsOrigins(): string[] {
+    return [
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+        "tauri://localhost",
+        "http://localhost:1421",
+    ];
+}
+
 declare global {
     interface Window {
         /** Set by the MOBILE entry (src/mobile/kv.ts) before the app
          * bundle imports — the one flag distinguishing the mobile app
-         * (desktop UI tree over a remote tunnel) from the desktop. */
+         * (desktop UI tree over a remote route) from the desktop. */
         __LUMINA_MOBILE__?: boolean;
     }
 }
 
 /**
  * Whether this is the MOBILE app (the second vite entry): the desktop
- * UI tree running against a REMOTE opencode via the lumina-server
- * tunnel — see opencode/useOpencode.ts's remote branch. Decided by a
- * window flag the mobile entry plants before any module evaluates
+ * UI tree running against a REMOTE opencode via the server's frp
+ * direct route — see opencode/useOpencode.ts's remote branch. Decided
+ * by a window flag the mobile entry plants before any module evaluates
  * (kv.ts loads before the app bundle by construction).
  */
 export function isMobileApp() {

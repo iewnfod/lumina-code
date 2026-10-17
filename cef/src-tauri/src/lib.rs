@@ -9,6 +9,8 @@
 // inside src-tauri/src/opencode/ automatically.
 #[path = "../../../src-tauri/src/blur.rs"]
 mod blur;
+#[path = "../../../src-tauri/src/frp.rs"]
+mod frp;
 #[path = "../../../src-tauri/src/notify.rs"]
 mod notify;
 #[path = "../../../src-tauri/src/opencode/mod.rs"]
@@ -84,9 +86,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .manage(opencode::OpencodeState::default())
+        .manage(frp::FrpState::default())
         .invoke_handler(tauri::generate_handler![
             system::is_wayland,
             opencode::opencode_start,
+            frp::frp_start,
+            frp::frp_stop,
             notify::desktop_notify,
             blur::blur_my_shell_probe,
             blur::blur_my_shell_set_whitelist
@@ -98,6 +103,7 @@ pub fn run() {
             // otherwise it would be orphaned on the user's machine.
             if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
                 opencode::shutdown(app_handle);
+                frp::shutdown(app_handle);
             }
         });
 }

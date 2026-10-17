@@ -279,15 +279,15 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Adds a vision tool that text-only models can call to see images": "提供识图工具：纯文字模型可以调用它查看图片",
     "No vision-capable models found": "没有支持图片输入的模型",
     "Custom tools are stored in the global OpenCode config": "自定义工具保存在 OpenCode 全局配置中",
-    // --- Server sync（自部署 lumina-server） ---
+    // --- Server（自部署 lumina-server） ---
     "Server": "服务器",
-    "Server sync": "服务器同步",
-    "Remote access (tunnel)": "远程访问（隧道）",
-    "Let mobile clients use this machine's OpenCode through the server while it is online.":
-        "让移动端在本机在线时通过服务器使用这台机器的 OpenCode。",
+    "Remote access": "远程访问",
+    "Expose this machine's OpenCode directly to your signed-in mobile clients through the server.":
+        "将本机的 OpenCode 直接暴露给你登录的移动设备（经服务器路由直连）。",
     "Server address": "服务器地址",
     "Server address must start with http:// or https://": "服务器地址必须以 http:// 或 https:// 开头",
-    "The agent runs on this machine; sessions are mirrored to your server for other devices.": "agent 始终在本机运行；会话会镜像到你的服务器，供其他设备查看。",
+    "Sign in to your self-hosted lumina-server to enable remote access from your mobile devices.":
+        "登录自部署的 lumina-server，为移动设备开启远程访问。",
     "Username": "用户名",
     "Password": "密码",
     "Sign in": "登录",
@@ -295,11 +295,6 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Sign out": "退出登录",
     "Signed in": "已登录",
     "Enter a username and password": "请输入用户名和密码",
-    "Sync status": "同步状态",
-    "Up to date": "已同步",
-    "Sync error": "同步出错",
-    "Idle": "空闲",
-    "Last mirror": "上次镜像",
     // --- Worktree 写回（统计面板 → 分支同步） ---
     "Branch sync": "分支同步",
     "Sync to local branch": "同步到本地分支",

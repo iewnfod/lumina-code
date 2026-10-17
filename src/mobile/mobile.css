@@ -154,7 +154,7 @@ body,
 
 /* ------------------------------------------------------ The login card --
  * The one custom screen: server address + credentials → the device
- * token the tunnel rides on. */
+ * token the remote route rides on. */
 
 .lum-m-login {
     flex: 1;

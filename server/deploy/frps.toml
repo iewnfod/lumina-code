@@ -1,0 +1,22 @@
+# frps 配置 —— lumina-server 远程访问（frp 直连）的服务端半边。
+#
+# docker-compose.yml 把这个文件挂载进 fatedier/frps 容器。
+# 部署时只需要改 auth.token（与 compose 里 lumina-server 的
+# LUMINA_FRPS_TOKEN 保持一致），生成方式：
+#
+#   openssl rand -hex 16
+#
+# 端口约定：
+#   7000  frpc 控制信道（公网可达；frpc 侧 transport.tls.enable 加密）
+#   7100  HTTP vhost（只发布到宿主机回环，由 nginx /t/ 路由转发进来）
+#
+# proxy_bind_address 把代理端口绑在回环上：即使有人误把 7100 发布
+# 到公网，frps 也只听 127.0.0.1 —— 路由必须经过 nginx 的 TLS。
+
+bindAddr = "0.0.0.0"
+bindPort = 7000
+
+vhostHTTPPort = 7100
+proxyBindAddr = "127.0.0.1"
+
+auth.token = "CHANGE_ME"

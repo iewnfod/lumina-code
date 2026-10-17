@@ -282,15 +282,15 @@ const enUs = {
     "Adds a vision tool that text-only models can call to see images": "Adds a vision tool that text-only models can call to see images",
     "No vision-capable models found": "No vision-capable models found",
     "Custom tools are stored in the global OpenCode config": "Custom tools are stored in the global OpenCode config",
-    // --- Server sync (self-hosted lumina-server) ---
+    // --- Server (self-hosted lumina-server) ---
     "Server": "Server",
-    "Server sync": "Server sync",
-    "Remote access (tunnel)": "Remote access (tunnel)",
-    "Let mobile clients use this machine's OpenCode through the server while it is online.":
-        "Let mobile clients use this machine's OpenCode through the server while it is online.",
+    "Remote access": "Remote access",
+    "Expose this machine's OpenCode directly to your signed-in mobile clients through the server.":
+        "Expose this machine's OpenCode directly to your signed-in mobile clients through the server.",
     "Server address": "Server address",
     "Server address must start with http:// or https://": "Server address must start with http:// or https://",
-    "The agent runs on this machine; sessions are mirrored to your server for other devices.": "The agent runs on this machine; sessions are mirrored to your server for other devices.",
+    "Sign in to your self-hosted lumina-server to enable remote access from your mobile devices.":
+        "Sign in to your self-hosted lumina-server to enable remote access from your mobile devices.",
     "Username": "Username",
     "Password": "Password",
     "Sign in": "Sign in",
@@ -298,11 +298,6 @@ const enUs = {
     "Sign out": "Sign out",
     "Signed in": "Signed in",
     "Enter a username and password": "Enter a username and password",
-    "Sync status": "Sync status",
-    "Up to date": "Up to date",
-    "Sync error": "Sync error",
-    "Idle": "Idle",
-    "Last mirror": "Last mirror",
     // --- Worktree write-back (stats panel → branch sync) ---
     "Branch sync": "Branch sync",
     "Sync to local branch": "Sync to local branch",

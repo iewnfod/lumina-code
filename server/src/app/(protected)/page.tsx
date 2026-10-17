@@ -17,20 +17,16 @@ function fileSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
 }
 
-/** Overview: server facts + mirror freshness at a glance. */
+/** Overview: server facts + remote-access routes at a glance. */
 export default async function DashboardPage() {
   const db = getDb();
   const count = (sql: string) => (db.prepare(sql).get() as {c: number}).c;
   const users = count("SELECT COUNT(*) c FROM users");
   const tokens = count("SELECT COUNT(*) c FROM tokens");
-  const sessions = count("SELECT COUNT(*) c FROM sessions WHERE deleted = 0");
-  const snapshots = count("SELECT COUNT(*) c FROM messages");
-  const payloadBytes = (
-    db.prepare("SELECT COALESCE(SUM(LENGTH(payload)), 0) b FROM messages").get() as {b: number}
-  ).b;
-  const lastMirror = (
+  const routes = count("SELECT COUNT(*) c FROM frp_routes");
+  const lastHeartbeat = (
     db
-      .prepare("SELECT MAX(updated_at) m FROM sessions")
+      .prepare("SELECT MAX(updated_at) m FROM frp_routes")
       .get() as {m: string | null}
   ).m;
 
@@ -50,12 +46,8 @@ export default async function DashboardPage() {
           <p className="muted">users</p>
         </div>
         <div className="card">
-          <h2>{sessions}</h2>
-          <p className="muted">synced sessions</p>
-        </div>
-        <div className="card">
-          <h2>{snapshots}</h2>
-          <p className="muted">message snapshots ({fileSize(payloadBytes)})</p>
+          <h2>{routes}</h2>
+          <p className="muted">remote-access routes</p>
         </div>
         <div className="card">
           <h2>{tokens}</h2>
@@ -76,14 +68,20 @@ export default async function DashboardPage() {
             </td>
           </tr>
           <tr>
+            <th>frp remote access</th>
+            <td>
+              {process.env.LUMINA_FRPS_TOKEN ? "enabled" : "not configured"}
+            </td>
+          </tr>
+          <tr>
             <th>Data directory</th>
             <td>
               <code>{dataDir()}</code> (SQLite: {dbSize})
             </td>
           </tr>
           <tr>
-            <th>Last mirror push</th>
-            <td>{fmtWhen(lastMirror)}</td>
+            <th>Last route heartbeat</th>
+            <td>{fmtWhen(lastHeartbeat)}</td>
           </tr>
         </tbody>
       </table>

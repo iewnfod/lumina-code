@@ -28,6 +28,7 @@ or ask the user to enter the plan mode for you.
 | Install | `pnpm install` |
 | Fetch pinned OpenCode server sidecar (~200 MB, once per version bump) | `pnpm fetch:opencode` (also: `--all` for every target / explicit Rust triples) |
 | Fetch the sidecar into the CEF shell's binaries/ | `pnpm fetch:opencode:cef` (same args; sets `LUMINA_BINARIES_DIR`) |
+| Fetch the pinned frpc resource sidecar (~13 MB, remote access) | `pnpm fetch:frp` (same args as fetch:opencode; `FRP_MIRROR=<prefix>` pins a GitHub mirror, mirror chain otherwise; `:cef` variant too) |
 | Run the app (default webkit shell) | `pnpm tauri dev` |
 | Run the app (CEF/Chromium shell, Linux) | `pnpm dev:cef` — needs `~/.local/share/cef/cef_linux_x86_64` (the shared CEF binary distribution; the first cold build downloads it into OUT_DIR otherwise — through a proxy if the direct route stalls) |
 | Release-build the webkit shell | `pnpm tauri build` |
@@ -44,7 +45,10 @@ or ask the user to enter the plan mode for you.
   file must exist or the bundle step — even `cargo check` — fails. Binaries
   are gitignored. The sidecar is also a hard
   dependency of the BUILD SCRIPT — `cargo check` alone fails without it, and
-  every CI job fetches it first.
+  every CI job fetches it first. `pnpm fetch:frp` feeds the SAME
+  mechanism for `binaries/frpc` (remote access) — same CI prerequisite,
+  and its FRP_VERSION must move with the frps image tag in
+  docker-compose.yml.
 - There is no lint/format config; `pnpm build` is the
   guardrail — tsconfig is strict with `noUnusedLocals` /
   `noUnusedParameters` / `noFallthroughCasesInSwitch`, so unused imports and
@@ -2164,9 +2168,9 @@ src/
     │                      #   Desktop: sign in to a self-hosted
     │                      #   lumina-server (url + credentials → the
     │                      #   serverConnection store, picked up live by
-    │                      #   useServerSync), the sync + tunnel
-    │                      #   Switches, sync health, sign out (revoke
-    │                      #   best-effort then clear). Mobile: the app's
+    │                      #   useServerFrp), the remote-access Switch,
+    │                      #   sign out (revoke best-effort then clear).
+    │                      #   Mobile: the app's
     │                      #   ACCOUNT page — the logged-in server
     │                      #   address + sign out (logout best-effort
     │                      #   then clearMobileConnection, which remounts
@@ -2205,6 +2209,20 @@ src-tauri/src/
 │                  #   for Wayland fractional scaling), invoke_handler, and the Exit
 │                  #   hook that kills the owned server (opencode::shutdown).
 ├── system.rs      # is_wayland command (XDG_SESSION_TYPE, WAYLAND_DISPLAY fallback)
+├── frp.rs         # REMOTE ACCESS: the frpc sidecar lifecycle (the tunnel's
+│                  #   replacement). frp_start {addr, port, token, routeId,
+│                  #   localPort} writes a throwaway frpc.toml into the app
+│                  #   data dir (TOML-escaped, routeId charset-validated —
+│                  #   it doubles as the frp proxy name AND the nginx
+│                  #   /t/<id>/ segment) and spawns the resource sidecar
+│                  #   (fetch-frp.mjs; $FRPC_BIN overrides); a monitor
+│                  #   thread emits "frp-status" running/exited, frp_stop
+│                  #   kills + removes the config, and the app-exit hook
+│                  #   calls frp::shutdown so the route drops with the app.
+│                  #   Binary resolution mirrors resolve.rs: resource dir →
+│                  #   dev checkout binaries/ → PATH. The frontend half is
+│                  #   hooks/useServerFrp.ts (registration/heartbeat live
+│                  #   there — Rust only supervises the process).
 ├── notify.rs      # desktop_notify: the Linux notification sender over a
 │                  #   PERSISTENT zbus session connection (OnceLock, process
 │                  #   lifetime). tauri-plugin-notification/notify-rust drops
@@ -2362,30 +2380,44 @@ dependency versions.
   the conf file's directory; commands (`beforeDevCommand`) run relative to
   the app dir (`cef/`) — hence `../../dist` vs `--dir ..`.
 
-### The mobile app (`mobile/` + `src/mobile/`) — the desktop tree over the tunnel
+### The mobile app (`mobile/` + `src/mobile/`) — the desktop tree over the frp route
 
 iOS/Android client on **stable crates.io Tauri 2** (`=`-pinned to the
 desktop lock/npm versions — caret CANNOT stay on a minor, see
 mobile/README.md). **v2 architecture — the desktop-tree takeover**: the
 mobile app mounts the REAL desktop `App` (the whole UI tree: transcript,
 composer, settings, drawer sidebar) and talks to the DESKTOP's opencode
-through the lumina-server TUNNEL — `useOpencode`'s `isMobileApp()`
-remote branch swaps the connection source for
-`<server>/api/tunnel/opencode` + the lumina Bearer (re-seeding tracked
-sessions on every SSE reconnect — the mobile-network heal). The v1
-custom screens (SessionList/Session/ComposerBar/ActivityPanel) are
-DELETED; only LoginScreen + the kv hydrate gate remain under src/mobile/.
+**directly** through the server's frp route — `useOpencode`'s
+`isMobileApp()` remote branch fetches the credential from
+`GET /api/frp/connect` (the account's current route id + the desktop's
+opencode password) and connects to `<server>/t/<routeId>/` with
+`Basic opencode:<password>`: nginx strips the prefix + rewrites Host to
+`<routeId>.frp.internal`, frps routes on the Host, the desktop's frpc
+pipes to 127.0.0.1 (spike-verified: SSE streams through with
+sub-microsecond overhead; repeatable `--cors` origins let the preflight
+through). The branch also owns the remote HEALS: SSE reconnects
+re-seed every tracked session (the mobile-network heal), the liveness
+gate fast-polls until the route answers then re-issues the api handle
+on recovery, and a 401 (desktop restarted → password rotated)
+re-fetches the connect info, rebuilds client + stream and reseeds.
+The v1 custom screens (SessionList/Session/ComposerBar/ActivityPanel)
+are DELETED; only LoginScreen + the kv hydrate gate remain under
+src/mobile/.
 
-The tunnel's other halves: **server** `server/src/lib/tunnel.ts` +
-`server/src/app/api/tunnel/**` (commands long-poll / responses / events
-POST / opencode catch-all proxy + SSE fan-out; in-memory, one tunnel
-per account with a generation fence); **desktop**
-`src/opencode/tunnelClient.ts` (pure loop core, node-tested) +
-`src/hooks/useServerTunnel.ts` (AppBody, beside useServerSync, gated by
-the Server settings' 远程访问开关 — ServerConnection.tunnelEnabled).
-The opencode password never leaves the desktop (the fulfillment injects
-local Basic auth); scripts/tunnel-fake-desktop.mjs is the E2E stand-in
-desktop.
+The route's other halves: **server** `server/src/lib/frp.ts` +
+`server/src/app/api/frp/**` (config / routes / connect — the credential
+exchange over the `frp_routes` table, one CURRENT route per user with
+fresh-route takeover) + the frps container (server/deploy/frps.toml,
+mounted by docker-compose: control channel 7000 public, HTTP vhost
+7100 loopback-only via `proxyBindAddr`); **desktop**
+`src-tauri/src/frp.rs` (frpc child lifecycle, the opencode.rs pattern)
+driven by `src/hooks/useServerFrp.ts` (AppBody, gated by the Server
+settings' 远程访问开关 — registers the password + heartbeat, derives
+the local port/password from the OpencodeApi handle) +
+`scripts/fetch-frp.mjs` (the pinned frpc resource sidecar — mirror-
+aware + sha256-verified; keep FRP_VERSION in sync with the compose
+image tag). The opencode password DOES live on the server now — a
+deliberate trust-model change, documented in server/README.md.
 
 Mobile chrome decisions live in the DESKTOP tree keyed off
 `isMobileApp()` (lib/platform.ts — the window flag kv.ts plants before
@@ -2454,35 +2486,33 @@ the push/pop over the category list; see SettingsModal).
 
 A pnpm WORKSPACE MEMBER (`pnpm-workspace.yaml` lists `server/`; the
 desktop app stays the root package) — a single Next.js App Router
-application = **user system + web management UI + session-mirror API**,
-backed by ONE SQLite file (better-sqlite3, no ORM — the queries are a
-screenful; DDL lives in `server/src/db/schema.ts` with additive
-`MIGRATIONS` applied at startup). Deployed as one Docker container:
-the root `docker-compose.yml` is the PRODUCTION entry (pulls the
-CI-published `iewnfod/lumina-code-server:latest` — see
-docker-server.yml above), while `server/Dockerfile` builds the image
-from a source checkout; TLS/组网 is the
-user's affair (reverse proxy — see `server/README.md`).
+application = **user system + web management UI + remote-access
+credential exchange**, backed by ONE SQLite file (better-sqlite3, no
+ORM — the queries are a screenful; DDL lives in
+`server/src/db/schema.ts` with additive `MIGRATIONS` applied at
+startup). Deployed as two Docker services (docker-compose.yml): the
+Next.js app (pulls the CI-published `iewnfod/lumina-code-server:latest`
+— see docker-server.yml above; `server/Dockerfile` builds it from a
+source checkout) + the frps container (`fatedier/frps`, config
+`server/deploy/frps.toml`). TLS/组网 is the user's affair (reverse
+proxy — see `server/README.md`, which also carries the REQUIRED nginx
+`/t/` location for remote access).
 
-ARCHITECTURE — the RELAY MODEL (decided 2026-10): the agent NEVER runs
-on the server. Desktop Lumina Code keeps its local opencode + local
-files; when a server connection is configured (Settings → Server),
-the sync engine mirrors the session LIST + per-session message
-snapshots UP so other devices (mobile, milestone 2) can browse them.
-Model API keys, git repos, and code files stay on the desktop; the
-server only ever holds transcript mirrors + accounts. The PROMPT RELAY
-forward path is now IN (the server-side half + the desktop consumer;
-the mobile client that queues prompts lives on feat/mobile-ohos):
-a remote client `POST /api/relay/prompt`s into a per-account queue
-(`relay_prompts`, at-least-once), the OWNING desktop's `useServerRelay`
-(AppBody, beside useServerSync) long-polls `GET /api/relay/poll?wait=25`,
-dedupes by id (opencode/relay.ts ledger, ≤2 attempts then ack-and-drop
-poison), ensureSessionSeeded's the target and injects via the plain
-prompt endpoint; the reply flows back as the next mirrored snapshots.
-Plus the WORKSPACE DIFF mirror: useServerSync piggy-backs
-`POST /api/sync/diffs` off its session-list pushes (truncated ≤200
-files / ≤2MB patches — truncateDiffForMirror), reading the stats
-card's diff cache via peekWorkspaceDiff.
+ARCHITECTURE — the FRP DIRECT ROUTE (migrated 2026-10, replacing the
+relay/mirror model): the agent NEVER runs on the server and NO session
+content crosses it anymore. Desktop Lumina Code keeps its local
+opencode + local files; while remote access is enabled its frpc holds
+an outbound pipe to frps, and the server's whole data-plane job is the
+CREDENTIAL EXCHANGE — the desktop registers (and heartbeats) its
+current opencode password + route id (`frp_routes`, one CURRENT row
+per user; a fresh route id from a second desktop takes over
+wholesale), and mobile clients fetch both via `GET /api/frp/connect`
+to connect straight to the desktop. The frps auth token is shared
+among all accounts and the opencode password lives on the server —
+both accepted for the self-hosted single-operator model, documented in
+server/README.md. The legacy mirror/relay tables (sessions/messages/
+diffs/relay_prompts) stay in the DDL for downgrade safety but have no
+code paths.
 
 ```
 src/
@@ -2502,14 +2532,12 @@ src/
 │   ├── rateLimit.ts  in-memory fixed-window limiter (login endpoint;
 │   │                 per-instance by design; heavier protection = the
 │   │                 reverse proxy's job)
-│   ├── sync.ts    the mirror core: parseSessionPush (full-list push;
-│   │              tombstoning scoped to the PUSHER's own sessions so
-│   │              two desktops never delete each other's work),
-│   │              applyMessagesSnapshot (wholesale replace, auto-create
-│   │              session row, 64MB cap), listLiveSessions
-│   ├── transcript.ts  minimal text extraction from ChatMessage[]
-│   │              (walks user.text + assistant content parts; skips
-│   │              reasoning and marker messages) for the admin browse view
+│   ├── frp.ts     the credential-exchange core: frpServerConfig
+│   │              (LUMINA_FRPS_* env → bind port + shared token),
+│   │              registerFrpRoute (mint/refresh/takeover over the
+│   │              frp_routes table — hex-only route ids that nginx's
+│   │              `[A-Za-z0-9_-]+` capture and frp's proxy names both
+│   │              accept), getFrpConnect (the mobile's read side)
 │   └── pageAuth.ts    cookie-side guard for protected pages
 ├── app/
 │   ├── actions.ts    no-JS server actions (login/register/logout/
@@ -2518,15 +2546,14 @@ src/
 │   │                 re-checks auth from the cookie
 │   ├── login|register/  public auth pages
 │   ├── (protected)/     the console shell (layout redirects to /login):
-│   │                 / overview (counts + facts), /users admin
+│   │                 / overview (counts + frps state + last route
+│   │                 heartbeat), /users admin
 │   │                 management (disable/enable + reset password; you
 │   │                 cannot disable yourself), /account (password +
-│   │                 device-token revocation), /sessions list +
-│   │                 /[id] read-only transcript
+│   │                 device-token revocation)
 │   └── api/         auth (register/login/me/logout), tokens (list/
 │                    revoke; admin may inspect others), admin/users
-│                    (GET/PATCH), sync (sessions GET+POST, per-session
-│                    messages GET+POST)
+│                    (GET/PATCH), frp (config / routes / connect)
 └── middleware.ts   CORS for /api/* (webview origins fetch cross-origin
                      with a bearer header; blanket origin allowance is
                      safe because no cookies ride the API path) +
@@ -2535,30 +2562,21 @@ src/
 Desktop half: `src/opencode/serverConnection.ts` (the connection
 persistedStore `"lumina-code:server-connection"` + LuminaServerApi —
 the OpencodeApi pattern applied to the companion server; token lives in
-the webview's localStorage, revocable from the web console),
-`src/opencode/serverSync.ts` (pure shaping — mirrorableSessions keeps
-the sidebar's own view [root sessions minus lumina-tools helpers],
-stripUnconfirmed drops `local-*` optimistic bubbles, toSyncEntry
-flattens the model ref; + the serial createSyncQueue and the sync
-HEALTH module store; + truncateDiffForMirror capping the diff mirror),
-`src/hooks/useServerSync.ts` (the engine,
-mounted once in AppBody: session.* bus events → debounced full-list
-re-pull+push; message-store notifies → per-session trailing-debounced
-snapshot pushes; failures log + mark health + stay dirty for the 60s
-liveness retry — sync NEVER blocks or degrades the local app), and the
-relay pair: `src/opencode/relay.ts` (pure at-least-once delivery
-ledger — dedupe by prompt id, FIFO-evicted, ≤2 attempts) +
-`src/hooks/useServerRelay.ts` (the consumer, mounted once in AppBody
-beside useServerSync: long-polls the relay inbox while a connection is
-enabled, ensureSessionSeeded + injects via the plain prompt endpoint,
-acks; poison prompts are acked and dropped, poll failures back off 5s).
-LuminaServerApi carries the full surface (sync-read + diffs + relay
-methods) — ONE client for every consumer. THE OPENCODE TUNNEL (mobile
-v2's transport) lives here too: `server/src/lib/tunnel.ts` + the
-`/api/tunnel/**` routes (see the mobile app section above); its desktop
-half is `src/opencode/tunnelClient.ts` + `src/hooks/useServerTunnel.ts`,
-and `src/opencode/mobileConnection.ts` is the MOBILE app's own
-connection store (login screen ↔ useOpencode's remote branch).
+the webview's localStorage, revocable from the web console; the store
+shape is {url, token, username, remoteEnabled, frpRouteId?} with
+legacy `tunnelEnabled` migrating into remoteEnabled on read) and
+`src/hooks/useServerFrp.ts` (the engine, mounted once in AppBody:
+fetches /api/frp/config, registers the local opencode password —
+derived from the OpencodeApi handle's Basic authorization — with a
+5-minute heartbeat, supervises the frpc sidecar through the Rust
+frp_start/frp_stop commands, and re-runs whenever the local opencode
+handle changes [restart = new port + password]; failures log + retry
+every 30s — remote access never blocks or degrades the local app).
+The Rust half is `src-tauri/src/frp.rs` (see the backend map).
+LuminaServerApi carries the full surface (auth + frp config/register/
+connect) — ONE client for every consumer; `src/opencode/
+mobileConnection.ts` is the MOBILE app's own connection store (login
+screen ↔ useOpencode's remote branch).
 
 Scripts (root): `pnpm server:dev|build|test|typecheck`; CI:
 `.github/workflows/ci-server.yml` (vitest + next build). Server tests

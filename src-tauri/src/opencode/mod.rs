@@ -4,9 +4,10 @@
 //!
 //! The app owns its server instance (rather than attaching to a user-started
 //! one) so the lifecycle is predictable and it can never collide with a
-//! server the user runs themselves. The webview origin is passed to
-//! `--cors` so browser-side fetches and the SSE stream pass the server's
-//! CORS check.
+//! server the user runs themselves. The webview origins are passed to the
+//! repeatable `--cors` flag (desktop's own + the mobile origins that arrive
+//! via the frp route) so browser-side fetches and the SSE stream pass the
+//! server's CORS check.
 //!
 //! Binary resolution prefers the bundled sidecar (Tauri `externalBin`,
 //! fetched by `pnpm fetch:opencode`) so the app runs the exact server
@@ -119,10 +120,16 @@ fn spawn_log_reader(stream: impl Read + Send + 'static, level_fn: impl Fn(&str) 
 /// Idempotent: if a live child is already running, its connection is
 /// returned unchanged — this also makes React StrictMode's double-invoked
 /// effects harmless.
+///
+/// `origins` are forwarded one `--cors` per entry (the flag is
+/// repeatable, verified against v2.0.11): the desktop webview's own
+/// origin plus the MOBILE origins that reach this server through the
+/// frp route — their cross-origin fetches and the SSE stream must pass
+/// the server's CORS check exactly like the local UI's do.
 #[tauri::command]
 pub fn opencode_start(
     app: AppHandle,
-    origin: String,
+    origins: Vec<String>,
     cwd: Option<String>,
 ) -> Result<OpencodeConnection, String> {
     let state: tauri::State<OpencodeState> = app.state();
@@ -195,18 +202,18 @@ pub fn opencode_start(
     }
 
     log::info!(
-        "Starting {} OpenCode v{version}: {} serve --port {port} (cwd {}, cors {origin})",
+        "Starting {} OpenCode v{version}: {} serve --port {port} (cwd {}, cors {origins:?})",
         if bundled { "bundled" } else { "external" },
         bin.display(),
         working_dir.display()
     );
     emit_status(&app, "starting", format!("spawning {}", bin.display()));
 
-    let mut child = Command::new(&bin)
+    let mut command = Command::new(&bin);
+    command
         .arg("serve")
         .arg("--port").arg(port.to_string())
         .arg("--hostname").arg("127.0.0.1")
-        .arg("--cors").arg(&origin)
         .env("OPENCODE_SERVER_PASSWORD", &password)
         // Verified against the v2.0.11 updater: this env short-circuits the
         // update check before the config policy is even read, so the pinned
@@ -214,7 +221,11 @@ pub fn opencode_start(
         // detector would refuse anyway — the sidecar path matches no known
         // installer — but make it deterministic.)
         .env("OPENCODE_DISABLE_AUTOUPDATE", "1")
-        .current_dir(&working_dir)
+        .current_dir(&working_dir);
+    for origin in &origins {
+        command.arg("--cors").arg(origin);
+    }
+    let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

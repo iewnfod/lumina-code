@@ -23,9 +23,7 @@ import {ColorsProvider, useColors} from "./hooks/colors.tsx";
 import {useWindowOutline} from "./hooks/useWindowOutline.ts";
 import {probeBms, useBmsFocusRefresh, useCompositorBlurActive} from "./hooks/useBlurMyShell.ts";
 import {useNotifications} from "./hooks/useNotifications.ts";
-import {useServerSync} from "./hooks/useServerSync.ts";
-import {useServerRelay} from "./hooks/useServerRelay.ts";
-import {useServerTunnel} from "./hooks/useServerTunnel.ts";
+import {useServerFrp} from "./hooks/useServerFrp.ts";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {isColorDark, withAlpha} from "./lib/color.ts";
 import {isLinux, isCefRuntime, isMobileApp} from "./lib/platform.ts";
@@ -451,23 +449,13 @@ function AppBody({
     // opencode/notificationTriggers.ts.
     useNotifications(activeId);
 
-    // The self-hosted lumina-server mirror (Settings → Server): when a
-    // connection is configured AND enabled, mirrors the session list +
-    // message snapshots up to it. Pure shaping lives in
-    // opencode/serverSync.ts; the local app never depends on the mirror.
-    useServerSync();
-
-    // The relay's forward path: consumes prompts queued by mobile
-    // clients for this desktop's sessions and injects them into the
-    // local OpenCode (at-least-once, deduped; see opencode/relay.ts).
-    useServerRelay();
-
-    // The opencode TUNNEL (mobile v2's transport): while the server
-    // connection is enabled AND tunnel-enabled, serves proxied opencode
-    // API calls + forwards the event bus to the server's fan-out (see
-    // opencode/tunnelClient.ts). No-op on the mobile app itself (no
-    // local server connection there).
-    useServerTunnel();
+    // REMOTE ACCESS (frp direct route): while the server connection is
+    // configured AND remote-enabled, registers the local opencode
+    // password with the server and supervises the frpc sidecar — mobile
+    // clients then hit this machine's opencode directly through
+    // /t/<routeId>/ on the server (see hooks/useServerFrp.ts +
+    // src-tauri/src/frp.rs). No-op on mobile.
+    useServerFrp();
 
     // The settings modal: the title-bar gear opens it, and the model
     // picker's "Configure models…" deep-links to its Model tab. App owns

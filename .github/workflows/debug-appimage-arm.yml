@@ -64,6 +64,9 @@ jobs:
       - name: Fetch OpenCode sidecar (aarch64-unknown-linux-gnu)
         run: pnpm fetch:opencode aarch64-unknown-linux-gnu
 
+      - name: Fetch frpc sidecar (aarch64-unknown-linux-gnu)
+        run: pnpm fetch:frp aarch64-unknown-linux-gnu
+
       # THE FIX (v2): no patchelf rewrite of the Go sidecar is loadable on
       # native 64K-page aarch64 kernels — even patchelf 0.19.1's corrected
       # layout segfaults the loader under --list (verified on the runner:

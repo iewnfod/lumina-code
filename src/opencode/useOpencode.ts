@@ -4,8 +4,9 @@ import {listen} from "@tauri-apps/api/event";
 import {error, info} from "@tauri-apps/plugin-log";
 import {OpencodeApi} from "./api.ts";
 import {streamServerEvents, type OpencodeEvent} from "./eventStream.ts";
-import {isMobileApp} from "../lib/platform.ts";
+import {isMobileApp, remoteCorsOrigins} from "../lib/platform.ts";
 import {peekMobileConnection} from "./mobileConnection.ts";
+import {LuminaServerApi} from "./serverConnection.ts";
 import {reseedAllSessions} from "./useSessionMessages.ts";
 
 /**
@@ -67,90 +68,142 @@ export function useOpencode(): {
             try {
                 if (isMobileApp()) {
                     // REMOTE MODE (mobile v2): no local server is spawned
-                    // — the full desktop tree talks to the DESKTOP's
-                    // opencode through the lumina-server tunnel
-                    // (/api/tunnel/opencode/**, server/tunnel.ts). The
-                    // credential is the mobile's lumina DEVICE token
-                    // (Bearer); the desktop injects the real opencode
-                    // Basic auth when fulfilling. A missing connection
-                    // (signed out) or an offline tunnel surfaces as the
-                    // error status the App renders.
+                    // — the full desktop tree talks DIRECTLY to the
+                    // desktop's opencode through the server's frp route
+                    // (`<server>/t/<routeId>/` — nginx strips the prefix,
+                    // frps routes by Host, the desktop's frpc pipes to
+                    // 127.0.0.1). The credential comes from the server's
+                    // credential exchange: GET /api/frp/connect returns
+                    // the account's current route id + the desktop's
+                    // opencode password (registered by the desktop's
+                    // remote-access engine, hooks/useServerFrp.ts).
                     const conn = peekMobileConnection();
                     if (!conn) {
                         setStatus({state: "error", message: "Not signed in"});
                         return;
                     }
-                    const baseUrl = `${conn.url}/api/tunnel/opencode`;
-                    const authorization = `Bearer ${conn.token}`;
-                    const client = new OpencodeApi(baseUrl, authorization);
+                    const server = new LuminaServerApi(conn.url, conn.token);
 
-                    abortStream = new AbortController();
-                    streamServerEvents(
-                        baseUrl,
-                        authorization,
-                        (event) => {
-                            for (const handler of handlersRef.current) handler(event);
-                        },
-                        abortStream.signal,
-                        () => {
-                            // Reconnect heal: bus frames eaten by the
-                            // disconnect are gone for good — re-seed every
-                            // tracked session from the settled truth.
-                            reseedAllSessions(client);
-                        },
-                    ).catch((e) => {
-                        if (!cancelled) error(`Tunnel event stream ended: ${e}`).catch(() => {});
-                    });
+                    // Credential acquisition loop: a 404 (the desktop
+                    // never registered) or 503 (server without frps)
+                    // renders an honest error but keeps retrying — the
+                    // desktop may come online at any moment.
+                    const fetchConnect = async (): Promise<{routeId: string; password: string}> => {
+                        for (;;) {
+                            if (cancelled) throw new Error("cancelled");
+                            try {
+                                return await server.frpConnect();
+                            } catch (e) {
+                                const status = (e as {status?: number}).status;
+                                if (!cancelled) {
+                                    setStatus({
+                                        state: "error",
+                                        message:
+                                            status === 404
+                                                ? "No desktop registered for this account (enable remote access in the desktop's Server settings)"
+                                                : String(e),
+                                    });
+                                }
+                                await new Promise((r) => setTimeout(r, 5000));
+                            }
+                        }
+                    };
+                    const first = await fetchConnect();
 
+                    const build = (connect: {routeId: string; password: string}) => {
+                        const baseUrl = `${conn.url}/t/${connect.routeId}`;
+                        const authorization = `Basic ${btoa(`opencode:${connect.password}`)}`;
+                        return new OpencodeApi(baseUrl, authorization);
+                    };
+                    const openStream = (client: OpencodeApi) => {
+                        abortStream?.abort();
+                        abortStream = new AbortController();
+                        streamServerEvents(
+                            client.baseUrl,
+                            client.authorization,
+                            (event) => {
+                                for (const handler of handlersRef.current) handler(event);
+                            },
+                            abortStream.signal,
+                            () => {
+                                // Reconnect heal: bus frames eaten by the
+                                // disconnect are gone for good — re-seed every
+                                // tracked session from the settled truth.
+                                reseedAllSessions(client);
+                            },
+                        ).catch((e) => {
+                            if (!cancelled) error(`Remote event stream ended: ${e}`).catch(() => {});
+                        });
+                    };
+
+                    const client = build(first);
+                    openStream(client);
                     setApi(client);
-                    setStatus({state: "connected", baseUrl, version: "tunnel"});
-                    info(`Connected via tunnel at ${conn.url}`).catch(() => {});
+                    setStatus({state: "connected", baseUrl: client.baseUrl, version: "remote"});
+                    info(`Connected via frp route ${first.routeId} at ${conn.url}`).catch(() => {});
 
-                    // STARTUP SYNC GATE (mobile): the one-shot seeds that
-                    // fired on the api flip above can 503 while the
-                    // desktop's tunnel is still arming (claim + backoff),
-                    // and nothing retries them — the sidebar and the model
-                    // catalog would sit empty until a random bus event.
-                    // Probe the data path; if the FIRST read failed, keep
-                    // probing and RE-ISSUE the api handle on recovery —
-                    // every api-keyed seed (useSessions, useModelCatalog)
-                    // re-runs off the new identity. A healthy first read
-                    // means the seeds ran against a live tunnel: no swap.
-                    const syncGate = async () => {
-                        let recovered = false;
+                    // LIVENESS + CREDENTIAL GATE. Phase 1 (fast poll,
+                    // 2s): the one-shot seeds that fire on the api flip
+                    // above can fail while the desktop is still offline
+                    // (frps 404s the unrouted path) and nothing retries
+                    // them — probe the data path and RE-ISSUE the api
+                    // handle on recovery so every api-keyed seed
+                    // (useSessions, useModelCatalog) re-runs off the new
+                    // identity. Phase 2 (slow watch, 30s): a 401 means
+                    // the desktop restarted and rotated its opencode
+                    // password — re-fetch the connect info, rebuild the
+                    // handle + stream, reseed. Non-401 blips stay
+                    // connected (the stream's own heal covers them).
+                    const gate = async () => {
                         for (let attempt = 0; ; attempt++) {
                             if (cancelled) return;
                             try {
-                                const sessions = await client.listSessions();
+                                await client.listSessions();
                                 if (attempt === 0) {
-                                    info(`Tunnel reports ${sessions?.length ?? 0} existing session(s)`).catch(() => {});
-                                    return;
+                                    info("Remote route is live").catch(() => {});
+                                } else {
+                                    info("Remote route recovered — re-issuing api handle to re-seed global state").catch(() => {});
+                                    setApi(build(first));
                                 }
-                                recovered = true;
                                 break;
                             } catch (e) {
                                 if (attempt === 0) {
-                                    // The common mobile failure: desktop
-                                    // offline (503) — the status stays
-                                    // connected so the UI renders and can
-                                    // show the error inline.
-                                    error(`Tunnel session list failed (desktop offline?); will retry: ${e}`).catch(() => {});
+                                    error(`Remote session list failed (desktop offline?); will retry: ${e}`).catch(() => {});
                                 }
                                 await new Promise((r) => setTimeout(r, 2000));
                             }
                         }
-                        if (cancelled || !recovered) return;
-                        info("Tunnel recovered — re-issuing api handle to re-seed global state").catch(() => {});
-                        setApi(new OpencodeApi(baseUrl, authorization));
+                        for (;;) {
+                            await new Promise((r) => setTimeout(r, 30_000));
+                            if (cancelled) return;
+                            try {
+                                await client.listSessions();
+                            } catch (e) {
+                                if (cancelled) return;
+                                if ((e as {status?: number}).status !== 401) continue;
+                                info("Remote credentials rotated — re-fetching frp connect info").catch(() => {});
+                                try {
+                                    const fresh = build(await server.frpConnect());
+                                    openStream(fresh);
+                                    setApi(fresh);
+                                    reseedAllSessions(fresh);
+                                    setStatus({state: "connected", baseUrl: fresh.baseUrl, version: "remote"});
+                                    return; // healed; later drops are the stream's own heal
+                                } catch (re) {
+                                    error(`frp connect re-fetch failed: ${re}`).catch(() => {});
+                                }
+                            }
+                        }
                     };
-                    void syncGate();
+                    void gate();
                     return;
                 }
 
-                // The webview origin is forwarded to `opencode serve --cors`
-                // so browser-side fetch + SSE pass the server's CORS check.
+                // The webview origins are forwarded to the repeatable
+                // `--cors` flag: our own origin plus the REMOTE mobile
+                // origins that reach this server through the frp route.
                 const conn = await invoke<OpencodeConnection>("opencode_start", {
-                    origin: window.location.origin,
+                    origins: [window.location.origin, ...remoteCorsOrigins()],
                 });
                 if (cancelled) return;
 

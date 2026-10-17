@@ -71,7 +71,7 @@ export default function SettingsModal({
         {id: "general", icon: SettingsIcon, label: t["General"]},
         {id: "model", icon: Cpu, label: t["Model settings"]},
         // The Server pane is DUAL-PURPOSE: the desktop's own lumina-server
-        // link (sync + tunnel) on desktop, the MOBILE app's account page
+        // link (remote access) on desktop, the MOBILE app's account page
         // (server address + sign out — see ServerSettings' mobile branch)
         // on mobile.
         {id: "server", icon: ServerIcon, label: t["Server"]},

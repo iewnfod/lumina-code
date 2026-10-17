@@ -10,8 +10,8 @@ import LoginScreen from "./screens/LoginScreen.tsx";
  * The mobile app shell (v2 — the desktop-tree takeover): signed in, it
  * mounts the REAL desktop App — the whole UI tree (transcript,
  * composer, settings, drawer sidebar) running against the DESKTOP's
- * opencode through the lumina-server tunnel (useOpencode's remote
- * branch). Signed out, the login screen (the one custom surface, with
+ * opencode through the server's frp direct route (useOpencode's
+ * remote branch). Signed out, the login screen (the one custom surface, with
  * its own palette derivation mirroring the desktop's system-theme
  * flow); signing back in remounts the tree fresh.
  *

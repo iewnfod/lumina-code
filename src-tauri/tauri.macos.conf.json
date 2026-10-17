@@ -24,7 +24,8 @@
             "icons/icon.icns"
         ],
         "resources": {
-            "binaries/opencode": "opencode"
+            "binaries/opencode": "opencode",
+            "binaries/frpc": "frpc"
         }
     }
 }

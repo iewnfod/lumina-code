@@ -89,6 +89,13 @@ jobs:
       - name: Fetch OpenCode sidecar (host target)
         run: node scripts/fetch-opencode.mjs
 
+      # Same prerequisite for the frpc resource (remote access): the
+      # resources maps reference binaries/frpc, which tauri-build also
+      # validates during `cargo check`. Mirror-aware (GitHub direct
+      # stalls on some networks) and sha256-verified.
+      - name: Fetch frpc sidecar (host target)
+        run: node scripts/fetch-frp.mjs
+
       # `tauri::generate_context!()` (expanded during cargo check) embeds the
       # `frontendDist` directory (`../dist` from Cargo.toml's location) at
       # compile time and fails if it is missing. It only needs the directory
@@ -157,6 +164,11 @@ jobs:
         env:
           LUMINA_BINARIES_DIR: cef/src-tauri/binaries
         run: node scripts/fetch-opencode.mjs
+
+      - name: Fetch frpc sidecar (host target, CEF shell)
+        env:
+          LUMINA_BINARIES_DIR: cef/src-tauri/binaries
+        run: node scripts/fetch-frp.mjs
 
       # The CEF shell's conf points frontendDist at ../../dist — the same
       # repo-root placeholder satisfies its generate_context!.

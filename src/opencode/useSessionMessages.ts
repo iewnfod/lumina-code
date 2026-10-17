@@ -121,9 +121,9 @@ export function ensureSessionSeeded(api: OpencodeApi | null, sessionId: string):
 }
 
 /** Re-seed EVERY tracked session (the remote-consumer heal: after the
- *  tunnel's SSE reconnects, any bus frames the disconnect ate are gone
- *  for good — pulling each tracked session's newest page rebuilds the
- *  tail from the server's settled truth. The seq guard inside
+ *  remote route's SSE reconnects, any bus frames the disconnect ate are
+ *  gone for good — pulling each tracked session's newest page rebuilds
+ *  the tail from the server's settled truth. The seq guard inside
  *  requestSeed makes this race-free against in-flight seeds.) */
 export function reseedAllSessions(api: OpencodeApi | null): void {
     if (!api) return;

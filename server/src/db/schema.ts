@@ -12,17 +12,17 @@
  * - tokens  — device/API credentials. Only the SHA-256 hash is stored;
  *             the plaintext token (`lum_<hex>`) is returned exactly once
  *             at login/creation.
- * - sessions — the session MIRROR pushed by desktop clients (relay
- *             model: the agent itself stays on the desktop; this is a
- *             read replica for other devices). `deleted` marks
- *             tombstones: the desktop pushes its full session list and
- *             the server reconciles ids that vanished.
- * - messages — one row per session holding the latest full ChatMessage[]
- *             JSON snapshot (last-write-wins; a session runs on exactly
- *             one desktop, so snapshots never conflict).
+ * - frp_routes — one row per user: the CURRENT desktop's frp route id +
+ *             opencode password (the direct-access credential handed to
+ *             mobile clients; refreshed by the desktop's heartbeat PUT).
+ *
+ * LEGACY (frp migration): sessions / messages / diffs / relay_prompts
+ * held the old relay-model mirrors + prompt queue. Their code paths are
+ * deleted; the DDL stays so a downgrade never crashes on missing
+ * tables, and a fresh database simply never populates them.
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS users (
@@ -77,6 +77,13 @@ CREATE TABLE IF NOT EXISTS relay_prompts (
   -- prompts; the consumers' queries join against sessions anyway.
 );
 
+CREATE TABLE IF NOT EXISTS frp_routes (
+  user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  route_id   TEXT NOT NULL UNIQUE, -- frp proxy name + nginx /t/<routeId>/ segment
+  password   TEXT NOT NULL,        -- the desktop's CURRENT opencode basic-auth password
+  updated_at TEXT NOT NULL         -- registration/heartbeat freshness (ISO string)
+);
+
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -102,6 +109,14 @@ CREATE TABLE IF NOT EXISTS relay_prompts (
   from_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   text         TEXT NOT NULL,
   created_at   TEXT NOT NULL
+);`,
+  // v4: the frp direct-access route registry (mobile → desktop's opencode).
+  "schema:4": `
+CREATE TABLE IF NOT EXISTS frp_routes (
+  user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  route_id   TEXT NOT NULL UNIQUE,
+  password   TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );`,
 };
 

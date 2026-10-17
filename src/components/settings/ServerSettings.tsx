@@ -7,12 +7,10 @@ import {
     clearServerConnection,
     normalizeServerUrl,
     setServerConnection,
-    setServerSyncEnabled,
-    setServerTunnelEnabled,
+    setServerRemoteEnabled,
     useServerConnection,
 } from "../../opencode/serverConnection.ts";
 import {clearMobileConnection, useMobileConnection} from "../../opencode/mobileConnection.ts";
-import {useSyncHealth} from "../../opencode/serverSync.ts";
 import Button from "../ui/Button.tsx";
 import SettingRow from "./SettingRow.tsx";
 import Switch from "./Switch.tsx";
@@ -20,15 +18,15 @@ import TextInput from "./TextInput.tsx";
 
 /**
  * The settings modal's Server pane — DUAL-PURPOSE by platform. Desktop:
- * sign in to a self-hosted lumina-server, toggle session sync, sign out
- * (the relay model in one sentence for the user: the agent keeps running
- * locally, and sessions are mirrored to the server for other devices).
- * Mobile: the app's ACCOUNT page — the logged-in server address + sign
- * out (clearing the mobile connection remounts the whole app tree back
- * to the login screen; there is nothing else to configure there).
+ * sign in to a self-hosted lumina-server, toggle remote access (the
+ * frp direct route exposing this machine's opencode to mobile
+ * clients), sign out. Mobile: the app's ACCOUNT page — the logged-in
+ * server address + sign out (clearing the mobile connection remounts
+ * the whole app tree back to the login screen; there is nothing else
+ * to configure there).
  *
  * No draft/save footer: signing in writes the connection store
- * immediately (the sync engine picks it up live); every other control
+ * immediately (the remote engine picks it up live); every other control
  * acts in place.
  */
 
@@ -74,7 +72,6 @@ function MobileServerPage() {
 export default function ServerSettings() {
     const t = useI18n();
     const connection = useServerConnection();
-    const health = useSyncHealth();
 
     const [url, setUrl] = useState("");
     const [username, setUsername] = useState("");
@@ -102,8 +99,7 @@ export default function ServerSettings() {
                 url: normalized,
                 token: login.token,
                 username: login.username,
-                enabled: true,
-                tunnelEnabled: false,
+                remoteEnabled: false,
             });
             setUrl("");
             setUsername("");
@@ -135,23 +131,13 @@ export default function ServerSettings() {
         return (
             <div className="flex flex-col gap-4 p-4 overflow-y-auto">
                 <SettingRow
-                    label={t["Server sync"]}
-                    description={t["The agent runs on this machine; sessions are mirrored to your server for other devices."]}
+                    label={t["Remote access"]}
+                    description={t["Expose this machine's OpenCode directly to your signed-in mobile clients through the server."]}
                 >
                     <Switch
-                        checked={connection.enabled}
-                        label={t["Server sync"]}
-                        onChange={setServerSyncEnabled}
-                    />
-                </SettingRow>
-                <SettingRow
-                    label={t["Remote access (tunnel)"]}
-                    description={t["Let mobile clients use this machine's OpenCode through the server while it is online."]}
-                >
-                    <Switch
-                        checked={connection.tunnelEnabled}
-                        label={t["Remote access (tunnel)"]}
-                        onChange={setServerTunnelEnabled}
+                        checked={connection.remoteEnabled}
+                        label={t["Remote access"]}
+                        onChange={setServerRemoteEnabled}
                     />
                 </SettingRow>
                 <SettingRow
@@ -159,30 +145,6 @@ export default function ServerSettings() {
                     description={<span className="font-mono">{connection.url}</span>}
                 >
                     <span className="text-xs opacity-70">{connection.username}</span>
-                </SettingRow>
-                <SettingRow
-                    label={t["Sync status"]}
-                    description={
-                        health.lastPushAt != null
-                            ? `${t["Last mirror"]}: ${health.lastPushAt.slice(11, 19)}`
-                            : undefined
-                    }
-                >
-                    <span
-                        className="text-xs"
-                        style={{
-                            color:
-                                health.state === "error"
-                                    ? "var(--color-danger-text)"
-                                    : "var(--color-success)",
-                        }}
-                    >
-                        {health.state === "ok"
-                            ? t["Up to date"]
-                            : health.state === "error"
-                              ? t["Sync error"]
-                              : t["Idle"]}
-                    </span>
                 </SettingRow>
                 <div className="self-end">
                     <Button label={t["Sign out"]} onClick={() => void signOut()} disabled={busy}/>
@@ -194,7 +156,7 @@ export default function ServerSettings() {
     return (
         <div className="flex flex-col gap-4 p-4 overflow-y-auto">
             <p className="text-xs opacity-55 -mt-2">
-                {t["The agent runs on this machine; sessions are mirrored to your server for other devices."]}
+                {t["Sign in to your self-hosted lumina-server to enable remote access from your mobile devices."]}
             </p>
             <div className="flex flex-col gap-2 max-w-[340px]">
                 <div className="text-sm">{t["Server address"]}</div>

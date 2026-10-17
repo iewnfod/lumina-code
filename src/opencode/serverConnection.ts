@@ -6,11 +6,13 @@ import {createPersistedStore} from "../lib/persistedStore.ts";
  * The desktop's self-hosted lumina-server connection (Settings → Server):
  * the credential store + the small typed REST client for its API.
  *
- * Relay model: the agent ALWAYS runs locally; when a connection is
- * configured AND enabled, the sync engine (opencode/serverSync.ts)
- * mirrors the local session list and message snapshots UP to this
- * server so other devices can browse them. Nothing here touches the
- * local OpenCode connection.
+ * The server is the CREDENTIAL EXCHANGE for remote access (frp direct
+ * route): when a connection is configured AND remote access is enabled,
+ * the engine (hooks/useServerFrp.ts) registers the local opencode
+ * password + route id with it; mobile clients fetch both and connect
+ * straight to this machine's opencode through the server's frps. No
+ * session content is mirrored anymore — the agent, transcripts and
+ * files stay on this machine.
  *
  * The token is the server's opaque credential (`lum_…`) stored in the
  * webview's localStorage (Tauri app-data dir, on this machine only) —
@@ -25,13 +27,15 @@ export interface ServerConnection {
     token: string;
     /** Account username (display + diagnostics). */
     username: string;
-    /** Sync active. Connection stays configured when switched off. */
-    enabled: boolean;
-    /** The opencode TUNNEL for remote (mobile) clients — exposes the
-     * full local API through the server while the desktop is online.
-     * Deliberately opt-in: it grants opencode control to every valid
-     * device token of the account. Absent on legacy entries = false. */
-    tunnelEnabled: boolean;
+    /** Remote access (frp direct route for mobile clients). Opt-in:
+     * it publishes this machine's opencode password to the server.
+     * Absent on legacy entries = false (an old `tunnelEnabled: true`
+     * carried the same intent and migrates in). */
+    remoteEnabled: boolean;
+    /** This desktop's frp route id (minted by the server on first
+     * registration, persisted so re-registration keeps the route).
+     * Absent until the first successful register. */
+    frpRouteId?: string;
 }
 
 /** Normalize a user-entered server address: require http(s), take the
@@ -55,19 +59,20 @@ function parseConnection(raw: string | null): ServerConnection | null {
         if (
             typeof parsed.url !== "string" ||
             typeof parsed.token !== "string" ||
-            typeof parsed.username !== "string" ||
-            typeof parsed.enabled !== "boolean"
+            typeof parsed.username !== "string"
         ) {
             return null;
         }
         if (normalizeServerUrl(parsed.url) === null) return null;
-        // Legacy entries predate the tunnel flag — read as off.
+        // Legacy entries predate the remote-access flag — read as off
+        // (the old `tunnelEnabled` carried the same intent, so it
+        // migrates in the merge).
         return {
             url: parsed.url,
             token: parsed.token,
             username: parsed.username,
-            enabled: parsed.enabled,
-            tunnelEnabled: parsed.tunnelEnabled === true,
+            remoteEnabled: parsed.remoteEnabled === true || (parsed as {tunnelEnabled?: unknown}).tunnelEnabled === true,
+            frpRouteId: typeof parsed.frpRouteId === "string" ? parsed.frpRouteId : undefined,
         };
     } catch {
         return null;
@@ -94,22 +99,22 @@ export function setServerConnection(next: ServerConnection): void {
     }
 }
 
-/** Flip the sync enablement (connection stays configured). No-op when
- * not configured. */
-export function setServerSyncEnabled(enabled: boolean): void {
+/** Flip the remote-access route (mobile clients connecting directly to
+ * this machine's opencode through the server's frps). No-op when not
+ * configured. */
+export function setServerRemoteEnabled(enabled: boolean): void {
     const current = store.get();
-    if (!current || current.enabled === enabled) return;
-    store.set({...current, enabled});
-    logInfo(`Server sync ${enabled ? "enabled" : "disabled"} (${current.url})`).catch(() => {});
+    if (!current || current.remoteEnabled === enabled) return;
+    store.set({...current, remoteEnabled: enabled});
+    logInfo(`Remote access ${enabled ? "enabled" : "disabled"} (${current.url})`).catch(() => {});
 }
 
-/** Flip the remote-access tunnel (mobile clients addressing the local
- * opencode through the server). No-op when not configured. */
-export function setServerTunnelEnabled(enabled: boolean): void {
+/** Persist the frp route id the server assigned (called by the remote
+ * engine after a successful registration). */
+export function setServerFrpRouteId(routeId: string): void {
     const current = store.get();
-    if (!current || current.tunnelEnabled === enabled) return;
-    store.set({...current, tunnelEnabled: enabled});
-    logInfo(`Server tunnel ${enabled ? "enabled" : "disabled"} (${current.url})`).catch(() => {});
+    if (!current || current.frpRouteId === routeId) return;
+    store.set({...current, frpRouteId: routeId});
 }
 
 /** Forget the connection locally (call after revoking server-side). */
@@ -117,12 +122,6 @@ export function clearServerConnection(): void {
     if (store.set(null)) {
         logInfo("Server connection cleared").catch(() => {});
     }
-}
-
-/** Read the current connection outside React (the sync engine runs from
- * event handlers, not render). */
-export function peekServerConnection(): ServerConnection | null {
-    return store.get();
 }
 
 /** Extract the error message a lumina-server reply carries
@@ -203,107 +202,27 @@ export class LuminaServerApi {
         return this.request("/api/auth/logout", {method: "POST"});
     }
 
-    /** Push the desktop's FULL session list (idempotent upsert; the
-     * server tombstones this account's sessions missing from the list). */
-    pushSessions(
-        sessions: {
-            id: string;
-            title: string;
-            directory: string;
-            model: string;
-            agent: string;
-            updatedAt: string;
-        }[],
-    ): Promise<{upserted: number; tombstoned: number}> {
-        return this.request("/api/sync/sessions", {
-            method: "POST",
-            body: JSON.stringify({sessions}),
+    /** What the desktop needs to point frpc at the server's frps:
+     * the control-channel bind port + shared token. `enabled: false`
+     * means the operator did not configure LUMINA_FRPS_TOKEN. */
+    frpConfig(): Promise<{enabled: boolean; bindPort?: number; token?: string}> {
+        return this.request("/api/frp/config");
+    }
+
+    /** Publish the CURRENT opencode password (registration +
+     * heartbeat). Re-using the previously assigned routeId keeps the
+     * route stable; the server mints a fresh one otherwise. */
+    frpRegister(password: string, routeId?: string): Promise<{routeId: string}> {
+        return this.request("/api/frp/routes", {
+            method: "PUT",
+            body: JSON.stringify({password, routeId}),
         });
     }
 
-    /** Replace one session's message snapshot. */
-    pushSessionMessages(
-        sessionId: string,
-        messages: unknown[],
-    ): Promise<{count: number}> {
-        return this.request(`/api/sync/sessions/${encodeURIComponent(sessionId)}/messages`, {
-            method: "POST",
-            body: JSON.stringify({messages}),
-        });
+    /** The mobile's direct-access credential: the account's current
+     * desktop route + password (404 with `.status` when the account
+     * never registered a desktop). */
+    frpConnect(): Promise<{routeId: string; password: string; updatedAt: string}> {
+        return this.request("/api/frp/connect");
     }
-
-    /** The live session mirror (mobile's session list source). */
-    listSyncedSessions(): Promise<{
-        sessions: {
-            id: string;
-            title: string;
-            directory: string;
-            model: string;
-            agent: string;
-            updatedAt: string;
-            owner: string;
-            hasSnapshot: boolean;
-        }[];
-    }> {
-        return this.request("/api/sync/sessions");
-    }
-
-    /** One session's latest message snapshot (mobile transcript source). */
-    getSyncedMessages(
-        sessionId: string,
-    ): Promise<{messages: unknown[]; updatedAt: string}> {
-        return this.request(`/api/sync/sessions/${encodeURIComponent(sessionId)}/messages`);
-    }
-
-    /** Push one directory's working-copy diff snapshot (the stats card's
-     * cache mirrored up; wholesale replace server-side). */
-    pushWorkspaceDiff(
-        directory: string,
-        entries: {file: string; patch: string; additions: number; deletions: number; status: string}[],
-    ): Promise<{ok: boolean; files: number}> {
-        return this.request("/api/sync/diffs", {
-            method: "POST",
-            body: JSON.stringify({directory, entries}),
-        });
-    }
-
-    /** A directory's mirrored working-copy diff (mobile's Changes view). */
-    getWorkspaceDiff(
-        directory: string,
-    ): Promise<{entries: {file: string; patch: string; additions: number; deletions: number; status: string}[]; updatedAt: string | null}> {
-        return this.request(`/api/sync/diffs?directory=${encodeURIComponent(directory)}`);
-    }
-
-    /** The relay inbox: pending prompts for THIS account's sessions
-     * (long-poll; `waitSec` caps a single request at 25s). */
-    pollRelayPrompts(
-        waitSec = 25,
-    ): Promise<{prompts: {id: number; sessionId: string; from: string; text: string; createdAt: string}[]}> {
-        return this.request(`/api/relay/poll?wait=${waitSec}`);
-    }
-
-    /** Confirm a relayed prompt was injected (removes it from the queue). */
-    ackRelayPrompt(id: number): Promise<{ok: boolean}> {
-        return this.request("/api/relay/ack", {
-            method: "POST",
-            body: JSON.stringify({id}),
-        });
-    }
-
-    /** Queue a prompt for one of the mirrored sessions (the mobile send
-     * path — the owning desktop consumes and injects it; the reply
-     * arrives as the next mirrored snapshots). */
-    sendRelayPrompt(sessionId: string, text: string): Promise<{id: number}> {
-        return this.request("/api/relay/prompt", {
-            method: "POST",
-            body: JSON.stringify({sessionId, text}),
-        });
-    }
-}
-
-/** A convenience factory over the CURRENT stored connection (the sync
- * engine's entry point); null when not configured. */
-export function serverApiFromStore(): LuminaServerApi | null {
-    const conn = store.get();
-    return conn ? new LuminaServerApi(conn.url, conn.token) : null;
 }

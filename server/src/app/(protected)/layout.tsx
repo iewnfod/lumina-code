@@ -21,7 +21,6 @@ export default async function ProtectedLayout({
         <span className="brand">lumina-server</span>
         <span className="links">
           <Link href="/">Overview</Link>
-          <Link href="/sessions">Sessions</Link>
           <Link href="/users">Users</Link>
           <Link href="/account">Account</Link>
         </span>

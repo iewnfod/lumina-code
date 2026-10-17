@@ -82,9 +82,10 @@ export interface SessionInboxItem {
 
 export class OpencodeApi {
     constructor(
-        /** Public on purpose: the server-tunnel hook (and any future
-         * remote consumer) needs the LOCAL base URL + authorization to
-         * fulfill proxied calls — see opencode/tunnelClient.ts. */
+        /** Public on purpose: remote consumers need the base URL +
+         * authorization — the frp engine derives the local port +
+         * password from them (hooks/useServerFrp.ts), and the mobile
+         * branch rebuilds the stream on credential rotation. */
         public readonly baseUrl: string,
         public readonly authorization: string,
     ) {}

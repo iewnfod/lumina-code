@@ -24,9 +24,26 @@ services:
       LUMINA_ALLOW_REGISTRATION: "true"
       # "1" only when this port is TLS itself (no reverse proxy).
       LUMINA_COOKIE_SECURE: "0"
+      # frp 远程访问：必须与 server/deploy/frps.toml 的 auth.token 一致
+      # （留空 = 服务器不提供远程访问）。bindPort 默认 7000。
+      LUMINA_FRPS_TOKEN: "CHANGE_ME_TOO"
     volumes:
       - lumina-data:/data
     restart: unless-stopped
+
+  # frp 服务端：桌面 frpc 的出站信道 + 移动端直连的 vhost 路由。
+  # 配置见 server/deploy/frps.toml（改 auth.token）。
+  frps:
+    image: fatedier/frps:0.61.1
+    restart: unless-stopped
+    command: -c /etc/frps/frps.toml
+    volumes:
+      - ./server/deploy/frps.toml:/etc/frps/frps.toml:ro
+    ports:
+      # frpc 控制信道（公网可达；frpc 侧启用 TLS）
+      - "7000:7000"
+      # HTTP vhost —— 只绑宿主机回环，nginx 的 /t/ 路由从这里转发
+      - "127.0.0.1:7100:7100"
 
 volumes:
   lumina-data:
