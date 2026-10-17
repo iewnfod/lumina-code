@@ -82,8 +82,11 @@ export interface SessionInboxItem {
 
 export class OpencodeApi {
     constructor(
-        private baseUrl: string,
-        private authorization: string,
+        /** Public on purpose: the server-tunnel hook (and any future
+         * remote consumer) needs the LOCAL base URL + authorization to
+         * fulfill proxied calls — see opencode/tunnelClient.ts. */
+        public readonly baseUrl: string,
+        public readonly authorization: string,
     ) {}
 
     private async request<T>(path: string, init?: RequestInit): Promise<T> {

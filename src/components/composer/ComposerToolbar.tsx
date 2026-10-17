@@ -159,7 +159,7 @@ export default function ComposerToolbar({
     };
 
     return (
-        <div className="flex items-center gap-0.5 px-2 pb-2 pt-0.5">
+        <div className="flex items-center gap-0.5 px-2 pb-2 pt-0.5 lum-toolbar">
             {/* Left: attachments, mode, and (pre-session) directory. */}
             <ToolbarButton
                 icon={<Paperclip size={14}/>}

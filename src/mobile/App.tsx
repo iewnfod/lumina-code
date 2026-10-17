@@ -1,25 +1,38 @@
-import {useCallback, useMemo, useState} from "react";
 import {useSystemTheme} from "../hooks/useSystemTheme.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
 import {ColorsProvider} from "../hooks/colors.tsx";
 import {appThemeFor} from "../lib/theme.ts";
-import {useI18n} from "../hooks/i18n.tsx";
-import {ConnectionProvider} from "../opencode/connectionContext.tsx";
-import {LuminaServerApi} from "../opencode/serverConnection.ts";
-import {clearMobileConnection, useMobileConnection} from "./connection.ts";
+import {useMobileConnection} from "../opencode/mobileConnection.ts";
+import App from "../App.tsx";
 import LoginScreen from "./screens/LoginScreen.tsx";
-import SessionListScreen, {type SyncedSession} from "./screens/SessionListScreen.tsx";
-import SessionScreen from "./screens/SessionScreen.tsx";
 
 /**
- * The mobile app shell. Mirrors the desktop's palette derivation (the
- * ONE useSurfaceColors + ColorsProvider pattern, system theme only — no
- * manual preference on mobile v1). A null-api ConnectionProvider keeps
- * reused components' useConnection() satisfied: the mobile app's data
- * comes from lumina-server snapshots, never from a local OpenCode
- * connection.
+ * The mobile app shell (v2 — the desktop-tree takeover): signed in, it
+ * mounts the REAL desktop App — the whole UI tree (transcript,
+ * composer, settings, drawer sidebar) running against the DESKTOP's
+ * opencode through the lumina-server tunnel (useOpencode's remote
+ * branch). Signed out, the login screen (the one custom surface, with
+ * its own palette derivation mirroring the desktop's system-theme
+ * flow); signing back in remounts the tree fresh.
+ *
+ * The desktop tree provides its own palette/theme providers once
+ * mounted; this shell only owns the login gate and the mobile root
+ * chrome (safe-area paddings etc. in mobile.css).
  */
 export default function MobileApp() {
+    const connection = useMobileConnection();
+
+    if (connection) return <App/>;
+
+    // The login screen's palette: the same system-theme-only derivation
+    // the desktop App runs (the ONE useSurfaceColors + ColorsProvider
+    // pattern — the tree below just hasn't mounted yet).
+    return (
+        <LoginGate/>
+    );
+}
+
+function LoginGate() {
     const systemTheme = useSystemTheme();
     const {bg} = appThemeFor(systemTheme);
     const colors = useSurfaceColors(bg);
@@ -27,53 +40,8 @@ export default function MobileApp() {
     return (
         <ColorsProvider colors={colors}>
             <div className="lum-m-root" style={{background: bg, color: colors.textPrimary}}>
-                <Connected />
+                <LoginScreen/>
             </div>
         </ColorsProvider>
-    );
-}
-
-function Connected() {
-    const t = useI18n();
-    const connection = useMobileConnection();
-    const [openSession, setOpenSession] = useState<SyncedSession | null>(null);
-
-    // The mobile data client (stable per connection) + the neutral
-    // connection-context stand-in for the reused desktop components.
-    const api = useMemo(
-        () => (connection ? new LuminaServerApi(connection.url, connection.token) : null),
-        [connection?.url, connection?.token],
-    );
-    const noopSubscribe = useCallback(() => () => {}, []);
-
-    const back = useCallback(() => setOpenSession(null), []);
-
-    if (!connection || !api) return <LoginScreen />;
-
-    return (
-        <ConnectionProvider api={null} subscribe={noopSubscribe} status={{state: "connecting"}}>
-            {openSession ? (
-                <SessionScreen api={api} session={openSession} onBack={back}/>
-            ) : (
-                <div className="lum-m-home">
-                    <header className="lum-m-header">
-                        <span className="lum-m-title">{connection.username}</span>
-                        <button
-                            type="button"
-                            className="lum-m-button small"
-                            onClick={() => {
-                                // Best-effort server-side revoke; local state
-                                // clears regardless so the user is never stranded.
-                                api.logout().catch(() => {});
-                                clearMobileConnection();
-                            }}
-                        >
-                            {t["Sign out"]}
-                        </button>
-                    </header>
-                    <SessionListScreen api={api} onOpen={setOpenSession}/>
-                </div>
-            )}
-        </ConnectionProvider>
     );
 }

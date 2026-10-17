@@ -1,8 +1,14 @@
 /*
- * Mobile chrome — sits ON TOP of the desktop's main.css (tokens +
- * component classes are shared; this file only adds the mobile shell's
- * layout language: safe areas, 100dvh viewport, touch-sized controls).
- * Class prefix: lum-m-*.
+ * Mobile chrome (v2 — the desktop-tree takeover). The desktop App tree
+ * renders AS-IS; this file only adds the MOBILE shell's concerns:
+ *
+ *  - the LOGIN screen's styles (the one custom surface left);
+ *  - the SIDEBAR DRAWER (the desktop's docked sidebar becomes a
+ *    TitleBar-hamburger overlay on mobile — it is the only session
+ *    navigation, so it overlays instead of disappearing);
+ *  - viewport basics: 100dvh, safe-area awareness, no overscroll.
+ *
+ * Class prefix: lum-m-* (the desktop tree's own classes are untouched).
  */
 
 html,
@@ -10,6 +16,9 @@ body,
 #root {
     height: 100%;
     margin: 0;
+    /* NO background/color of its own — the app tree paints its theme
+     * (inherited html/body colors would fight the mounted palette;
+     * see the note in mobile/index.html). */
 }
 
 #root {
@@ -38,42 +47,89 @@ body,
     user-select: text;
 }
 
-.lum-m-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 14px;
-    min-height: 44px;
+/* ------------------------------------------------- The sidebar drawer --
+ * The desktop's SessionBar (a docked flex sibling on desktop) mounts
+ * inside these on mobile: a scrim + a left-anchored overlay panel the
+ * TitleBar hamburger opens. SessionBar keeps its own glass surface +
+ * width — the drawer only positions it. */
+
+.lum-m-drawer-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: rgba(0, 0, 0, 0.4);
+    animation: lum-m-fade-in var(--duration-fast, 140ms) ease-out;
 }
 
-.lum-m-title {
-    font-weight: 700;
-    font-size: 15px;
-    margin-right: auto;
+.lum-m-drawer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    max-width: 86vw;
+    height: 100%;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.45);
+    animation: lum-m-slide-in var(--duration-glass, 220ms) var(--ease-glass, cubic-bezier(0.32, 0.72, 0, 1));
 }
 
-.lum-m-body {
+@keyframes lum-m-fade-in {
+    from {
+        opacity: 0;
+    }
+}
+
+@keyframes lum-m-slide-in {
+    from {
+        transform: translateX(-100%);
+    }
+}
+
+/* ------------------------------------------------ The desktop tree's
+ * mobile adaptations. mobile.css loads ONLY in the mobile bundle, so
+ * plain selectors here are mobile-scoped by construction. */
+
+/* Edge-to-edge: tauri's MainActivity calls enableEdgeToEdge(), so the
+ * webview starts at y=0 BEHIND the system status bar — the desktop
+ * tree's title bar would collide with the clock/battery. Pad the app
+ * root (the single full-screen div) by the safe-area insets. */
+#root > div {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    box-sizing: border-box;
+}
+
+/* The composer toolbar's fixed-size cluster overflows a phone's width
+ * (attach + mode + project + usage ring + model + thinking): let it
+ * wrap onto a second row instead of clipping off-screen. */
+#root .lum-toolbar {
+    flex-wrap: wrap;
+    row-gap: 4px;
+}
+
+/* ------------------------------------------------------ The login card --
+ * The one custom screen: server address + credentials → the device
+ * token the tunnel rides on. */
+
+.lum-m-login {
     flex: 1;
     min-height: 0;
     display: flex;
     flex-direction: column;
-    padding: 0 14px calc(14px + env(safe-area-inset-bottom));
-}
-
-/* --- login screen --- */
-
-.lum-m-login {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
+    gap: 22px;
+    padding: calc(28px + env(safe-area-inset-top)) 18px 24px;
+    max-width: 460px;
+    width: 100%;
+    margin: 0 auto;
     justify-content: center;
-    gap: 20px;
-    padding: 0 24px;
+    overflow-y: auto;
 }
 
 .lum-m-brand h1 {
-    margin: 0 0 6px;
     font-size: 26px;
+    font-weight: 800;
+    margin: 0 0 8px;
 }
 
 .lum-m-brand p {
@@ -83,322 +139,63 @@ body,
 }
 
 .lum-m-card {
+    border-radius: var(--radius-lg, 16px);
+    padding: 18px 16px;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    border-radius: var(--radius-lg);
-    padding: 16px;
 }
 
 .lum-m-field {
     display: flex;
     flex-direction: column;
-    gap: 5px;
-    font-size: 12px;
-    opacity: 0.9;
-}
-
-.lum-m-input {
-    height: 40px;
-    padding: 0 12px;
-    border-radius: var(--radius-sm);
-    font-size: 15px; /* >=16 would avoid iOS zoom; HarmonyOS is fine at 15 */
-    outline: none;
-}
-
-.lum-m-input:focus {
-    border-color: var(--color-command);
-}
-
-.lum-m-mono {
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    gap: 6px;
     font-size: 13px;
 }
 
-.lum-m-error {
-    margin: 0;
-    font-size: 12.5px;
-    line-height: 1.45;
+.lum-m-input {
+    height: 44px;
+    border-radius: var(--radius-sm, 8px);
+    padding: 0 12px;
+    font-size: 15px;
+    outline: none;
+    width: 100%;
 }
 
-/* --- buttons --- */
+.lum-m-mono {
+    font-family: var(--font-mono, ui-monospace, monospace);
+}
 
 .lum-m-button {
-    height: 40px;
-    padding: 0 16px;
     border: none;
-    border-radius: var(--radius-sm);
-    font-size: 14px;
-    font-weight: 600;
     cursor: pointer;
-    background: transparent;
+    font-size: 15px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border-radius: var(--radius-sm, 8px);
+    padding: 10px 14px;
+    color: inherit;
 }
 
 .lum-m-button.primary {
-    border: 1px solid transparent;
+    width: 100%;
+    font-weight: 600;
 }
 
 .lum-m-button.small {
-    height: 30px;
-    padding: 0 12px;
-    font-size: 12.5px;
-    font-weight: 500;
-    background: var(--lum-neutral-fill);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    padding: 6px 10px;
+    font-size: 13px;
+    background: transparent;
 }
 
-.lum-m-spin {
-    animation: lum-m-rotate 0.9s linear infinite;
+.lum-m-button:disabled {
+    opacity: 0.5;
 }
 
-@keyframes lum-m-rotate {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-/* --- session list --- */
-
-.lum-m-home,
-.lum-m-session {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-}
-
-.lum-m-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding-bottom: 20px;
-}
-
-.lum-m-row {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    text-align: left;
-    padding: 10px 12px;
-    border-radius: var(--radius-md);
-    border: 1px solid transparent;
-    cursor: pointer;
-}
-
-.lum-m-row:active {
-    filter: brightness(1.2);
-}
-
-.lum-m-row-title {
-    font-size: 14px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.lum-m-row-sub {
-    font-size: 12px;
-}
-
-.lum-m-badge {
-    font-size: 10px;
-    font-weight: 500;
-    padding: 1px 7px;
-    border-radius: 999px;
-    background: var(--lum-neutral-fill);
-    opacity: 0.8;
-}
-
-/* --- session view --- */
-
-.lum-m-transcript {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-    padding: 4px 0 16px;
-}
-
-/* --- workspace activity panel --- */
-
-.lum-m-activity {
-    margin: 4px 14px 10px;
-    border: 1px solid transparent;
-    border-radius: var(--radius-md);
-}
-
-.lum-m-activity-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 9px 12px;
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 12.5px;
-    font-weight: 600;
-    color: inherit;
-}
-
-.lum-m-activity-summary {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 500;
-    opacity: 0.85;
-}
-
-.lum-m-activity-body {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 0 12px 10px;
-    font-size: 12.5px;
-}
-
-.lum-m-activity-body h4 {
-    margin: 0 0 4px;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    opacity: 0.55;
-}
-
-.lum-m-activity-body ul {
+.lum-m-error {
+    font-size: 13px;
+    word-break: break-word;
     margin: 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.lum-m-todo {
-    display: flex;
-    gap: 8px;
-    align-items: baseline;
-}
-
-.lum-m-todo-glyph {
-    flex: none;
-    opacity: 0.7;
-}
-
-.lum-m-todo.completed > span:last-of-type {
-    text-decoration: line-through;
-    opacity: 0.55;
-}
-
-.lum-m-todo-reason {
-    opacity: 0.55;
-    font-size: 11.5px;
-}
-
-.lum-m-dim {
-    opacity: 0.55;
-}
-
-/* --- changes (mirrored diff) --- */
-
-.lum-m-diffs {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.lum-m-diff-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 5px 6px;
-    background: none;
-    border: none;
-    color: inherit;
-    font-size: 12px;
-    cursor: pointer;
-    text-align: left;
-}
-
-.lum-m-diff-row:active {
-    opacity: 0.7;
-}
-
-.lum-m-diff-row > .lum-m-mono {
-    flex: 1;
-    min-width: 0;
-}
-
-.lum-m-ellipsis {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.lum-m-diff-body {
-    margin: 2px 0 6px;
-    border-radius: var(--radius-sm);
-    overflow: hidden;
-}
-
-/* --- composer --- */
-
-.lum-m-composer {
-    border-top: 1px solid transparent;
-    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.lum-m-composer-row {
-    display: flex;
-    align-items: flex-end;
-    gap: 8px;
-}
-
-.lum-m-textarea {
-    flex: 1;
-    min-height: 38px;
-    max-height: 120px;
-    padding: 9px 12px;
-    border: none;
-    border-radius: var(--radius-md);
-    font: inherit;
-    font-size: 15px;
-    resize: none;
-    outline: none;
-    -webkit-user-select: text;
-    user-select: text;
-}
-
-.lum-m-textarea:focus {
-    outline: 1px solid var(--color-command);
-}
-
-.lum-m-send {
-    width: 38px;
-    height: 38px;
-    padding: 0;
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--radius-md);
-}
-
-.lum-m-send:disabled {
-    opacity: 0.4;
-}
-
-.lum-m-composer-note {
-    font-size: 11.5px;
-    padding: 0 2px;
 }

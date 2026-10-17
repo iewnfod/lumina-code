@@ -1,4 +1,12 @@
 @import "tailwindcss";
+/* Explicit content root: Tailwind v4's automatic detection follows the
+ * VITE ROOT, which for the mobile build is mobile/ — the desktop tree
+ * (src/App.tsx, src/components/**) would never be scanned and its
+ * utilities (h-screen, text-sm, …) silently drop out of the bundle
+ * (live-observed: the desktop tree mounted at 36px tall). @source is
+ * resolved relative to THIS file, so both entries scan the same src
+ * tree. */
+@source "./**/*.{ts,tsx}";
 @import "@heroui/styles";
 
 /*

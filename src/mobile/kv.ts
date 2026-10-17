@@ -1,5 +1,10 @@
 import {invoke} from "@tauri-apps/api/core";
 
+// The MOBILE entry plants its flag BEFORE the app bundle imports —
+// lib/platform.ts's isMobileApp() keys connection mode + chrome gating
+// off it (see useOpencode's remote branch).
+window.__LUMINA_MOBILE__ = true;
+
 /**
  * The localStorage hydrate gate — mobile.html loads THIS module first;
  * the app bundle is only imported (dynamically) after hydration, so

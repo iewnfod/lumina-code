@@ -3,6 +3,7 @@ import {Cpu, Info, Server as ServerIcon, Settings as SettingsIcon} from "lucide-
 import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {isMobileApp} from "../../lib/platform.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
 import Modal from "../ui/Modal.tsx";
 import GeneralSettings from "./GeneralSettings.tsx";
@@ -45,7 +46,12 @@ export default function SettingsModal({
     const tabs: {id: SettingsTab; icon: typeof SettingsIcon; label: string}[] = [
         {id: "general", icon: SettingsIcon, label: t["General"]},
         {id: "model", icon: Cpu, label: t["Model settings"]},
-        {id: "server", icon: ServerIcon, label: t["Server"]},
+        // The Server pane configures THIS desktop's lumina-server link
+        // (sync + tunnel) — meaningless on the mobile app, which holds
+        // its own connection via the login screen.
+        ...(isMobileApp()
+            ? []
+            : [{id: "server" as const, icon: ServerIcon, label: t["Server"]}]),
         {id: "about", icon: Info, label: t["About"]},
     ];
 

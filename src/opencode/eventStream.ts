@@ -18,13 +18,17 @@ export interface OpencodeEvent {
 /**
  * SSE over fetch (the server requires an Authorization header, which the
  * native EventSource cannot send). Reconnects with a small backoff until the
- * abort signal fires; each parsed frame is handed to `onEvent`.
+ * abort signal fires; each parsed frame is handed to `onEvent`. `onOpen`
+ * fires after every SUCCESSFUL connection (including reconnects) — the
+ * remote/mobile consumer uses it to re-seed tracked sessions and heal
+ * any event gap the disconnect caused.
  */
 export async function streamServerEvents(
     baseUrl: string,
     authorization: string,
     onEvent: (event: OpencodeEvent) => void,
     signal: AbortSignal,
+    onOpen?: () => void,
 ): Promise<void> {
     let retryDelayMs = 500;
     while (!signal.aborted) {
@@ -35,6 +39,7 @@ export async function streamServerEvents(
             });
             if (!res.ok || !res.body) throw new Error(`event stream failed: ${res.status}`);
             retryDelayMs = 500; // reset after a successful connection
+            onOpen?.();
 
             const reader = res.body.getReader();
             const decoder = new TextDecoder();

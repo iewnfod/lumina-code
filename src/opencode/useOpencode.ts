@@ -4,6 +4,9 @@ import {listen} from "@tauri-apps/api/event";
 import {error, info} from "@tauri-apps/plugin-log";
 import {OpencodeApi} from "./api.ts";
 import {streamServerEvents, type OpencodeEvent} from "./eventStream.ts";
+import {isMobileApp} from "../lib/platform.ts";
+import {peekMobileConnection} from "./mobileConnection.ts";
+import {reseedAllSessions} from "./useSessionMessages.ts";
 
 /**
  * The OpenCode connection layer.
@@ -62,6 +65,58 @@ export function useOpencode(): {
 
         (async () => {
             try {
+                if (isMobileApp()) {
+                    // REMOTE MODE (mobile v2): no local server is spawned
+                    // — the full desktop tree talks to the DESKTOP's
+                    // opencode through the lumina-server tunnel
+                    // (/api/tunnel/opencode/**, server/tunnel.ts). The
+                    // credential is the mobile's lumina DEVICE token
+                    // (Bearer); the desktop injects the real opencode
+                    // Basic auth when fulfilling. A missing connection
+                    // (signed out) or an offline tunnel surfaces as the
+                    // error status the App renders.
+                    const conn = peekMobileConnection();
+                    if (!conn) {
+                        setStatus({state: "error", message: "Not signed in"});
+                        return;
+                    }
+                    const baseUrl = `${conn.url}/api/tunnel/opencode`;
+                    const authorization = `Bearer ${conn.token}`;
+                    const client = new OpencodeApi(baseUrl, authorization);
+
+                    abortStream = new AbortController();
+                    streamServerEvents(
+                        baseUrl,
+                        authorization,
+                        (event) => {
+                            for (const handler of handlersRef.current) handler(event);
+                        },
+                        abortStream.signal,
+                        () => {
+                            // Reconnect heal: bus frames eaten by the
+                            // disconnect are gone for good — re-seed every
+                            // tracked session from the settled truth.
+                            reseedAllSessions(client);
+                        },
+                    ).catch((e) => {
+                        if (!cancelled) error(`Tunnel event stream ended: ${e}`).catch(() => {});
+                    });
+
+                    setApi(client);
+                    setStatus({state: "connected", baseUrl, version: "tunnel"});
+                    info(`Connected via tunnel at ${conn.url}`).catch(() => {});
+
+                    client.listSessions().then((sessions) => {
+                        info(`Tunnel reports ${sessions?.length ?? 0} existing session(s)`).catch(() => {});
+                    }).catch((e) => {
+                        // The common mobile failure: desktop offline
+                        // (503) — the status stays connected so the UI
+                        // renders and can show the error inline.
+                        error(`Tunnel session list failed (desktop offline?): ${e}`).catch(() => {});
+                    });
+                    return;
+                }
+
                 // The webview origin is forwarded to `opencode serve --cors`
                 // so browser-side fetch + SSE pass the server's CORS check.
                 const conn = await invoke<OpencodeConnection>("opencode_start", {

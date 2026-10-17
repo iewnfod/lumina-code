@@ -2334,41 +2334,52 @@ dependency versions.
   the conf file's directory; commands (`beforeDevCommand`) run relative to
   the app dir (`cef/`) — hence `../../dist` vs `--dir ..`.
 
-### The mobile app (`mobile/` + `src/mobile/`) — the remote companion
+### The mobile app (`mobile/` + `src/mobile/`) — the desktop tree over the tunnel
 
-iOS/Android client on **stable crates.io Tauri 2** (same version line as
-the webkit shell — no git patches, no vendored crates). The RELAY MODEL's
-third surface: the agent NEVER runs here; the app talks to a self-hosted
-lumina-server (mirrored sessions + prompt relay), so `mobile/src-tauri`
-deliberately ships no sidecar/no opencode — its Rust side is a KV store
-backing the webview's localStorage (kv_load/kv_set; the ArkWeb-null-
-localStorage shim from the HarmonyOS attempt, no-op on iOS/Android) plus
-the log plugin (ONE Stdout target — the plugin itself routes it to
-logcat/os_log on mobile, verified against tauri-plugin-log 2.10 source)
-and the opener plugin (markdown links).
+iOS/Android client on **stable crates.io Tauri 2** (`=`-pinned to the
+desktop lock/npm versions — caret CANNOT stay on a minor, see
+mobile/README.md). **v2 architecture — the desktop-tree takeover**: the
+mobile app mounts the REAL desktop `App` (the whole UI tree: transcript,
+composer, settings, drawer sidebar) and talks to the DESKTOP's opencode
+through the lumina-server TUNNEL — `useOpencode`'s `isMobileApp()`
+remote branch swaps the connection source for
+`<server>/api/tunnel/opencode` + the lumina Bearer (re-seeding tracked
+sessions on every SSE reconnect — the mobile-network heal). The v1
+custom screens (SessionList/Session/ComposerBar/ActivityPanel) are
+DELETED; only LoginScreen + the kv hydrate gate remain under src/mobile/.
+
+The tunnel's other halves: **server** `server/src/lib/tunnel.ts` +
+`server/src/app/api/tunnel/**` (commands long-poll / responses / events
+POST / opencode catch-all proxy + SSE fan-out; in-memory, one tunnel
+per account with a generation fence); **desktop**
+`src/opencode/tunnelClient.ts` (pure loop core, node-tested) +
+`src/hooks/useServerTunnel.ts` (AppBody, beside useServerSync, gated by
+the Server settings' 远程访问开关 — ServerConnection.tunnelEnabled).
+The opencode password never leaves the desktop (the fulfillment injects
+local Basic auth); scripts/tunnel-fake-desktop.mjs is the E2E stand-in
+desktop.
+
+Mobile chrome decisions live in the DESKTOP tree keyed off
+`isMobileApp()` (lib/platform.ts — the window flag kv.ts plants before
+the app bundle imports): sidebar → TitleBar-hamburger DRAWER (the only
+session navigation), stats panel/SidebarResizer/Server settings tab not
+mounted, TitleBar's window controls hidden. mobile.css carries the
+narrow-layout adaptations + the login card — html/body get NO colors
+(splash-era inline colors poison the app tree's inherited text).
 
 - **Frontend = second vite entry**: `mobile/index.html` → `src/mobile/`
-  (config `mobile/vite.config.ts`, port 1421, outDir `dist-mobile/`,
-  publicDir/node_modules shared with the root package). It REUSES the
-  desktop's rendering chain wholesale (`TranscriptList`, DiffViewBody,
-  sessionActivity folds, SurfaceColors/i18n/persistedStore) behind a
-  null-api ConnectionProvider; the shell is Login → SessionList →
-  read-only Session (3s snapshot poll + ActivityPanel + ComposerBar
-  relay prompt). `src/mobile/activity.ts` (+test) is the pure
-  derivation shared with the stats card.
-- **beforeBuildCommand runs at the REPO ROOT** (`pnpm run build:mobile`),
-  not in src-tauri — same asymmetry as the CEF shell.
-- `gen/android`/`gen/ios` (from `cargo tauri android/ios init`) are
-  committed project sources, build outputs ignored. iOS init/build needs
-  macOS (cc-rs requires xcrun); Linux covers `pnpm build:mobile` +
+  (config `mobile/vite.config.ts`, port 1421, outDir `dist-mobile/`).
+  main.css declares an explicit `@source` — Tailwind v4's content
+  detection follows the VITE ROOT (mobile/), so without it the desktop
+  tree's utilities silently drop out of the bundle.
+- **beforeBuildCommand runs at the REPO ROOT** (`pnpm run build:mobile`).
+- `gen/android`/`gen/ios` are committed project sources. iOS init/build
+  needs macOS; Linux covers `pnpm build:mobile` +
   host/`aarch64-linux-android` `cargo check` only.
-- **HarmonyOS is FROZEN on the `feat/mobile-ohos` branch** (tauri
-  =2.11.5 patched to the official feat/open-harmony branches +
-  vendored openharmony-ability; blocked on a device black-screen, plus
-  tauri-plugin-log SIGABRT on ohos — this branch's lib.rs must cfg the
-  plugin out if that port resumes). Full investigation notes live in
-  that branch's `mobile/README.md`; a summary is kept in this branch's
-  `mobile/README.md` HarmonyOS section.
+- **HarmonyOS is FROZEN on the `feat/mobile-ohos` branch** (branch-patch
+  line, blocked on a device black-screen + tauri-plugin-log SIGABRT on
+  ohos — this branch's lib.rs must cfg the plugin out if that port
+  resumes).
 
 ### lumina-server (`server/`) — the self-hosted companion server
 
@@ -2473,7 +2484,12 @@ beside useServerSync: long-polls the relay inbox while a connection is
 enabled, ensureSessionSeeded + injects via the plain prompt endpoint,
 acks; poison prompts are acked and dropped, poll failures back off 5s).
 LuminaServerApi carries the full surface (sync-read + diffs + relay
-methods) — ONE client for every consumer.
+methods) — ONE client for every consumer. THE OPENCODE TUNNEL (mobile
+v2's transport) lives here too: `server/src/lib/tunnel.ts` + the
+`/api/tunnel/**` routes (see the mobile app section above); its desktop
+half is `src/opencode/tunnelClient.ts` + `src/hooks/useServerTunnel.ts`,
+and `src/opencode/mobileConnection.ts` is the MOBILE app's own
+connection store (login screen ↔ useOpencode's remote branch).
 
 Scripts (root): `pnpm server:dev|build|test|typecheck`; CI:
 `.github/workflows/ci-server.yml` (vitest + next build). Server tests

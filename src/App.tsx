@@ -25,9 +25,10 @@ import {probeBms, useBmsFocusRefresh, useCompositorBlurActive} from "./hooks/use
 import {useNotifications} from "./hooks/useNotifications.ts";
 import {useServerSync} from "./hooks/useServerSync.ts";
 import {useServerRelay} from "./hooks/useServerRelay.ts";
+import {useServerTunnel} from "./hooks/useServerTunnel.ts";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {isColorDark, withAlpha} from "./lib/color.ts";
-import {isLinux, isCefRuntime} from "./lib/platform.ts";
+import {isLinux, isCefRuntime, isMobileApp} from "./lib/platform.ts";
 import {appThemeFor, type ChromeTheme} from "./lib/theme.ts";
 import {liveSurfaceKey, nextSurfacePhase, type SurfacePhase} from "./lib/surfacePhases.ts";
 import {matchesAnimationEvent} from "./lib/exitGate.ts";
@@ -461,6 +462,13 @@ function AppBody({
     // local OpenCode (at-least-once, deduped; see opencode/relay.ts).
     useServerRelay();
 
+    // The opencode TUNNEL (mobile v2's transport): while the server
+    // connection is enabled AND tunnel-enabled, serves proxied opencode
+    // API calls + forwards the event bus to the server's fan-out (see
+    // opencode/tunnelClient.ts). No-op on the mobile app itself (no
+    // local server connection there).
+    useServerTunnel();
+
     // The settings modal: the title-bar gear opens it, and the model
     // picker's "Configure models…" deep-links to its Model tab. App owns
     // open + tab so entry points can preselect the pane.
@@ -468,6 +476,15 @@ function AppBody({
     const openSettings = useCallback((tab: SettingsTab = "general") => {
         setSettings({open: true, tab});
     }, []);
+
+    // The MOBILE chrome: the desktop tree with the sidebar as a DRAWER
+    // (TitleBar hamburger) — it is the only session navigation, so it
+    // overlays instead of docking. Everything else desktop-side that
+    // makes no sense on a phone (stats panel, resize seam) is simply
+    // not mounted (lib/platform.ts isMobileApp).
+    const mobile = isMobileApp();
+    const [drawerOpen, setDrawerOpen] = useState(false);
+    const closeDrawer = useCallback(() => setDrawerOpen(false), []);
     const closeSettings = useCallback(() => {
         setSettings((prev) => ({...prev, open: false}));
     }, []);
@@ -533,22 +550,56 @@ function AppBody({
                 "--lum-glass-border": colors.glassBorder,
             } as React.CSSProperties}
         >
-            <SessionBar
-                sessions={sessionInfos}
-                activeId={activeId}
-                onSelect={setActiveId}
-                onClose={deleteSession}
-                onNew={newSession}
-                onImport={openImportPicker}
-                importableCount={foreignSessions.length}
-                onSessionHover={hoverPrefetchSession}
-                backgroundColor={effectiveBg}
-                foregroundColor={effectiveFg}
-                collapsed={false}
-                brandTitle="Lumina Code"
-                busyIds={busyIds}
-                pendingCounts={pendingCounts}
-            />
+            {mobile ? (
+                drawerOpen && (
+                    <div className="lum-m-drawer-scrim" onClick={closeDrawer}>
+                        <div className="lum-m-drawer" onClick={(e) => e.stopPropagation()}>
+                            <SessionBar
+                                sessions={sessionInfos}
+                                activeId={activeId}
+                                onSelect={(id) => {
+                                    setActiveId(id);
+                                    closeDrawer();
+                                }}
+                                onClose={deleteSession}
+                                onNew={() => {
+                                    newSession();
+                                    closeDrawer();
+                                }}
+                                onImport={() => {
+                                    openImportPicker();
+                                    closeDrawer();
+                                }}
+                                importableCount={foreignSessions.length}
+                                onSessionHover={hoverPrefetchSession}
+                                backgroundColor={effectiveBg}
+                                foregroundColor={effectiveFg}
+                                collapsed={false}
+                                brandTitle="Lumina Code"
+                                busyIds={busyIds}
+                                pendingCounts={pendingCounts}
+                            />
+                        </div>
+                    </div>
+                )
+            ) : (
+                <SessionBar
+                    sessions={sessionInfos}
+                    activeId={activeId}
+                    onSelect={setActiveId}
+                    onClose={deleteSession}
+                    onNew={newSession}
+                    onImport={openImportPicker}
+                    importableCount={foreignSessions.length}
+                    onSessionHover={hoverPrefetchSession}
+                    backgroundColor={effectiveBg}
+                    foregroundColor={effectiveFg}
+                    collapsed={false}
+                    brandTitle="Lumina Code"
+                    busyIds={busyIds}
+                    pendingCounts={pendingCounts}
+                />
+            )}
             <div className="flex-1 flex flex-col min-w-0">
                 <TitleBar
                     theme={effectiveTheme}
@@ -556,6 +607,7 @@ function AppBody({
                     branch={shownBranch}
                     onOpenSettings={() => openSettings()}
                     isMaximized={isMaximized}
+                    onMenu={mobile ? () => setDrawerOpen(true) : undefined}
                 />
                 <div className="flex-1 relative overflow-hidden">
                     {/* Chrome glass layer filling the content area. The
@@ -660,19 +712,22 @@ function AppBody({
                                     StatsCardSwap: the previous card fades out
                                     (frozen snapshot) while the successor
                                     mounts. Never rendered on the welcome
-                                    screen. */}
-                                <StatsCardSwap
-                                    swapKey={activeSession ? (activeDirectory ?? "") : null}
-                                    render={(dir) => (
-                                        <WorkspaceStatsCard
-                                            key={dir}
-                                            sessionId={activeSession!.id}
-                                            directory={activeDirectory}
-                                            busyIds={busyIds}
-                                            agent={effectiveAgent}
-                                        />
-                                    )}
-                                />
+                                    screen, nor on the MOBILE app (the panel
+                                    is a desktop companion surface). */}
+                                {!mobile && (
+                                    <StatsCardSwap
+                                        swapKey={activeSession ? (activeDirectory ?? "") : null}
+                                        render={(dir) => (
+                                            <WorkspaceStatsCard
+                                                key={dir}
+                                                sessionId={activeSession!.id}
+                                                directory={activeDirectory}
+                                                busyIds={busyIds}
+                                                agent={effectiveAgent}
+                                            />
+                                        )}
+                                    />
+                                )}
                             </div>
                         </div>
                     </MaskedSurface>
@@ -682,8 +737,9 @@ function AppBody({
                 area: an invisible overlay sash over the boundary — drag
                 to resize (persisted), double-click to reset. Rendered
                 AFTER the content column so its absolute box (main.css)
-                paints above it; hidden with the sidebar when collapsed. */}
-            <SidebarResizer collapsed={false}/>
+                paints above it; hidden with the sidebar when collapsed.
+                Never on the MOBILE app (no docked sidebar to resize). */}
+            {!mobile && <SidebarResizer collapsed={false}/>}
             {/* The settings modal (title-bar gear; the model picker
                 deep-links to its Model tab). */}
             <SettingsModal

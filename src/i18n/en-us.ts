@@ -285,6 +285,9 @@ const enUs = {
     // --- Server sync (self-hosted lumina-server) ---
     "Server": "Server",
     "Server sync": "Server sync",
+    "Remote access (tunnel)": "Remote access (tunnel)",
+    "Let mobile clients use this machine's OpenCode through the server while it is online.":
+        "Let mobile clients use this machine's OpenCode through the server while it is online.",
     "Server address": "Server address",
     "Server address must start with http:// or https://": "Server address must start with http:// or https://",
     "The agent runs on this machine; sessions are mirrored to your server for other devices.": "The agent runs on this machine; sessions are mirrored to your server for other devices.",
@@ -318,10 +321,6 @@ const enUs = {
     "Sync status unavailable": "Sync status unavailable",
     // --- Mobile app ---
     "Sessions": "Sessions",
-    "No sessions synced yet": "No sessions synced yet",
-    "Refresh": "Refresh",
-    "no snapshot": "no snapshot",
-    "Sent — waiting for the desktop": "Sent — waiting for the desktop",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;

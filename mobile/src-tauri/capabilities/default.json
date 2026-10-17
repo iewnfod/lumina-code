@@ -6,6 +6,9 @@
   "permissions": [
     "core:default",
     "log:default",
-    "opener:default"
+    "opener:default",
+    "os:default",
+    "dialog:default",
+    "notification:default"
   ]
 }

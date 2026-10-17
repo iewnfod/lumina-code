@@ -282,6 +282,9 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     // --- Server sync（自部署 lumina-server） ---
     "Server": "服务器",
     "Server sync": "服务器同步",
+    "Remote access (tunnel)": "远程访问（隧道）",
+    "Let mobile clients use this machine's OpenCode through the server while it is online.":
+        "让移动端在本机在线时通过服务器使用这台机器的 OpenCode。",
     "Server address": "服务器地址",
     "Server address must start with http:// or https://": "服务器地址必须以 http:// 或 https:// 开头",
     "The agent runs on this machine; sessions are mirrored to your server for other devices.": "agent 始终在本机运行；会话会镜像到你的服务器，供其他设备查看。",
@@ -315,10 +318,6 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Sync status unavailable": "无法读取同步状态",
     // --- 移动端 ---
     "Sessions": "会话",
-    "No sessions synced yet": "还没有同步的会话",
-    "Refresh": "刷新",
-    "no snapshot": "无快照",
-    "Sent — waiting for the desktop": "已发送 — 等待桌面执行",
 };
 
 export default zhCn;

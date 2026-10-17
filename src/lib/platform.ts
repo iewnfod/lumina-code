@@ -25,3 +25,23 @@ export function isLinux() {
 export function isCefRuntime() {
     return isLinux() && / Chrome\/\d+/.test(navigator.userAgent);
 }
+
+declare global {
+    interface Window {
+        /** Set by the MOBILE entry (src/mobile/kv.ts) before the app
+         * bundle imports — the one flag distinguishing the mobile app
+         * (desktop UI tree over a remote tunnel) from the desktop. */
+        __LUMINA_MOBILE__?: boolean;
+    }
+}
+
+/**
+ * Whether this is the MOBILE app (the second vite entry): the desktop
+ * UI tree running against a REMOTE opencode via the lumina-server
+ * tunnel — see opencode/useOpencode.ts's remote branch. Decided by a
+ * window flag the mobile entry plants before any module evaluates
+ * (kv.ts loads before the app bundle by construction).
+ */
+export function isMobileApp() {
+    return typeof window !== "undefined" && window.__LUMINA_MOBILE__ === true;
+}

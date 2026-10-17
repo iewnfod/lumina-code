@@ -27,6 +27,11 @@ export interface ServerConnection {
     username: string;
     /** Sync active. Connection stays configured when switched off. */
     enabled: boolean;
+    /** The opencode TUNNEL for remote (mobile) clients — exposes the
+     * full local API through the server while the desktop is online.
+     * Deliberately opt-in: it grants opencode control to every valid
+     * device token of the account. Absent on legacy entries = false. */
+    tunnelEnabled: boolean;
 }
 
 /** Normalize a user-entered server address: require http(s), take the
@@ -56,7 +61,14 @@ function parseConnection(raw: string | null): ServerConnection | null {
             return null;
         }
         if (normalizeServerUrl(parsed.url) === null) return null;
-        return parsed as ServerConnection;
+        // Legacy entries predate the tunnel flag — read as off.
+        return {
+            url: parsed.url,
+            token: parsed.token,
+            username: parsed.username,
+            enabled: parsed.enabled,
+            tunnelEnabled: parsed.tunnelEnabled === true,
+        };
     } catch {
         return null;
     }
@@ -89,6 +101,15 @@ export function setServerSyncEnabled(enabled: boolean): void {
     if (!current || current.enabled === enabled) return;
     store.set({...current, enabled});
     logInfo(`Server sync ${enabled ? "enabled" : "disabled"} (${current.url})`).catch(() => {});
+}
+
+/** Flip the remote-access tunnel (mobile clients addressing the local
+ * opencode through the server). No-op when not configured. */
+export function setServerTunnelEnabled(enabled: boolean): void {
+    const current = store.get();
+    if (!current || current.tunnelEnabled === enabled) return;
+    store.set({...current, tunnelEnabled: enabled});
+    logInfo(`Server tunnel ${enabled ? "enabled" : "disabled"} (${current.url})`).catch(() => {});
 }
 
 /** Forget the connection locally (call after revoking server-side). */

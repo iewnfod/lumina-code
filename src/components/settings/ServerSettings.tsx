@@ -7,6 +7,7 @@ import {
     normalizeServerUrl,
     setServerConnection,
     setServerSyncEnabled,
+    setServerTunnelEnabled,
     useServerConnection,
 } from "../../opencode/serverConnection.ts";
 import {useSyncHealth} from "../../opencode/serverSync.ts";
@@ -56,6 +57,7 @@ export default function ServerSettings() {
                 token: login.token,
                 username: login.username,
                 enabled: true,
+                tunnelEnabled: false,
             });
             setUrl("");
             setUsername("");
@@ -94,6 +96,16 @@ export default function ServerSettings() {
                         checked={connection.enabled}
                         label={t["Server sync"]}
                         onChange={setServerSyncEnabled}
+                    />
+                </SettingRow>
+                <SettingRow
+                    label={t["Remote access (tunnel)"]}
+                    description={t["Let mobile clients use this machine's OpenCode through the server while it is online."]}
+                >
+                    <Switch
+                        checked={connection.tunnelEnabled}
+                        label={t["Remote access (tunnel)"]}
+                        onChange={setServerTunnelEnabled}
                     />
                 </SettingRow>
                 <SettingRow

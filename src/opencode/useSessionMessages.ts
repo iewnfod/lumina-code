@@ -120,6 +120,18 @@ export function ensureSessionSeeded(api: OpencodeApi | null, sessionId: string):
     requestSeed(api, sessionId);
 }
 
+/** Re-seed EVERY tracked session (the remote-consumer heal: after the
+ *  tunnel's SSE reconnects, any bus frames the disconnect ate are gone
+ *  for good — pulling each tracked session's newest page rebuilds the
+ *  tail from the server's settled truth. The seq guard inside
+ *  requestSeed makes this race-free against in-flight seeds.) */
+export function reseedAllSessions(api: OpencodeApi | null): void {
+    if (!api) return;
+    for (const sessionId of entries.keys()) {
+        requestSeed(api, sessionId);
+    }
+}
+
 /** The single bus handler, installed once per app run (`subscribe` is
  *  stable). Applies events to EVERY tracked session — including ones
  *  backgrounded behind another tab, whose deltas would otherwise be lost

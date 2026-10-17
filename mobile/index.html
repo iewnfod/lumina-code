@@ -8,6 +8,16 @@
     />
     <title>Lumina Code</title>
     <!--
+      NOTE on stylesheets: main.css + mobile.css are imported by
+      src/mobile/main.tsx (the JS module graph) — NOT linked here.
+      @tailwindcss/vite only expands `@import "tailwindcss"` for
+      module-graph CSS, so a static <link> here ships the handwritten
+      rules WITHOUT the utilities (live-verified: two css files, one
+      with .lum-md and one with .flex — the split broke the design
+      system). The bundle therefore keeps the single css chunk vite
+      attaches to the (dynamically imported) app entry.
+    -->
+    <!--
       The localStorage hydrate gate (HarmonyOS/ArkWeb returns null for
       localStorage under the tauri:// custom scheme): src/mobile/kv.ts
       loads the persisted KV map from Rust BEFORE the app bundle is
@@ -42,13 +52,15 @@
       import "../src/mobile/kv.ts";
     </script>
     <style>
+      /* Layout ONLY — deliberately NO color/background/font on
+         html/body: those inherit into the app tree's unset-color text
+         and fight the mounted palette (live-observed: light glass +
+         #e8e8ee transcript text = unreadable). The splash element
+         below carries its own colors instead. */
       html,
       body {
         margin: 0;
         height: 100%;
-        background: #141418;
-        color: #e8e8ee;
-        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
       }
       #splash {
         display: flex;
@@ -56,6 +68,9 @@
         align-items: center;
         justify-content: center;
         opacity: 0.6;
+        color: #e8e8ee;
+        background: #141418;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
       }
     </style>
   </head>

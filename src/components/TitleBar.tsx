@@ -1,6 +1,6 @@
-import {GitBranch, Settings} from "lucide-react";
+import {GitBranch, Menu, Settings} from "lucide-react";
 import type {ChromeTheme} from "../lib/theme.ts";
-import {isMacOS} from "../lib/platform.ts";
+import {isMacOS, isMobileApp} from "../lib/platform.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
 import {useGlass} from "../hooks/useGlass.ts";
 import {useCompositorBlurActive} from "../hooks/useBlurMyShell.ts";
@@ -25,6 +25,7 @@ export default function TitleBar({
     branch,
     onOpenSettings,
     isMaximized,
+    onMenu,
 } : {
     theme: ChromeTheme | null,
     /** Active session's title, shown in the bar's left side. */
@@ -36,6 +37,9 @@ export default function TitleBar({
     /** Opens the settings modal (General / Model / About tabs). */
     onOpenSettings: () => void,
     isMaximized: boolean,
+    /** The MOBILE drawer toggle (hamburger in the bar's left side);
+     *  absent on the desktop, where the sidebar is always docked. */
+    onMenu?: () => void,
 }) {
     const t = useI18n();
     const bg = theme?.background ?? "black";
@@ -92,6 +96,18 @@ export default function TitleBar({
             }}
         >
             <div className="relative flex-1 min-w-0 flex items-center self-stretch overflow-hidden" data-tauri-drag-region>
+                {onMenu && (
+                    <IconButton
+                        size={size - 8}
+                        hoverOverlay={hoverOverlay}
+                        activeOverlay={activeOverlay}
+                        style={{color: fg, marginLeft: 4, flexShrink: 0}}
+                        onClick={onMenu}
+                        aria-label={t["Sessions"]}
+                    >
+                        <Menu size={18}/>
+                    </IconButton>
+                )}
                 <RollingTitle text={title} className="pl-3 pr-2 text-sm font-medium truncate" style={{color: fg}}/>
             </div>
             <div className="flex flex-row items-center h-full">
@@ -108,7 +124,9 @@ export default function TitleBar({
                 >
                     <Settings size={18} />
                 </IconButton>
-                <WindowControl size={size} isMaximized={isMaximized} hoverOverlay={hoverOverlay} activeOverlay={activeOverlay} closeHover={closeHover} fg={fg} />
+                {!isMobileApp() && (
+                    <WindowControl size={size} isMaximized={isMaximized} hoverOverlay={hoverOverlay} activeOverlay={activeOverlay} closeHover={closeHover} fg={fg} />
+                )}
             </div>
         </div>
     );

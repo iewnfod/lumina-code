@@ -6,7 +6,7 @@ import {
     LuminaServerApi,
     normalizeServerUrl,
 } from "../../opencode/serverConnection.ts";
-import {setMobileConnection} from "../connection.ts";
+import {setMobileConnection} from "../../opencode/mobileConnection.ts";
 
 /**
  * The mobile sign-in screen: server address + credentials → the device
