@@ -42,7 +42,15 @@ export function useServerTunnel(): void {
             token,
             localBaseUrl: api.baseUrl,
             localAuthorization: api.authorization,
-            fetchImpl: fetch,
+            // BOUND on purpose: WebKitGTK's Window.fetch enforces its
+            // receiver ("Can only call Window.fetch on instances of
+            // Window"), and an unbound `fetchImpl: fetch` is later invoked
+            // as deps.fetchImpl(...) — receiver `deps` — so EVERY tunnel
+            // call threw and the desktop never claimed the tunnel (the
+            // mobile then saw 503 desktop-offline for all data). Node
+            // tests and Chromium don't check the receiver, which is why
+            // only the webkit shell hit this.
+            fetchImpl: fetch.bind(globalThis),
             log: (m: string) => {
                 logInfo(`[server-tunnel] ${m}`).catch(() => {});
             },
@@ -58,7 +66,11 @@ export function useServerTunnel(): void {
             // forwarding each heal on their own; the tunnel is owned
             // by the command loop's claim.
             await Promise.all([
-                runCommandLoop(deps()).catch(() => {
+                runCommandLoop(deps()).catch((e) => {
+                    // Claim/poll failures MUST surface (§3.5): this catch
+                    // used to swallow them silently, which is how the
+                    // unbound-fetch TypeError above hid for so long.
+                    logError(`[server-tunnel] command loop failed: ${e}`).catch(() => {});
                     return "error" as const;
                 }),
                 runEventLoop(

@@ -106,14 +106,44 @@ export function useOpencode(): {
                     setStatus({state: "connected", baseUrl, version: "tunnel"});
                     info(`Connected via tunnel at ${conn.url}`).catch(() => {});
 
-                    client.listSessions().then((sessions) => {
-                        info(`Tunnel reports ${sessions?.length ?? 0} existing session(s)`).catch(() => {});
-                    }).catch((e) => {
-                        // The common mobile failure: desktop offline
-                        // (503) — the status stays connected so the UI
-                        // renders and can show the error inline.
-                        error(`Tunnel session list failed (desktop offline?): ${e}`).catch(() => {});
-                    });
+                    // STARTUP SYNC GATE (mobile): the one-shot seeds that
+                    // fired on the api flip above can 503 while the
+                    // desktop's tunnel is still arming (claim + backoff),
+                    // and nothing retries them — the sidebar and the model
+                    // catalog would sit empty until a random bus event.
+                    // Probe the data path; if the FIRST read failed, keep
+                    // probing and RE-ISSUE the api handle on recovery —
+                    // every api-keyed seed (useSessions, useModelCatalog)
+                    // re-runs off the new identity. A healthy first read
+                    // means the seeds ran against a live tunnel: no swap.
+                    const syncGate = async () => {
+                        let recovered = false;
+                        for (let attempt = 0; ; attempt++) {
+                            if (cancelled) return;
+                            try {
+                                const sessions = await client.listSessions();
+                                if (attempt === 0) {
+                                    info(`Tunnel reports ${sessions?.length ?? 0} existing session(s)`).catch(() => {});
+                                    return;
+                                }
+                                recovered = true;
+                                break;
+                            } catch (e) {
+                                if (attempt === 0) {
+                                    // The common mobile failure: desktop
+                                    // offline (503) — the status stays
+                                    // connected so the UI renders and can
+                                    // show the error inline.
+                                    error(`Tunnel session list failed (desktop offline?); will retry: ${e}`).catch(() => {});
+                                }
+                                await new Promise((r) => setTimeout(r, 2000));
+                            }
+                        }
+                        if (cancelled || !recovered) return;
+                        info("Tunnel recovered — re-issuing api handle to re-seed global state").catch(() => {});
+                        setApi(new OpencodeApi(baseUrl, authorization));
+                    };
+                    void syncGate();
                     return;
                 }
 
