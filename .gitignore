@@ -28,3 +28,6 @@ dist-ssr
 
 # mobile build output (vite second entry)
 dist-mobile/
+
+# lumina-server compose bind mount (docker-compose.yml ./data:/data)
+/data/

@@ -1,10 +1,11 @@
 # lumina-server — 生产用 compose：拉取 CI 发布的镜像直接运行。
 #
-#   docker compose up -d                                # 首次运行自动建卷
+#   docker compose up -d                                # 首次运行自动创建 ./data/
 #   docker compose pull && docker compose up -d          # 更新到新版 :latest
 #
 # 打开 http://<host>:14600/ 注册第一个账号（自动成为 admin）。数据就是
-# 卷里的 lumina.db 一个文件，备份即拷贝。TLS/组网见 server/README.md。
+# ./data/lumina.db 一个文件（bind mount，备份即拷贝）。TLS/组网见
+# server/README.md。
 #
 # 镜像由 .github/workflows/docker-server.yml 自动构建推送：
 # master 推送 → :edge；GitHub Release → :<版本号> + :latest。
@@ -15,39 +16,40 @@
 
 services:
   lumina-server:
+    container_name: lumina-code-server
     image: iewnfod/lumina-code-server:latest
     ports:
       - "14600:3000"
     environment:
-      LUMINA_DATA_DIR: /data
       # Set to "false" to close registration after everyone joined.
       LUMINA_ALLOW_REGISTRATION: "true"
       # "1" only when this port is TLS itself (no reverse proxy).
       LUMINA_COOKIE_SECURE: "0"
-      # frp 远程访问：必须与 server/deploy/frps.toml 的 auth.token 一致
+      # frp 远程访问：必须与 frps.toml 的 auth.token 一致
       # （留空 = 服务器不提供远程访问）。bindPort 必须填 frps 的
       # 【宿主机】公开端口（= 下方 frps 服务的发布端口），桌面 frpc
       # 连的是它。
       LUMINA_FRPS_TOKEN: "CHANGE_ME_TOO"
       LUMINA_FRPS_BIND_PORT: "14601"
+    # LUMINA_DATA_DIR 不在这里设：镜像已烘焙 /data（Dockerfile 的
+    # ENV），容器内路径对宿主机无意义 —— 外部可见性完全由这个 bind
+    # mount 决定，SQLite 落在 compose 文件旁的 ./data/lumina.db。
     volumes:
-      - lumina-data:/data
+      - ./data:/data
     restart: unless-stopped
 
   # frp 服务端：桌面 frpc 的出站信道 + 移动端直连的 vhost 路由。
   # 配置见 server/deploy/frps.toml（改 auth.token）。
   frps:
+    container_name: lumina-code-frps
     image: fatedier/frps:0.61.1
     restart: unless-stopped
     command: -c /etc/frps/frps.toml
     volumes:
-      - ./server/deploy/frps.toml:/etc/frps/frps.toml:ro
+      - ./frps.toml:/etc/frps/frps.toml:ro
     ports:
       # 端口连排：14600 web / 14601 frps 控制信道 / 14602 frps vhost。
       # 14601 公网可达（frpc 侧 transport.tls.enable 加密）；vhost 只
       # 发布到宿主机回环 —— 唯一入口是 nginx 的 /t/ 路由（TLS 在那终结）。
       - "14601:7000"
       - "127.0.0.1:14602:7100"
-
-volumes:
-  lumina-data:

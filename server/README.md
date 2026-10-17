@@ -38,17 +38,19 @@ docker compose up -d
 
 ```bash
 docker run -d --name lumina-server -p 14600:3000 \
-  -v lumina-data:/data iewnfod/lumina-code-server:latest
+  -v $PWD/data:/data iewnfod/lumina-code-server:latest
 ```
 
 ### 从源码构建镜像
 
 ```bash
 docker build -f server/Dockerfile -t lumina-code-server .
-docker run -d -p 14600:3000 -v lumina-data:/data lumina-code-server
+docker run -d -p 14600:3000 -v $PWD/data:/data lumina-code-server
 ```
 
-数据就是卷里的 `lumina.db` 一个文件，备份即拷贝。
+数据就是 bind mount 出来的 `./data/lumina.db` 一个文件，备份即拷贝
+（compose 用 `./data:/data`；镜像内已烘焙 `LUMINA_DATA_DIR=/data`，
+无需在环境变量里重复设置）。
 
 ### 裸机 / 开发
 
