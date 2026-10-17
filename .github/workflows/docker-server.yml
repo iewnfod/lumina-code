@@ -1,7 +1,7 @@
 name: Docker - lumina-server
 
 # Builds the self-hosted companion server's image and pushes it to
-# Docker Hub (docker.io/iewnfod/lumina-code-server). Two lanes, one job:
+# Docker Hub (docker.io/iewnfod/lumina-code-server). Three lanes, one job:
 #   • master pushes touching the image's INPUTS (server/, the workspace
 #     manifests feeding the deps stage, this file) → the rolling :edge
 #     tag — the merge was already gated by ci-server.yml's test+build.
@@ -9,6 +9,12 @@ name: Docker - lumina-server
 #     version IS the release tag (v0.5.0 → 0.5.0): the repo ships one
 #     version across all surfaces, even though server/package.json
 #     carries its own 0.x line (that one tracks server-only breakage).
+#   • any OTHER ref (workflow_dispatch from a feature branch) →
+#     :branch-<name> (slashes sanitized, e.g. feat/mobile →
+#     :branch-feat-mobile) — a test-deployable image that can never
+#     collide with :edge / :latest / a version number. Pushes still
+#     only trigger on master, so branch images are explicitly
+#     dispatched when wanted.
 # workflow_dispatch re-runs either lane: a `tag` input selects the
 # version lane (re-publish, like Release.yml's dispatch), empty = :edge.
 #
@@ -69,8 +75,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # master (or a bare dispatch) → :edge; anything else is a release
-      # tag (dispatch input wins) → :<version>-sans-v + :latest.
+      # master (or a bare dispatch) → :edge; a vX.Y.Z ref (dispatch
+      # input wins) → :<version>-sans-v + :latest; anything else is a
+      # branch dispatch → :branch-<sanitized> (test-deployable, no
+      # collision with the stable lanes).
       - name: Resolve image tags
         id: tags
         env:
@@ -82,14 +90,14 @@ jobs:
           if [[ "${ref}" == "master" ]]; then
             echo "tags=${IMAGE}:edge" >> "$GITHUB_OUTPUT"
             echo "version=edge" >> "$GITHUB_OUTPUT"
-          else
+          elif [[ "${ref#v}" =~ ^[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
             version="${ref#v}"
-            if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
-              echo "::error::Ref '${ref}' is neither master nor a vX.Y.Z tag" >&2
-              exit 1
-            fi
             echo "tags=${IMAGE}:${version},${IMAGE}:latest" >> "$GITHUB_OUTPUT"
             echo "version=${version}" >> "$GITHUB_OUTPUT"
+          else
+            sanitized="${ref//\//-}"
+            echo "tags=${IMAGE}:branch-${sanitized}" >> "$GITHUB_OUTPUT"
+            echo "version=branch-${sanitized}" >> "$GITHUB_OUTPUT"
           fi
 
       # Fail with a pointed message instead of a cryptic login error
