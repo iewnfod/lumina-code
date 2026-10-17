@@ -22,7 +22,7 @@
 // FRP_VERSION must stay in sync with the frps image tag in
 // docker-compose.yml (the frpc↔frps pair should never drift across
 // minor versions).
-const FRP_VERSION = "0.61.1";
+const FRP_VERSION = "0.71.1";
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";

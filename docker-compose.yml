@@ -43,7 +43,7 @@ services:
   # —— 官方 fatedier/frps 的 Docker Hub 仓库已停止发布新版本标签。
   frps:
     container_name: lumina-code-frps
-    image: snowdreamtech/frps:0.61.1
+    image: snowdreamtech/frps:0.71.1
     restart: unless-stopped
     command: -c /etc/frps/frps.toml
     volumes:
