@@ -2408,6 +2408,25 @@ the push/pop over the category list; see SettingsModal).
 - `gen/android`/`gen/ios` are committed project sources. iOS init/build
   needs macOS; Linux covers `pnpm build:mobile` +
   host/`aarch64-linux-android` `cargo check` only.
+- **App icons: the master export is `mobile/src-tauri/icons/icon.png`
+  (1024×1024)** — downscaled once (Lanczos) from the designer's
+  `Code Icon@3x.png` (3837, the icon.svg 3x export; file at the repo
+  root). Never re-render `src/assets/icon.svg` yourself and never let
+  the CLI's 512 re-encode become the master (the gen script
+  git-restores icons/ after each run — the 1024 master must stay
+  committed or reruns will silently drop it back to 512). Desktop + CEF
+  icon sets are committed as exported (512 era). The ANDROID half
+  (`gen/android` res) is NOT covered by `tauri android init` — init
+  plants the tauri template's own mipmaps; regenerate them from the
+  master with `pnpm gen:app-icon` (= `tauri icon` run from mobile/,
+  then git-restore icons/ + drop the CLI's untracked desktop-only
+  extras). tauri-cli ≥2.11 writes
+  `mipmap-anydpi-v26/ic_launcher.xml` +
+  `values/ic_launcher_background.xml` itself and never the ROUND
+  adaptive twin — `ic_launcher_round.xml` is hand-kept next to it
+  (manifest carries `android:roundIcon`). The template's leftover
+  green-grid background / android-robot foreground drawables and
+  purple/teal colors were deleted (unreferenced, trap hand-wiring).
 - **The soft keyboard is handled NATIVELY, never in CSS/JS**:
   MainActivity's insets listener pads the content view with
   `max(bars.bottom, ime.bottom)` — under targetSdk 35+ edge-to-edge the

@@ -19,7 +19,8 @@
     "build:mobile": "vite build --config mobile/vite.config.ts",
     "fetch:opencode": "node scripts/fetch-opencode.mjs",
     "fetch:opencode:cef": "LUMINA_BINARIES_DIR=cef/src-tauri/binaries node scripts/fetch-opencode.mjs",
-    "gen:icons": "node scripts/gen-file-icons.mjs"
+    "gen:icons": "node scripts/gen-file-icons.mjs",
+    "gen:app-icon": "cd mobile && npx tauri icon src-tauri/icons/icon.png && git checkout -- src-tauri/icons && rm -rf src-tauri/icons/64x64.png src-tauri/icons/Square*.png src-tauri/icons/StoreLogo.png src-tauri/icons/icon.icns src-tauri/icons/icon.ico src-tauri/icons/ios"
   },
   "dependencies": {
     "@git-diff-view/react": "^0.1.7",

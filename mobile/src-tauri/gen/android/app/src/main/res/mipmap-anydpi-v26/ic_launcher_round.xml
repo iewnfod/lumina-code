@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Round variant — referenced by android:roundIcon in the manifest.
+     tauri-cli only writes the square ic_launcher.xml, this round twin is
+     hand-kept: same layers as the CLI-written file next to it. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>
