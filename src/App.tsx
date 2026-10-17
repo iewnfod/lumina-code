@@ -471,9 +471,11 @@ function AppBody({
 
     // The settings modal: the title-bar gear opens it, and the model
     // picker's "Configure models…" deep-links to its Model tab. App owns
-    // open + tab so entry points can preselect the pane.
-    const [settings, setSettings] = useState<{open: boolean; tab: SettingsTab}>({open: false, tab: "general"});
-    const openSettings = useCallback((tab: SettingsTab = "general") => {
+    // open + tab so entry points can preselect the pane. A NULL tab is
+    // the mobile root (the settings CATEGORY LIST — the second-level
+    // page navigation); the desktop modal reads it as "general".
+    const [settings, setSettings] = useState<{open: boolean; tab: SettingsTab | null}>({open: false, tab: null});
+    const openSettings = useCallback((tab: SettingsTab | null = null) => {
         setSettings({open: true, tab});
     }, []);
 
@@ -488,7 +490,7 @@ function AppBody({
     const closeSettings = useCallback(() => {
         setSettings((prev) => ({...prev, open: false}));
     }, []);
-    const changeSettingsTab = useCallback((tab: SettingsTab) => {
+    const changeSettingsTab = useCallback((tab: SettingsTab | null) => {
         setSettings((prev) => (prev.tab === tab ? prev : {...prev, tab}));
     }, []);
     // Stable so the memoized ChatView/ChatInput subtree skips re-rendering.
@@ -553,7 +555,17 @@ function AppBody({
             {mobile ? (
                 drawerOpen && (
                     <div className="lum-m-drawer-scrim" onClick={closeDrawer}>
-                        <div className="lum-m-drawer" onClick={(e) => e.stopPropagation()}>
+                        <div
+                            className="lum-m-drawer"
+                            onClick={(e) => e.stopPropagation()}
+                            // The glass base: SessionBar's surface is TRANSLUCENT glass,
+                            // which on desktop composites over the app's opaque base. In
+                            // the drawer it would composite over the scrim (this div is
+                            // the scrim's child) — glass over 40% black = a much darker
+                            // sidebar than desktop. Painting the app base here restores
+                            // the desktop composite: glass tint over effectiveBg.
+                            style={{background: effectiveBg}}
+                        >
                             <SessionBar
                                 sessions={sessionInfos}
                                 activeId={activeId}
@@ -625,7 +637,14 @@ function AppBody({
                         className="absolute inset-0"
                         style={{...chromeGlass, zIndex: 0}}
                     />
-                    <MaskedSurface className="absolute inset-0" style={{zIndex: 1}}>
+                    <MaskedSurface
+                        className="absolute inset-0"
+                        style={{zIndex: 1}}
+                        // Mobile: square corners — the rounded cutaways (the
+                        // desktop 拼接倒角 seam aesthetic) read as window
+                        // chrome and have no place on a fullscreen phone.
+                        radius={mobile ? 0 : undefined}
+                    >
                         {/* The conversation canvas — its own opaque bg in
                             light mode, distinct from the chrome glass frame
                             around it. Dark mode stays transparent so the
@@ -791,7 +810,11 @@ function App() {
                 background: "transparent",
             }}
         >
-            <div className={`w-full h-full overflow-hidden ${isMaximized ? "" : "rounded-[var(--radius-lg)]"}`}>
+            {/* The rounded window frame is DESKTOP chrome — the mobile app
+             * IS the screen (fullscreen activity), where the rounding cuts
+             * the title bar's top corners open against the transparent
+             * html behind. Mobile stays square. */}
+            <div className={`w-full h-full overflow-hidden ${isMaximized || isMobileApp() ? "" : "rounded-[var(--radius-lg)]"}`}>
                 <InnerApp isMaximized={isMaximized}/>
             </div>
         </div>

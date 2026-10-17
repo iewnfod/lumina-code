@@ -7,6 +7,7 @@ import {ExitList} from "./ui/ExitPresence.tsx";
 import {useColors} from "../hooks/colors.tsx";
 import {useI18n} from "../hooks/i18n.tsx";
 import {useScrollEdges} from "../hooks/useScrollEdges.ts";
+import {isMobileApp} from "../lib/platform.ts";
 import {folderLabel} from "../lib/path.ts";
 import {groupByDirectory, relativeAge, type SessionInfo} from "./sessionGrouping.ts";
 import {useSessionData} from "../opencode/sessionDataContext.tsx";
@@ -85,7 +86,7 @@ export default function ImportSessionsModal({
             <div
                 ref={edges.ref}
                 onScroll={edges.onScroll}
-                className={`flex-1 min-h-0 overflow-y-auto px-3 py-2 lum-fade-md max-h-[70vh] ${
+                className={`flex-1 min-h-0 overflow-y-auto px-3 py-2 lum-fade-md ${isMobileApp() ? "" : "max-h-[70vh]"} ${
                     edges.top ? "lum-fade-top " : ""
                 }${edges.bottom ? "lum-fade-bottom" : ""}`}
             >

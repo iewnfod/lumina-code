@@ -49,7 +49,11 @@ body,
  * The desktop's SessionBar (a docked flex sibling on desktop) mounts
  * inside these on mobile: a scrim + a left-anchored overlay panel the
  * TitleBar hamburger opens. SessionBar keeps its own glass surface +
- * width — the drawer only positions it. */
+ * width — the drawer only positions it, but paints the OPAQUE app base
+ * (inline, from App.tsx's effectiveBg): SessionBar's glass is
+ * translucent, and this div is the scrim's child, so without the base
+ * the glass would composite over the scrim's 40% black instead of the
+ * app background (a much darker sidebar than desktop). */
 
 .lum-m-drawer-scrim {
     position: fixed;
@@ -82,6 +86,35 @@ body,
     }
 }
 
+/* ---------------------------------------------- The settings pages --
+ * The mobile settings modal's second-level navigation: a pane page
+ * PUSHES in from the right over the always-mounted category list
+ * (.lum-m-page-in) and pops back out to the right on back
+ * (.lum-m-page-out — the exit engine holds it mounted through the
+ * slide, revealing the list underneath in place). Same timing and
+ * easing as the drawer above; full-width translate reads as the iOS
+ * settings push. */
+
+.lum-m-page-in {
+    animation: lum-m-page-in var(--duration-glass, 220ms) var(--ease-glass, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+.lum-m-page-out {
+    animation: lum-m-page-out var(--duration-glass, 220ms) var(--ease-glass, cubic-bezier(0.32, 0.72, 0, 1)) both;
+}
+
+@keyframes lum-m-page-in {
+    from {
+        transform: translateX(100%);
+    }
+}
+
+@keyframes lum-m-page-out {
+    to {
+        transform: translateX(100%);
+    }
+}
+
 /* ------------------------------------------------ The desktop tree's
  * mobile adaptations. mobile.css loads ONLY in the mobile bundle, so
  * plain selectors here are mobile-scoped by construction. */
@@ -97,6 +130,18 @@ body,
 #root .lum-toolbar {
     flex-wrap: wrap;
     row-gap: 4px;
+}
+
+/* The composer's RESTING height (min-h 38 = one 20px text-sm line +
+ * the 12/6px desktop padding rhythm) is desktop density; a phone wants
+ * a taller touch target. Only the default box HEIGHT grows (min-height
+ * 60px, extra room lands under the text line) — the padding rhythm is
+ * the desktop's and stays untouched, so the placeholder (same pt-3)
+ * needs no override either. The growth cap and scroll behavior above
+ * one line are untouched (CSS owns the geometry, see ComposerCore).
+ * Unlayered #root rules beat the layered utilities. */
+#root .lum-composer-input {
+    min-height: 60px;
 }
 
 /* ------------------------------------------------------ The login card --
@@ -120,13 +165,7 @@ body,
 .lum-m-brand h1 {
     font-size: 26px;
     font-weight: 800;
-    margin: 0 0 8px;
-}
-
-.lum-m-brand p {
     margin: 0;
-    font-size: 13px;
-    line-height: 1.5;
 }
 
 .lum-m-card {

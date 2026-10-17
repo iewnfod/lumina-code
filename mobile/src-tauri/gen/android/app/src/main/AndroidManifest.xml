@@ -10,12 +10,21 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.lumina_code_mobile"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
+        <!-- adjustResize exists ONLY for pre-35 devices (minSdk 24):
+             under enableEdgeToEdge (decorFitsSystemWindows false) it is
+             a fullscreen-window no-op for LAYOUT, but it replaces the
+             system default adjustPan — pan would slide the whole window
+             up and stack on top of MainActivity's own IME padding (a
+             double lift). On Android 15+ (targetSdk 36) the attribute
+             is ignored and the keyboard is handled entirely by the
+             insets listener in MainActivity. -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:launchMode="singleTask"
             android:label="@string/main_activity_title"
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

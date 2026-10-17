@@ -1,6 +1,7 @@
 import {useState} from "react";
 import {error as logError, info as logInfo} from "@tauri-apps/plugin-log";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {isMobileApp} from "../../lib/platform.ts";
 import {
     LuminaServerApi,
     clearServerConnection,
@@ -10,6 +11,7 @@ import {
     setServerTunnelEnabled,
     useServerConnection,
 } from "../../opencode/serverConnection.ts";
+import {clearMobileConnection, useMobileConnection} from "../../opencode/mobileConnection.ts";
 import {useSyncHealth} from "../../opencode/serverSync.ts";
 import Button from "../ui/Button.tsx";
 import SettingRow from "./SettingRow.tsx";
@@ -17,15 +19,57 @@ import Switch from "./Switch.tsx";
 import TextInput from "./TextInput.tsx";
 
 /**
- * The settings modal's Server pane: sign in to a self-hosted
- * lumina-server, toggle session sync, sign out. The relay model in one
- * sentence for the user: the agent keeps running locally, and sessions
- * are mirrored to the server for other devices.
+ * The settings modal's Server pane — DUAL-PURPOSE by platform. Desktop:
+ * sign in to a self-hosted lumina-server, toggle session sync, sign out
+ * (the relay model in one sentence for the user: the agent keeps running
+ * locally, and sessions are mirrored to the server for other devices).
+ * Mobile: the app's ACCOUNT page — the logged-in server address + sign
+ * out (clearing the mobile connection remounts the whole app tree back
+ * to the login screen; there is nothing else to configure there).
  *
  * No draft/save footer: signing in writes the connection store
  * immediately (the sync engine picks it up live); every other control
  * acts in place.
  */
+
+/** The mobile account page: server address + sign out. */
+function MobileServerPage() {
+    const t = useI18n();
+    const connection = useMobileConnection();
+    const [busy, setBusy] = useState(false);
+
+    // The store going null (sign out) unmounts the whole app tree back
+    // to the login screen; the render during that teardown must not
+    // dereference the vanished connection.
+    if (!connection) return null;
+
+    const signOut = async () => {
+        setBusy(true);
+        // Revoke server-side first (best effort), then forget locally —
+        // the desktop sign-out's order: a network failure must not
+        // strand the user in a broken state.
+        try {
+            await new LuminaServerApi(connection.url, connection.token).logout();
+        } catch (e) {
+            logError(`lumina-server logout failed (clearing anyway): ${e}`).catch(() => {});
+        }
+        clearMobileConnection();
+    };
+
+    return (
+        <div className="flex flex-col gap-4 p-4 overflow-y-auto flex-1 min-h-0">
+            <SettingRow
+                label={t["Signed in"]}
+                description={<span className="font-mono">{connection.url}</span>}
+            >
+                <span className="text-xs opacity-70">{connection.username}</span>
+            </SettingRow>
+            <div className="self-end">
+                <Button label={t["Sign out"]} onClick={() => void signOut()} disabled={busy}/>
+            </div>
+        </div>
+    );
+}
 
 export default function ServerSettings() {
     const t = useI18n();
@@ -37,6 +81,8 @@ export default function ServerSettings() {
     const [password, setPassword] = useState("");
     const [busy, setBusy] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
+
+    if (isMobileApp()) return <MobileServerPage/>;
 
     const signIn = async () => {
         const normalized = normalizeServerUrl(url);

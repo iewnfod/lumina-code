@@ -1435,7 +1435,9 @@ src/
     │   │                  #   the old conditional as present; as="span"
     │   │                  #   keeps button innards legal HTML).
     │   ├── Modal.tsx      # Portal-rendered modal chrome (fadeIn backdrop +
-    │   │                  #   scaleIn panel, Escape/backdrop close)
+    │   │                  #   scaleIn panel, Escape/backdrop close; optional
+    │   │                  #   onBack renders a back arrow before the title —
+    │   │                  #   the mobile settings pages' header)
     │   ├── MaskedSurface.tsx # SVG rounded-rect clip exposing the glass chrome corners
     │   ├── PopoverMenu.tsx   # Shared dropdown menu
     │   ├── RollingTitle.tsx # Ellipsized title that scrolls on hover
@@ -2094,11 +2096,26 @@ src/
 
     └── settings/           # The settings modal (title-bar gear; layout
                            #   follows lumina-terminal's settings pages)
-    ├── SettingsModal.tsx # Modal shell: left tab rail (General / Model /
-    │                      #   About) over ui/Modal; ONE pane mounts at a
-    │                      #   time (mount doubles as the pane's open →
-    │                      #   ModelSettings loads/resets on mount). App owns
-    │                      #   {open, tab} so entry points deep-link a tab.
+    ├── SettingsModal.tsx # Modal shell; TWO LAYOUTS. Desktop: left tab
+    │                      #   rail (General / Model / About) over
+    │                      #   ui/Modal; ONE pane mounts at a time
+    │                      #   (mount doubles as the pane's open →
+    │                      #   ModelSettings loads/resets on mount).
+    │                      #   Mobile: TWO-LEVEL page navigation — a
+    │                      #   full-width CATEGORY LIST (the tab rows
+    │                      #   as h-11 chevron rows) pushes the pane
+    │                      #   as a sliding page (.lum-m-page-in from
+    │                      #   the right, an absolute overlay over the
+    │                      #   always-mounted list; back = Modal's
+    │                      #   onBack arrow popping it out through the
+    │                      #   exit engine, the frozen-pane ghost kept
+    │                      #   by a lastPaneRef). App owns {open, tab}
+    │                      #   so entry points deep-link a tab; NULL
+    │                      #   tab = the mobile root list (desktop
+    │                      #   reads null as "general"), so list rows
+    │                      #   and the desktop rail share one
+    │                      #   onTabChange and openSettings("model")
+    │                      #   lands directly on the second level.
     ├── GeneralSettings.tsx # Language + appearance rows, the
     │                      #   activity-panel mode OptionRow (auto
     │                      #   collapse / always open), the desktop-
@@ -2143,6 +2160,17 @@ src/
     │                      #   (pure) splits it out for a prominent mono
     │                      #   display + copy; code-less instructions
     │                      #   (Snowflake etc.) show as a plain caption.
+    ├── ServerSettings.tsx # The Server pane — DUAL-PURPOSE by platform.
+    │                      #   Desktop: sign in to a self-hosted
+    │                      #   lumina-server (url + credentials → the
+    │                      #   serverConnection store, picked up live by
+    │                      #   useServerSync), the sync + tunnel
+    │                      #   Switches, sync health, sign out (revoke
+    │                      #   best-effort then clear). Mobile: the app's
+    │                      #   ACCOUNT page — the logged-in server
+    │                      #   address + sign out (logout best-effort
+    │                      #   then clearMobileConnection, which remounts
+    │                      #   the whole tree back to the login screen).
     ├── AboutSettings.tsx # About pane: centered identity hero (icon +
     │                      #   name + app version via getVersion), the
     │                      #   OpenCode server version as a key/value line,
@@ -2362,10 +2390,14 @@ desktop.
 Mobile chrome decisions live in the DESKTOP tree keyed off
 `isMobileApp()` (lib/platform.ts — the window flag kv.ts plants before
 the app bundle imports): sidebar → TitleBar-hamburger DRAWER (the only
-session navigation), stats panel/SidebarResizer/Server settings tab not
-mounted, TitleBar's window controls hidden. mobile.css carries the
+session navigation), stats panel/SidebarResizer not mounted, the Server
+settings tab mounting as the app's ACCOUNT page (server address + sign
+out — see ServerSettings' mobile branch), TitleBar's window controls
+hidden. mobile.css carries the
 narrow-layout adaptations + the login card — html/body get NO colors
-(splash-era inline colors poison the app tree's inherited text).
+(splash-era inline colors poison the app tree's inherited text) — plus
+the settings modal's second-level PAGE animations (.lum-m-page-in/-out,
+the push/pop over the category list; see SettingsModal).
 
 - **Frontend = second vite entry**: `mobile/index.html` → `src/mobile/`
   (config `mobile/vite.config.ts`, port 1421, outDir `dist-mobile/`).
@@ -2376,6 +2408,24 @@ narrow-layout adaptations + the login card — html/body get NO colors
 - `gen/android`/`gen/ios` are committed project sources. iOS init/build
   needs macOS; Linux covers `pnpm build:mobile` +
   host/`aarch64-linux-android` `cargo check` only.
+- **The soft keyboard is handled NATIVELY, never in CSS/JS**:
+  MainActivity's insets listener pads the content view with
+  `max(bars.bottom, ime.bottom)` — under targetSdk 35+ edge-to-edge the
+  system does NOT resize the window for the IME at all, so without the
+  ime() insets the composer sits behind the keyboard. Deliberately NO
+  `WindowInsetsAnimationCompat` per-frame sync (live-observed 2026-10-17:
+  per-frame padding resizes the WebView per frame, and WebView resizes
+  lag their compositor — the surface buffer scales between frames and
+  the whole layout flickered between final and mid-animation states);
+  the padding applies once when the IME settles — a single clean jump.
+  The manifest's `adjustResize` serves
+  only pre-35 devices (it kills adjustPan, which would stack a
+  whole-window pan on top of our padding); on 35+ it is ignored. The
+  page needs zero JS: the composer's column flow is pure CSS and
+  useTranscriptScroll's ResizeObserver re-pins the transcript on the
+  shrink. Deliberately NO visualViewport/`--lum-kb` web fallback —
+  Android-native is authoritative and the only live platform (a web
+  fallback would be untested code; revisit when iOS/ohos resumes).
 - **HarmonyOS is FROZEN on the `feat/mobile-ohos` branch** (branch-patch
   line, blocked on a device black-screen + tauri-plugin-log SIGABRT on
   ohos — this branch's lib.rs must cfg the plugin out if that port

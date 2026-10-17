@@ -1,8 +1,9 @@
 import {useEffect, type ReactNode} from "react";
 import {createPortal} from "react-dom";
-import {X} from "lucide-react";
+import {ArrowLeft, X} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {isMobileApp} from "../../lib/platform.ts";
 import ExitPresence from "./ExitPresence.tsx";
 import IconButton from "./IconButton.tsx";
 
@@ -15,16 +16,27 @@ import IconButton from "./IconButton.tsx";
  * runtime-derived surface colors like every other chrome surface.
  * Hand-rolled for the same reason as PopoverMenu: framework dialogs
  * can't follow SurfaceColors.
+ *
+ * MOBILE: the panel goes FULLSCREEN (no padding, no radius/border/
+ * shadow — a fullscreen sheet, not a floating window) so modal-sized
+ * content like the settings panes gets the whole viewport. A second-level
+ * page inside such a modal passes `onBack`: the header then leads with a
+ * back arrow (the same chrome as ModelSettings' provider-detail back
+ * row) instead of only the title + close.
  */
 export default function Modal({
     open,
     onClose,
+    onBack,
     title,
     children,
     width = 520,
 }: {
     open: boolean;
     onClose: () => void;
+    /** Optional back affordance for modals that navigate a level deeper
+     *  (the mobile settings pages) — rendered before the title. */
+    onBack?: () => void;
     /** Rendered in the header row; omit for chrome-less content. */
     title?: ReactNode;
     children: ReactNode;
@@ -33,6 +45,7 @@ export default function Modal({
 }) {
     const colors = useColors();
     const t = useI18n();
+    const mobile = isMobileApp();
 
     useEffect(() => {
         if (!open) return;
@@ -55,7 +68,7 @@ export default function Modal({
                 <div
                     aria-modal="true"
                     role="dialog"
-                    className={`fixed inset-0 flex items-center justify-center p-6 ${closing ? "lum-fade-exit" : "lum-enter"}`}
+                    className={`fixed inset-0 flex items-center justify-center ${mobile ? "" : "p-6"} ${closing ? "lum-fade-exit" : "lum-enter"}`}
                     style={{background: colors.dark ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.25)", zIndex: 9000}}
                     onPointerDown={(e) => {
                         if (e.target === e.currentTarget) onClose();
@@ -63,12 +76,13 @@ export default function Modal({
                 >
                     <div
                         {...bind}
-                        className={`flex flex-col rounded-[var(--radius-lg)] overflow-hidden max-h-full ${closing ? "lum-pop-exit" : "lum-pop"}`}
+                        className={`flex flex-col overflow-hidden max-h-full ${mobile ? "w-full h-full" : "rounded-[var(--radius-lg)]"} ${closing ? "lum-pop-exit" : "lum-pop"}`}
                         style={{
-                            width,
+                            width: mobile ? "100%" : width,
+                            ...(mobile ? {height: "100%"} : null),
                             background: "var(--color-elevated)",
-                            border: `1px solid ${colors.glassBorder}`,
-                            boxShadow: colors.elevationShadow,
+                            border: mobile ? undefined : `1px solid ${colors.glassBorder}`,
+                            boxShadow: mobile ? undefined : colors.elevationShadow,
                             color: colors.textPrimary,
                         }}
                     >
@@ -77,7 +91,20 @@ export default function Modal({
                                 className="flex items-center justify-between gap-2 px-4 h-11 shrink-0"
                                 style={{borderBottom: `1px solid ${colors.glassBorder}`}}
                             >
-                                <div className="text-sm font-semibold truncate leading-normal">{title}</div>
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                    {onBack && (
+                                        <IconButton
+                                            size={22}
+                                            hoverOverlay={colors.hoverOverlay}
+                                            activeOverlay={colors.activeOverlay}
+                                            aria-label={t["Back"]}
+                                            onClick={onBack}
+                                        >
+                                            <ArrowLeft size={15}/>
+                                        </IconButton>
+                                    )}
+                                    <div className="text-sm font-semibold truncate leading-normal">{title}</div>
+                                </div>
                                 <IconButton
                                     size={24}
                                     hoverOverlay={colors.hoverOverlay}

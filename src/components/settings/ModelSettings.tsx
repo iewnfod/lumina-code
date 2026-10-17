@@ -296,7 +296,6 @@ export default function ModelSettings({
                             <Search size={13} className="shrink-0 opacity-45"/>
                             <input
                                 type="text"
-                                autoFocus
                                 value={query}
                                 placeholder={t["Search providers..."]}
                                 onChange={(e) => setQuery(e.currentTarget.value)}

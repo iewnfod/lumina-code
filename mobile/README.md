@@ -91,6 +91,17 @@ OPENCODE_URL=http://127.0.0.1:4312 OPENCODE_PASSWORD=pw \
 - **`beforeBuildCommand` 在仓库根执行**（写 `pnpm run build:mobile`）。
 - 边缘到边缘：MainActivity 默认 enableEdgeToEdge，标题栏需 safe-area padding
   （mobile.css 的 `#root > div` 规则）。
+- **软键盘（IME）同样走 native padding**：targetSdk 35+ 的 edge-to-edge 下系统
+  根本不为键盘缩放窗口——MainActivity 的 insets listener 取
+  `max(bars.bottom, ime.bottom)` 作底边 padding（取 max 不相加：键盘弹出时
+  导航栏 insets 仍在报告）。**刻意不挂 `WindowInsetsAnimationCompat` 逐帧回调**
+  （live-observed：逐帧 padding = 逐帧 resize WebView，而 WebView 的尺寸变化
+  滞后于合成器，动画期间 surface buffer 被缩放凑数，整个布局在最终/中间状态
+  间闪烁）；padding 在键盘落定时一次性生效，表现为干净的一跳。manifest
+  的 `adjustResize` 只为 pre-35 设备禁掉 adjustPan（全屏窗 +
+  decorFitsSystemWindows(false) 下 pan 会与 padding 叠成双重抬升），35+ 上被
+  忽略。页面侧零 JS：composer 列是纯 CSS 流，缩放后自然抬升；
+  useTranscriptScroll 的 ResizeObserver 负责把 transcript 重新贴底。
 
 ## 待打磨（已知，不阻塞）
 

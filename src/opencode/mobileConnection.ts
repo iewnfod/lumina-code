@@ -59,8 +59,9 @@ export function setMobileConnection(next: MobileConnection): void {
     }
 }
 
-/** Sign out: forget locally. v1 keeps the token server-side (revoke via
- * the web console); a follow-up can call logout when online. */
+/** Sign out: forget locally. The Server settings' mobile page revokes
+ * the token server-side (best effort) BEFORE calling this; clearing the
+ * store is what returns the app to the login screen. */
 export function clearMobileConnection(): void {
     if (store.set(null)) {
         logInfo("Signed out (connection cleared)").catch(() => {});
