@@ -16,6 +16,13 @@ export interface SessionTime {
     updated: number;
 }
 
+/** GET /api/info response (live-verified v2.0.11): the server's own
+ *  identity report — the About pane's version source. The endpoint also
+ *  carries pid/urls/paths; only the version is consumed. */
+export interface OpencodeServerInfo {
+    version: string;
+}
+
 export interface SessionModelRef {
     id: string;
     providerID: string;

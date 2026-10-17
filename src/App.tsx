@@ -755,7 +755,6 @@ function AppBody({
                 onTabChange={changeSettingsTab}
                 onClose={closeSettings}
                 api={api}
-                serverVersion={connected ? connectionStatus.version : null}
             />
             {/* The session-import picker (the sidebar's Import row). */}
             <ImportSessionsModal

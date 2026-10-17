@@ -43,7 +43,6 @@ export default function SettingsModal({
     onTabChange,
     onClose,
     api,
-    serverVersion,
 }: {
     open: boolean;
     /** The selected pane, or NULL at the mobile root list. */
@@ -53,9 +52,6 @@ export default function SettingsModal({
     onTabChange: (tab: SettingsTab | null) => void;
     onClose: () => void;
     api: OpencodeApi | null;
-    /** The connected OpenCode server's version; null while not connected
-     *  (surfaced on the About pane). */
-    serverVersion: string | null;
 }) {
     const colors = useColors();
     const t = useI18n();
@@ -86,7 +82,7 @@ export default function SettingsModal({
             {active === "general" && <GeneralSettings/>}
             {active === "model" && <ModelSettings api={api}/>}
             {active === "server" && <ServerSettings/>}
-            {active === "about" && <AboutSettings serverVersion={serverVersion}/>}
+            {active === "about" && <AboutSettings/>}
         </>
     );
 

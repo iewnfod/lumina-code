@@ -149,7 +149,6 @@ const enUs = {
     "Default": "Default",
     "Reset to default": "Reset to default",
     "OpenCode": "OpenCode",
-    "Not connected": "Not connected",
     "Dependencies": "Dependencies",
     // --- Session usage ring ---
     "Session usage": "Session usage",

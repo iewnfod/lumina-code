@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from "react";
 import {invoke} from "@tauri-apps/api/core";
 import {listen} from "@tauri-apps/api/event";
-import {error, info} from "@tauri-apps/plugin-log";
+import {error, info, warn} from "@tauri-apps/plugin-log";
 import {OpencodeApi} from "./api.ts";
 import {streamServerEvents, type OpencodeEvent} from "./eventStream.ts";
 import {isMobileApp, remoteCorsOrigins} from "../lib/platform.ts";
@@ -37,7 +37,7 @@ interface OpencodeStatusPayload {
 
 export type OpencodeStatus =
     | {state: "connecting"}
-    | {state: "connected"; baseUrl: string; version: string}
+    | {state: "connected"; baseUrl: string; version: string | null}
     | {state: "error"; message: string};
 
 export type OpencodeEventHandler = (event: OpencodeEvent) => void;
@@ -63,6 +63,20 @@ export function useOpencode(): {
         let cancelled = false;
         let abortStream: AbortController | null = null;
         let unlistenStatus: (() => void) | undefined;
+
+        // The About pane's version read: the handshake value is the SPAWN
+        // side's parse (and null on the frp path — no local binary), so
+        // once connected we ask the server ITSELF via GET /api/info and
+        // refine the status in place. Cosmetic on the local shell (same
+        // number), the honest source on remote.
+        const settleServerVersion = (client: OpencodeApi) => {
+            client.serverInfo().then((info) => {
+                if (cancelled) return;
+                setStatus((prev) => (prev.state === "connected" ? {...prev, version: info.version} : prev));
+            }).catch((e) => {
+                warn(`Server info query failed (version stays handshake-reported): ${e}`).catch(() => {});
+            });
+        };
 
         (async () => {
             try {
@@ -139,7 +153,8 @@ export function useOpencode(): {
                     const client = build(first);
                     openStream(client);
                     setApi(client);
-                    setStatus({state: "connected", baseUrl: client.baseUrl, version: "remote"});
+                    setStatus({state: "connected", baseUrl: client.baseUrl, version: null});
+                    settleServerVersion(client);
                     info(`Connected via frp route ${first.routeId} at ${conn.url}`).catch(() => {});
 
                     // LIVENESS + CREDENTIAL GATE. Phase 1 (fast poll,
@@ -187,7 +202,8 @@ export function useOpencode(): {
                                     openStream(fresh);
                                     setApi(fresh);
                                     reseedAllSessions(fresh);
-                                    setStatus({state: "connected", baseUrl: fresh.baseUrl, version: "remote"});
+                                    setStatus({state: "connected", baseUrl: fresh.baseUrl, version: null});
+                                    settleServerVersion(fresh);
                                     return; // healed; later drops are the stream's own heal
                                 } catch (re) {
                                     error(`frp connect re-fetch failed: ${re}`).catch(() => {});
@@ -225,6 +241,7 @@ export function useOpencode(): {
 
                 setApi(client);
                 setStatus({state: "connected", baseUrl: conn.baseUrl, version: conn.version});
+                settleServerVersion(client);
                 info(`Connected to OpenCode v${conn.version} at ${conn.baseUrl}`).catch(() => {});
 
                 // One read to validate the API path; the chat view consumes

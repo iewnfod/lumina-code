@@ -146,7 +146,6 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Default": "默认",
     "Reset to default": "恢复默认",
     "OpenCode": "OpenCode",
-    "Not connected": "未连接",
     "Dependencies": "依赖",
     // --- Session usage ring ---
     "Session usage": "会话用量",

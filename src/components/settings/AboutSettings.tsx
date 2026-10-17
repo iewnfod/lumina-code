@@ -3,6 +3,7 @@ import {getVersion} from "@tauri-apps/api/app";
 import {error as logError} from "@tauri-apps/plugin-log";
 import Icon from "../../assets/icon.svg";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {useConnection} from "../../opencode/connectionContext.tsx";
 import pkg from "../../../package.json";
 
 /** Core runtime dependencies listed on the About pane, in display
@@ -11,20 +12,22 @@ import pkg from "../../../package.json";
 const CORE_DEPS = [
     "@tauri-apps/api",
     "react",
+    "tailwindcss",
     "@heroui/react",
     "lexical",
-    "framer-motion",
     "react-markdown",
+    "@git-diff-view/react",
+    "framer-motion",
     "lucide-react",
 ] as const;
 
-export default function AboutSettings({
-    serverVersion,
-}: {
-    /** The connected OpenCode server's version; null while not connected. */
-    serverVersion: string | null;
-}) {
+export default function AboutSettings() {
     const t = useI18n();
+    // Live connection state — the OpenCode row shows the state next to
+    // its label and the SERVER-REPORTED version (fetched via GET /api/info
+    // after connecting; see useOpencode's settleServerVersion) on the
+    // right, instead of the spawn-side handshake guess.
+    const {status} = useConnection();
     // getVersion() reads the bundled app's version (tauri.conf.json) —
     // async, so it lands after the first paint.
     const [appVersion, setAppVersion] = useState<string | null>(null);
@@ -33,6 +36,14 @@ export default function AboutSettings({
             logError(`Failed to read app version: ${e}`).catch(() => {});
         });
     }, []);
+
+    // The row's state chip: dot + word in the status color (tokens, §3.8).
+    const [stateLabel, stateColor, serverVersion] =
+        status.state === "connected"
+            ? [t["Connected"], "var(--color-success)", status.version]
+            : status.state === "connecting"
+                ? [t["Connecting..."], "var(--color-warning)", null]
+                : [t["Connection error"], "var(--color-danger)", null];
 
     return (
         <div className="flex-1 min-h-0 overflow-y-auto px-8 py-8 lum-fade-top lum-fade-bottom lum-fade-md">
@@ -50,9 +61,21 @@ export default function AboutSettings({
              * them (no hairlines). */}
             <div className="flex flex-col gap-3 text-sm pb-9">
                 <div className="flex items-center justify-between gap-4">
-                    <span className="opacity-60">{t["OpenCode"]}</span>
+                    <span className="flex min-w-0 items-center gap-2.5">
+                        <span className="opacity-60 shrink-0">{t["OpenCode"]}</span>
+                        <span
+                            className="flex items-center gap-1.5 text-2xs whitespace-nowrap"
+                            style={{color: stateColor}}
+                        >
+                            <span
+                                className="h-1.5 w-1.5 rounded-full shrink-0"
+                                style={{background: stateColor}}
+                            />
+                            {stateLabel}
+                        </span>
+                    </span>
                     <span className="text-right truncate font-mono text-xs py-0.5">
-                        {serverVersion ?? t["Not connected"]}
+                        {serverVersion ?? "—"}
                     </span>
                 </div>
             </div>

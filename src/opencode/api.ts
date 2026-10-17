@@ -14,6 +14,7 @@ import type {
     OpencodeProject,
     OpencodeProvider,
     OpencodeSession,
+    OpencodeServerInfo,
     PermissionDecision,
     PermissionRequest,
     SessionModelRef,
@@ -66,6 +67,7 @@ export interface SessionInboxItem {
  * encoding — the few endpoints we use are more predictable pinned here, in
  * one file, against the paths verified against the real server:
  *   GET    /api/session                  → list sessions
+ *   GET    /api/info                     → server identity (About's version)
  *   POST   /api/session                  → create session
  *   DELETE /api/session/{id}             → delete session
  *   GET    /api/session/{id}/message     → messages (order=asc)
@@ -146,6 +148,13 @@ export class OpencodeApi {
 
     listSessions(): Promise<OpencodeSession[]> {
         return this.request<OpencodeSession[]>("/api/session");
+    }
+
+    /** The server's own identity report — the About pane's version source.
+     *  Live-verified v2.0.11: auth required (401 without), body is NOT
+     *  envelope-wrapped (`request` passes the bare object through). */
+    serverInfo(): Promise<OpencodeServerInfo> {
+        return this.request<OpencodeServerInfo>("/api/info");
     }
 
     /** Sessions with an execution in flight — a `{sessionID: {type:
