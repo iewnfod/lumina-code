@@ -1,8 +1,11 @@
 import {createDatabase} from "../db/db.ts";
 import {AuthError, createUser} from "./auth.ts";
 import {
+  FRP_ONLINE_AFTER_MS,
+  frpRouteOnline,
   frpServerConfig,
   getFrpConnect,
+  listFrpRoutes,
   mintRouteId,
   parsePassword,
   registerFrpRoute,
@@ -89,5 +92,49 @@ describe("mintRouteId", () => {
     for (let i = 0; i < 20; i++) {
       expect(mintRouteId(7)).toMatch(/^u7-[0-9a-f]{8}$/);
     }
+  });
+});
+
+describe("listFrpRoutes", () => {
+  it("joins owners, orders newest heartbeat first, never leaks the password", async () => {
+    const {db, u1, u2} = await setup();
+    registerFrpRoute(db, u1.id, "secret-one");
+    registerFrpRoute(db, u2.id, "secret-two");
+    // pin deterministic heartbeat ages (ISO strings sort lexicographically)
+    const pin = (userId: number, iso: string) =>
+      db.prepare("UPDATE frp_routes SET updated_at = ? WHERE user_id = ?").run(iso, userId);
+    pin(u2.id, "2026-01-01T12:05:00.000Z");
+    pin(u1.id, "2026-01-01T12:07:00.000Z");
+    const rows = listFrpRoutes(db);
+    expect(rows).toHaveLength(2);
+    // newest heartbeat first: u1's 12:07 beats u2's 12:05
+    expect(rows[0]).toMatchObject({userId: u1.id, username: "desktop1"});
+    expect(rows[1]).toMatchObject({userId: u2.id, username: "desktop2"});
+    for (const r of rows) {
+      expect(r).not.toHaveProperty("password");
+      expect(JSON.stringify(r)).not.toContain("secret-");
+      expect(r.routeId).toMatch(/^u\d+-[0-9a-f]{8}$/);
+    }
+  });
+
+  it("empty when no desktop registered", async () => {
+    const {db} = await setup();
+    expect(listFrpRoutes(db)).toEqual([]);
+  });
+});
+
+describe("frpRouteOnline", () => {
+  const now = Date.parse("2026-01-01T12:00:00Z");
+
+  it("fresh heartbeats are online, stale ones are not", () => {
+    expect(frpRouteOnline(new Date(now - 60_000).toISOString(), now)).toBe(true);
+    expect(frpRouteOnline(new Date(now - FRP_ONLINE_AFTER_MS).toISOString(), now)).toBe(true);
+    expect(frpRouteOnline(new Date(now - FRP_ONLINE_AFTER_MS - 1).toISOString(), now)).toBe(false);
+    expect(frpRouteOnline(new Date(now - 60 * 60_000).toISOString(), now)).toBe(false);
+  });
+
+  it("junk timestamps read as offline, future ones as online", () => {
+    expect(frpRouteOnline("not-a-date", now)).toBe(false);
+    expect(frpRouteOnline(new Date(now + 5_000).toISOString(), now)).toBe(true);
   });
 });

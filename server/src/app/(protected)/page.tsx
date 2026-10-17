@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {dataDir, getDb} from "@/db/db.ts";
+import {frpRouteOnline, listFrpRoutes} from "@/lib/frp.ts";
 import {SERVER_VERSION} from "@/lib/version.ts";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,6 @@ export default async function DashboardPage() {
   const count = (sql: string) => (db.prepare(sql).get() as {c: number}).c;
   const users = count("SELECT COUNT(*) c FROM users");
   const tokens = count("SELECT COUNT(*) c FROM tokens");
-  const routes = count("SELECT COUNT(*) c FROM frp_routes");
   const lastHeartbeat = (
     db
       .prepare("SELECT MAX(updated_at) m FROM frp_routes")
@@ -37,6 +37,8 @@ export default async function DashboardPage() {
     // not created on disk (in-memory) — leave the placeholder
   }
 
+  const routes = listFrpRoutes(db);
+
   return (
     <>
       <h1>Overview</h1>
@@ -46,7 +48,7 @@ export default async function DashboardPage() {
           <p className="muted">users</p>
         </div>
         <div className="card">
-          <h2>{routes}</h2>
+          <h2>{routes.length}</h2>
           <p className="muted">remote-access routes</p>
         </div>
         <div className="card">
@@ -85,6 +87,44 @@ export default async function DashboardPage() {
           </tr>
         </tbody>
       </table>
+
+      <h2>Connected desktops</h2>
+      <p className="muted">
+        Desktops registered for remote access (frp routes), newest heartbeat
+        first. Online = heartbeat received within the last ~11 minutes.
+      </p>
+      {routes.length === 0 ? (
+        <p className="muted">No desktop has registered a route yet.</p>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Route</th>
+              <th>Last heartbeat</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {routes.map((r) => (
+              <tr key={r.routeId}>
+                <td>{r.username}</td>
+                <td>
+                  <code>/t/{r.routeId}/</code>
+                </td>
+                <td className="muted">{fmtWhen(r.updatedAt)}</td>
+                <td>
+                  {frpRouteOnline(r.updatedAt) ? (
+                    <span className="badge">online</span>
+                  ) : (
+                    <span className="badge danger">offline</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </>
   );
 }

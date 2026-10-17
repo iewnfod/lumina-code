@@ -126,3 +126,46 @@ export function getFrpConnect(db: Db, userId: number): FrpConnectInfo | null {
   if (!row) return null;
   return {routeId: row.route_id, password: row.password, updatedAt: row.updated_at};
 }
+
+/** One console row: a registered desktop route. Deliberately carries NO
+ * password — the web console only DISPLAYS routes; /api/frp/connect is
+ * the single place the credential ever leaves the server (and it is
+ * per-owner). */
+export interface FrpRouteRow {
+  userId: number;
+  username: string;
+  routeId: string;
+  updatedAt: string;
+}
+
+/** All registered desktop routes, newest heartbeat first, joined with
+ * their owners — the console's "connected desktops" list. */
+export function listFrpRoutes(db: Db): FrpRouteRow[] {
+  return db
+    .prepare(
+      `SELECT r.user_id AS "userId", u.username, r.route_id AS "routeId",
+              r.updated_at AS "updatedAt"
+         FROM frp_routes r JOIN users u ON u.id = r.user_id
+        ORDER BY r.updated_at DESC`,
+    )
+    .all() as FrpRouteRow[];
+}
+
+/** The heartbeat cadence the desktop runs (src/hooks/useServerFrp.ts
+ * registers every 5 minutes) — the freshness budget below is derived
+ * from it. */
+export const FRP_HEARTBEAT_MS = 5 * 60_000;
+
+/** A route counts as online while its heartbeat is fresher than two
+ * cadences + slack. Routes have no explicit disconnect: a desktop going
+ * away (frpc down, app closed) simply lets its row go stale until the
+ * next registration replaces it, so AGE is the only online signal. The
+ * timestamp is written by THIS server (registerFrpRoute), so the
+ * comparison is not subject to desktop clock skew. */
+export const FRP_ONLINE_AFTER_MS = 2 * FRP_HEARTBEAT_MS + 60_000;
+
+/** Console freshness predicate: was this route's heartbeat recent? */
+export function frpRouteOnline(updatedAt: string, now = Date.now()): boolean {
+  const t = Date.parse(updatedAt);
+  return Number.isFinite(t) && now - t <= FRP_ONLINE_AFTER_MS;
+}
