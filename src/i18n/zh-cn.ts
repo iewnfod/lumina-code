@@ -283,6 +283,11 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Remote access": "远程访问",
     "Expose this machine's OpenCode directly to your signed-in mobile clients through the server.":
         "将本机的 OpenCode 直接暴露给你登录的移动设备（经服务器路由直连）。",
+    "Connection status": "连接状态",
+    "Disconnected, reconnecting...": "连接断开，正在重连...",
+    "Connection failed, retrying...": "连接失败，正在重试...",
+    "Server has no frps configured": "服务器未配置 frps",
+    "Route ID": "路由 ID",
     "Server address": "服务器地址",
     "Server address must start with http:// or https://": "服务器地址必须以 http:// 或 https:// 开头",
     "Sign in to your self-hosted lumina-server to enable remote access from your mobile devices.":

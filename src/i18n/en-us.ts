@@ -286,6 +286,11 @@ const enUs = {
     "Remote access": "Remote access",
     "Expose this machine's OpenCode directly to your signed-in mobile clients through the server.":
         "Expose this machine's OpenCode directly to your signed-in mobile clients through the server.",
+    "Connection status": "Connection status",
+    "Disconnected, reconnecting...": "Disconnected, reconnecting...",
+    "Connection failed, retrying...": "Connection failed, retrying...",
+    "Server has no frps configured": "Server has no frps configured",
+    "Route ID": "Route ID",
     "Server address": "Server address",
     "Server address must start with http:// or https://": "Server address must start with http:// or https://",
     "Sign in to your self-hosted lumina-server to enable remote access from your mobile devices.":

@@ -2168,8 +2168,13 @@ src/
     │                      #   Desktop: sign in to a self-hosted
     │                      #   lumina-server (url + credentials → the
     │                      #   serverConnection store, picked up live by
-    │                      #   useServerFrp), the remote-access Switch,
-    │                      #   sign out (revoke best-effort then clear).
+    │                      #   useServerFrp), the remote-access Switch
+    │                      #   + its LIVE frp connection status row
+    │                      #   (useFrpStatus — colored dot + label:
+    │                      #   connecting / connected / reconnecting /
+    │                      #   retrying / no-frps / error; route id on
+    │                      #   success, error text on failure), sign
+    │                      #   out (revoke best-effort then clear).
     │                      #   Mobile: the app's
     │                      #   ACCOUNT page — the logged-in server
     │                      #   address + sign out (logout best-effort
@@ -2575,6 +2580,16 @@ derived from the OpencodeApi handle's Basic authorization — with a
 frp_start/frp_stop commands, and re-runs whenever the local opencode
 handle changes [restart = new port + password]; failures log + retry
 every 30s — remote access never blocks or degrades the local app).
+The engine mirrors every phase into `src/opencode/frpStatus.ts` —
+the route's LIVE status as a module store (the sessionStopping
+pattern, NOT persisted): off / starting / running / retrying /
+unavailable (server has no frps) / exited / error, read by
+ServerSettings' connection row; Rust's frp-status "exited" (frpc
+process died) also reconnects there on the retry cadence — frpc's
+loginFailExit=false only retries the CONNECTION inside a live
+process, a dead one needs the engine to restart it (frp_start is
+idempotent; its internal stop does not emit, so no self-trigger
+loop).
 The Rust half is `src-tauri/src/frp.rs` (see the backend map).
 LuminaServerApi carries the full surface (auth + frp config/register/
 connect) — ONE client for every consumer; `src/opencode/

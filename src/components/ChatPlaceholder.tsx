@@ -61,7 +61,11 @@ export default function ChatPlaceholder({
                     {greeting}
                 </h2>
                 {subtitle ? (
-                    <p className="text-sm opacity-60 truncate w-full" style={{color: foregroundColor}}>
+                    // break-words, not truncate: the subtitle carries full
+                    // connection-error messages (the mobile remote route can
+                    // fail with long fetch errors) — they must wrap to be
+                    // readable, long unbroken tokens (URLs) included.
+                    <p className="text-sm opacity-60 break-words w-full" style={{color: foregroundColor}}>
                         {subtitle}
                     </p>
                 ) : null}

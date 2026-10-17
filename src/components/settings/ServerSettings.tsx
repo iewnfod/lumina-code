@@ -1,6 +1,7 @@
 import {useState} from "react";
 import {error as logError, info as logInfo} from "@tauri-apps/plugin-log";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {useColors} from "../../hooks/colors.tsx";
 import {isMobileApp} from "../../lib/platform.ts";
 import {
     LuminaServerApi,
@@ -10,6 +11,7 @@ import {
     setServerRemoteEnabled,
     useServerConnection,
 } from "../../opencode/serverConnection.ts";
+import {useFrpStatus} from "../../opencode/frpStatus.ts";
 import {clearMobileConnection, useMobileConnection} from "../../opencode/mobileConnection.ts";
 import Button from "../ui/Button.tsx";
 import SettingRow from "./SettingRow.tsx";
@@ -71,7 +73,11 @@ function MobileServerPage() {
 
 export default function ServerSettings() {
     const t = useI18n();
+    const colors = useColors();
     const connection = useServerConnection();
+    // The frp route's live status — read before the platform/connection
+    // branches so the hook order is stable across them.
+    const frp = useFrpStatus();
 
     const [url, setUrl] = useState("");
     const [username, setUsername] = useState("");
@@ -128,6 +134,53 @@ export default function ServerSettings() {
     };
 
     if (connection) {
+        // The frp route's live status (only meaningful while remote access
+        // is on). "off" while enabled means the engine is between effect
+        // runs (app boot) — that reads as "connecting" here, not "off".
+        const statusLabel =
+            frp.state === "running"
+                ? t["Connected"]
+                : frp.state === "exited"
+                  ? t["Disconnected, reconnecting..."]
+                  : frp.state === "retrying"
+                    ? t["Connection failed, retrying..."]
+                    : frp.state === "error"
+                      ? t["Connection error"]
+                      : frp.state === "unavailable"
+                        ? t["Server has no frps configured"]
+                        : t["Connecting..."];
+        const statusColor =
+            frp.state === "running"
+                ? "var(--color-success)"
+                : frp.state === "unavailable" || frp.state === "exited"
+                  ? "var(--color-warning)"
+                  : frp.state === "retrying" || frp.state === "error"
+                    ? "var(--color-danger)"
+                    : colors.accentOverlay;
+        const statusDetail =
+            frp.state === "running"
+                ? connection.frpRouteId != null
+                    ? (
+                          <span>
+                              {t["Route ID"]} <span className="font-mono">{connection.frpRouteId}</span>
+                          </span>
+                      )
+                    : null
+                : frp.detail != null
+                  ? (
+                        <span
+                            className="break-all"
+                            style={
+                                frp.state === "retrying" || frp.state === "error"
+                                    ? {color: "var(--color-danger-text)"}
+                                    : undefined
+                            }
+                        >
+                            {frp.detail}
+                        </span>
+                    )
+                  : null;
+
         return (
             <div className="flex flex-col gap-4 p-4 overflow-y-auto">
                 <SettingRow
@@ -140,6 +193,21 @@ export default function ServerSettings() {
                         onChange={setServerRemoteEnabled}
                     />
                 </SettingRow>
+                {connection.remoteEnabled && (
+                    <SettingRow label={t["Connection status"]} description={statusDetail}>
+                        <span className="flex items-center gap-1.5">
+                            <span
+                                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                    frp.state === "starting" || frp.state === "off" ? "animate-pulse" : ""
+                                }`}
+                                style={{background: statusColor}}
+                            />
+                            <span className="text-xs" style={{color: statusColor}}>
+                                {statusLabel}
+                            </span>
+                        </span>
+                    </SettingRow>
+                )}
                 <SettingRow
                     label={t["Signed in"]}
                     description={<span className="font-mono">{connection.url}</span>}
