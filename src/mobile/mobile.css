@@ -124,12 +124,20 @@ body,
  * env(safe-area-inset-*) to CSS — live-observed device overlap). No
  * env() padding here, or devices where it DOES work would double-pad. */
 
-/* The composer toolbar's fixed-size cluster overflows a phone's width
- * (attach + mode + project + usage ring + model + thinking): let it
- * wrap onto a second row instead of clipping off-screen. */
-#root .lum-toolbar {
-    flex-wrap: wrap;
-    row-gap: 4px;
+/* The composer toolbar's narrow-width two-row split lives in main.css
+ * (.lum-toolbar's own container query) — width-driven, so it serves the
+ * phone and a narrow desktop window alike; nothing mobile-specific
+ * remains here for it. */
+
+/* The conversation column's gutters: the desktop base tier is a roomy
+ * 3rem (the only edge breathing room when the column spans a wide
+ * window) — on a phone that's a quarter of the width gone. Mobile gets
+ * tight 1rem gutters instead; transcript + composer share .lum-column,
+ * so both shrink together and stay aligned. Unlayered #root rules beat
+ * the layered utilities AND main.css's container-query tiers (single
+ * class each). */
+#root .lum-column {
+    padding-inline: 1rem;
 }
 
 /* The composer's RESTING height (min-h 38 = one 20px text-sm line +

@@ -158,9 +158,9 @@ export default function ComposerToolbar({
         onModelChange({id: m.modelID, providerID: m.providerID, variant});
     };
 
-    return (
-        <div className="flex items-center gap-0.5 px-2 pb-2 pt-0.5 lum-toolbar">
-            {/* Left: attachments, mode, and (pre-session) directory. */}
+    /** Left cluster: attachments, mode, and (pre-session) directory. */
+    const actions = (
+        <>
             <ToolbarButton
                 icon={<Paperclip size={14}/>}
 
@@ -214,9 +214,12 @@ export default function ComposerToolbar({
                     onBranchChange={onStagedBranchChange}
                 />
             )}
+        </>
+    );
 
-            <div className="flex-1"/>
-
+    /** The selectors cluster: context ring, model, thinking depth. */
+    const selectors = (
+        <>
             {/* Session context ring — only once the conversation is real
              * (first message landed) AND a step has reported usage;
              * fresh sessions and the welcome screen show nothing. */}
@@ -228,8 +231,6 @@ export default function ComposerToolbar({
 
                 />
             )}
-
-            {/* Right: model, thinking depth, send/stop. */}
             <PopoverMenu
 
                 align="end"
@@ -327,33 +328,49 @@ export default function ComposerToolbar({
                     )}
                 </PopoverMenu>
             )}
-            {/* One send/stop slot: text ready → SEND (mid-run it QUEUES —
-             * promptQueue.ts — instead of steering the turn; the title
-             * says so), no text while running → STOP, idle and empty →
-             * send stays disabled. */}
-            {!disabled && canSend ? (
-                <ToolbarButton
-                    icon={<ArrowUp size={14}/>}
+        </>
+    );
 
-                    title={busy ? t["Queue message"] : t["Send"]}
-                    onClick={onSend}
-                />
-            ) : busy ? (
-                <ToolbarButton
-                    icon={<Square size={14}/>}
+    {/* One send/stop slot: text ready → SEND (mid-run it QUEUES —
+     * promptQueue.ts — instead of steering the turn; the title
+     * says so), no text while running → STOP, idle and empty →
+     * send stays disabled. */}
+    const sendSlot = !disabled && canSend ? (
+        <ToolbarButton
+            icon={<ArrowUp size={14}/>}
 
-                    title={t["Stop"]}
-                    onClick={onInterrupt}
-                />
-            ) : (
-                <ToolbarButton
-                    icon={<ArrowUp size={14}/>}
+            title={busy ? t["Queue message"] : t["Send"]}
+            onClick={onSend}
+        />
+    ) : busy ? (
+        <ToolbarButton
+            icon={<Square size={14}/>}
 
-                    title={t["Send"]}
-                    disabled
-                    onClick={onSend}
-                />
-            )}
+            title={t["Stop"]}
+            onClick={onInterrupt}
+        />
+    ) : (
+        <ToolbarButton
+            icon={<ArrowUp size={14}/>}
+
+            title={t["Send"]}
+            disabled
+            onClick={onSend}
+        />
+    );
+
+    // The toolbar's row count is WIDTH-DRIVEN, not device-driven: the
+    // toolbar is its own inline-size container and main.css retiers it —
+    // wide: one row (actions | spring | selectors | send); narrow
+    // (< 30rem, phones): the selectors claim the top line right-aligned,
+    // actions + send share the bottom one (send keeps the thumb zone).
+    // See the .lum-toolbar block in main.css (the §3.7 container-query
+    // doctrine, same as .lum-column).
+    return (
+        <div className="flex flex-wrap items-center gap-0.5 px-2 pb-2 pt-0.5 lum-toolbar">
+            <div className="lum-tb-actions flex items-center gap-0.5 min-w-0">{actions}</div>
+            <div className="lum-tb-selectors flex items-center gap-0.5 min-w-0">{selectors}</div>
+            <div className="lum-tb-send">{sendSlot}</div>
         </div>
     );
 }

@@ -1090,6 +1090,37 @@ body {
 }
 
 /*
+ * The composer toolbar's adaptive row count — the toolbar is its own
+ * inline-size container and retiers itself by AVAILABLE WIDTH (not by
+ * device): WIDE, one row (actions | spring | selectors | send — the
+ * selectors' auto margin is the spring); NARROW (below 30rem, phones),
+ * the selectors claim the top line right-aligned (order -1 + full
+ * basis) and send gains the spring on the bottom line, keeping the
+ * thumb-zone placement. DOM is single-source — only CSS retiers.
+ */
+.lum-toolbar {
+    container-type: inline-size;
+    row-gap: 4px;
+}
+
+.lum-tb-selectors {
+    margin-left: auto;
+}
+
+@container (width < 30rem) {
+    .lum-tb-selectors {
+        order: -1;
+        flex-basis: 100%;
+        justify-content: flex-end;
+        margin-left: 0;
+    }
+
+    .lum-tb-send {
+        margin-left: auto;
+    }
+}
+
+/*
  * The stats panel's position rule (statsLayout's successor). A
  * COLLAPSED pill always floats (absolute, out of the row — the
  * conversation keeps full width). An EXPANDED panel floats on narrow
