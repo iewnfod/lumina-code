@@ -93,7 +93,11 @@ fn well_known_opencode() -> Option<PathBuf> {
 fn scan_path_for_opencode() -> Option<PathBuf> {
     // On Windows the executable is opencode.exe; match both everywhere so
     // the scan stays correct across platforms.
-    let names: &[&str] = if cfg!(windows) { &["opencode.exe", "opencode"] } else { &["opencode"] };
+    let names: &[&str] = if cfg!(windows) {
+        &["opencode.exe", "opencode"]
+    } else {
+        &["opencode"]
+    };
     let path = std::env::var("PATH").unwrap_or_default();
     for dir in path.split(if cfg!(windows) { ';' } else { ':' }) {
         if dir.is_empty() {

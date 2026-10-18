@@ -27,8 +27,8 @@
 mod linux {
     use std::collections::HashMap;
     use std::sync::OnceLock;
-    use zbus::Connection;
     use zbus::zvariant::OwnedValue;
+    use zbus::Connection;
 
     static SESSION: OnceLock<Connection> = OnceLock::new();
 
@@ -40,7 +40,9 @@ mod linux {
         if let Some(conn) = SESSION.get() {
             return Ok(conn);
         }
-        let conn = Connection::session().await.map_err(|e| format!("session bus: {e}"))?;
+        let conn = Connection::session()
+            .await
+            .map_err(|e| format!("session bus: {e}"))?;
         let _ = SESSION.set(conn);
         Ok(SESSION.get().expect("connection was just stored"))
     }
@@ -60,7 +62,16 @@ mod linux {
             "/org/freedesktop/Notifications",
             Some("org.freedesktop.Notifications"),
             "Notify",
-            &("Lumina Code", 0u32, "", title, body, no_actions, no_hints, -1i32),
+            &(
+                "Lumina Code",
+                0u32,
+                "",
+                title,
+                body,
+                no_actions,
+                no_hints,
+                -1i32,
+            ),
         )
         .await
         .map_err(|e| format!("Notify: {e}"))?;

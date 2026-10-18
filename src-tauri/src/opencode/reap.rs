@@ -24,7 +24,10 @@ use tauri::AppHandle;
 /// (file body: the port + the owning app pid, for cmdline verification).
 fn server_record_dir(app: &AppHandle) -> Option<PathBuf> {
     use tauri::Manager;
-    app.path().app_data_dir().ok().map(|dir| dir.join("servers"))
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|dir| dir.join("servers"))
 }
 
 /// One recorded server: `<pid>.txt` with body `port\nowner-pid\n`. The
@@ -48,7 +51,9 @@ fn parse_record(body: &str) -> Option<ServerRecord> {
 }
 
 pub(super) fn write_server_record(app: &AppHandle, pid: u32, port: u16) {
-    let Some(dir) = server_record_dir(app) else { return };
+    let Some(dir) = server_record_dir(app) else {
+        return;
+    };
     if let Err(e) = std::fs::create_dir_all(&dir) {
         log::warn!("Failed to create server record dir {}: {e}", dir.display());
         return;
@@ -148,8 +153,12 @@ fn process_looks_like_this_app(pid: u32) -> bool {
 /// owned by a still-running instance, and never touches unrecorded
 /// servers.
 pub(super) fn reap_orphaned_servers(app: &AppHandle) {
-    let Some(dir) = server_record_dir(app) else { return };
-    let Ok(entries) = std::fs::read_dir(&dir) else { return };
+    let Some(dir) = server_record_dir(app) else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
     let mut killed = false;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -157,7 +166,9 @@ pub(super) fn reap_orphaned_servers(app: &AppHandle) {
             .file_stem()
             .and_then(|s| s.to_str())
             .and_then(|s| s.parse::<u32>().ok());
-        let record = std::fs::read_to_string(&path).ok().and_then(|b| parse_record(&b));
+        let record = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|b| parse_record(&b));
         let Some((pid, record)) = pid.zip(record) else {
             // Stale/malformed records are simply discarded.
             let _ = std::fs::remove_file(&path);

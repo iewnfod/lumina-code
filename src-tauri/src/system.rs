@@ -10,7 +10,9 @@ pub fn is_wayland() -> bool {
     if cfg!(target_os = "linux") {
         // XDG_SESSION_TYPE is the canonical signal; WAYLAND_DISPLAY is a fallback
         // for compositors that don't set the session type.
-        std::env::var("XDG_SESSION_TYPE").map(|v| v == "wayland").unwrap_or(false)
+        std::env::var("XDG_SESSION_TYPE")
+            .map(|v| v == "wayland")
+            .unwrap_or(false)
             || std::env::var("WAYLAND_DISPLAY").is_ok()
     } else {
         false

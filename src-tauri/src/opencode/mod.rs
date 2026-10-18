@@ -96,7 +96,10 @@ pub struct OpencodeState {
 }
 
 /// Forward a child's stream to the log so startup problems are diagnosable.
-fn spawn_log_reader(stream: impl Read + Send + 'static, level_fn: impl Fn(&str) + Send + Sync + 'static) {
+fn spawn_log_reader(
+    stream: impl Read + Send + 'static,
+    level_fn: impl Fn(&str) + Send + Sync + 'static,
+) {
     std::thread::spawn(move || {
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
@@ -212,8 +215,10 @@ pub fn opencode_start(
     let mut command = Command::new(&bin);
     command
         .arg("serve")
-        .arg("--port").arg(port.to_string())
-        .arg("--hostname").arg("127.0.0.1")
+        .arg("--port")
+        .arg(port.to_string())
+        .arg("--hostname")
+        .arg("127.0.0.1")
         .env("OPENCODE_SERVER_PASSWORD", &password)
         // Verified against the v2.0.11 updater: this env short-circuits the
         // update check before the config policy is even read, so the pinned
