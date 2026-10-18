@@ -46,9 +46,13 @@ or ask the user to enter the plan mode for you.
   are gitignored. The sidecar is also a hard
   dependency of the BUILD SCRIPT — `cargo check` alone fails without it, and
   every CI job fetches it first. `pnpm fetch:frp` feeds the SAME
-  mechanism for `binaries/frpc` (remote access) — same CI prerequisite,
-  and its FRP_VERSION must move with the frps image tag in
-  docker-compose.yml.
+  mechanism for `binaries/frpc` (remote access) — same CI prerequisite.
+  Version note: the frpc pin (FRP_VERSION, GitHub releases) and the
+  compose frps image tag MAY briefly differ — snowdreamtech's Docker
+  Hub repository lags fatedier's releases (0.71.1 era: Hub had no
+  0.71.1, compose pinned 0.71.0-alpine while frpc shipped 0.71.1);
+  the cross-version login/auth is verified compatible (local
+  end-to-end + production wss), resync both when the Hub catches up.
 - There is no lint/format config; `pnpm build` is the
   guardrail — tsconfig is strict with `noUnusedLocals` /
   `noUnusedParameters` / `noFallthroughCasesInSwitch`, so unused imports and
@@ -2457,8 +2461,9 @@ driven by `src/hooks/useServerFrp.ts` (AppBody, gated by the Server
 settings' 远程访问开关 — registers the password + heartbeat, derives
 the local port/password from the OpencodeApi handle) +
 `scripts/fetch-frp.mjs` (the pinned frpc resource sidecar — mirror-
-aware + sha256-verified; keep FRP_VERSION in sync with the compose
-image tag). The opencode password DOES live on the server now — a
+aware + sha256-verified; frpc 0.71.1 runs against the compose's
+0.71.0-alpine frps — cross-version verified, see §1's version note).
+The opencode password DOES live on the server now — a
 deliberate trust-model change, documented in server/README.md.
 
 Mobile chrome decisions live in the DESKTOP tree keyed off

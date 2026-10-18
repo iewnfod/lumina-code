@@ -55,7 +55,11 @@ services:
   # 校验永远失败，且 vhost 根本没监听）。
   frps:
     container_name: lumina-code-frps
-    image: snowdreamtech/frps:0.71.1
+    # 钉 0.71.0-alpine（实测运行的版本）：Docker Hub 上这个仓库滞后，
+    # fatedier 已发 0.71.1 但 Hub 尚无对应 tag。桌面侧 fetch-frp.mjs
+    # 分发的 frpc 是 0.71.1 —— 0.71.1 客户端 ↔ 0.71.0 服务端已实测
+    # 兼容（本地全链路 + 生产 wss 均验证）；Hub 出新 tag 后两边再同步。
+    image: snowdreamtech/frps:0.71.0-alpine
     restart: unless-stopped
     volumes:
       - ./frps.toml:/etc/frp/frps.toml:ro
