@@ -3,6 +3,7 @@ import {createPortal} from "react-dom";
 import {ArrowLeft, X} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {useBackLevel} from "../../hooks/useBackLevel.ts";
 import {isMobileApp} from "../../lib/platform.ts";
 import ExitPresence from "./ExitPresence.tsx";
 import IconButton from "./IconButton.tsx";
@@ -46,6 +47,11 @@ export default function Modal({
     const colors = useColors();
     const t = useI18n();
     const mobile = isMobileApp();
+
+    // SYSTEM BACK as a close (mobile): every modal is a page level —
+    // the back gesture pops it exactly like the X button (desktop
+    // short-circuits inside the hook).
+    useBackLevel(open && mobile, onClose);
 
     useEffect(() => {
         if (!open) return;

@@ -1174,6 +1174,32 @@ src/
 │   ├── clipboard.ts       # copyText — clipboard write with an execCommand
 │   │                      #   fallback for webviews lacking the async API
 │   ├── dragRegionDoubleClick.ts # pure predicate behind the title-bar double-click
+│   ├── backStack.ts      # The mobile BACK-LEVEL STACK (node-testable,
+│   │                      #   the persistedStore degradation pattern):
+│   │   │                  #   the frontend half of the system-back
+│   │                      #   integration — every open "page level"
+│   │                      #   (modal, settings second-level page,
+│   │                      #   drawer, popover menu, expanded stats
+│   │                      #   overlay) pushes one {lumId} history
+│   │                      #   entry, and a popstate landing below the
+│   │                      #   stack top closes levels down to it
+│   │                      #   (wry's back routing — re-enabled in
+│   │                      #   MainActivity — turns the system back
+│   │                      #   gesture into exactly those pops; at the
+│   │                      #   root it falls through to finish, the
+│   │                      #   Android convention). UI closes drop
+│   │                      #   their entries in one COALESCED
+│   │                      #   microtasked go(-n), SKIPPED when a push
+│   │                      #   followed the drop batch in the same
+│   │                      #   commit (drawer→import, StrictMode
+│   │                      #   remount — go would pop the successor);
+│   │                      #   those buried stales are eaten by the
+│   │                      #   CASCADE (a popstate landing on a stale
+│   │                      #   lumId with no live levels issues one
+│   │                      #   more go(-1), chaining to the base) so
+│   │                      #   "close via X, then back" never dead-
+│   │                      #   presses. Consumed ONLY through
+│   │                      #   hooks/useBackLevel (isMobileApp-gated).
 │   └── exitGate.ts     # Exit-engine logic (node-testable): the animation/
 │                        #   transition end-event matchers (target must BE
 │                        #   the host; bubbled child events never count),
@@ -1339,6 +1365,18 @@ src/
 │   │                      #   banner AND tray entries, live-verified;
 │   │                      #   macOS/Windows keep the plugin.
 │   ├── useDragRegionDoubleClick.ts # capture-phase mousedown + explicit maximize toggle
+│   ├── useBackLevel.ts # Registers one mobile "page level" into the
+│   │                      #   system-back navigation (lib/backStack.ts):
+│   │                      #   useBackLevel(active, onClose) pushes a
+│   │                      #   history entry while active and drops it on
+│   │                      #   cleanup — popstate (system back) and the
+│   │                      #   UI's own close both land in the same
+│   │                      #   onClose, idempotently. Inert on desktop
+│   │                      #   (isMobileApp-gated). Wired into Modal
+│   │                      #   (every modal), SettingsModal's pushed
+│   │                      #   pane, App's drawer, PopoverMenu (every
+│   │                      #   picker/menu) and the stats overlay's
+│   │                      #   expanded state.
 │   ├── useFollowBottom.ts # stream-follow stickiness for inner scroll regions;
 │   │                      #   also exposes top/bottom edge flags for the
 │   │                      #   conditional .lum-fade-* fades on its boxes
@@ -2666,6 +2704,22 @@ the push/pop over the category list; see SettingsModal).
   shrink. Deliberately NO visualViewport/`--lum-kb` web fallback —
   Android-native is authoritative and the only live platform (a web
   fallback would be untested code; revisit when iOS/ohos resumes).
+- **The system back gesture closes page levels, not the app**:
+  MainActivity overrides `handleBackNavigation = true` (TauriActivity
+  hard-disables wry's built-in OnBackPressedCallback routing — back
+  would finish the activity outright, i.e. exit on ANY back). Re-
+  enabled, wry maps back to the WEBVIEW HISTORY (`canGoBack() →
+  goBack()`, else the default finish at the root — the Android
+  convention), and the frontend's back-level stack
+  (lib/backStack.ts + hooks/useBackLevel.ts) keeps one {lumId}
+  history entry per open level: modals (the Modal primitive),
+  the settings second-level page, the drawer, popover menus (the
+  PopoverMenu primitive) and the expanded stats overlay all close on
+  back; desktop is untouched (the hook is isMobileApp-gated, Escape
+  paths stay). iOS edge-swipe is FUTURE work: wry 0.55 has
+  `with_back_forward_navigation_gestures` but tauri 2.11 does not
+  expose it (would need a vendored patch, plus a macOS build host);
+  the history-based frontend half already works for it as-is.
 - **HarmonyOS is FROZEN on the `feat/mobile-ohos` branch** (branch-patch
   line, blocked on a device black-screen + tauri-plugin-log SIGABRT on
   ohos — this branch's lib.rs must cfg the plugin out if that port

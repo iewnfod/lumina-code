@@ -1,6 +1,8 @@
 import {useEffect, useLayoutEffect, useRef, useState, type ReactNode} from "react";
 import {Check} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
+import {useBackLevel} from "../../hooks/useBackLevel.ts";
+import {isMobileApp} from "../../lib/platform.ts";
 import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import ExitPresence from "./ExitPresence.tsx";
 
@@ -48,6 +50,10 @@ export default function PopoverMenu({
     const colors = useColors();
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
+    // SYSTEM BACK closes the panel (mobile): open dropdowns are page
+    // levels — every picker/menu consumer gets it through this one
+    // primitive. (Desktop short-circuits inside the hook.)
+    useBackLevel(open && isMobileApp(), () => setOpen(false));
     // The floating panel host (auto-align measures it once mounted).
     const panelRef = useRef<HTMLDivElement>(null);
     // align="auto"'s resolved placement, measured pre-paint at open: the

@@ -2,6 +2,8 @@ import {memo, useCallback, useEffect, useLayoutEffect, useRef, useState} from "r
 import {Bot, ChevronLeft, ChevronUp, Diff, GitBranch, ListChecks, Square, SquareTerminal} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
+import {useBackLevel} from "../../hooks/useBackLevel.ts";
+import {isMobileApp} from "../../lib/platform.ts";
 import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {useStatsExpanded, useStatsPanelMode, usePendingStatsDrill, clearStatsDrill} from "../../hooks/useStatsPanelMode.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
@@ -84,6 +86,11 @@ const SessionStatsCard = memo(function SessionStatsCard({
     // collapsed exactly when switching back to a session whose layout
     // the user had set.
     const [expanded, setExpanded] = useStatsExpanded();
+    // SYSTEM BACK collapses the expanded panel (mobile): on a phone the
+    // expanded panel is an ALWAYS-OVERLAY spanning the conversation —
+    // a full page level to the user's thumb, not chrome furniture.
+    // (Desktop short-circuits inside the hook.)
+    useBackLevel(isMobileApp() && expanded, () => setExpanded(false));
     // "always" remounts expanded (a manual collapse in that mode lasts
     // until the card remounts).
     useLayoutEffect(() => {

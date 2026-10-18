@@ -24,6 +24,7 @@ import {useWindowOutline} from "./hooks/useWindowOutline.ts";
 import {probeBms, useBmsFocusRefresh, useCompositorBlurActive} from "./hooks/useBlurMyShell.ts";
 import {useNotifications} from "./hooks/useNotifications.ts";
 import {useServerFrp} from "./hooks/useServerFrp.ts";
+import {useBackLevel} from "./hooks/useBackLevel.ts";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {isColorDark, withAlpha} from "./lib/color.ts";
 import {isLinux, isCefRuntime, isMobileApp} from "./lib/platform.ts";
@@ -476,6 +477,9 @@ function AppBody({
     const mobile = isMobileApp();
     const [drawerOpen, setDrawerOpen] = useState(false);
     const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+    // SYSTEM BACK closes the drawer (mobile): it is the top page level
+    // while open — same as tapping the scrim.
+    useBackLevel(mobile && drawerOpen, closeDrawer);
     const closeSettings = useCallback(() => {
         setSettings((prev) => ({...prev, open: false}));
     }, []);

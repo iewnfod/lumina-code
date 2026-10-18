@@ -7,6 +7,19 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  // TauriActivity hard-disables wry's back routing (handleBackNavigation
+  // = false → NO OnBackPressedCallback is ever registered, the system
+  // back gesture/button falls through to the activity default = finish,
+  // exiting the app on any back). Re-enable it so back drives the
+  // WEBVIEW HISTORY instead — the frontend's back-level stack
+  // (src/lib/backStack.ts) pushes one history entry per open "page
+  // level" (modals, the settings second-level page, the drawer,
+  // popover menus, the expanded stats overlay), so canGoBack() is true
+  // exactly while a level is open: goBack() → popstate closes the top
+  // level; at the root the callback defers to the default behavior
+  // (finish) — the Android convention for "back at the top".
+  override val handleBackNavigation: Boolean = true
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)

@@ -4,6 +4,7 @@ import {ChevronRight, Cpu, Info, Server as ServerIcon, Settings as SettingsIcon}
 import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {useBackLevel} from "../../hooks/useBackLevel.ts";
 import {isMobileApp} from "../../lib/platform.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
 import Modal from "../ui/Modal.tsx";
@@ -62,6 +63,12 @@ export default function SettingsModal({
     const active: SettingsTab = tab ?? "general";
     // Mobile: null tab = the root category list.
     const atRoot = tab == null;
+
+    // SYSTEM BACK pops the mobile SECOND LEVEL (the pushed pane) back
+    // to the category list — the same navigation the header's back
+    // arrow performs. (The modal's own root level is wired inside the
+    // Modal primitive.)
+    useBackLevel(mobile && open && !atRoot, () => onTabChange(null));
 
     const tabs: {id: SettingsTab; icon: typeof SettingsIcon; label: string}[] = [
         {id: "general", icon: SettingsIcon, label: t["General"]},
