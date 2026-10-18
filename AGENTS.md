@@ -174,6 +174,9 @@ src/
 │                          #   ColorsProvider (hooks/colors.tsx) + the
 │                          #   --lum-wash hover vars on the root.
 ├── main.tsx               # ReactDOM entry (React.StrictMode) + attachConsole
+│                          #   + the persistence gate: initPersistedState()
+│                          #   seeds the state file BEFORE the App bundle is
+│                          #   dynamically imported (see lib/persistedStore.ts).
 ├── constants.ts           # CHROME_TITLE_BAR_HEIGHT
 ├── i18n/                  # en-us.ts (source of truth: keys ARE the English
 │                          #   strings) + zh-cn.ts (partial OK; per-lookup fallback)
@@ -374,7 +377,10 @@ src/
 │   │                      #   types-only. Server quirks documented inline:
 │   │                      #   messages `limit` caps at 200; session create sends
 │   │                      #   `location.directory` (a flat `directory` is silently
-│   │                      #   ignored); `?roots=true` doesn't work (root sessions are
+│   │                      #   ignored) and ACCEPTS `metadata` (curl-verified
+│   │                      #   v2.0.11, echoed + listed — the cross-instance
+│   │                      #   whitelist stamp, see sessionRegistry.CLIENT_SOURCE);
+│   │                      #   `?roots=true` doesn't work (root sessions are
 │   │                      #   filtered client-side); questions are forms on this
 │   │                      #   server generation; GET /api/session/active seeds busy
 │   │                      #   state predating the event stream. Also the session
@@ -650,7 +656,17 @@ src/
 │   │                      #   ImportSessionsModal, fed by
 │   │                      #   importableSessions — the root sessions the
 │   │                      #   server lists but the registry does not
-│   │                      #   hold), and revoked on every deletion path
+│   │                      #   hold), and AUTOMATICALLY for sessions
+│   │                      #   stamped {source: "lumina-code"} by ANY
+│   │                      #   Lumina Code client (CLIENT_SOURCE +
+│   │                      #   autoRegisterClientSessions — every create
+│   │                      #   stamps it, the seed/relist folds register
+│   │                      #   stamped strangers: another desktop window
+│   │                      #   or the MOBILE app joins the sidebar without
+│   │                      #   manual import; the whitelist isolates
+│   │                      #   subagents + third-party OpenCode software,
+│   │                      #   never Lumina Code's own instances), and
+│   │                      #   revoked on every deletion path
 │   │                      #   (useSessions.remove, the session.deleted
 │   │                      #   event, seed-time prune); sessions created
 │   │                      #   by anything else (TUI/CLI, other instances
@@ -700,7 +716,12 @@ src/
 │   │                      #   GET /api/session/active (a stale busy id blocks the
 │   │                      #   composer forever — the seed must not resurrect ids watched
 │   │                      #   end); create/remove/patch (optimistic model/agent)
-│   │                      #   also grant/revoke the whitelist membership.
+│   │                      #   also grant/revoke the whitelist membership —
+│   │                      #   and create STAMPS {source: CLIENT_SOURCE},
+│   │                      #   the cross-instance marker whose stamped
+│   │                      #   strangers the seed/relist folds auto-register
+│   │                      #   (another window / the mobile app joins the
+│   │                      #   sidebar live, no manual import).
 │   │                      #   THE IMPORT HALF: foreignSessions — the same
 │   │                      #   list's root-session complement (server roots
 │   │                      #   NOT in the registry — TUI/CLI/other-instance
@@ -1094,19 +1115,29 @@ src/
 │   ├── persistedStore.ts  # THE persistence factory (node-testable):
 │   │                      #   createPersistedStore({key, label, read, write, eq})
 │   │                      #   is the ONE implementation behind every
-│   │                      #   localStorage-backed store — key naming, error
+│   │                      #   persisted store — key naming, error
 │   │                      #   handling + logging, same-value short-circuit and
 │   │                      #   the absence-means-default write semantics (write()
 │   │                      #   returning null removes the key) live here and
-│   │                      #   nowhere else. Stores are created at module top
-│   │                      #   level and read SYNCHRONOUSLY before React mounts
-│   │                      #   (typography/language/theme must apply before the
-│   │                      #   first paint — the reason this is a module store,
-│   │                      #   not a React context). set() never throws: a failed
-│   │                      #   storage write is logged while the in-memory value
-│   │                      #   still updates + notifies. If the storage medium
-│   │                      #   ever changes (file-backed, …), only this file
-│   │                      #   changes.
+│   │                      #   nowhere else. MEDIUM: tauri-plugin-store — ONE
+│   │                      #   file, state/state.json under the app data dir
+│   │                      #   (plugin auto-resolves the path, autoSave
+│   │                      #   debounces disk writes), values are the
+│   │                      #   per-store serialized strings.
+│   │                      #   initPersistedState() — awaited by BOTH entries
+│   │                      #   (main.tsx / mobile kv.ts) BEFORE the app bundle
+│   │                      #   imports — seeds an in-memory Map from the file,
+│   │                      #   which is what keeps every store's creation-time
+│   │                      #   read SYNCHRONOUSLY before React mounts
+│   │                      #   (typography/language/theme before first paint).
+│   │                      #   One-time MIGRATION: legacy `lumina-code:*`
+│   │                      #   localStorage keys are harvested into the file
+│   │                      #   (flushed first), then removed. Degradation
+│   │                      #   ladder: no invoke (plain-browser dev) →
+│   │                      #   localStorage; no localStorage (node tests) →
+│   │                      #   memory. set() never throws: a failed write is
+│   │                      #   logged while the in-memory value still updates
+│   │                      #   + notifies.
 │   ├── clipboard.ts       # copyText — clipboard write with an execCommand
 │   │                      #   fallback for webviews lacking the async API
 │   ├── dragRegionDoubleClick.ts # pure predicate behind the title-bar double-click
@@ -2213,7 +2244,10 @@ frontend. `system.rs` plus the `opencode/` module:
 src-tauri/src/
 ├── main.rs        # entry, calls lib::run()
 ├── lib.rs         # Tauri builder: plugins (log → LogDir "lumina-code" + Webview
-│                  #   target, os, opener, dialog, notification), Linux env workarounds set BEFORE
+│                  #   target, os, opener, dialog, notification, store — the
+│                  #   last one being tauri-plugin-store, the file-backed
+│                  #   persistence behind lib/persistedStore.ts's state file),
+│                  #   Linux env workarounds set BEFORE
 │                  #   GTK init (__NV_DISABLE_EXPLICIT_SYNC; GDK_DEBUG=gl-no-fractional
 │                  #   for Wayland fractional scaling), invoke_handler, and the Exit
 │                  #   hook that kills the owned server (opencode::shutdown).
@@ -2439,8 +2473,11 @@ gate fast-polls until the route answers then re-issues the api handle
 on recovery, and a 401 (desktop restarted → password rotated)
 re-fetches the connect info, rebuilds client + stream and reseeds.
 The v1 custom screens (SessionList/Session/ComposerBar/ActivityPanel)
-are DELETED; only LoginScreen + the kv hydrate gate remain under
-src/mobile/.
+are DELETED; only LoginScreen + the kv gate remain under
+src/mobile/ (kv.ts now only plants the __LUMINA_MOBILE__ flag and
+awaits initPersistedState before importing the app — the old ArkWeb
+localStorage shim is gone, replaced by tauri-plugin-store's invoke
+channel; the Rust shell's kv_load/kv_set were removed with it).
 
 The route's other halves: **server** `server/src/lib/frp.ts` +
 `server/src/app/api/frp/**` (config / routes / connect — the credential
@@ -2469,7 +2506,10 @@ deliberate trust-model change, documented in server/README.md.
 Mobile chrome decisions live in the DESKTOP tree keyed off
 `isMobileApp()` (lib/platform.ts — the window flag kv.ts plants before
 the app bundle imports): sidebar → TitleBar-hamburger DRAWER (the only
-session navigation), stats panel/SidebarResizer not mounted, the Server
+session navigation), the stats panel mounted as an ALWAYS-OVERLAY over
+the conversation (mobile.css widens the expanded panel to span the row;
+the wide-row flex-sibling tier stays desktop's), SidebarResizer not
+mounted, the Server
 settings tab mounting as the app's ACCOUNT page (server address + sign
 out — see ServerSettings' mobile branch), TitleBar's window controls
 hidden. mobile.css carries the
@@ -2609,7 +2649,9 @@ src/
 Desktop half: `src/opencode/serverConnection.ts` (the connection
 persistedStore `"lumina-code:server-connection"` + LuminaServerApi —
 the OpencodeApi pattern applied to the companion server; token lives in
-the webview's localStorage, revocable from the web console; the store
+the app's state/state.json (lib/persistedStore.ts over
+tauri-plugin-store; migrated from the webview's localStorage), revocable
+from the web console; the store
 shape is {url, token, username, remoteEnabled, frpRouteId?} with
 legacy `tunnelEnabled` migrating into remoteEnabled on read) and
 `src/hooks/useServerFrp.ts` (the engine, mounted once in AppBody:
@@ -2700,7 +2742,9 @@ types (opencode/types.ts, i18n keys)  ←  opencode/ + lib/  ←  hooks/  ←  c
   strings in JSX are wrong even for "temporary" copy.
 - **Cross-restart state** → `lib/persistedStore.ts`'s `createPersistedStore`
   (one factory: own key per preference, read/write/eq callbacks, never
-  throws, logging + same-value short-circuit built in). The session-flow
+  throws, logging + same-value short-circuit built in; medium =
+  tauri-plugin-store's `state/state.json` under the app data dir — see
+  the factory's initPersistedState + migration). The session-flow
   ui-state keeps its `lib/persist.ts` (`loadState`/`saveState`) wrapper.
   Don't hand-roll another store implementation or introduce a second
   persistence mechanism.
