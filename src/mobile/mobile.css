@@ -124,10 +124,52 @@ body,
  * env(safe-area-inset-*) to CSS — live-observed device overlap). No
  * env() padding here, or devices where it DOES work would double-pad. */
 
-/* The composer toolbar's narrow-width two-row split lives in main.css
- * (.lum-toolbar's own container query) — width-driven, so it serves the
- * phone and a narrow desktop window alike; nothing mobile-specific
- * remains here for it. */
+/* The composer toolbar is ONE row on mobile at every width — the same
+ * shape as the desktop's wide tier (actions | spring | selectors |
+ * send), long labels truncating to "..." instead of the toolbar growing
+ * a second line. main.css's <30rem container query (the two-row split
+ * that lifts the selectors above the send button) remains for NARROW
+ * DESKTOP WINDOWS only; these resets neutralize it on mobile (#root
+ * outspecifies the layered query rules at every width, and the reset
+ * values equal the wide tier, so tablets are unaffected — the send
+ * reset deliberately spares .lum-toolbar-plain, whose spring must
+ * survive). flex-wrap: nowrap matters beyond aesthetics: a wrapping
+ * flex line decides on HYPOTHETICAL (unshrunken) sizes, so an over-long
+ * row would drop the send button onto a second line even though the
+ * truncate labels could have absorbed the overflow; nowrap makes the
+ * labels shrink first (both clusters carry min-w-0). User-verified on
+ * device: the in-session row fits with room to spare. */
+#root .lum-toolbar {
+    flex-wrap: nowrap;
+}
+
+#root .lum-tb-selectors {
+    order: 0;
+    flex-basis: auto;
+    justify-content: flex-start;
+    /* The wide-tier spring (also overrides the narrow tier's
+     * margin-left: 0). */
+    margin-left: auto;
+}
+
+#root .lum-toolbar:not(.lum-toolbar-plain) .lum-tb-send {
+    margin-left: 0;
+}
+
+/* Label caps for the composer's settings chips (ToolbarButton's
+ * .lum-tb-label). The desktop cap (max-w-44, 11rem) is tuned for the
+ * wide one-row toolbar; on a phone the in-session selectors line
+ * (context ring + model + depth) must fit ONE row inside the toolbar,
+ * and the welcome screen's below-composer cluster
+ * (.lum-m-welcome-controls — mode/project/branch/model/depth, chips
+ * flowing over up to two centered rows) needs uniform chip widths so
+ * the wrap reads as layout. Longer names ellipsize — the full name
+ * always shows in the picker menu. #root (unlayered) beats the layered
+ * max-w-44 utility. */
+#root .lum-tb-selectors .lum-tb-label,
+#root .lum-m-welcome-controls .lum-tb-label {
+    max-width: 7rem;
+}
 
 /* The conversation column's gutters: the desktop base tier is a roomy
  * 3rem (the only edge breathing room when the column spans a wide

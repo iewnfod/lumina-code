@@ -736,6 +736,17 @@ body {
     animation: lum-pop var(--duration-base) var(--ease-spring) both;
 }
 
+/* Center-aligned PopoverMenu panels (align="center"): left-1/2 positions
+ * the panel's LEFT edge at the trigger's midpoint; this shifts it back by
+ * half the PANEL's width. Deliberately the independent `translate`
+ * PROPERTY, not a transform utility — the lum-pop/-exit keyframes animate
+ * `transform` with fill both, whose `transform: none` end state would
+ * clobber transform-based centering; `translate` composes with it. Support
+ * floor is below the container queries this file already relies on. */
+.lum-pop-center {
+    translate: -50% 0;
+}
+
 @keyframes lum-pop {
     from {
         opacity: 0;
@@ -1093,10 +1104,12 @@ body {
  * The composer toolbar's adaptive row count — the toolbar is its own
  * inline-size container and retiers itself by AVAILABLE WIDTH (not by
  * device): WIDE, one row (actions | spring | selectors | send — the
- * selectors' auto margin is the spring); NARROW (below 30rem, phones),
- * the selectors claim the top line right-aligned (order -1 + full
- * basis) and send gains the spring on the bottom line, keeping the
- * thumb-zone placement. DOM is single-source — only CSS retiers.
+ * selectors' auto margin is the spring); NARROW (below 30rem — narrow
+ * desktop windows; MOBILE neutralizes this tier in mobile.css for a
+ * one-row toolbar that truncates instead), the selectors claim the top
+ * line right-aligned (order -1 + full basis) and send gains the spring
+ * on the bottom line, keeping the thumb-zone placement. DOM is
+ * single-source — only CSS retiers.
  */
 .lum-toolbar {
     container-type: inline-size;
@@ -1104,6 +1117,16 @@ body {
 }
 
 .lum-tb-selectors {
+    margin-left: auto;
+}
+
+/* Minimal toolbars (mobile welcome: the settings cluster is hosted
+ * below the composer, ComposerToolbar's `minimal` prop adds the class).
+ * The wide tier's send spring normally comes from .lum-tb-selectors'
+ * margin-left:auto above; without the cluster, pin it here so the send
+ * button stays in the thumb zone at EVERY width — a landscape tablet
+ * phone would otherwise hug the actions cluster. */
+.lum-toolbar-plain .lum-tb-send {
     margin-left: auto;
 }
 

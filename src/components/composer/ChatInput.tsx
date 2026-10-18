@@ -71,6 +71,7 @@ const ChatInput = memo(function ChatInput({
     editMessage = null,
     onCancelEdit,
     onSubmitEdit,
+    toolbarMinimal = false,
 }: {
     /** No connection yet. */
     disabled: boolean;
@@ -116,6 +117,12 @@ const ChatInput = memo(function ChatInput({
     /** Submit the edit; resolves false when the revert failed (the
      *  composer keeps the edited text and attachments for a retry). */
     onSubmitEdit?: (message: ChatUserMessage, text: string, files: ComposerAttachment[]) => Promise<boolean>;
+    /** Reduce the bottom toolbar to attach + send — MOBILE's welcome
+     *  screen hosts the settings controls (mode/project/branch) and the
+     *  selectors cluster (model/thinking depth) BELOW the composer
+     *  instead (WelcomeScreen); five labeled controls cannot fit one
+     *  phone row. The in-session composer never passes it. */
+    toolbarMinimal?: boolean;
 }) {
     const colors = useColors();
     const t = useI18n();
@@ -397,6 +404,7 @@ const ChatInput = memo(function ChatInput({
                 onOpenModelConfig={onOpenModelConfig}
                 usage={usage}
                 contextUsage={contextUsage}
+                minimal={toolbarMinimal}
             />
         </div>
     );

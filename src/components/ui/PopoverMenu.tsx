@@ -25,7 +25,11 @@ export default function PopoverMenu({
     trigger: (props: {open: boolean; toggle: () => void}) => ReactNode;
     /** Panel content; receives a `close` fn for item clicks. */
     children: (close: () => void) => ReactNode;
-    align?: "start" | "end";
+    /** Horizontal placement: start/end edge-align to the trigger's
+     *  edges; "center" centers the panel ON the trigger (via the
+     *  independent `translate` property — the pop keyframes animate
+     *  `transform`, which would clobber a transform-based centering). */
+    align?: "start" | "center" | "end";
     /** Which way the panel opens relative to the trigger. Bottom-composer
      *  consumers open up; title-bar menus open down. */
     direction?: "up" | "down";
@@ -88,7 +92,11 @@ export default function PopoverMenu({
                         className={`absolute z-50 min-w-40 max-h-72 flex flex-col rounded-[var(--radius-md)] py-1 ${
                             direction === "down" ? "top-full mt-1.5" : "bottom-full mb-1.5"
                         } ${
-                            align === "start" ? "left-0" : "right-0"
+                            align === "start"
+                                ? "left-0"
+                                : align === "end"
+                                    ? "right-0"
+                                    : "left-1/2 lum-pop-center"
                         } ${closing ? "lum-pop-exit" : "lum-pop"} ${panelClassName}`}
                         style={panelStyle}
                     >

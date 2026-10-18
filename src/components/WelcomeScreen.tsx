@@ -4,8 +4,10 @@ import type {
     PendingCommand,
     SessionModelRef,
 } from "../opencode/types.ts";
+import {isMobileApp} from "../lib/platform.ts";
 import ChatPlaceholder from "./ChatPlaceholder.tsx";
 import ChatInput from "./composer/ChatInput.tsx";
+import {ComposerSelectors, ComposerSettingsControls} from "./composer/ComposerToolbar.tsx";
 import {WELCOME_DRAFT_KEY} from "./composer/composerDrafts.ts";
 
 /**
@@ -48,6 +50,13 @@ export default function WelcomeScreen({
     /** Opens the settings modal on its Model tab (model/provider config). */
     onOpenModelConfig: () => void;
 }) {
+    // MOBILE: the composer's settings controls — mode, project/branch
+    // pickers, model, thinking depth — move OUT of the input box (five
+    // labeled controls cannot fit one phone row) into a centered,
+    // wrap-friendly cluster BELOW the box; the toolbar keeps only attach
+    // + send. The in-session composer (and the whole desktop tree) is
+    // untouched.
+    const mobile = isMobileApp();
     return (
         <div className="lum-enter h-full min-w-0 flex-1">
             {/* No horizontal padding here — the composer column's shared
@@ -83,7 +92,37 @@ export default function WelcomeScreen({
                         stagedBranch={stagedBranch}
                         onStagedBranchChange={onStagedBranchChange}
                         onOpenModelConfig={onOpenModelConfig}
+                        toolbarMinimal={mobile}
                     />
+                    {mobile && (
+                        /* The settings cluster: everything that left the
+                         * toolbar — mode + project/branch pickers
+                         * (ComposerSettingsControls) and model + thinking
+                         * depth (ComposerSelectors) — centered under the
+                         * box. flex-wrap lets the chips flow onto a second
+                         * centered row instead of crushing: wrapping IS the
+                         * layout here. lum-m-welcome-controls is
+                         * mobile.css's hook for the tighter label cap. No
+                         * context ring — there is no conversation yet. */
+                        <div className="lum-m-welcome-controls flex flex-wrap items-center justify-center gap-1.5 pt-2">
+                            <ComposerSettingsControls
+                                agent={agent}
+                                onAgentChange={onAgentChange}
+                                conversationStarted={false}
+                                directory={directory}
+                                onDirectoryChange={onDirectoryChange}
+                                stagedBranch={stagedBranch}
+                                onStagedBranchChange={onStagedBranchChange}
+                            />
+                            <ComposerSelectors
+                                model={model}
+                                onModelChange={onModelChange}
+                                onOpenModelConfig={onOpenModelConfig}
+                                conversationStarted={false}
+                                align="start"
+                            />
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

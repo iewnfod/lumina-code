@@ -1,5 +1,6 @@
 import type {CSSProperties} from "react";
 import {useColors} from "../../hooks/colors.tsx";
+import {isMobileApp} from "../../lib/platform.ts";
 import type {SessionUsage} from "../../opencode/types.ts";
 import PopoverMenu, {MenuLabel} from "../ui/PopoverMenu.tsx";
 import Hint from "../ui/Hint.tsx";
@@ -53,7 +54,11 @@ export default function UsageRing({tokens, sessionUsage, contextLimit}: {
 
     return (
         <PopoverMenu
-            align="end"
+            // MOBILE centers the details panel ON the ring: the one-row
+            // toolbar parks the ring near the screen's midpoint, so a
+            // centered panel reads balanced where an end-aligned one
+            // hugs the right edge. Desktop keeps the right-aligned panel.
+            align={isMobileApp() ? "center" : "end"}
             panelClassName="w-64"
             trigger={({open, toggle}) => (
                 // Hint idles while the menu is open — both the tooltip and

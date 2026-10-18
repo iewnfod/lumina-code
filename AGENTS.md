@@ -1425,6 +1425,14 @@ src/
     │                      #   node-testable.
     ├── WelcomeScreen.tsx  # The no-session surface: greeting + the staged
     │                      #   composer (session created on first send).
+    │                      #   MOBILE: the composer's settings controls
+    │                      #   (mode/project/branch via
+    │                      #   ComposerSettingsControls + model/depth via
+    │                      #   ComposerSelectors) render as a centered,
+    │                      #   wrap-friendly cluster BELOW the box and the
+    │                      #   toolbar reduces to attach + send
+    │                      #   (toolbarMinimal) — five labeled controls
+    │                      #   cannot fit one phone row.
     ├── ui/                # Shared primitives (one of each thing)
     │   ├── IconButton.tsx # THE chrome button — never hand-roll <button> hover swaps
     │   ├── Button.tsx     # THE labeled button (primary/ghost) — shared by request
@@ -2063,6 +2071,10 @@ src/
         │                  #   active) — then fires onDraftLoaded. While
         │                  #   busy the placeholder switches to the
         │                  #   queue hint ("继续输入以排队发送").
+        │                  #   toolbarMinimal (MOBILE welcome only)
+        │                  #   reduces the toolbar to attach + send —
+        │                  #   the below-composer cluster hosts the
+        │                  #   settings controls + selectors.
         ├── ComposerCore.tsx # Editor internals: trigger-driven suggestions,
         │                  #   keyboard routing (Enter/arrows/Tab/Esc, IME-safe),
         │                  #   submit serialization, paste-to-attach.
@@ -2079,13 +2091,27 @@ src/
         │                  #   QUEUES — opencode/promptQueue.ts — instead
         │                  #   of steering the run, and the title says so),
         │                  #   no text while running → stop, idle + empty →
-        │                  #   send disabled. Owns the catalog →
-        │                  #   picker mapping (provider groups, variants) and
-        │                  #   the model-config entry (empty-state "no models
-        │                  #   configured" when catalogOnly, and the
-        │                  #   scrollable list's last "configure models…"
-        │                  #   row) raising onOpenModelConfig (App opens
-        │                  #   Settings on Model).
+        │                  #   send disabled. The settings controls and
+        │                  #   selectors live in EXPORTED components
+        │                  #   (same file): ComposerSettingsControls
+        │                  #   (mode picker + pre-session directory/
+        │                  #   branch pickers) and ComposerSelectors
+        │                  #   (usage ring + model + thinking depth with
+        │                  #   ALL the catalog wiring: provider groups,
+        │                  #   disabled-model filter, context-limit
+        │                  #   resolution, variant-preserving switch, the
+        │                  #   model-config entry raising
+        │                  #   onOpenModelConfig) — because MOBILE's
+        │                  #   welcome screen hosts the whole cluster
+        │                  #   BELOW the composer (five labeled controls
+        │                  #   cannot fit a phone row) while the
+        │                  #   in-session toolbar embeds both
+        │                  #   (ComposerSelectors' align prop: the
+        │                  #   centered cluster wants start-aligned
+        │                  #   panels); minimal={true} strips the
+        │                  #   toolbar to attach + send and adds
+        │                  #   .lum-toolbar-plain (send keeps its
+        │                  #   right-edge spring, main.css).
         ├── composerTriggers.ts # Lexical node-tree algorithms: `@`/`/` trigger
         │                  #   detection (CJK-aware) + atomic mention ←/→.
         ├── composerAttachments.ts # Data-URI attachment reader + size cap
