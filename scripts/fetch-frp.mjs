@@ -125,7 +125,9 @@ async function fetchOne(triple) {
   const target = TRIPLE_TO_TARGET[triple];
   const isWindows = triple.endsWith("pc-windows-msvc");
   const exeSuffix = isWindows ? ".exe" : "";
-  const archive = `frp_${FRP_VERSION}_${target}.tar.gz`;
+  // frp ships Windows archives as .zip (verified against the release's
+  // checksums file), everything else as .tar.gz.
+  const archive = `frp_${FRP_VERSION}_${target}.${isWindows ? "zip" : "tar.gz"}`;
 
   console.log(`→ frp v${FRP_VERSION} ${target} (${triple})`);
   const checksums = (await fetchThroughMirrors("frp_sha256_checksums.txt")).toString("utf8");
@@ -143,9 +145,20 @@ async function fetchOne(triple) {
 
   const tmp = await mkdtemp(join(tmpdir(), "frp-sidecar-"));
   try {
-    const tgz = join(tmp, "frp.tar.gz");
-    await writeFile(tgz, body);
-    execFileSync("tar", ["-xzf", tgz, "-C", tmp], { stdio: "ignore" });
+    const file = join(tmp, isWindows ? "frp.zip" : "frp.tar.gz");
+    await writeFile(file, body);
+    if (isWindows) {
+      // Windows runners carry bsdtar as tar.exe (reads zip natively; no
+      // unzip.exe there). Elsewhere unzip handles the zip — GNU tar (Linux)
+      // cannot, and the documented `--all` run fetches it there.
+      if (process.platform === "win32") {
+        execFileSync("tar", ["-xf", file, "-C", tmp], { stdio: "ignore" });
+      } else {
+        execFileSync("unzip", ["-o", file, "-d", tmp], { stdio: "ignore" });
+      }
+    } else {
+      execFileSync("tar", ["-xzf", file, "-C", tmp], { stdio: "ignore" });
+    }
     const dir = join(tmp, `frp_${FRP_VERSION}_${target}`);
     const extracted = (await readdir(dir)).find((f) => f === `frpc${exeSuffix}`);
     if (!extracted) throw new Error(`archive for ${target} has no frpc${exeSuffix}`);
