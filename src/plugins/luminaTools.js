@@ -993,6 +993,17 @@ const PLAN_PROTOCOL =
   "work themselves, and a completed plan is archived only on their acceptance. Never claim progress or " +
   "verification you have not made. (3) Skip all of this for single-step answers and trivial edits.";
 
+/** The user's custom system prompt (General settings) — read from the
+ * plugin options' plugin-level `systemPrompt` field, written there by
+ * ensureLuminaToolsPlugin. Pushed at the END of event.system, i.e. after
+ * everything the server itself assembled (built-in prompt + AGENTS.md /
+ * instructions). Exported for the plugin's node tests; keep side-effect
+ * free. Empty / whitespace-only / non-string means "off". */
+export function customSystemPrompt(options) {
+  const raw = options?.systemPrompt;
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
 /** Route A approval gate timing: how often the blocked executor re-reads
  * the session's agent (approval IS the agent switch — Lumina Code's
  * approval card calls switchAgent "build"), and how long it waits for a
@@ -1508,6 +1519,12 @@ export default {
           // agents (single-step, deny-all: the note would be inert noise
           // in their focused prompts).
           if (typeof event.agent === "string" && event.agent.startsWith("lumina-")) return;
+          // The user's custom system prompt (General settings) — after the
+          // helper gate so the restricted single-step agents keep their
+          // focused prompts, and after everything the server itself
+          // assembled (built-in prompt + AGENTS.md / instructions).
+          const custom = customSystemPrompt(options);
+          if (custom) event.system.push({type: "text", text: custom});
           // Restart-orphan acceptances converge HERE first (the sweep is
           // what archives them) — before the note below so an archived
           // plan doesn't advertise itself in the same call.

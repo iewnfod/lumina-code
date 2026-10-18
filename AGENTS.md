@@ -366,7 +366,14 @@ src/
 │                          #   session's own directory, both
 │                          #   live-verified), so a NEW session can
 │                          #   resume a plan and a compacted context
-│                          #   re-learns where the documents live.
+│                          #   re-learns where the documents live. The
+│                          #   SAME gate also carries the user's CUSTOM
+│                          #   SYSTEM PROMPT (General settings): the
+│                          #   plugin-level `systemPrompt` option,
+│                          #   pushed after everything the server itself
+│                          #   assembled (built-in prompt + AGENTS.md /
+│                          #   instructions), skipped for lumina-*
+│                          #   helper agents.
 │
 ├── opencode/              # THE domain layer — everything talking to the server
 │   ├── api.ts             # OpencodeApi: hand-rolled typed REST client (fetch +
@@ -445,8 +452,11 @@ src/
 │   │                      #   useLuminaToolsInstall (AppBody, once per
 │   │                      #   connection) keeps both current so the always-on
 │   │                      #   plan_mode tool exists from the first prompt on.
-│   │                      #   Passing options REPLACES the stored per-tool
-│   │                      #   options (the Tools tab's saves go through it);
+│   │                      #   Passing options REPLACES the stored
+│   │                      #   options wholesale (per-tool namespaces AND
+│   │                      #   plugin-level fields like the General tab's
+│   │                      #   systemPrompt — save sites spread the
+│   │                      #   read-back current options first);
 │   │                      #   omitting them preserves what's configured.
 │   │                      #   Failures log and degrade to "tool absent".
 │   ├── toolPluginConfig.ts # Pure custom-tools config logic (moved out of
@@ -454,7 +464,10 @@ src/
 │   │                      #   it — layering, §3.1): the lumina-tools plugin
 │   │                      #   entry upsert/read-back/entry-present probe in
 │   │                      #   the global opencode.json's `plugins` array
-│   │                      #   (per-tool options, foreign entries preserved;
+│   │                      #   (per-tool options + the PLUGIN-LEVEL
+│   │                      #   systemPrompt — the General tab's custom
+│   │                      #   system prompt, set/cleared through
+│   │                      #   withSystemPrompt; foreign entries preserved;
 │   │                      #   the entry is ALWAYS written now — plan_mode
 │   │                      #   ships always-on) + the restricted helper agents
 │   │                      #   in the config's `agents` section (v2.0.11 has
@@ -2246,11 +2259,18 @@ src/
     │                      #   "接入" button — addToBmsWhitelist — and
     │                      #   active binds the translucent render's
     │                      #   Switch + the opacity/static-blur advice
-    │                      #   lines; the pane mount re-probes), and a
-    │                      #   Fonts section
-    │                      #   (AboutSettings-style header; one control per
-    │                      #   row — family input / size stepper — plus
-    │                      #   reset); everything acts instantly through
+    │                      #   lines; the pane mount re-probes), a Fonts
+    │                      #   section (AboutSettings-style header; one
+    │                      #   control per row — family input / size
+    │                      #   stepper — plus reset), and the CUSTOM
+    │                      #   SYSTEM PROMPT section — the pane's only
+    │                      #   server-backed editor (SystemPromptSection:
+    │                      #   loads the plugin-level systemPrompt option
+    │                      #   from the global opencode.json on mount,
+    │                      #   saves through ensureLuminaToolsPlugin with
+    │                      #   withSystemPrompt, JSONC/read-failure
+    │                      #   degrade to the manual-edit notice); the
+    │                      #   rest acts instantly through
     │                      #   module stores (i18n, useThemePreference,
     │                      #   useStatsPanelMode, useWindowOutline,
     │                      #   useBlurMyShell, useTypography).
@@ -2305,6 +2325,9 @@ src/
     ├── Switch.tsx        # The settings pill switch (extracted from
     │                      #   ModelSettings when General needed one too).
     ├── TextInput.tsx     # The settings boxed text input (same extraction).
+    ├── TextArea.tsx      # Its multiline twin (same surface language) for
+    │                      #   paragraph values — the General tab's custom
+    │                      #   system prompt.
     ├── modelConfig.ts    # Pure model-config logic: integration search,
     │                      #   custom-provider config merge/remove/read-back
     │                      #   (globalConfigTarget itself lives in

@@ -7,6 +7,7 @@ import {
     mergeLuminaToolsPlugin,
     readLuminaToolsOptions,
     visionCapableModels,
+    withSystemPrompt,
 } from "./toolPluginConfig.ts";
 
 const PATH = "/home/me/.config/opencode/plugins/lumina-tools";
@@ -107,6 +108,39 @@ test("luminaToolsPluginPath joins without doubling slashes", () => {
         luminaToolsPluginPath("/home/me/.config/opencode/"),
         "/home/me/.config/opencode/plugins/lumina-tools",
     );
+});
+
+test("withSystemPrompt sets the trimmed prompt and clears on empty", () => {
+    assert.deepEqual(withSystemPrompt({}, "  Be terse.  "), {systemPrompt: "Be terse."});
+    // Existing per-tool options ride along untouched.
+    assert.deepEqual(withSystemPrompt({vision: {model: "a/b"}}, " hi "), {
+        vision: {model: "a/b"},
+        systemPrompt: "hi",
+    });
+    // Whitespace-only clears the field entirely (absent = off).
+    assert.deepEqual(withSystemPrompt({systemPrompt: "old", vision: {model: "a/b"}}, " \n "), {
+        vision: {model: "a/b"},
+    });
+    assert.deepEqual(withSystemPrompt({}, ""), {});
+});
+
+test("systemPrompt round-trips through merge/read and survives vision re-saves", () => {
+    const withPrompt = withSystemPrompt(OPTS, "Always answer in Chinese.");
+    const raw = mergeLuminaToolsPlugin("{}", PATH, withPrompt)!;
+    assert.deepEqual(readLuminaToolsOptions(raw, PATH), {
+        vision: OPTS.vision,
+        systemPrompt: "Always answer in Chinese.",
+    });
+    // A vision-only re-save that spreads the read-back options keeps the
+    // plugin-level field (the Tools tab's contract).
+    const current = readLuminaToolsOptions(raw, PATH)!;
+    const resaved = mergeLuminaToolsPlugin(raw, PATH, {...current, vision: {model: "x/y"}})!;
+    assert.equal(JSON.parse(resaved).plugins[0].options.systemPrompt, "Always answer in Chinese.");
+    // Clearing it (empty save) drops the field but keeps the entry.
+    const cleared = mergeLuminaToolsPlugin(raw, PATH, withSystemPrompt(current, ""))!;
+    const root = JSON.parse(cleared);
+    assert.equal("systemPrompt" in root.plugins[0].options, false);
+    assert.equal(root.plugins[0].options.vision.model, "zhipuai-coding-plan/glm-5.3-flash");
 });
 
 test("visionCapableModels filters on image input with catalog hygiene", () => {

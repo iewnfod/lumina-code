@@ -148,6 +148,11 @@ const enUs = {
     "Increase font size": "Increase font size",
     "Default": "Default",
     "Reset to default": "Reset to default",
+    "Custom system prompt": "Custom system prompt",
+    "Appended after OpenCode's built-in system prompt, for every session on this machine. Leave empty to disable.":
+        "Appended after OpenCode's built-in system prompt, for every session on this machine. Leave empty to disable.",
+    "Additional instructions for the model…": "Additional instructions for the model…",
+    "Saved": "Saved",
     "OpenCode": "OpenCode",
     "Dependencies": "Dependencies",
     // --- Session usage ring ---

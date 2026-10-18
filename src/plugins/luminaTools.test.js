@@ -12,6 +12,7 @@ import {
     composePlanDoc,
     composeReportDoc,
     composeTasksDoc,
+    customSystemPrompt,
     gateIsCurrent,
     historyFileName,
     planDirName,
@@ -34,6 +35,19 @@ test("planFileSlug caps long titles without trailing dashes", () => {
     const slug = planFileSlug("a".repeat(100));
     assert.equal(slug.length, 60);
     assert.match(slug, /^a+$/);
+});
+
+test("customSystemPrompt trims, tolerates junk, off on empty", () => {
+    assert.equal(customSystemPrompt({systemPrompt: "  Be terse.  "}), "Be terse.");
+    // Multiline prose survives verbatim (inner whitespace untouched).
+    assert.equal(customSystemPrompt({systemPrompt: "Line one\nLine two"}), "Line one\nLine two");
+    // Off states: absent, non-string, whitespace-only.
+    assert.equal(customSystemPrompt({}), "");
+    assert.equal(customSystemPrompt(undefined), "");
+    assert.equal(customSystemPrompt({systemPrompt: "   \n\t "}), "");
+    assert.equal(customSystemPrompt({systemPrompt: 42}), "");
+    // Other options (per-tool namespaces) coexist untouched.
+    assert.equal(customSystemPrompt({vision: {model: "x/y"}, systemPrompt: " hi "}), "hi");
 });
 
 test("planDirName slugs and disambiguates collisions", async () => {

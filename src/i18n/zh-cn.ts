@@ -145,6 +145,11 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Increase font size": "增大字号",
     "Default": "默认",
     "Reset to default": "恢复默认",
+    "Custom system prompt": "自定义系统提示词",
+    "Appended after OpenCode's built-in system prompt, for every session on this machine. Leave empty to disable.":
+        "追加在 OpenCode 自带的系统提示词之后，对本机所有会话生效；留空则不追加。",
+    "Additional instructions for the model…": "给模型的附加指令…",
+    "Saved": "已保存",
     "OpenCode": "OpenCode",
     "Dependencies": "依赖",
     // --- Session usage ring ---

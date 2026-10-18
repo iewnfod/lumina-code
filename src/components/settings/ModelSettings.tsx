@@ -579,16 +579,20 @@ function ToolsTab({
     }, [api]);
 
     const pluginPath = target ? luminaToolsPluginPath(target.directory) : "";
-    const current = useMemo(
-        () => readLuminaToolsOptions(rawConfig ?? "", pluginPath)?.vision?.model ?? "",
+    const currentOptions = useMemo(
+        () => readLuminaToolsOptions(rawConfig ?? "", pluginPath) ?? {},
         [rawConfig, pluginPath],
     );
+    const current = currentOptions.vision?.model ?? "";
 
     /** Save a vision-model choice ("" = off) through the shared installer
      * (ensureLuminaToolsPlugin): it re-reads the config fresh, writes the
      * plugin file when it differs and merges our entry — plan_mode stays
-     * always-on either way. A failure surfaces the error and changes
-     * nothing. */
+     * always-on either way. The installer's options argument REPLACES the
+     * stored options wholesale, so the read-back current options are
+     * spread first: a plugin-level field (the General tab's
+     * systemPrompt) must survive a vision re-save. A failure surfaces
+     * the error and changes nothing. */
     const choose = (model: string) => {
         if (!api || !target || busy) return;
         if (rawConfig === null) {
@@ -597,7 +601,7 @@ function ToolsTab({
         }
         setBusy(true);
         onBusyChange(true);
-        ensureLuminaToolsPlugin(api, model ? {vision: {model}} : {})
+        ensureLuminaToolsPlugin(api, {...currentOptions, vision: model ? {model} : {}})
             .then((result) => {
                 if (result.status === "skipped" && result.reason === "jsonc") {
                     onActionError(t["The config file uses JSONC (comments) and cannot be edited here. Open it to edit manually."]);

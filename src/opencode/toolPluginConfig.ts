@@ -15,11 +15,31 @@
 /** Directory name of the plugin under the global config's `plugins/`. */
 export const LUMINA_TOOLS_PLUGIN_DIR = "plugins/lumina-tools";
 
-/** Per-tool options carried by our `plugins` entry. Tool keys mirror the
- * TOOLS registry in the plugin source; `vision.model` is the compact
- * "providerID/modelID" form the plugin parses. */
+/** Options carried by our `plugins` entry. Per-tool options live in
+ * namespaces mirroring the TOOLS registry keys in the plugin source
+ * (`vision.model` is the compact "providerID/modelID" form the plugin
+ * parses); `systemPrompt` is PLUGIN-LEVEL (no tool owns it) — the
+ * user's custom system prompt from the General settings, appended
+ * after the server's built-in prompt by the plugin's context hook.
+ * Absent/empty means off. */
 export interface LuminaToolsOptions {
     vision?: {model?: string};
+    systemPrompt?: string;
+}
+
+/** Set (or clear, on an empty/whitespace-only value) the plugin-level
+ * `systemPrompt` on a copy of `options` — the single normalization
+ * every save site goes through, so the stored field is always the
+ * trimmed text or absent. Pure. */
+export function withSystemPrompt(
+    options: LuminaToolsOptions,
+    value: string,
+): LuminaToolsOptions {
+    const next: LuminaToolsOptions = {...options};
+    const trimmed = value.trim();
+    if (trimmed) next.systemPrompt = trimmed;
+    else delete next.systemPrompt;
+    return next;
 }
 
 /** Absolute on-disk path of the plugin entry point, given the global

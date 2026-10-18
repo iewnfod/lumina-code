@@ -79,7 +79,7 @@ export default function SettingsModal({
     // pop covers the open. Shared by both layouts.
     const paneNode: ReactNode = (
         <>
-            {active === "general" && <GeneralSettings/>}
+            {active === "general" && <GeneralSettings api={api}/>}
             {active === "model" && <ModelSettings api={api}/>}
             {active === "server" && <ServerSettings/>}
             {active === "about" && <AboutSettings/>}
