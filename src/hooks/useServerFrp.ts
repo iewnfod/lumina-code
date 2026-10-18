@@ -9,6 +9,7 @@ import {
     useServerConnection,
 } from "../opencode/serverConnection.ts";
 import {setFrpStatus} from "../opencode/frpStatus.ts";
+import {isMobileApp} from "../lib/platform.ts";
 
 /**
  * The remote-access engine (mounted ONCE in AppBody): the frp direct
@@ -63,6 +64,14 @@ export function useServerFrp(): void {
     const routeId = connection?.frpRouteId ?? "";
 
     useEffect(() => {
+        if (isMobileApp()) {
+            // The engine supervises THIS machine's frpc sidecar — a
+            // desktop-only concept (the mobile app is the route's
+            // CLIENT). Without the guard the off-branch below would
+            // invoke the desktop-only frp_stop command at every mount.
+            setFrpStatus("off");
+            return;
+        }
         if (!enabled) {
             setFrpStatus("off");
             // Off: stop any running sidecar. Idempotent — frp_stop

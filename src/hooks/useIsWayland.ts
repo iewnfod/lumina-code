@@ -1,6 +1,7 @@
 import {useEffect, useState} from "react";
 import {invoke} from "@tauri-apps/api/core";
 import {error} from "@tauri-apps/plugin-log";
+import {isLinux} from "../lib/platform.ts";
 
 // Module-level cache: the session type never changes during an app run, so we
 // resolve the backend `is_wayland` call once and reuse the result for every
@@ -16,6 +17,14 @@ export function useIsWayland(): boolean {
     const [isWayland, setIsWayland] = useState<boolean>(cached ?? false);
 
     useEffect(() => {
+        if (!isLinux()) {
+            // Wayland is a Linux concept — and the mobile crate does
+            // not register the command at all. Desktop mac/windows
+            // would answer false anyway.
+            cached = false;
+            setIsWayland(false);
+            return;
+        }
         if (cached !== null) {
             setIsWayland(cached);
             return;

@@ -66,6 +66,12 @@ export function probeBms(): Promise<void> {
 }
 
 async function runProbe(): Promise<void> {
+    if (!isLinux()) {
+        // Blur my Shell is a GNOME/Linux extension; the mobile crate
+        // does not register the command. Staying unprobed renders the
+        // same opaque fallback as an unsupported desktop.
+        return;
+    }
     const previous = snapshot ? deriveBmsStatus(snapshot).state : "unprobed";
     try {
         snapshot = await invoke<BlurSnapshot>("blur_my_shell_probe");
