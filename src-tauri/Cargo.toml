@@ -31,6 +31,7 @@ serde_json = "1"
 # those requests must NOT ride the webview's network stack). Default
 # features carry native-tls (the curl-proven OpenSSL stack).
 reqwest = { version = "0.12", default-features = true }
+tauri-plugin-store = "=2.4.3"
 
 # The Linux notification sender's persistent D-Bus connection — see
 # src/notify.rs for why the plugin's per-send connection gets GNOME
