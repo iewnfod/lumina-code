@@ -26,7 +26,7 @@ import {
 } from "lexical";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
-import {isMacOS} from "../../lib/platform.ts";
+import {isMacOS, isMobileApp} from "../../lib/platform.ts";
 import {clearDraft, saveDraftEditorState} from "./composerDrafts.ts";
 import type {
     ComposerFileRef,
@@ -134,8 +134,10 @@ export default function ComposerCore({
     // remounts the composer, and the user's next keystroke should land in it.
     // A restored draft must also recompute canSend (onChange only fires on
     // CHANGES, and the initialEditorState hydration is not one).
+    // Mobile skips the FOCUS only: the soft keyboard must not pop on a
+    // session switch / the welcome screen — tapping the composer focuses it.
     useEffect(() => {
-        if (!disabled) editor.focus();
+        if (!disabled && !isMobileApp()) editor.focus();
         onCanSendChange(editor.getEditorState().read(() => $getRoot().getTextContent().trim().length > 0));
     }, [editor, disabled, onCanSendChange]);
 
