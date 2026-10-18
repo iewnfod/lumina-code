@@ -31,7 +31,9 @@ lumina-server  /api/tunnel/opencode/**（透传代理 + SSE fan-out）
   里：`isMobileApp()`（lib/platform.ts）驱动 useOpencode 的远程分支、sidebar
   抽屉（TitleBar 汉堡）、隐藏统计面板/窗口控件/Server 设置页。
 - 壳：`mobile/src-tauri`，**纯 crates.io stable**（`=` 钉版对齐桌面 lock/npm，
-  见下）；插件 log/opener/os/dialog/notification；kv_load/kv_set 命令。
+  见下）；插件 log/opener/os/dialog/notification/store（store 即
+  tauri-plugin-store —— 持久化 state/state.json 的落盘通道；原先给 ArkWeb
+  localStorage 兜底的 kv_load/kv_set 已随之删除）。
 - 桌面端：`src/hooks/useServerTunnel.ts` + `src/opencode/tunnelClient.ts`
   （纯核心，node-testable）。
 - server 端：`server/src/lib/tunnel.ts` + `server/src/app/api/tunnel/**`。

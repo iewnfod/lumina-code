@@ -18,12 +18,12 @@
       attaches to the (dynamically imported) app entry.
     -->
     <!--
-      The localStorage hydrate gate (HarmonyOS/ArkWeb returns null for
-      localStorage under the tauri:// custom scheme): src/mobile/kv.ts
-      loads the persisted KV map from Rust BEFORE the app bundle is
-      imported, installs an in-memory localStorage shim over it, then
+      The persistence gate: src/mobile/kv.ts plants the mobile window
+      flag, awaits initPersistedState (lib/persistedStore.ts — seeds the
+      tauri-plugin-store state file into memory; the plugin's invoke
+      channel replaced the old ArkWeb localStorage shim), then
       dynamically imports the app — every module-level store read
-      (persistedStore) happens after hydration, synchronously, exactly
+      (persistedStore) happens after the seed, synchronously, exactly
       as on the desktop.
     -->
     <script>

@@ -31,6 +31,12 @@ tauri-plugin-opener = "=2.5.5"
 tauri-plugin-os = "=2.3.2"
 tauri-plugin-dialog = "=2.7.3"
 tauri-plugin-notification = "=2.4.0"
+# File-backed persisted state — `=`-pinned to the desktop lock's resolved
+# version. 2.4.3, NOT 2.5.x: 2.5.0 requires tauri ^2.12 while this repo
+# stays on the 2.11 line (mobile's =2.11.6 + npm @tauri-apps/api 2.11.x
+# alignment, see mobile/src-tauri/Cargo.toml; lumina-terminal runs the
+# same 2.4.3 against tauri 2.11.2). Bump together with package.json.
+tauri-plugin-store = "=2.4.3"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
