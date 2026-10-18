@@ -31,6 +31,11 @@ tauri-plugin-os = "3.0.0-alpha.1"
 tauri-plugin-log = "3.0.0-alpha.1"
 tauri-plugin-dialog = { version = "=3.0.0-alpha.1", default-features = false, features = ["xdg-portal"] }
 tauri-plugin-notification = "3.0.0-alpha.1"
+# File-backed persisted state (state/state.json under app_data_dir) — the
+# v3-alpha line of the same plugin the webkit shell pins on the 2.x line;
+# the v2 npm JS package stays protocol-compatible (same doctrine as the
+# other plugins).
+tauri-plugin-store = "3.0.0-alpha.3"
 log = "0.4"
 # The lumina-server HTTP transport (lumina_http.rs, single-sourced from the
 # webkit shell — see its header there).

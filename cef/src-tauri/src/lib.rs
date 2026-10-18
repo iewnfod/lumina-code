@@ -57,6 +57,8 @@ pub fn run() {
         // v3 起不再捆绑 webview runtime，在此选择 CEF (Chromium)。
         // DynRuntime 类型擦除 —— 下方所有 command 签名无需泛型化。
         .runtime(tauri_runtime_cef::Cef::default())
+        // File-backed persisted state — same plugin/init as the webkit shell.
+        .plugin(tauri_plugin_store::Builder::new().build())
         .setup(|app| {
             // 验证辅助：LUMINA_DEVTOOLS=1 时打开 Chromium DevTools，供
             // 渲染性能录制（Performance 面板）。
