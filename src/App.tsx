@@ -609,6 +609,11 @@ function AppBody({
                     onOpenSettings={() => openSettings()}
                     isMaximized={isMaximized}
                     onMenu={mobile ? () => setDrawerOpen(true) : undefined}
+                    // MOBILE delete entry: only while a session is open
+                    // (TitleBar renders the ⋯ menu only when this is
+                    // passed — desktop never does, its sidebar row X
+                    // stays).
+                    onDeleteSession={mobile && activeId ? () => deleteSession(activeId) : undefined}
                 />
                 <div className="flex-1 relative overflow-hidden">
                     {/* Chrome glass layer filling the content area. The

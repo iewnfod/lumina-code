@@ -1349,7 +1349,19 @@ src/
     │                      #   the right-side BRANCH chip (GitBranch icon +
     │                      #   name, non-interactive; null = no repo, hidden)
     │                      #   — App feeds it useDirectoryBranch's reading,
-    │                      #   or the welcome screen's STAGED branch.
+    │                      #   or the welcome screen's STAGED branch. MOBILE:
+    │                      #   an optional ⋯ menu (onDeleteSession prop, App
+    │                      #   passes it on a phone while a session is open)
+    │                      #   carrying 删除会话 — the delete entry's mobile
+    │                      #   home, relocated from the sidebar rows (a
+    │                      #   finger press synthesizes hover and reveals the
+    │                      #   row's X mid-tap: the tap meant to open the
+    │                      #   session would delete it). NOTE the bar's root
+    │                      #   wears relative z-50: its glass backdrop-filter
+    │                      #   creates a STACKING CONTEXT, so the downward
+    │                      #   menu panel needs the whole bar hoisted above
+    │                      #   the content sibling or it paints UNDER the
+    │                      #   conversation (live-observed on Android).
     ├── SessionBar.tsx     # Left glass sidebar shell: brand row, folder
     │                      #   collapse/expand state, relative-age ticker,
     │                      #   bottom action rows — new-session plus the
@@ -1405,7 +1417,11 @@ src/
     │                      #   pending badge, age and close button share one
     │                      #   cross-fade slot; deleted rows collapse in place
     │                      #   via ExitList, budget-limited), "Show more/less"
-    │                      #   expander.
+    │                      #   expander. MOBILE rows carry NO delete X and no
+    │                      #   hover fade (synthetic hover on touch would
+    │                      #   reveal the X mid-tap — deleting on an open
+    │                      #   tap); deleting goes through the title-bar ⋯
+    │                      #   menu (TitleBar's onDeleteSession).
     ├── sessionGrouping.ts # Pure sidebar mapping: SessionInfo view-model,
     │                      #   relativeAge, groupByDirectory + projectDirOf —
     │                      #   the sidebar groups by PROJECT directory: a

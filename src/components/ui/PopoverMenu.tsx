@@ -177,10 +177,14 @@ export function MenuItem({
     children,
     onClick,
     selected = false,
+    danger = false,
 }: {
     children: ReactNode;
     onClick: () => void;
     selected?: boolean;
+    /** Destructive action (delete) — the danger text token, the
+     * conventional red read for irreversible operations. */
+    danger?: boolean;
 }) {
     const colors = useColors();
     return (
@@ -190,9 +194,11 @@ export function MenuItem({
             className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-xs cursor-pointer rounded-[var(--radius-sm)] mx-0 transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-menu-hover)]"
             style={{
                 "--lum-menu-hover": colors.hoverOverlay,
-                color: selected
-                    ? "var(--color-brand-cinnabar-soft)"
-                    : colors.dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.85)",
+                color: danger
+                    ? "var(--color-danger-text)"
+                    : selected
+                        ? "var(--color-brand-cinnabar-soft)"
+                        : colors.dark ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.85)",
                 fontWeight: selected ? 600 : 400,
             } as React.CSSProperties}
         >

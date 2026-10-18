@@ -7,6 +7,7 @@ import ExitPresence, {ExitList} from "./ui/ExitPresence.tsx";
 import {folderLabel} from "../lib/path.ts";
 import {useWorktreeDirs} from "../opencode/worktreeSessions.ts";
 import {useI18n} from "../hooks/i18n.tsx";
+import {isMobileApp} from "../lib/platform.ts";
 import {relativeAge, type SessionInfo} from "./sessionGrouping.ts";
 import SessionTitle from "./SessionTitle.tsx";
 import Hint from "./ui/Hint.tsx";
@@ -74,6 +75,14 @@ export default function SessionFolder({
 }) {
     const colors = useColors();
     const t = useI18n();
+    // MOBILE has no real hover: a finger press synthesizes hover first,
+    // which would reveal the row's delete X mid-tap — the tap meant to
+    // OPEN the session lands on the just-revealed X and deletes it. So
+    // mobile rows carry NO delete affordance at all (deleting lives in
+    // the title-bar ⋯ menu, App → TitleBar's onDeleteSession), and the
+    // age/badge never hover-fade (the fade existed only to cross-fade
+    // INTO the X). Desktop keeps the hover pattern unchanged.
+    const mobile = isMobileApp();
     // Branch-worktree bindings feed the per-row branch chips — the
     // group is the PROJECT (the parent already grouped by main repo),
     // the branch is per-session metadata.
@@ -192,12 +201,14 @@ export default function SessionFolder({
                                             share one fixed-width slot; hover cross-fades
                                             to the delete button so the title never shifts.
                                             A pending count (permissions + questions) takes
-                                            the slot over from the age. */}
+                                            the slot over from the age. MOBILE renders the
+                                            badge/age without the fade and NO delete button
+                                            (see `mobile` above). */}
                                         <div className="relative shrink-0 ml-1 w-5 h-4">
                                             {pendingCount != null && (
                                                 <Hint label={t["Permission request"]} className="absolute inset-0">
                                                     <span
-                                                        className="w-full h-full flex items-center justify-end transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
+                                                        className={`w-full h-full flex items-center justify-end${mobile ? "" : " transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"}`}
                                                     >
                                                         <span
                                                             className="min-w-4 h-4 px-1 rounded-full text-2xs font-semibold leading-4 text-center select-none"
@@ -210,27 +221,29 @@ export default function SessionFolder({
                                             )}
                                             {pendingCount == null && session.updatedAt != null && (
                                                 <span
-                                                    className="absolute inset-0 flex items-center justify-end text-2xs tabular-nums transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
+                                                    className={`absolute inset-0 flex items-center justify-end text-2xs tabular-nums${mobile ? "" : " transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"}`}
                                                     style={{color: colors.inactiveText}}
                                                 >
                                                     {relativeAge(session.updatedAt, now)}
                                                 </span>
                                             )}
-                                            <Hint label={t["Delete session"]} className="absolute inset-0">
-                                                <button
-                                                    className="w-full h-full flex items-center justify-center cursor-pointer opacity-0 rounded-[var(--radius-xs)] lum-wash transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100"
-                                                    style={{
-                                                        "--lum-wash": colors.activeOverlay,
-                                                        color: isActive ? foregroundColor : colors.inactiveText,
-                                                    } as CSSProperties}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        onClose(session.id);
-                                                    }}
-                                                >
-                                                    <X size={12} />
-                                                </button>
-                                            </Hint>
+                                            {!mobile && (
+                                                <Hint label={t["Delete session"]} className="absolute inset-0">
+                                                    <button
+                                                        className="w-full h-full flex items-center justify-center cursor-pointer opacity-0 rounded-[var(--radius-xs)] lum-wash transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100"
+                                                        style={{
+                                                            "--lum-wash": colors.activeOverlay,
+                                                            color: isActive ? foregroundColor : colors.inactiveText,
+                                                        } as CSSProperties}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            onClose(session.id);
+                                                        }}
+                                                    >
+                                                        <X size={12} />
+                                                    </button>
+                                                </Hint>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
