@@ -63,6 +63,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The mobile crate's `tauri` dep carries the DEFAULT `wry` feature, so
+      # a HOST-target check compiles the same WebKitGTK / GTK / libsoup stack
+      # as the webkit shell (the Android/iOS targets swap in their own
+      # runtime and never pull it) — the dev headers must be present for
+      # glib-sys & co. to resolve. Same list as ci-backend.yml's Linux leg.
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            xdg-utils
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -76,5 +94,7 @@ jobs:
           mkdir -p dist-mobile
           echo '<!doctype html><title>Lumina Code Mobile</title>' > dist-mobile/index.html
 
+      # `--locked` matches ci-backend.yml: the committed mobile Cargo.lock
+      # is enforced, a silent resolve drift fails here instead.
       - name: cargo check
-        run: cargo check --manifest-path mobile/src-tauri/Cargo.toml
+        run: cargo check --locked --manifest-path mobile/src-tauri/Cargo.toml
