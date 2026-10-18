@@ -1,6 +1,7 @@
 import {useSyncExternalStore} from "react";
 import {invoke} from "@tauri-apps/api/core";
 import {info as logInfo} from "@tauri-apps/plugin-log";
+import {isMobileApp} from "../lib/platform.ts";
 import {createPersistedStore} from "../lib/persistedStore.ts";
 
 /**
@@ -140,15 +141,66 @@ function serverErrorMessage(status: number, body: string): string {
 }
 
 /**
- * Typed client for lumina-server's REST API. The TRANSPORT is the Rust
- * side (`lumina_request` in src-tauri/src/lumina_http.rs — reqwest,
- * proxies disabled): the desktop↔server channel must not ride the
- * webview's network stack, whose libsoup/GnuTLS path proved
- * unreliable on proxy-fronted networks (live-observed 2026-10-18:
- * every webview fetch to the server failed with an opaque
- * `TypeError: Load failed` while curl/bare-libsoup succeeded on the
- * same host). Errors carry the HTTP `status` on the thrown Error, like
- * OpencodeApi.
+ * One wire call → {status, body}. TRANSPORT is platform-split:
+ *
+ * - DESKTOP: the Rust `lumina_request` command (src-tauri/src/
+ *   lumina_http.rs — reqwest, proxies disabled). The desktop↔server
+ *   channel must not ride the webview's network stack, whose
+ *   libsoup/GnuTLS path proved unreliable on proxy-fronted networks
+ *   (live-observed 2026-10-18: every webview fetch to the server failed
+ *   with an opaque `TypeError: Load failed` while curl/bare-libsoup
+ *   succeeded on the same host).
+ * - MOBILE: the webview's own fetch. There the webview stack IS the OS
+ *   network stack (Chromium on Android / NSURLSession on iOS — proxy-
+ *   and TLS-sane, no libsoup in sight) and already carries ALL the
+ *   app's opencode traffic through this very server origin
+ *   (useOpencode's remote branch); the mobile crate deliberately
+ *   registers no HTTP command. The server's middleware answers the
+ *   cross-origin preflight for exactly these webview origins.
+ */
+async function serverExchange(
+    baseUrl: string,
+    token: string,
+    method: string,
+    path: string,
+    body: string | null,
+): Promise<{status: number; body: string}> {
+    if (isMobileApp()) {
+        let res: Response;
+        try {
+            res = await fetch(`${baseUrl}${path}`, {
+                method,
+                headers: {
+                    Accept: "application/json",
+                    ...(token ? {Authorization: `Bearer ${token}`} : {}),
+                    ...(body !== null ? {"Content-Type": "application/json"} : {}),
+                },
+                body: body ?? undefined,
+            });
+        } catch (e) {
+            // Transport-level failure (network/TLS) — no HTTP status.
+            throw new Error(String(e));
+        }
+        return {status: res.status, body: await res.text()};
+    }
+    try {
+        return await invoke("lumina_request", {baseUrl, token, method, path, body});
+    } catch (e) {
+        // Transport-level failure (network/proxy/TLS) — no HTTP status.
+        throw new Error(String(e));
+    }
+}
+
+/** Shared non-2xx mapping: a `{error}` body becomes the message, the
+ * HTTP `status` rides the thrown Error (same contract as OpencodeApi). */
+function httpError(status: number, body: string): Error {
+    const err = new Error(serverErrorMessage(status, body));
+    (err as Error & {status?: number}).status = status;
+    return err;
+}
+
+/** Typed client for lumina-server's REST API. Errors carry the HTTP
+ * `status` on the thrown Error, like OpencodeApi.
  */
 export class LuminaServerApi {
     constructor(
@@ -160,25 +212,17 @@ export class LuminaServerApi {
         path: string,
         init?: {method?: string; body?: string},
     ): Promise<T> {
-        let reply: {status: number; body: string};
-        try {
-            reply = await invoke("lumina_request", {
-                baseUrl: this.baseUrl,
-                token: this.token,
-                method: init?.method ?? "GET",
-                path,
-                // Callers pass the pre-serialized body (the old fetch
-                // RequestInit semantics) — send it through untouched.
-                body: init?.body !== undefined ? init.body : null,
-            });
-        } catch (e) {
-            // Transport-level failure (network/proxy/TLS) — no HTTP status.
-            throw new Error(String(e));
-        }
+        const reply = await serverExchange(
+            this.baseUrl,
+            this.token,
+            init?.method ?? "GET",
+            path,
+            // Callers pass the pre-serialized body (the old fetch
+            // RequestInit semantics) — send it through untouched.
+            init?.body !== undefined ? init.body : null,
+        );
         if (reply.status < 200 || reply.status >= 300) {
-            const err = new Error(serverErrorMessage(reply.status, reply.body));
-            (err as Error & {status?: number}).status = reply.status;
-            throw err;
+            throw httpError(reply.status, reply.body);
         }
         if (reply.status === 204) return undefined as T;
         return JSON.parse(reply.body) as T;
@@ -191,22 +235,15 @@ export class LuminaServerApi {
         username: string,
         password: string,
     ): Promise<{token: string; username: string}> {
-        let reply: {status: number; body: string};
-        try {
-            reply = await invoke("lumina_request", {
-                baseUrl: url,
-                token: "",
-                method: "POST",
-                path: "/api/auth/login",
-                body: JSON.stringify({username, password}),
-            });
-        } catch (e) {
-            throw new Error(String(e));
-        }
+        const reply = await serverExchange(
+            url,
+            "",
+            "POST",
+            "/api/auth/login",
+            JSON.stringify({username, password}),
+        );
         if (reply.status < 200 || reply.status >= 300) {
-            const err = new Error(serverErrorMessage(reply.status, reply.body));
-            (err as Error & {status?: number}).status = reply.status;
-            throw err;
+            throw httpError(reply.status, reply.body);
         }
         const body = JSON.parse(reply.body) as {token?: string; user?: {username?: string}};
         if (typeof body.token !== "string" || !body.token) {
