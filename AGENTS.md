@@ -2106,9 +2106,12 @@ src/
         │                  #   BELOW the composer (five labeled controls
         │                  #   cannot fit a phone row) while the
         │                  #   in-session toolbar embeds both
-        │                  #   (ComposerSelectors' align prop: the
-        │                  #   centered cluster wants start-aligned
-        │                  #   panels); minimal={true} strips the
+        │                  #   (ComposerSelectors' align prop — the
+        │                  #   centered welcome cluster passes "auto":
+        │                  #   PopoverMenu measures at open and clamps
+        │                  #   the panel into the viewport, since a
+        │                  #   wrapping chip row has no stable screen
+        │                  #   side); minimal={true} strips the
         │                  #   toolbar to attach + send and adds
         │                  #   .lum-toolbar-plain (send keeps its
         │                  #   right-edge spring, main.css).

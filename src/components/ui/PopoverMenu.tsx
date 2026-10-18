@@ -1,8 +1,11 @@
-import {useEffect, useRef, useState, type ReactNode} from "react";
+import {useEffect, useLayoutEffect, useRef, useState, type ReactNode} from "react";
 import {Check} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import ExitPresence from "./ExitPresence.tsx";
+
+/** Viewport breathing room (px) for auto-aligned panels. */
+const AUTO_EDGE = 8;
 
 /**
  * The chrome's dropdown primitive: a trigger (render prop) plus a floating
@@ -28,8 +31,14 @@ export default function PopoverMenu({
     /** Horizontal placement: start/end edge-align to the trigger's
      *  edges; "center" centers the panel ON the trigger (via the
      *  independent `translate` property — the pop keyframes animate
-     *  `transform`, which would clobber a transform-based centering). */
-    align?: "start" | "center" | "end";
+     *  `transform`, which would clobber a transform-based centering).
+     *  "auto" measures at open time and keeps the panel INSIDE the
+     *  viewport: start-aligned while that fits, end-flipped or rim-
+     *  clamped when it doesn't (width capped too) — for triggers with
+     *  no stable screen-side home, like MOBILE's centered welcome
+     *  cluster, where a start panel off a right-side chip would stick
+     *  out past the phone's edge. */
+    align?: "start" | "center" | "end" | "auto";
     /** Which way the panel opens relative to the trigger. Bottom-composer
      *  consumers open up; title-bar menus open down. */
     direction?: "up" | "down";
@@ -39,10 +48,48 @@ export default function PopoverMenu({
     const colors = useColors();
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
+    // The floating panel host (auto-align measures it once mounted).
+    const panelRef = useRef<HTMLDivElement>(null);
+    // align="auto"'s resolved placement, measured pre-paint at open: the
+    // resolving re-render lands in the SAME paint, so the panel never
+    // flashes at an unmeasured spot. `left` offsets from the trigger's
+    // left edge (the panel is absolute inside this root); `maxWidth`
+    // caps panels wider than the viewport. Deliberately not reset on
+    // close — it persists through the exit hold so the closing
+    // animation plays in place, and the next open re-measures.
+    const [autoPlace, setAutoPlace] = useState<{left: number; maxWidth: number} | null>(null);
     // Conditional edge fades for the scrolling panel body: menu rows sit
     // flush (py-1), so a fade shows only while that side actually has rows
     // hidden beyond it — short menus render fade-free.
     const edges = useScrollEdges<HTMLDivElement>();
+
+    // align="auto": clamp the panel into the viewport whenever it opens
+    // (and on viewport resize — rotation — while it stays open). One
+    // measurement per event, never per frame (§3.7).
+    useLayoutEffect(() => {
+        if (!open || align !== "auto") return;
+        const measure = () => {
+            const root = rootRef.current;
+            const panel = panelRef.current;
+            if (!root || !panel) return;
+            const rootRect = root.getBoundingClientRect();
+            const width = panel.getBoundingClientRect().width;
+            const vw = document.documentElement.clientWidth;
+            // Prefer the start edge; flip to the end edge when the panel
+            // would cross the right rim; clamp to the rim when even that
+            // overflows (a panel ≈ viewport-wide).
+            let left = rootRect.left;
+            if (left + width > vw - AUTO_EDGE) left = rootRect.right - width;
+            if (left < AUTO_EDGE) left = AUTO_EDGE;
+            setAutoPlace({
+                left: left - rootRect.left,
+                maxWidth: Math.max(0, vw - 2 * AUTO_EDGE),
+            });
+        };
+        measure();
+        window.addEventListener("resize", measure);
+        return () => window.removeEventListener("resize", measure);
+    }, [open, align]);
 
     useEffect(() => {
         if (!open) return;
@@ -88,6 +135,7 @@ export default function PopoverMenu({
             <ExitPresence present={open} exitMs={150} exit={{animation: "lum-pop-exit"}}>
                 {(closing, bind) => (
                     <div
+                        ref={panelRef}
                         {...bind}
                         className={`absolute z-50 min-w-40 max-h-72 flex flex-col rounded-[var(--radius-md)] py-1 ${
                             direction === "down" ? "top-full mt-1.5" : "bottom-full mb-1.5"
@@ -96,9 +144,18 @@ export default function PopoverMenu({
                                 ? "left-0"
                                 : align === "end"
                                     ? "right-0"
-                                    : "left-1/2 lum-pop-center"
+                                    : align === "center"
+                                        ? "left-1/2 lum-pop-center"
+                                        : "" // "auto": no class — the measured inline style positions it
                         } ${closing ? "lum-pop-exit" : "lum-pop"} ${panelClassName}`}
-                        style={panelStyle}
+                        style={
+                            align === "auto"
+                                ? {
+                                      ...panelStyle,
+                                      ...(autoPlace ? {left: autoPlace.left, maxWidth: autoPlace.maxWidth} : {}),
+                                  }
+                                : panelStyle
+                        }
                     >
                         {/* The whole panel body scrolls as one list. */}
                         <div

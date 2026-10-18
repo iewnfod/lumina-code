@@ -103,7 +103,12 @@ export default function WelcomeScreen({
                          * centered row instead of crushing: wrapping IS the
                          * layout here. lum-m-welcome-controls is
                          * mobile.css's hook for the tighter label cap. No
-                         * context ring — there is no conversation yet. */
+                         * context ring — there is no conversation yet.
+                         * Panels open align="auto": the wrapping chips sit
+                         * at a different horizontal offset every render,
+                         * so each panel clamps itself into the viewport
+                         * (PopoverMenu measures at open) instead of
+                         * always extending right off a phone's edge. */
                         <div className="lum-m-welcome-controls flex flex-wrap items-center justify-center gap-1.5 pt-2">
                             <ComposerSettingsControls
                                 agent={agent}
@@ -113,13 +118,14 @@ export default function WelcomeScreen({
                                 onDirectoryChange={onDirectoryChange}
                                 stagedBranch={stagedBranch}
                                 onStagedBranchChange={onStagedBranchChange}
+                                align="auto"
                             />
                             <ComposerSelectors
                                 model={model}
                                 onModelChange={onModelChange}
                                 onOpenModelConfig={onOpenModelConfig}
                                 conversationStarted={false}
-                                align="start"
+                                align="auto"
                             />
                         </div>
                     )}

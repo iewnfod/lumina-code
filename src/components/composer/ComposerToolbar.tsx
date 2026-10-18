@@ -216,6 +216,7 @@ export function ComposerSettingsControls({
     onDirectoryChange,
     stagedBranch,
     onStagedBranchChange,
+    align = "start",
 }: {
     /** Effective agent (mode) selection. */
     agent: string;
@@ -230,6 +231,11 @@ export function ComposerSettingsControls({
      *  project's main worktree); see DirectoryPicker. */
     stagedBranch: string | null;
     onStagedBranchChange: (branch: string | null) => void;
+    /** PopoverMenu panel alignment for every picker here — MOBILE's
+     *  welcome cluster passes "auto" (its centered, wrapping chips have
+     *  no stable screen side, so panels clamp into the viewport; see
+     *  PopoverMenu). */
+    align?: "start" | "auto";
 }) {
     const t = useI18n();
     const {agents} = useCatalog();
@@ -238,7 +244,7 @@ export function ComposerSettingsControls({
     return (
         <>
             <PopoverMenu
-                align="start"
+                align={align}
                 trigger={({open, toggle}) => (
                     <ToolbarButton
                         icon={<Blocks size={14}/>}
@@ -271,6 +277,7 @@ export function ComposerSettingsControls({
                 <DirectoryPicker
                     directory={directory}
                     onChange={onDirectoryChange}
+                    align={align}
                 />
             )}
             {!conversationStarted && (
@@ -278,6 +285,7 @@ export function ComposerSettingsControls({
                     directory={directory}
                     branch={stagedBranch}
                     onBranchChange={onStagedBranchChange}
+                    align={align}
                 />
             )}
         </>
@@ -297,8 +305,9 @@ export function ComposerSettingsControls({
  * composer in the centered settings cluster (WelcomeScreen, alongside
  * ComposerSettingsControls) while the in-session toolbar keeps its own
  * copy inside the composer. `align` exists for that site: its triggers
- * sit centered, so panels align to the trigger's START — an end-aligned
- * panel would clip past the phone's left edge.
+ * sit centered with no stable screen side, so the welcome cluster passes
+ * "auto" and PopoverMenu clamps each panel into the viewport (a fixed
+ * alignment there would clip past the phone's edge sooner or later).
  */
 export function ComposerSelectors({
     model,
@@ -322,8 +331,9 @@ export function ComposerSelectors({
     /** The session's current context reading (last measured step). */
     contextUsage?: ContextUsage | null;
     /** PopoverMenu panel alignment (the toolbar's selectors sit right:
-     *  "end"; the centered welcome cluster wants "start"). */
-    align?: "start" | "end";
+     *  "end"; the centered welcome cluster wants "auto" — viewport-
+     *  clamped). */
+    align?: "start" | "end" | "auto";
 }) {
     const colors = useColors();
     const t = useI18n();

@@ -51,12 +51,16 @@ export default function BranchPicker({
     directory,
     branch,
     onBranchChange,
+    align = "start",
 }: {
     /** The staged project directory whose branches these are. */
     directory: string | null;
     /** Staged branch for the next session; null = the main worktree. */
     branch: string | null;
     onBranchChange: (branch: string | null) => void;
+    /** PopoverMenu panel alignment — MOBILE's welcome cluster passes
+     *  "auto" so the panel clamps into the viewport (see PopoverMenu). */
+    align?: "start" | "auto";
 }) {
     const t = useI18n();
     const {api} = useConnection();
@@ -167,7 +171,7 @@ export default function BranchPicker({
 
     return (
         <PopoverMenu
-            align="start"
+            align={align}
             trigger={({open, toggle}) => (
                 <ToolbarButton
                     icon={<GitBranch size={14}/>}

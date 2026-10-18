@@ -22,10 +22,14 @@ import {useI18n} from "../../hooks/i18n.tsx";
 export default function DirectoryPicker({
     directory,
     onChange,
+    align = "start",
 }: {
     /** Absolute working directory for the next session; null = server default. */
     directory: string | null;
     onChange: (directory: string | null) => void;
+    /** PopoverMenu panel alignment — MOBILE's welcome cluster passes
+     *  "auto" so the panel clamps into the viewport (see PopoverMenu). */
+    align?: "start" | "auto";
 }) {
     const colors = useColors();
     const t = useI18n();
@@ -97,7 +101,7 @@ export default function DirectoryPicker({
 
     return (
         <PopoverMenu
-            align="start"
+            align={align}
             trigger={({open, toggle}) => (
                 // The trigger shows only the folder's last segment — the
                 // hint carries the full path (nothing to add for the
