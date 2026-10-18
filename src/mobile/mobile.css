@@ -152,6 +152,21 @@ body,
     min-height: 60px;
 }
 
+/* The workspace stats panel: mounted on mobile TOO, always overlaying
+ * the conversation (a phone row can never reach main.css's 79rem
+ * flex-sibling tier, so the float rule is the only one in play). The
+ * desktop narrow-float cap — max(18rem, 100cqw − 16rem), built to keep
+ * conversation visible BESIDE the panel — would leave an awkward 18rem
+ * strip on a phone; the expanded panel instead spans the row minus the
+ * 1rem float insets, covering the conversation area like a sheet. The
+ * collapsed pill and the height caps stay desktop-identical. #root
+ * specificity beats main.css's base tier; on a wide container row
+ * (100cqw − 2rem > 40rem) the cap never bites, so the flex-sibling
+ * tier survives untouched for tablet-class rows. */
+#root .lum-stats[data-expanded="true"] {
+    max-width: calc(100cqw - 2rem);
+}
+
 /* ------------------------------------------------------ The login card --
  * The one custom screen: server address + credentials → the device
  * token the remote route rides on. */

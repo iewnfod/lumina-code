@@ -469,9 +469,10 @@ function AppBody({
 
     // The MOBILE chrome: the desktop tree with the sidebar as a DRAWER
     // (TitleBar hamburger) — it is the only session navigation, so it
-    // overlays instead of docking. Everything else desktop-side that
-    // makes no sense on a phone (stats panel, resize seam) is simply
-    // not mounted (lib/platform.ts isMobileApp).
+    // overlays instead of docking. The stats panel mounts too, always
+    // overlaying the conversation (mobile.css sizes the expanded panel
+    // to span the row); the resize seam is the one desktop surface not
+    // mounted on a phone (lib/platform.ts isMobileApp).
     const mobile = isMobileApp();
     const [drawerOpen, setDrawerOpen] = useState(false);
     const closeDrawer = useCallback(() => setDrawerOpen(false), []);
@@ -719,22 +720,23 @@ function AppBody({
                                     StatsCardSwap: the previous card fades out
                                     (frozen snapshot) while the successor
                                     mounts. Never rendered on the welcome
-                                    screen, nor on the MOBILE app (the panel
-                                    is a desktop companion surface). */}
-                                {!mobile && (
-                                    <StatsCardSwap
-                                        swapKey={activeSession ? (activeDirectory ?? "") : null}
-                                        render={(dir) => (
-                                            <WorkspaceStatsCard
-                                                key={dir}
-                                                sessionId={activeSession!.id}
-                                                directory={activeDirectory}
-                                                busyIds={busyIds}
-                                                agent={effectiveAgent}
-                                            />
-                                        )}
-                                    />
-                                )}
+                                    screen. On MOBILE the panel mounts too —
+                                    always an overlay over the conversation
+                                    (a phone row can never reach the wide-row
+                                    flex-sibling tier, and mobile.css widens
+                                    the expanded panel to span the row). */}
+                                <StatsCardSwap
+                                    swapKey={activeSession ? (activeDirectory ?? "") : null}
+                                    render={(dir) => (
+                                        <WorkspaceStatsCard
+                                            key={dir}
+                                            sessionId={activeSession!.id}
+                                            directory={activeDirectory}
+                                            busyIds={busyIds}
+                                            agent={effectiveAgent}
+                                        />
+                                    )}
+                                />
                             </div>
                         </div>
                     </MaskedSurface>
