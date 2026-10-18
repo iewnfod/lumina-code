@@ -1,4 +1,5 @@
 import {useSyncExternalStore} from "react";
+import {invoke} from "@tauri-apps/api/core";
 import {info as logInfo} from "@tauri-apps/plugin-log";
 import {createPersistedStore} from "../lib/persistedStore.ts";
 
@@ -124,22 +125,30 @@ export function clearServerConnection(): void {
     }
 }
 
-/** Extract the error message a lumina-server reply carries
- * (`{error: "…"}`), falling back to the status line. Pure. */
-export async function serverErrorMessage(res: Response): Promise<string> {
-    const detail = await res
-        .json()
-        .then((body: {error?: unknown}) =>
-            typeof body?.error === "string" ? body.error : "",
-        )
-        .catch(() => "");
-    return detail || `${res.status} ${res.statusText}`;
+/**
+ * Extract the error message a lumina-server reply carries
+ * (`{error: "…"}`), falling back to a status line. Pure.
+ */
+function serverErrorMessage(status: number, body: string): string {
+    try {
+        const parsed = JSON.parse(body) as {error?: unknown};
+        if (typeof parsed?.error === "string" && parsed.error) return parsed.error;
+    } catch {
+        // non-JSON body — fall through to the status line
+    }
+    return `${status}`;
 }
 
 /**
- * Typed client for lumina-server's REST API (the OpencodeApi pattern:
- * hand-rolled fetch, envelope-free — lumina-server returns plain JSON).
- * Errors carry the HTTP `status` on the thrown Error, like OpencodeApi.
+ * Typed client for lumina-server's REST API. The TRANSPORT is the Rust
+ * side (`lumina_request` in src-tauri/src/lumina_http.rs — reqwest,
+ * proxies disabled): the desktop↔server channel must not ride the
+ * webview's network stack, whose libsoup/GnuTLS path proved
+ * unreliable on proxy-fronted networks (live-observed 2026-10-18:
+ * every webview fetch to the server failed with an opaque
+ * `TypeError: Load failed` while curl/bare-libsoup succeeded on the
+ * same host). Errors carry the HTTP `status` on the thrown Error, like
+ * OpencodeApi.
  */
 export class LuminaServerApi {
     constructor(
@@ -147,23 +156,32 @@ export class LuminaServerApi {
         private token: string,
     ) {}
 
-    private async request<T>(path: string, init?: RequestInit): Promise<T> {
-        const res = await fetch(this.baseUrl + path, {
-            ...init,
-            headers: {
-                Accept: "application/json",
-                ...(init?.body !== undefined ? {"Content-Type": "application/json"} : {}),
-                Authorization: `Bearer ${this.token}`,
-                ...init?.headers,
-            },
-        });
-        if (!res.ok) {
-            const err = new Error(await serverErrorMessage(res));
-            (err as Error & {status?: number}).status = res.status;
+    private async request<T>(
+        path: string,
+        init?: {method?: string; body?: string},
+    ): Promise<T> {
+        let reply: {status: number; body: string};
+        try {
+            reply = await invoke("lumina_request", {
+                baseUrl: this.baseUrl,
+                token: this.token,
+                method: init?.method ?? "GET",
+                path,
+                // Callers pass the pre-serialized body (the old fetch
+                // RequestInit semantics) — send it through untouched.
+                body: init?.body !== undefined ? init.body : null,
+            });
+        } catch (e) {
+            // Transport-level failure (network/proxy/TLS) — no HTTP status.
+            throw new Error(String(e));
+        }
+        if (reply.status < 200 || reply.status >= 300) {
+            const err = new Error(serverErrorMessage(reply.status, reply.body));
+            (err as Error & {status?: number}).status = reply.status;
             throw err;
         }
-        if (res.status === 204) return undefined as T;
-        return (await res.json()) as T;
+        if (reply.status === 204) return undefined as T;
+        return JSON.parse(reply.body) as T;
     }
 
     /** Exchange credentials for a device token. Static: called before a
@@ -173,17 +191,24 @@ export class LuminaServerApi {
         username: string,
         password: string,
     ): Promise<{token: string; username: string}> {
-        const res = await fetch(`${url}/api/auth/login`, {
-            method: "POST",
-            headers: {"Content-Type": "application/json", Accept: "application/json"},
-            body: JSON.stringify({username, password}),
-        });
-        if (!res.ok) {
-            const err = new Error(await serverErrorMessage(res));
-            (err as Error & {status?: number}).status = res.status;
+        let reply: {status: number; body: string};
+        try {
+            reply = await invoke("lumina_request", {
+                baseUrl: url,
+                token: "",
+                method: "POST",
+                path: "/api/auth/login",
+                body: JSON.stringify({username, password}),
+            });
+        } catch (e) {
+            throw new Error(String(e));
+        }
+        if (reply.status < 200 || reply.status >= 300) {
+            const err = new Error(serverErrorMessage(reply.status, reply.body));
+            (err as Error & {status?: number}).status = reply.status;
             throw err;
         }
-        const body = (await res.json()) as {token?: string; user?: {username?: string}};
+        const body = JSON.parse(reply.body) as {token?: string; user?: {username?: string}};
         if (typeof body.token !== "string" || !body.token) {
             throw new Error("server sent no token");
         }

@@ -11,6 +11,8 @@
 mod blur;
 #[path = "../../../src-tauri/src/frp.rs"]
 mod frp;
+#[path = "../../../src-tauri/src/lumina_http.rs"]
+mod lumina_http;
 #[path = "../../../src-tauri/src/notify.rs"]
 mod notify;
 #[path = "../../../src-tauri/src/opencode/mod.rs"]
@@ -92,6 +94,7 @@ pub fn run() {
             opencode::opencode_start,
             frp::frp_start,
             frp::frp_stop,
+            lumina_http::lumina_request,
             notify::desktop_notify,
             blur::blur_my_shell_probe,
             blur::blur_my_shell_set_whitelist

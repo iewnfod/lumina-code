@@ -1,5 +1,6 @@
 mod blur;
 mod frp;
+mod lumina_http;
 mod opencode;
 mod notify;
 mod system;
@@ -59,6 +60,7 @@ pub fn run() {
             opencode::opencode_start,
             frp::frp_start,
             frp::frp_stop,
+            lumina_http::lumina_request,
             notify::desktop_notify,
             blur::blur_my_shell_probe,
             blur::blur_my_shell_set_whitelist

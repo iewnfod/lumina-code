@@ -2214,6 +2214,26 @@ src-tauri/src/
 │                  #   for Wayland fractional scaling), invoke_handler, and the Exit
 │                  #   hook that kills the owned server (opencode::shutdown).
 ├── system.rs      # is_wayland command (XDG_SESSION_TYPE, WAYLAND_DISPLAY fallback)
+├── lumina_http.rs # lumina_request: the lumina-server HTTP transport (the Rust
+│                  #   half of opencode/serverConnection.ts's LuminaServerApi).
+│                  #   WHY requests to the self-hosted server must NOT ride
+│                  #   the webview's fetch (live-observed 2026-10-18, phone
+│                  #   -hotspot network + local proxy): tauri/wry's WebKitGTK
+│                  #   network stack (libsoup/GnuTLS) failed EVERY path to
+│                  #   the server with an opaque `TypeError: Load failed`
+│                  #   (system proxy / direct / clean env), while curl
+│                  #   (OpenSSL), bare libsoup and a bare WebKitGTK page all
+│                  #   succeeded against the same host — a backend channel
+│                  #   must not drift with the user's proxy software or the
+│                  #   network's TLS-fingerprint handling. So LuminaServerApi
+│                  #   invokes this instead of fetch: plain reqwest
+│                  #   (native-tls), proxies explicitly DISABLED, 20s
+│                  #   timeout, one JSON-in/JSON-out shape ({baseUrl, token,
+│                  #   method, path, body?} → {status, body}). Error
+│                  #   contract: transport failures are the command's Err;
+│                  #   HTTP responses always Ok — the client maps `{error}`
+│                  #   bodies + tags `.status` (the old fetch shape). CEF
+│                  #   shell mounts it single-source via #[path].
 ├── frp.rs         # REMOTE ACCESS: the frpc sidecar lifecycle (the tunnel's
 │                  #   replacement). frp_start {addr, port, token, routeId,
 │                  #   localPort, secure} writes a throwaway frpc.toml into
@@ -2606,7 +2626,11 @@ idempotent; its internal stop does not emit, so no self-trigger
 loop).
 The Rust half is `src-tauri/src/frp.rs` (see the backend map).
 LuminaServerApi carries the full surface (auth + frp config/register/
-connect) — ONE client for every consumer; `src/opencode/
+connect) — ONE client for every consumer; its TRANSPORT is the Rust
+`lumina_request` command (src-tauri/src/lumina_http.rs — reqwest with
+proxies off; the webview fetch path proved unusable on proxy-fronted
+networks, see that module's header), so login/settings/frp engine all
+bypass the browser network stack; `src/opencode/
 mobileConnection.ts` is the MOBILE app's own connection store (login
 screen ↔ useOpencode's remote branch).
 
