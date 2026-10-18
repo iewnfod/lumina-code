@@ -34,6 +34,7 @@ or ask the user to enter the plan mode for you.
 | Release-build the webkit shell | `pnpm tauri build` |
 | Release-build the CEF shell | `pnpm build:cef` |
 | Mobile web bundle dev / build (second vite entry, port 1421) | `pnpm dev:mobile` / `pnpm build:mobile` |
+| Android release APK (local, arm64; needs SDK/NDK, see mobile/README.md) | `cd mobile && pnpm exec tauri android build --apk --target aarch64` |
 | Typecheck + build frontend | `pnpm build` (`tsc && vite build`) |
 | Unit tests (pure frontend logic) | `pnpm test` (`node --test "src/**/*.test.ts" "src/**/*.test.js"`) |
 | Point dev at a different server binary | `OPENCODE_BIN=/path/to/opencode pnpm tauri dev` |
@@ -80,7 +81,15 @@ Mirrors lumina-terminal's pipeline (keep the two in sync when fixing one):
   matrix target first, and attaches bundles to the release. Hand-written
   release notes are snapshotted and echoed back so the concurrent matrix
   never overwrites them. No updater signing (the Tauri updater is not
-  configured for this app).
+  configured for this app). The `publish-android` job adds the mobile APK
+  (`Lumina.Code_<ver>_android-arm64.apk`, arm64-only, version-synced via
+  bump-version.sh) built with the CLI directly (tauri-action has no
+  android mode) and signed through the four `ANDROID_KEYSTORE_*` secrets
+  feeding the conditional signingConfig in
+  mobile/src-tauri/gen/android/app/build.gradle.kts — the job fails fast
+  with setup instructions when the secrets are missing rather than
+  uploading an uninstallable unsigned APK; see mobile/README.md for the
+  one-time keystore/secret setup.
 - **pkg-trigger.yml → aur.yml / copr.yml** — after Release succeeds,
   republish the .deb/.rpm assets as `lumina-code-bin` (AUR) and `lumina-code`
   (Fedora COPR) from the `.aur/PKGBUILD` / `.copr/lumina-code.spec`

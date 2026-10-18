@@ -14,6 +14,19 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// Release signing (the official Tauri android-signing pattern): when a
+// keystore.properties sits at the gen/android project root (gitignored —
+// written by hand locally, or from the ANDROID_KEYSTORE_* secrets by the
+// Release workflow), the release build is signed with it; without the file
+// the build is unchanged (debug unaffected, release stays unsigned).
+// keystore.properties keys: storeFile / storePassword / keyAlias / keyPassword.
+val keystoreProperties = Properties().apply {
+    val propFile = rootProject.file("keystore.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+
 android {
     compileSdk = 36
     namespace = "com.iewnfod.lumina_code_mobile"
@@ -44,6 +57,15 @@ android {
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
                     .toList().toTypedArray()
             )
+            val storeFilePath = keystoreProperties.getProperty("storeFile")
+            if (storeFilePath != null) {
+                signingConfig = signingConfigs.create("release") {
+                    storeFile = file(storeFilePath)
+                    storePassword = keystoreProperties.getProperty("storePassword")
+                    keyAlias = keystoreProperties.getProperty("keyAlias")
+                    keyPassword = keystoreProperties.getProperty("keyPassword")
+                }
+            }
         }
     }
     buildFeatures {

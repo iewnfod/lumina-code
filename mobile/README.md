@@ -60,6 +60,44 @@ Android Studio（platform + build-tools）+ NDK (side by side) + cmdline-tools +
 i686-linux-android x86_64-linux-android`；环境变量 `ANDROID_HOME=$HOME/Android/Sdk`
 （NDK 自动取 `ndk/` 最新，或显式 `NDK_HOME`）。日志：`adb logcat`。
 
+### 签名与 CI 发布（Release 流水线）
+
+- **版本随桌面端同步**：`mobile/src-tauri/{tauri.conf.json, Cargo.toml,
+  Cargo.lock}` 三处（无 package.json——前端是仓库根的第二个 vite 入口）由
+  `scripts/bump-version.sh` 常设收编，与 webkit/CEF 两个 shell 一起从同一
+  tag 发布。Android 的 versionName/versionCode 由 tauri 构建时从 conf 版本
+  自动派生（`major*1000000 + minor*1000 + patch`，写入构建时生成的
+  `gen/android/app/tauri.properties`），`--check` 十一个文件全绿即三端对齐。
+- **Release 流水线**：`.github/workflows/release.yml` 的 `publish-android`
+  job 在每次 release 发布时构建 **arm64-only APK**
+  （`pnpm exec tauri android build --apk --target aarch64`，在 `mobile/`
+  目录下执行）并上传为 `Lumina.Code_<ver>_android-arm64.apk`。
+- **签名**（APK 不签名无法安装）：`gen/android/app/build.gradle.kts` 里的
+  条件 signingConfig 读取 `gen/android/keystore.properties`（已被模板
+  gitignore）：
+  ```properties
+  storeFile=lumina-release.jks
+  storePassword=<storepass>
+  keyAlias=lumina
+  keyPassword=<keypass>
+  ```
+  本地构建时手写该文件即可；CI 从四个 secrets 生成它。**一次性设置**（密钥
+  库丢失 = 老用户无法覆盖升级，务必备份 `.jks`）：
+  ```bash
+  keytool -genkey -v -keystore lumina-release.jks \
+    -keyalg RSA -keysize 2048 -validity 10000 -alias lumina \
+    -storepass <password> -keypass <password>
+  gh secret set ANDROID_KEYSTORE_BASE64 < <(base64 -w0 lumina-release.jks)
+  gh secret set ANDROID_KEYSTORE_PASSWORD   # -storepass 的值
+  gh secret set ANDROID_KEY_ALIAS           # 例如 lumina
+  gh secret set ANDROID_KEY_PASSWORD        # 同一个密码（见下）
+  ```
+  **PKCS12 密码约束**（live-observed）：现代 keytool 默认输出 PKCS12，不支持
+  key 密码 ≠ store 密码——`-keypass` 传不同值会被静默忽略。两个 secret 必须是
+  同一个密码，否则 gradle 报 `Given final block not properly padded`。
+  secrets 缺失时 android job 会**快速失败**并打印上述指引——宁可发布红着，
+  不上传一个装不上的 unsigned APK。
+
 ### E2E 冒烟（无需跑桌面 App）
 
 ```bash

@@ -1,9 +1,10 @@
 name: Release
 
-# Builds the app for every desktop target and uploads the bundles to an
-# EXISTING GitHub release (create it with hand-written notes first; this
-# workflow only attaches assets). The `tag` input makes workflow_dispatch
-# re-runnable for a specific release without re-publishing.
+# Builds the app for every desktop target (plus the Android APK via the
+# publish-android job) and uploads the bundles to an EXISTING GitHub release
+# (create it with hand-written notes first; this workflow only attaches
+# assets). The `tag` input makes workflow_dispatch re-runnable for a
+# specific release without re-publishing.
 on:
   release:
     types: [published]
@@ -218,6 +219,156 @@ jobs:
           # CLI's src-tauri discovery finds the right crate).
           projectPath: ${{ matrix.shell == 'cef' && 'cef' || '.' }}
           args: ${{ matrix.args }}
+
+  # The Android app (mobile/) — its own job because tauri-action does not
+  # drive `tauri android build`; we invoke the CLI directly and upload via
+  # gh. Produces ONE APK for arm64 (every modern phone; the other ABIs would
+  # quadruple the rust cross-compile for a negligible audience) named
+  # Lumina.Code_<ver>_android-arm64.apk, version-synced with the desktop via
+  # scripts/bump-version.sh. The APK must be SIGNED to install: the four
+  # ANDROID_KEYSTORE_* secrets feed keystore.properties + the keystore file,
+  # which the conditional signingConfig in gen/android/app/build.gradle.kts
+  # picks up (the official Tauri android-signing pattern — a local build
+  # works the same way by writing keystore.properties by hand).
+  publish-android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mobile/src-tauri
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # Ensures the Android SDK + sdkmanager exist even if the runner image
+      # drops its preinstalled copy; ANDROID_HOME comes preset either way.
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # The tauri CLI needs a concrete NDK version dir. GitHub's ubuntu
+      # images ship side-by-side NDKs under $ANDROID_HOME/ndk — pick the
+      # newest and fail loudly if the image ever stops shipping one (the
+      # fix would be an explicit `sdkmanager --install "ndk;<ver>"` here).
+      - name: Accept licenses and resolve NDK
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          ndk="$(ls -1 "$ANDROID_HOME/ndk" 2>/dev/null | sort -V | tail -1)"
+          if [ -z "$ndk" ]; then
+            echo "::error::No NDK found under $ANDROID_HOME/ndk — install one via sdkmanager and retry."
+            exit 1
+          fi
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$ndk" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ndk" >> "$GITHUB_ENV"
+          echo "using NDK $ndk"
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Fail FAST when the signing secrets are missing: an unsigned APK in a
+      # release is a broken deliverable (it cannot be installed at all), so
+      # an explanatory error beats shipping a dead asset. One-time setup
+      # (keep the .jks safe — Android upgrades require the SAME signature).
+      # NOTE: modern keytool emits PKCS12, which does NOT support a key
+      # password distinct from the store password — pass the SAME value to
+      # -storepass and -keypass, and set ANDROID_KEYSTORE_PASSWORD and
+      # ANDROID_KEY_PASSWORD to that one password (a mismatch fails gradle
+      # with "Given final block not properly padded", live-observed):
+      #   keytool -genkey -v -keystore lumina-release.jks \
+      #     -keyalg RSA -keysize 2048 -validity 10000 -alias lumina \
+      #     -storepass <password> -keypass <password>
+      #   gh secret set ANDROID_KEYSTORE_BASE64 < <(base64 -w0 lumina-release.jks)
+      #   gh secret set ANDROID_KEYSTORE_PASSWORD  # the -storepass value
+      #   gh secret set ANDROID_KEY_ALIAS          # e.g. lumina
+      #   gh secret set ANDROID_KEY_PASSWORD       # the SAME password (PKCS12)
+      - name: Verify signing secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          missing=0
+          for v in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!v}" ]; then
+              echo "::error::Secret $v is not set — the release APK cannot be signed."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Set the four ANDROID_KEYSTORE_* secrets (see this step's comments for the one-time commands), then re-run this workflow."
+            exit 1
+          fi
+
+      # keystore.properties is what the committed signingConfig in
+      # gen/android/app/build.gradle.kts reads; both files are gitignored
+      # by the tauri template, so writing them here leaves no trace.
+      - name: Write signing config
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          gen="mobile/src-tauri/gen/android"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$gen/lumina-release.jks"
+          cat > "$gen/keystore.properties" <<EOF
+          storeFile=lumina-release.jks
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+
+      # The CLI resolves the mobile project from mobile/ (src-tauri next
+      # door); beforeBuildCommand (pnpm run build:mobile) walks up pnpm's
+      # package chain to the repo root. No opencode/frpc sidecar fetch here:
+      # the mobile shell bundles neither. NDK_HOME/ANDROID_NDK_HOME come
+      # from the resolve step above (written via GITHUB_ENV).
+      - name: Build Android APK (aarch64)
+        working-directory: mobile
+        run: pnpm exec tauri android build --apk --target aarch64
+
+      - name: Upload APK to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ver="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' mobile/src-tauri/tauri.conf.json | head -n1)"
+          # tauri's per-target APK output lands under apk/universal/ even for
+          # a single --target (live-observed: --target aarch64 →
+          # outputs/apk/universal/release/app-universal-release.apk).
+          src="mobile/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk"
+          if [ ! -f "$src" ]; then
+            echo "::error::APK not found at $src"
+            exit 1
+          fi
+          asset="Lumina.Code_${ver}_android-arm64.apk"
+          cp "$src" "$asset"
+          gh release upload "$RELEASE_TAG" "$asset" --clobber
+          echo "uploaded $asset"
 
   # Post-publish tripwire (added after a v0.1.1 incident where a Linux
   # package ended up with a WRONG binary as its "opencode"): assert the
