@@ -727,13 +727,73 @@ src/
 │   │                      #   own list updates); array order = registration
 │   │                      #   order, the substrate for future pin /
 │   │                      #   fixed-sort features. DirectoryPicker's
-│   │                      #   quick-picks share the membership check.
-│   │                      #   node-testable (storage-stub + dynamic-import
+│   │                      #   quick-picks share the membership check
+│   │                      #   (unionMembership). node-testable (storage-stub + dynamic-import
 │   │                      #   pattern; parseRegistryRaw exported for the
-│   │                      #   read-shape cases).
+│   │                      #   read-shape cases). This store is the LOCAL
+│   │                      #   HALF of membership only — derivation is
+│   │                      #   always local ∪ shared
+│   │                      #   (sessionWhitelistSync.ts, the entry right
+│   │                      #   below); the local layer doubles as the
+│   │                      #   offline buffer and the lost-update healing
+│   │                      #   source (each seed union-pushes it into the
+│   │                      #   shared file), and the one-time ADOPTION
+│   │                      #   prefers the shared file's ids (a fresh
+│   │                      #   device starts with the SAME sidebar as
+│   │                      #   every other client) before falling back
+│   │                      #   to the visible roots.
+│   ├── sessionWhitelistSync.ts # THE SERVER-SHARED half of the session
+│   │                      #   whitelist (sessionRegistry.ts is the local
+│   │                      #   half): one id array at <global config
+│   │                      #   dir>/lumina/whitelist.json on the machine
+│   │                      #   running the opencode server — membership
+│   │                      #   every Lumina Code client (desktop windows,
+│   │                      #   CEF shell, mobile) can read AND write via
+│   │                      #   the same fs channel the lumina-tools
+│   │                      #   installer uses (fs/read location-confined,
+│   │                      #   experimental/fs/write absolute + creates
+│   │                      #   parents, curl-verified v2.0.11). WHY a
+│   │                      #   file: session metadata is create-only on
+│   │                      #   v2.0.11 (PATCH /api/session/{id} silently
+│   │                      #   drops a metadata field, only title sticks
+│   │                      #   — live-verified), so the create-time
+│   │                      #   CLIENT_SOURCE stamp can never be
+│   │                      #   retrofitted onto existing sessions, and
+│   │                      #   per-device registries diverge (import on
+│   │                      #   one device never reached the others —
+│   │                      #   the cross-device import-list mismatch).
+│   │                      #   SEMANTICS: membership = local ∪ file,
+│   │                      #   derived at every seed/relist; the file
+│   │                      #   only GROWS by union (every writer reads
+│   │                      #   fresh, unions, writes back — mergeWhitelist
+│   │                      #   is the ONE write primitive) and only
+│   │                      #   shrinks by server-confirmed deletion or
+│   │                      #   dead-id compaction against the live
+│   │                      #   session list (empty list compacts
+│   │                      #   nothing — the same transient-empty guard
+│   │                      #   as missingRegisteredIds). Direction
+│   │                      #   guarantee: a sync race can delay one
+│   │                      #   registration from appearing elsewhere
+│   │                      #   (the victim's next seed re-pushes from
+│   │                      #   its local layer and converges) but can
+│   │                      #   NEVER remove a live session from a
+│   │                      #   sidebar. Unknown read failures abort the
+│   │                      #   pending write (no clobbering over the
+│   │                      #   unknowable); the documented fs/read
+│   │                      #   500-missing-dir quirk reads as absent;
+│   │                      #   no config target degrades everything to
+│   │                      #   local-only behavior. Exposes a
+│   │                      #   synchronous snapshot serverWhitelistIds()
+│   │                      #   (empty until the first read — the derive
+│   │                      #   then equals the old local-only world).
+│   │                      #   The pure halves (unionIds, the merge math
+│   │                      #   over a fake api) are node-testable
+│   │                      #   (sessionWhitelistSync.test.ts).
 │   ├── useSessions.ts     # Sidebar list: a WHITELIST view over the server
-│   │                      #   session list — only registry members
-│   │                      #   (sessionRegistry.ts) are listed. Seeded from
+│   │                      #   session list — only members of the local
+│   │                      #   registry ∪ the shared whitelist file
+│   │                      #   (sessionRegistry.ts +
+│   │                      #   sessionWhitelistSync.ts) are listed. Seeded from
 │   │                      #   GET /api/session, live-patched
 │   │                      #   from the bus; root sessions only (subagent children carry
 │   │                      #   parentID and would flood the list; the tools plugin's

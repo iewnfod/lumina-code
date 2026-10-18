@@ -10,29 +10,34 @@ import {
     CLIENT_SOURCE,
     importableSessions,
     isRootSession,
-    isSessionRegistered,
     missingRegisteredIds,
     registerSession,
     registeredSessionIds,
+    unionMembership,
     unregisterSession,
 } from "./sessionRegistry.ts";
+import {mergeWhitelist, readWhitelist, refreshWhitelist, serverWhitelistIds} from "./sessionWhitelistSync.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {EventMap, OpencodeSession} from "./types.ts";
 
 /**
- * The sidebar's session list — a WHITELIST view: only sessions recorded in
- * the local session registry (sessionRegistry.ts, persisted per app
- * instance) are listed, no matter who else creates sessions in the shared
- * server storage (the TUI/CLI in the home dir, other desktop instances).
- * Membership is granted at the creation choke-point (`create` below,
- * reached only through sendFirst), by the user through IMPORT
- * (`importSessions`, fed by `foreignSessions` — the root sessions the
- * server lists but the registry does not hold), and AUTOMATICALLY for
- * sessions stamped as Lumina Code creations by another instance (the
- * CLIENT_SOURCE marker — every `create` stamps it; the seed/relist
- * folds register stamped strangers, see sessionRegistry), and revoked
- * on every deletion path (the `remove` here, the session.deleted event,
- * and seed-time reconciliation).
+ * The sidebar's session list — a WHITELIST view: only sessions that are
+ * members of the LOCAL registry (sessionRegistry.ts, persisted per app
+ * instance) ∪ the SHARED whitelist file (sessionWhitelistSync.ts — one
+ * whitelist.json beside the server's global opencode config, readable
+ * and writable by every Lumina Code client) are listed, no matter who
+ * else creates sessions in the shared server storage (the TUI/CLI in
+ * the home dir, other desktop instances). Local membership is granted
+ * at the creation choke-point (`create` below, reached only through
+ * sendFirst), by the user through IMPORT (`importSessions`, fed by
+ * `foreignSessions` — the root sessions in NEITHER half), and
+ * AUTOMATICALLY for sessions stamped as Lumina Code creations by any
+ * instance (the CLIENT_SOURCE marker — every `create` stamps it); each
+ * grant also lands in the shared file, so every client's sidebar and
+ * import list converge to the same view. Membership is revoked on
+ * every deletion path (the `remove` here, the session.deleted event,
+ * and seed-time reconciliation — which prunes only ids the server no
+ * longer lists, never a live session).
  *
  * Listed sessions stay in sync with the OpenCode server: seeded from
  * `GET /api/session` (intersected with the registry — and the seed is also
@@ -139,23 +144,31 @@ export function useSessions(
         });
     }, [deleteToolSession]);
 
-    // Re-list helper: registered root sessions only (the registry is the
-    // membership truth), server order (most recently updated first). The
-    // complement — root sessions NOT in the registry — feeds the import
-    // picker as `foreignSessions`. Sessions stamped as Lumina Code
-    // creations (another window / the mobile app) auto-register first,
-    // so they land in `sessions` and never show as import candidates.
+    // Re-list helper: whitelisted root sessions only (local registry ∪
+    // the shared server file — membership's two halves), server order
+    // (most recently updated first). The complement — root sessions in
+    // NEITHER half — feeds the import picker as `foreignSessions`.
+    // Sessions stamped as Lumina Code creations (another window / the
+    // mobile app) auto-register first, so they land in `sessions` and
+    // never show as import candidates.
     const relist = useCallback(() => {
         const a = apiRef.current;
         if (!a) return Promise.resolve();
-        return a.listSessions().then((list) => {
+        return a.listSessions().then(async (list) => {
             const raw = list ?? [];
             const added = autoRegisterClientSessions(raw);
             if (added.length > 0) {
                 info(`Auto-whitelisted ${added.length} Lumina Code session(s) from other instances`).catch(() => {});
+                await mergeWhitelist(a, {add: added});
             }
-            setSessions(raw.filter((s) => isRootSession(s) && isSessionRegistered(s.id)));
-            setForeignSessions(importableSessions(raw, registeredSessionIds()));
+            // Another client may have imported or registered sessions
+            // while we were idle — the shared file IS the cross-device
+            // channel, so re-read it on every re-list (a tiny fs/read;
+            // session.created / inbox.enqueued both land here).
+            await refreshWhitelist(a);
+            const members = unionMembership(registeredSessionIds(), serverWhitelistIds());
+            setSessions(raw.filter((s) => isRootSession(s) && members.has(s.id)));
+            setForeignSessions(importableSessions(raw, registeredSessionIds(), serverWhitelistIds()));
             trackToolSessions(raw);
         }).catch((e) => {
             logError(`Failed to load sessions: ${e}`).catch(() => {});
@@ -166,21 +179,43 @@ export function useSessions(
     useEffect(() => {
         if (!api) return;
         let cancelled = false;
-        api.listSessions().then((list) => {
+        api.listSessions().then(async (list) => {
             if (cancelled) return;
             const raw = list ?? [];
             const roots = raw.filter(isRootSession);
-            // Registry reconciliation, exactly once per successful seed:
-            // ADOPT on a fresh install/upgrade (the current root sessions
-            // become the initial whitelist — one-time, so upgrade-time
-            // strangers need deleting manually once), otherwise PRUNE ids
-            // the server no longer lists (deleted while we were away; an
-            // empty list prunes nothing — a transient empty read must
-            // never wipe the registry). Live deletions arrive as
-            // session.deleted events instead.
+            // Whitelist reconciliation, exactly once per successful seed.
+            // The SHARED file is read first (its ids are membership too);
+            // then, on a fresh install/upgrade (local registry still
+            // null), ADOPT from the shared file when it holds anything —
+            // a new device starts with the SAME sidebar as every other
+            // client instead of adopting the server's strangers — else
+            // adopt the current root sessions (one-time, pushed to the
+            // file afterwards). Otherwise PRUNE ids the server no longer
+            // lists from the local half (an empty list prunes nothing —
+            // a transient empty read must never wipe membership; the
+            // shared half's dead ids compact inside the merge below),
+            // auto-register stamped joiners, and PUSH the local registry
+            // into the shared file (the union merge — also the
+            // lost-update healing pass for every other client). Live
+            // deletions arrive as session.deleted events instead.
+            let fileOk = true;
+            try {
+                await readWhitelist(api);
+            } catch (e) {
+                fileOk = false;
+                logWarn(`Shared whitelist unreadable — reconciling local-only this boot: ${e}`).catch(() => {});
+            }
             const registered = registeredSessionIds();
             if (registered === null) {
-                adoptSessions(roots.map((s) => s.id));
+                const shared = serverWhitelistIds();
+                if (fileOk && shared.length > 0) {
+                    adoptSessions(shared);
+                    info(`Adopted ${shared.length} session(s) from the shared whitelist`).catch(() => {});
+                } else {
+                    const rootIds = roots.map((s) => s.id);
+                    adoptSessions(rootIds);
+                    if (fileOk) await mergeWhitelist(api, {add: rootIds});
+                }
             } else {
                 for (const id of missingRegisteredIds(registered, raw.map((s) => s.id))) {
                     info(`Pruning session ${id} from the registry (no longer on the server)`).catch(() => {});
@@ -195,13 +230,24 @@ export function useSessions(
                 if (joined.length > 0) {
                     info(`Auto-whitelisted ${joined.length} Lumina Code session(s) from other instances`).catch(() => {});
                 }
+                // The shared-file reconcile: push every local member in
+                // (union) and compact dead ids out. Skipped entirely
+                // when the file could not be read — never write over
+                // the unknown (see sessionWhitelistSync).
+                if (fileOk) {
+                    await mergeWhitelist(api, {
+                        add: registeredSessionIds() ?? [],
+                        ...(raw.length > 0 ? {compact: raw.map((s) => s.id)} : {}),
+                    });
+                }
             }
-            const listed = roots.filter((s) => isSessionRegistered(s.id));
+            const members = unionMembership(registeredSessionIds(), serverWhitelistIds());
+            const listed = roots.filter((s) => members.has(s.id));
             setSessions(listed);
-            setForeignSessions(importableSessions(raw, registeredSessionIds()));
+            setForeignSessions(importableSessions(raw, registeredSessionIds(), serverWhitelistIds()));
             trackToolSessions(raw);
             setLoaded(true);
-            info(`Loaded ${listed.length} registered OpenCode session(s) (${raw.length - listed.length} unregistered/subagent session(s) hidden)`).catch(() => {});
+            info(`Loaded ${listed.length} whitelisted OpenCode session(s) (${raw.length - listed.length} unregistered/subagent session(s) hidden)`).catch(() => {});
         }).catch((e) => {
             logError(`Failed to load sessions: ${e}`).catch(() => {});
         });
@@ -278,8 +324,12 @@ export function useSessions(
                 case "session.deleted": {
                     const {sessionID} = event.data as {sessionID: string};
                     // Every deletion path revokes whitelist membership —
-                    // ours, another instance's, the helper sweep. Idempotent.
+                    // ours, another instance's, the helper sweep.
+                    // Idempotent, on BOTH halves (the shared file is
+                    // what keeps every client's sidebar in step).
                     unregisterSession(sessionID);
+                    const a = apiRef.current;
+                    if (a) void mergeWhitelist(a, {remove: [sessionID]});
                     // The import candidates lose it too (deleted elsewhere
                     // while the picker list is live).
                     setForeignSessions((prev) => prev.filter((s) => s.id !== sessionID));
@@ -351,10 +401,12 @@ export function useSessions(
                 metadata: {source: CLIENT_SOURCE},
             });
             // Whitelist membership is granted HERE — the single creation
-            // choke-point (sendFirst is the only caller). Registered before
-            // the prepend so the session.created event's re-list already
-            // sees it as a member.
+            // choke-point (sendFirst is the only caller). Registered
+            // before the prepend so the session.created event's re-list
+            // already sees it as a member — locally AND in the shared
+            // file (every other client's sidebar follows).
             registerSession(created.id);
+            void mergeWhitelist(a, {add: [created.id]});
             setSessions((prev) => [created, ...prev.filter((s) => s.id !== created.id)]);
             return created;
         } catch (e) {
@@ -369,8 +421,10 @@ export function useSessions(
         try {
             await a.deleteSession(id);
             // Only a server-confirmed deletion revokes membership — a
-            // failed delete leaves the session (and its registration) alive.
+            // failed delete leaves the session (and its registration)
+            // alive. Both halves again.
             unregisterSession(id);
+            void mergeWhitelist(a, {remove: [id]});
             setSessions((prev) => prev.filter((s) => s.id !== id));
         } catch (e) {
             logError(`Failed to delete OpenCode session ${id}: ${e}`).catch(() => {});
@@ -381,16 +435,19 @@ export function useSessions(
         setSessions((prev) => prev.map((s) => (s.id === id ? {...s, ...fields} : s)));
     }, []);
 
-    /** The import picker's action: register each id locally (the session
-     *  itself already lives on the server — importing only grants
-     *  whitelist membership), then relist so both lists re-derive from
-     *  the registry. Idempotent per id; registering is a local write, so
-     *  this cannot fail — the next relist reconciles anything the server
-     *  dropped in between. */
+    /** The import picker's action: register each id locally AND in the
+     *  shared whitelist file (importing on ONE client registers the
+     *  session for every Lumina Code client — the cross-device half the
+     *  per-device registry could never carry), then relist so both
+     *  lists re-derive from the union. Idempotent per id; registering
+     *  is a local write, so this cannot fail — the next relist
+     *  reconciles anything the server dropped in between. */
     const importSessions = useCallback((ids: string[]) => {
         if (ids.length === 0) return;
         for (const id of ids) registerSession(id);
         info(`Imported ${ids.length} session(s) into the sidebar`).catch(() => {});
+        const a = apiRef.current;
+        if (a) void mergeWhitelist(a, {add: ids});
         void relist();
     }, [relist]);
 

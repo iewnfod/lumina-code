@@ -33,6 +33,16 @@ import type {OpencodeSession} from "./types.ts";
  * The persisted shape is a plain id array in REGISTRATION order — the
  * substrate for future pinned/fixed-order features; extending entries
  * (e.g. `{id, pinned}`) later only needs a read-side shim here.
+ *
+ * This store is only the LOCAL half of the membership now: every Lumina
+ * Code client deriving its sidebar from `local ∪ shared` (the shared
+ * half lives in sessionWhitelistSync.ts — one whitelist.json next to
+ * the server's global opencode config, union-merged by every writer).
+ * The local layer doubles as the offline buffer and the healing source
+ * for lost updates on the shared file (each seed union-pushes it).
+ * Cross-device: importing on ONE client registers the session for
+ * every client; the create-time CLIENT_SOURCE stamp stays as the fast
+ * path (no file round-trip needed for brand-new sessions).
  */
 /** Parse the raw storage string: `null` (absent key) = not adopted;
  *  malformed or non-array values also read as not-adopted so adoption
@@ -77,11 +87,6 @@ export function unregisterSession(id: string): void {
     if (!current || !current.includes(id)) return;
     store.set(current.filter((x) => x !== id));
     info(`Unregistered session ${id} (${current.length - 1} left)`).catch(() => {});
-}
-
-/** Synchronous membership check against the current snapshot. */
-export function isSessionRegistered(id: string): boolean {
-    return (store.get() ?? []).includes(id);
 }
 
 /** A user-initiated (root) session: OpenCode's subagents
@@ -137,17 +142,35 @@ export function autoRegisterClientSessions(raw: readonly OpencodeSession[]): str
 }
 
 /** The IMPORT CANDIDATE set: root sessions from the server's list that
- *  are NOT registry members, in server order (most recently updated
- *  first) — what the import picker offers. `registered === null` (the
- *  registry not adopted yet — the seed's one-time adoption runs before
- *  any import UI is reachable) imports nothing. */
+ *  are NOT members (local registry ∪ shared whitelist), in server order
+ *  (most recently updated first) — what the import picker offers. The
+ *  `shared` parameter is the server-file half (sessionWhitelistSync's
+ *  snapshot); with every client pushing its local set into the file at
+ *  each seed, the candidate set converges to the SAME list on every
+ *  device. `registered === null` (the registry not adopted yet — the
+ *  seed's one-time adoption runs before any import UI is reachable)
+ *  imports nothing. */
 export function importableSessions(
     raw: readonly OpencodeSession[],
     registered: readonly string[] | null,
+    shared: readonly string[] = [],
 ): OpencodeSession[] {
     if (registered === null) return [];
-    const members = new Set(registered);
+    const members = unionMembership(registered, shared);
     return raw.filter((s) => isRootSession(s) && !members.has(s.id));
+}
+
+/** Membership = local registry ∪ shared whitelist, as a Set for
+ * filtering (the sidebar view and the DirectoryPicker quick-picks both
+ * derive from this; `registered === null` still unions — pre-adoption
+ * nothing is listed anyway, and the seed adopts before deriving). */
+export function unionMembership(
+    registered: readonly string[] | null,
+    shared: readonly string[],
+): Set<string> {
+    const members = new Set(registered ?? []);
+    for (const id of shared) members.add(id);
+    return members;
 }
 
 /** The registered ids in registration order, or `null` when the registry

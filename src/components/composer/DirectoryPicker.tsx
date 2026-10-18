@@ -4,7 +4,8 @@ import {open as openDialog} from "@tauri-apps/plugin-dialog";
 import {warn} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
-import {isSessionRegistered} from "../../opencode/sessionRegistry.ts";
+import {registeredSessionIds, unionMembership} from "../../opencode/sessionRegistry.ts";
+import {serverWhitelistIds} from "../../opencode/sessionWhitelistSync.ts";
 import type {OpencodeProject} from "../../opencode/types.ts";
 import {folderLabel} from "../../lib/path.ts";
 import PopoverMenu, {MenuItem, MenuLabel} from "../ui/PopoverMenu.tsx";
@@ -53,13 +54,15 @@ export default function DirectoryPicker({
                 ]);
                 if (cancelled) return;
                 const home = location?.directory;
-                // Same whitelist as the sidebar (sessionRegistry.ts): a
-                // directory only stays a quick-pick if one of OUR
-                // registered sessions lives in it — strangers (TUI/other
-                // instances) must not seed the picker.
+                // Same whitelist as the sidebar (sessionRegistry.ts ∪
+                // sessionWhitelistSync.ts): a directory only stays a
+                // quick-pick if one of OUR whitelisted sessions lives
+                // in it — strangers (TUI/other instances) must not
+                // seed the picker.
+                const members = unionMembership(registeredSessionIds(), serverWhitelistIds());
                 const liveDirs = new Set(
                     (sessions ?? [])
-                        .filter((s) => !s.parentID && isSessionRegistered(s.id))
+                        .filter((s) => !s.parentID && members.has(s.id))
                         .map((s) => s.directory ?? s.location?.directory)
                         .filter((d): d is string => !!d),
                 );

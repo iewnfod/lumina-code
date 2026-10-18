@@ -174,7 +174,12 @@ export class OpencodeApi {
      *  `metadata` IS accepted (curl-verified on v2.0.11: echoed on the
      *  create response and present in GET /api/session payloads) — the
      *  auto-whitelist channel for Lumina Code's own clients, see
-     *  sessionRegistry.ts's CLIENT_SOURCE. */
+     *  sessionRegistry.ts's CLIENT_SOURCE. NOTE metadata is
+     *  CREATE-ONLY: PATCH /api/session/{id} answers 204 but silently
+     *  DROPS a metadata field (only `title` sticks — live-verified),
+     *  which is why cross-client membership for ALREADY-EXISTING
+     *  sessions rides the shared whitelist file instead
+     *  (sessionWhitelistSync.ts). */
     createSession(
         body: {title?: string; directory?: string; metadata?: Record<string, unknown>} = {},
     ): Promise<OpencodeSession> {
