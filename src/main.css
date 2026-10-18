@@ -947,7 +947,16 @@ body {
     animation: lum-queue-enter-track var(--duration-base) var(--ease-glass) both;
 }
 
+/* overflow:hidden on the CHILD is load-bearing (the .lum-row-enter/
+ * .lum-row-exit recipe): an auto grid track sizes to the item's
+ * max-content unless the item clamps it, and the row's max-content
+ * includes the nowrap preview text — without the clip the track blows
+ * past the column, the flex truncate never engages and the row's
+ * action buttons land outside the visible box (live-reproduced in
+ * headless Chromium: plain min-height:0 pushes the buttons out,
+ * child overflow:hidden keeps them in). */
 .lum-queue-enter > * {
+    overflow: hidden;
     min-height: 0;
 }
 
@@ -975,7 +984,11 @@ body {
     pointer-events: none;
 }
 
+/* Same child clip as .lum-row-exit: keeps the held row's content
+ * inside the collapsing track, and prevents the auto column from
+ * sizing to the row's max-content (see .lum-queue-enter > *). */
 .lum-queue-exit > * {
+    overflow: hidden;
     min-height: 0;
 }
 

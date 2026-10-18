@@ -8,6 +8,10 @@ test("toolDisplayName resolves known tools through the dictionary", () => {
     assert.equal(toolDisplayName("apply_patch", enUs), "Edit");
     assert.equal(toolDisplayName("patch", enUs), "Edit");
     assert.equal(toolDisplayName("question", enUs), "Question");
+    // The subagent spawn tool (both wire names) resolves through the
+    // dictionary — ActivityGroup's summary must not leak the raw name.
+    assert.equal(toolDisplayName("subagent", enUs), "Subagent");
+    assert.equal(toolDisplayName("task", enUs), "Subagent");
 
 });
 

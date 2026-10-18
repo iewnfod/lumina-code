@@ -3,6 +3,7 @@ import {AlertCircle, Bot} from "lucide-react";
 import type {AssistantToolPart} from "../../opencode/types.ts";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {requestStatsSubagentDrill} from "../../hooks/useStatsPanelMode.ts";
 import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {useExpansion, ERROR_DISCLOSURE_MS} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
@@ -54,6 +55,20 @@ const SubagentCard = memo(function SubagentCard({
         ? agent.charAt(0).toUpperCase() + agent.slice(1)
         : t["Subagent"];
 
+    // The child session link (metadata.sessionID — present from spawn via
+    // tool.progress while running, and on the settled state afterwards;
+    // see messageStore's TOOL.PROGRESS MERGE). Present ⇒ the row's click
+    // jumps to the workspace panel at the child's live transcript instead
+    // of folding the report below (the report IS the child transcript's
+    // last message — no need to show it inline). The wrapper div carries
+    // data-lum-stats-drill for exactly that case, exempting the
+    // pointer-down from the panel's outside-click collapse (the click
+    // re-aims the panel — see SessionStatsCard); style-inert.
+    const childId = part.state.metadata
+        ? (part.state.metadata["sessionID"] as unknown) ?? (part.state.metadata["session_id"] as unknown)
+        : undefined;
+    const drillable = typeof childId === "string" && childId !== "";
+
     const icon = status === "running"
         ? <Bot size={14} className="animate-pulse" />
         : status === "error"
@@ -66,13 +81,26 @@ const SubagentCard = memo(function SubagentCard({
         .trimEnd();
 
     return (
+        <div data-lum-stats-drill={drillable ? "" : undefined}>
         <FoldRow
             icon={icon}
             title={title}
             detail={label ? <span className="truncate">{label}</span> : null}
             active={status === "running"}
             expanded={expanded}
-            onToggle={toggle}
+            onToggle={
+                drillable
+                    ? () => {
+                          if (typeof childId !== "string") return;
+                          requestStatsSubagentDrill({
+                              id: childId,
+                              agent: agent ?? undefined,
+                              label: inputStr(input, "description") ?? undefined,
+                              currentTurn: true,
+                          });
+                      }
+                    : toggle
+            }
         >
             {status === "error" ? (
                 // Fade-system chrome/scroller split: the wash, border and
@@ -117,6 +145,7 @@ const SubagentCard = memo(function SubagentCard({
                 </div>
             ) : null}
         </FoldRow>
+        </div>
     );
 });
 

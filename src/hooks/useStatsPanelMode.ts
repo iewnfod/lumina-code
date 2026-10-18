@@ -1,6 +1,7 @@
 import {useSyncExternalStore} from "react";
 import {info as logInfo} from "@tauri-apps/plugin-log";
 import type {WorkspaceDiffEntry} from "../opencode/types.ts";
+import type {SessionSubagentRef} from "../opencode/sessionActivity.ts";
 import {createPersistedStore} from "../lib/persistedStore.ts";
 
 /**
@@ -69,17 +70,22 @@ export function useStatsExpanded(): [boolean, (next: boolean) => void] {
     return [value, setStatsExpanded];
 }
 
-// --- Cross-surface file drill requests --------------------------------------
-// The transcript's turn-edit rows (chat/RunFooter) ask the stats panel — a
-// flex sibling at App level, not an ancestor — to open showing one
-// file's diff: the SAME drill the Changes section's rows trigger
-// locally (setView {kind:"file"}). A module store crosses the two
-// subtrees without threading props through App; the card consumes the
-// request in an effect (expand + view + clear). One request at a time,
-// fire-and-forget: if no card is mounted (welcome screen — no
-// transcript, so no rows), the request simply sits until the next one
-// replaces it.
-let drillRequest: WorkspaceDiffEntry | null = null;
+// --- Cross-surface drill requests -------------------------------------------
+// Parts of the TRANSCRIPT ask the stats panel — a flex sibling at App
+// level, not an ancestor — to open aimed at one detail: a turn-edit row
+// at a file's diff (the SAME drill the Changes section's rows trigger
+// locally, setView {kind:"file"}) or a SubagentCard at its child
+// session's live transcript (setView {kind:"subagent"}). A module store
+// crosses the two subtrees without threading props through App; the
+// card consumes the request in an effect (expand + view + clear). One
+// request at a time, fire-and-forget: if no card is mounted (welcome
+// screen — no transcript, so no rows), the request simply sits until
+// the next one replaces it.
+export type StatsDrillRequest =
+    | {kind: "file"; file: WorkspaceDiffEntry}
+    | {kind: "subagent"; sub: SessionSubagentRef};
+
+let drillRequest: StatsDrillRequest | null = null;
 const drillListeners = new Set<() => void>();
 
 function subscribeDrill(listener: () => void): () => void {
@@ -87,23 +93,36 @@ function subscribeDrill(listener: () => void): () => void {
     return () => drillListeners.delete(listener);
 }
 
+function publishDrill(request: StatsDrillRequest): void {
+    drillRequest = request;
+    for (const listener of drillListeners) listener();
+}
+
 /** Ask the stats panel to expand and show this file's diff (the
  *  transcript's turn-edit rows; the entry may come from a TURN diff —
  *  the card's live resolution falls back to it when the workspace diff
  *  no longer lists the file). */
 export function requestStatsFileDrill(file: WorkspaceDiffEntry): void {
-    drillRequest = file;
-    for (const listener of drillListeners) listener();
+    publishDrill({kind: "file", file});
+}
+
+/** Ask the stats panel to expand and show this subagent child's live
+ *  transcript (the transcript's SubagentCard rows; the card's live
+ *  resolution upgrades the ref from its own activity list once the
+ *  collector sees the child — the request itself works standalone,
+ *  SubagentBody seeds the child's message store on mount). */
+export function requestStatsSubagentDrill(sub: SessionSubagentRef): void {
+    publishDrill({kind: "subagent", sub});
 }
 
 /** Clear the pending request (the card, once it has applied it). */
-export function clearStatsFileDrill(): void {
+export function clearStatsDrill(): void {
     if (drillRequest === null) return;
     drillRequest = null;
     for (const listener of drillListeners) listener();
 }
 
 /** The pending drill request, if any; consumed by SessionStatsCard. */
-export function usePendingStatsFileDrill(): WorkspaceDiffEntry | null {
+export function usePendingStatsDrill(): StatsDrillRequest | null {
     return useSyncExternalStore(subscribeDrill, () => drillRequest);
 }

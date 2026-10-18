@@ -196,6 +196,98 @@ test("seed merge prefers the more advanced tool state from either side", () => {
     assert.deepEqual(tool.state.content, [{type: "text", text: "ok"}]);
 });
 
+test("tool.progress links a running subagent part to its child session (live-verified v2.0.11)", () => {
+    // The ONLY bus signal carrying the child sessionID while a subagent
+    // runs (fires at spawn; tool.called has no metadata and the server
+    // persists the running part with an empty one). Without merging it,
+    // the stats panel can't count a running foreground subagent until it
+    // finishes.
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_1", name: "subagent"}));
+    list = applyEvent(list, ev("session.tool.called", {assistantMessageID: MID, id: "tool_1", input: {agent: "explore", description: "find auth"}}));
+    list = applyEvent(list, ev("session.tool.progress", {
+        assistantMessageID: MID,
+        id: "tool_1",
+        metadata: {sessionID: "ses_child_1", status: "running"},
+    }));
+    const part = asst(list).content.find((p) => p.type === "tool") as AssistantToolPart;
+    assert.equal(part.state.status, "running", "progress must not settle the part");
+    assert.equal((part.state.metadata as Record<string, unknown>).sessionID, "ses_child_1");
+});
+
+test("tool.progress metadata stays scoped to subagent parts (foreground shells must not flash into the terminals list)", () => {
+    // A foreground shell's progress carries a shellID its settled state
+    // will NOT keep (only background shells keep one) — merging it would
+    // list the command as a background terminal mid-run and drop it at
+    // completion.
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_1", name: "shell"}));
+    list = applyEvent(list, ev("session.tool.called", {assistantMessageID: MID, id: "tool_1", input: {command: "curl …"}}));
+    list = applyEvent(list, ev("session.tool.progress", {
+        assistantMessageID: MID,
+        id: "tool_1",
+        metadata: {shellID: "sh_1"},
+    }));
+    const part = asst(list).content.find((p) => p.type === "tool") as AssistantToolPart;
+    assert.equal(part.state.metadata, undefined, "non-subagent parts keep progress metadata out");
+});
+
+test("a late tool.progress never regresses settled subagent metadata", () => {
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_1", name: "subagent"}));
+    list = applyEvent(list, ev("session.tool.called", {assistantMessageID: MID, id: "tool_1", input: {agent: "explore"}}));
+    list = applyEvent(list, ev("session.tool.progress", {
+        assistantMessageID: MID,
+        id: "tool_1",
+        metadata: {sessionID: "ses_child_1", status: "running"},
+    }));
+    list = applyEvent(list, ev("session.tool.success", {
+        assistantMessageID: MID,
+        id: "tool_1",
+        content: [{type: "text", text: "done"}],
+        metadata: {sessionID: "ses_child_1", status: "completed", truncated: false},
+    }));
+    const settled = applyEvent(list, ev("session.tool.progress", {
+        assistantMessageID: MID,
+        id: "tool_1",
+        metadata: {sessionID: "ses_child_1", status: "running"},
+    }));
+    const part = asst(settled).content.find((p) => p.type === "tool") as AssistantToolPart;
+    assert.equal(part.state.status, "completed");
+    assert.equal((part.state.metadata as Record<string, unknown>).status, "completed");
+});
+
+test("equal-rank seed merge keeps a progress-merged child link over the server's empty running metadata", () => {
+    // The server persists a RUNNING tool part with metadata:{} (verified
+    // live) — a re-seed mid-run must not wipe the sessionID merged from
+    // the progress event, or the subagent vanishes from the stats panel
+    // until the run ends.
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_1", name: "subagent"}));
+    list = applyEvent(list, ev("session.tool.called", {assistantMessageID: MID, id: "tool_1", input: {agent: "explore"}}));
+    list = applyEvent(list, ev("session.tool.progress", {
+        assistantMessageID: MID,
+        id: "tool_1",
+        metadata: {sessionID: "ses_child_1", status: "running"},
+    }));
+    const page: MessagesPage = {
+        data: [{
+            id: MID,
+            type: "assistant",
+            content: [{type: "tool", id: "tool_1", name: "subagent", state: {status: "running", input: {agent: "explore"}, metadata: {}}}],
+        }],
+    };
+    const seeded = applySeedPage(list, page);
+    const tool = asst(seeded.messages).content.find((p) => p.type === "tool");
+    assert.ok(tool && tool.type === "tool");
+    assert.equal(tool.state.status, "running");
+    assert.equal((tool.state.metadata as Record<string, unknown>).sessionID, "ses_child_1");
+});
+
 test("step.ended stamps the step's usage onto the message", () => {
     let list: ChatMessage[] = [];
     list = applyEvent(list, stepStarted());

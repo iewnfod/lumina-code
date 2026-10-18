@@ -13,6 +13,7 @@ import {
     type EventMap,
     type ToolState,
 } from "./types.ts";
+import {isSubagentToolName} from "./sessionActivity.ts";
 
 /**
  * Pure message-list logic for ONE session: the event-bus reducer and the
@@ -131,6 +132,27 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
             const d = data as EventMap["session.tool.called"];
             return mutateTool(list, d.assistantMessageID, d.id, (t) => {
                 t.state = {status: "running", input: d.input};
+            });
+        }
+        case "session.tool.progress": {
+            // Mid-run metadata: the ONLY bus signal carrying a subagent's
+            // child sessionID while the parent's part is still running
+            // (fires at spawn, foreground and background — verified live
+            // on v2.0.11; tool.called carries no metadata and the server
+            // persists the running part with an EMPTY one, so without
+            // this the stats panel can't see a running foreground
+            // subagent until it finishes). Scoped to subagent parts and
+            // to unsettled states: a foreground SHELL's progress also
+            // carries a shellID its settled state will NOT keep (only
+            // background shells do), so merging it would flash foreground
+            // commands through the terminals list — and a late progress
+            // must never regress already-settled metadata (its embedded
+            // status:"running" would overwrite "completed").
+            const d = data as EventMap["session.tool.progress"];
+            return mutateTool(list, d.assistantMessageID, d.id, (t) => {
+                if (!d.metadata || !isSubagentToolName(t.name)) return;
+                if (t.state.status !== "running" && t.state.status !== "pending") return;
+                t.state.metadata = {...t.state.metadata, ...d.metadata};
             });
         }
         case "session.tool.success": {
@@ -509,5 +531,22 @@ function mergePart(local: AssistantPart | undefined, page: AssistantPart): Assis
         toolRank(local.state.status) > toolRank(page.state.status)) {
         return {...page, state: local.state, executed: local.executed ?? page.executed};
     }
+    // Equal-rank tool merge takes the page's state — but the server's
+    // running projection persists an EMPTY metadata (verified live on
+    // v2.0.11), which would wipe a child sessionID merged from a
+    // session.tool.progress event on every re-seed. Keep the local
+    // metadata whenever the page's is empty; settled pages carry their
+    // own full metadata, so this only rescues mid-run links.
+    if (
+        page.type === "tool" && local.type === "tool" && local.id === page.id &&
+        isEmptyRecord(page.state.metadata) && !isEmptyRecord(local.state.metadata)
+    ) {
+        return {...page, state: {...page.state, metadata: local.state.metadata}};
+    }
     return page;
+}
+
+/** No keys (or absent) — see mergePart's metadata rescue. */
+function isEmptyRecord(o: Record<string, unknown> | undefined): boolean {
+    return !o || Object.keys(o).length === 0;
 }

@@ -512,6 +512,26 @@ src/
 │   │                      #   part (e.g. a blocking plan_submit) hangs
 │   │                      #   every derived pending state (approval
 │   │                      #   cards, tool rows) until a re-seed.
+│   │                      #   TOOL.PROGRESS MERGE: session.tool.progress
+│   │                      #   is the ONLY bus signal carrying a running
+│   │                      #   subagent's child metadata.sessionID
+│   │                      #   (fires at spawn; tool.called has no
+│   │                      #   metadata and the server PERSISTS the
+│   │                      #   running part with metadata:{} — both
+│   │                      #   binary-verified via live probes), so the
+│   │                      #   reducer merges its metadata into
+│   │                      #   unsettled SUBAGENT parts only: a
+│   │                      #   foreground SHELL's progress also carries a
+│   │                      #   shellID its settled state will NOT keep
+│   │                      #   (only background shells keep one), and
+│   │                      #   merging it would flash foreground commands
+│   │                      #   through the terminals list. The seed merge
+│   │                      #   backs this up: equal-rank tool parts take
+│   │                      #   the page's state EXCEPT its empty
+│   │                      #   metadata never wipes a local child link
+│   │                      #   (mergePart's metadata rescue) — else every
+│   │                      #   re-seed mid-run would hide the subagent
+│   │                      #   from the stats panel again.
 │   │                      #   EDIT-LAST-MESSAGE: dropFromBoundary + the
 │   │                      #   session.revert.committed event case truncate a
 │   │                      #   list at the first id >= boundary (the TUI's
@@ -1246,13 +1266,17 @@ src/
 │   │                      #   "always" force-expands at every mount).
 │   │                      #   Consumed by SessionStatsCard; the
 │   │                      #   segmented OptionRow is in GeneralSettings.
-│   │                      #   PLUS the cross-surface FILE DRILL request
-│   │                      #   store (requestStatsFileDrill /
-│   │                      #   usePendingStatsFileDrill): the
-│   │                      #   transcript's turn-edit rows (chat/
-│   │                      #   RunFooter) ask the panel — a flex sibling
-│   │                      #   at App level, not an ancestor — to expand
-│   │                      #   and open one file's diff view
+│   │                      #   PLUS the cross-surface DRILL request
+│   │                      #   store (a StatsDrillRequest union —
+│   │                      #   requestStatsFileDrill /
+│   │                      #   requestStatsSubagentDrill /
+│   │                      #   usePendingStatsDrill): the transcript
+│   │                      #   asks the panel — a flex sibling at App
+│   │                      #   level, not an ancestor — to expand into
+│   │                      #   one detail: a turn-edit row (chat/
+│   │                      #   RunFooter) at a file's diff view, a
+│   │                      #   SubagentCard row's click at its child
+│   │                      #   session's live transcript
 │   │                      #   (SessionStatsCard consumes + clears in an
 │   │                      #   effect; its outside-click collapse spares
 │   │                      #   [data-lum-stats-drill] rows so the re-aim
@@ -1743,7 +1767,17 @@ src/
     │   │                  #   the envelope (running tools); toolDiffFor
     │   │                  #   flattens them for the accent counts and ToolCard
     │   │                  #   stacks one DiffBody per file. node-testable.
-    │   ├── SubagentCard.tsx # Subagent tool renderer
+    │   ├── SubagentCard.tsx # Subagent tool renderer. A part carrying
+    │   │                  #   metadata.sessionID (running via
+    │   │                  #   tool.progress, settled afterwards) has its
+    │   │                  #   row CLICK drill the workspace panel into
+    │   │                  #   the child's live transcript
+    │   │                  #   (requestStatsSubagentDrill) instead of
+    │   │                  #   toggling the inline report fold — looks
+    │   │                  #   unchanged otherwise; the wrapper div's
+    │   │                  #   data-lum-stats-drill exempts the click
+    │   │                  #   from the panel's outside-click collapse.
+    │   │                  #   Parts without a link keep the fold
     │   ├── RunFooter.tsx + runFooters.ts # Per-turn summary footer (pure collector in
     │   │                  #   runFooters.ts — node-testable; the footer
     │   │                  #   info carries the run's opening userMessageId).

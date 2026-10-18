@@ -3,7 +3,7 @@ import {Bot, ChevronLeft, ChevronUp, Diff, GitBranch, ListChecks, Square, Square
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
-import {useStatsExpanded, useStatsPanelMode, usePendingStatsFileDrill, clearStatsFileDrill} from "../../hooks/useStatsPanelMode.ts";
+import {useStatsExpanded, useStatsPanelMode, usePendingStatsDrill, clearStatsDrill} from "../../hooks/useStatsPanelMode.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import type {SessionShellRef, SessionSubagentRef, SessionTodos} from "../../opencode/sessionActivity.ts";
 import {driftNeedsSync} from "../../opencode/worktreeSync.ts";
@@ -158,20 +158,31 @@ const SessionStatsCard = memo(function SessionStatsCard({
         setView({kind: "overview"});
     }, [sessionId]);
 
-    // A file drill REQUESTED from the transcript (a turn-edit row — the
-    // same {kind:"file"} view the Changes rows open): expand the panel,
-    // refresh the workspace numbers, aim the view, clear the request.
-    // Refs for the helpers so the effect runs on the REQUEST only (the
-    // activity object rebuilds per render).
-    const drillRequest = usePendingStatsFileDrill();
+    // A drill REQUESTED from the transcript (a turn-edit row → file diff,
+    // a SubagentCard row → its child's live transcript — the same views
+    // the panel's own rows open): expand the panel, aim the view, clear
+    // the request. Refs for the helpers so the effect runs on the
+    // REQUEST only (the activity/busy objects rebuild per render). The
+    // subagent view's `running` flag is the busy set AT REQUEST TIME —
+    // the live resolution below upgrades it every render afterwards.
+    const drillRequest = usePendingStatsDrill();
     const refreshRef = useRef(activity.refreshDiff);
     refreshRef.current = activity.refreshDiff;
+    const busyRef = useRef(busyIds);
+    busyRef.current = busyIds;
     useEffect(() => {
         if (!drillRequest) return;
         setExpanded(true);
-        refreshRef.current();
-        setView({kind: "file", file: drillRequest});
-        clearStatsFileDrill();
+        if (drillRequest.kind === "file") {
+            refreshRef.current();
+            setView({kind: "file", file: drillRequest.file});
+        } else {
+            setView({
+                kind: "subagent",
+                sub: {...drillRequest.sub, running: busyRef.current.has(drillRequest.sub.id)},
+            });
+        }
+        clearStatsDrill();
     }, [drillRequest, setExpanded]);
 
     // Outside pointer-down / Escape collapse the panel (PopoverMenu's

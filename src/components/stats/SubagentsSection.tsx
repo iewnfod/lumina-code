@@ -121,9 +121,18 @@ export const SubagentBody = memo(function SubagentBody({
         // on long history; content height when small.
         <div className="lum-enter flex flex-col flex-1 min-h-0">
             <BodyBox fill className="px-4 py-3">
+                {/* The flex column + gap-3 the main transcript's column
+                 * provides (ChatView's .lum-column) — WITHOUT it the
+                 * blocks stack flush (the scroller is a plain block), and
+                 * RunFooter's -mt-1.5 pulls the copy/duration row right
+                 * onto the answer text above it. */}
                 {visible.length === 0
                     ? <div className="text-xs opacity-40 select-none">{t["No messages yet"]}</div>
-                    : <TranscriptList messages={visible} busy={busy} sessionId={sub.id} directory={directory}/>}
+                    : (
+                        <div className="flex flex-col gap-3">
+                            <TranscriptList messages={visible} busy={busy} sessionId={sub.id} directory={directory}/>
+                        </div>
+                    )}
             </BodyBox>
         </div>
     );

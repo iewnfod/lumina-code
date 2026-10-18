@@ -1,5 +1,6 @@
 import {
     BadgeCheck,
+    Bot,
     ClipboardCheck,
     ClipboardList,
     FilePen,
@@ -64,6 +65,13 @@ export const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon;
     // The question tool — the "AI asks the user" surface. Distinct from the
     // generic wrench so its FoldRow reads as a question, not a tool call.
     question: {title: "Question", icon: MessageCircleQuestion},
+    // The subagent spawn tool ("task" on older servers) — MessageItem/
+    // ActivityGroup route its parts to SubagentCard, but ActivityGroup's
+    // tool-name summary (toolDisplayName) still resolves the NAME; without
+    // this entry it leaked the untranslated raw "Subagent"/"Task" there.
+    // Bot icon matches SubagentCard and the stats panel's rows.
+    subagent: {title: "Subagent", icon: Bot},
+    task: {title: "Subagent", icon: Bot},
     skill: {title: "Skill", icon: Sparkles},
     // Lumina Code's tools plugin (see src/plugins/luminaTools.js): image
     // inspection via a vision-capable helper model, and the model

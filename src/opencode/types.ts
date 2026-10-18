@@ -544,7 +544,13 @@ export interface EventMap {
     "session.tool.input.started": {sessionID: string; assistantMessageID: string; id: string; name: string};
     "session.tool.input.ended": {sessionID: string; assistantMessageID: string; id: string; text: string};
     "session.tool.called": {sessionID: string; assistantMessageID: string; id: string; input?: unknown};
-    "session.tool.progress": {sessionID: string; assistantMessageID: string; id: string};
+    /** Mid-run metadata nudge — verified live on v2.0.11: the ONLY bus
+     *  signal carrying a subagent's child `metadata.sessionID` while the
+     *  parent's tool part is still running (fires at spawn; foreground
+     *  and background). A foreground shell's progress also carries
+     *  `metadata.shellID` its settled state will NOT keep (only
+     *  background shells do) — see messageStore's scoped merge. */
+    "session.tool.progress": {sessionID: string; assistantMessageID: string; id: string; metadata?: Record<string, unknown>};
     "session.tool.success": {
         sessionID: string;
         assistantMessageID: string;
