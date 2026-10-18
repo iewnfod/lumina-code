@@ -36,6 +36,8 @@ const {
     parseRegistryRaw,
     isRootSession,
     importableSessions,
+    isClientSession,
+    autoRegisterClientSessions,
 } = await import("./sessionRegistry.ts");
 
 test("fresh storage reads as not adopted; adopt then register/unregister roundtrip", () => {
@@ -125,4 +127,42 @@ test("importableSessions: unregistered roots only, server order; null registry i
     // A registered id missing from the server list is the prune's
     // concern, not the import set's.
     assert.deepEqual(importableSessions([root("ses_1")], ["ses_gone"]), [root("ses_1")]);
+});
+
+test("isClientSession: only the lumina-code stamp counts", () => {
+    const base = {id: "ses_1", projectID: "prj"};
+    assert.equal(isClientSession({...base, metadata: {source: "lumina-code"}}), true);
+    // Not the plugin's helper marker, not arbitrary metadata.
+    assert.equal(isClientSession({...base, metadata: {source: "lumina-tools"}}), false);
+    assert.equal(isClientSession({...base, metadata: {}}), false);
+    assert.equal(isClientSession({...base}), false);
+});
+
+test("autoRegisterClientSessions: adopts stamped roots, in server order", () => {
+    const root = (id: string, metadata?: Record<string, unknown>) => ({id, projectID: "prj", ...(metadata ? {metadata} : {})});
+    // Reset through the API, never raw storage — the factory caches its
+    // value, so a behind-its-back removeItem is invisible. (The
+    // unadopted/null guard of autoRegisterClientSessions mirrors
+    // importableSessions's and only exists before the first adoption;
+    // it cannot be re-reached in-process after the tests above.)
+    for (const id of [...(registeredSessionIds() ?? [])]) unregisterSession(id);
+    registerSession("ses_own");
+
+    const added = autoRegisterClientSessions([
+        root("ses_m1", {source: "lumina-code"}),
+        root("ses_m2", {source: "lumina-code"}),
+        root("ses_tui"), // no stamp — stays foreign (manual import)
+        root("ses_helper", {source: "lumina-tools"}), // helper — never
+        {...root("ses_child", {source: "lumina-code"}), parentID: "ses_0"}, // subagent child — never
+        root("ses_own", {source: "lumina-code"}), // already registered
+    ]);
+    assert.deepEqual(added, ["ses_m1", "ses_m2"]);
+    assert.deepEqual(registeredSessionIds(), ["ses_own", "ses_m1", "ses_m2"]);
+    // Idempotent: the second pass registers nothing.
+    assert.deepEqual(autoRegisterClientSessions([root("ses_m1", {source: "lumina-code"})]), []);
+    // And the stamped sessions are no longer import candidates.
+    assert.deepEqual(
+        importableSessions([root("ses_m1", {source: "lumina-code"}), root("ses_tui")], registeredSessionIds()),
+        [root("ses_tui")],
+    );
 });

@@ -170,11 +170,22 @@ export class OpencodeApi {
     /** Creates a session. The working directory rides as `location.directory`
      *  in the body (v2.0.x OpenAPI): a flat `directory` field — or the
      *  `?directory=` query the newer SDK schema suggests — is silently
-     *  ignored, and the session lands in the server process's own cwd. */
-    createSession(body: {title?: string; directory?: string} = {}): Promise<OpencodeSession> {
-        const payload: {title?: string; location?: {directory: string}} = {};
+     *  ignored, and the session lands in the server process's own cwd.
+     *  `metadata` IS accepted (curl-verified on v2.0.11: echoed on the
+     *  create response and present in GET /api/session payloads) — the
+     *  auto-whitelist channel for Lumina Code's own clients, see
+     *  sessionRegistry.ts's CLIENT_SOURCE. */
+    createSession(
+        body: {title?: string; directory?: string; metadata?: Record<string, unknown>} = {},
+    ): Promise<OpencodeSession> {
+        const payload: {
+            title?: string;
+            location?: {directory: string};
+            metadata?: Record<string, unknown>;
+        } = {};
         if (body.title !== undefined) payload.title = body.title;
         if (body.directory) payload.location = {directory: body.directory};
+        if (body.metadata !== undefined) payload.metadata = body.metadata;
         return this.request<OpencodeSession>("/api/session", {
             method: "POST",
             body: JSON.stringify(payload),

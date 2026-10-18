@@ -14,7 +14,13 @@ import type {OpencodeSession} from "./types.ts";
  * registry flips that around: membership is OURS to grant, exactly once,
  * at the single creation choke-point (useSessions.create ← sendFirst);
  * deletions (useSessions.remove, the session.deleted event, seed-time
- * reconciliation) take ids back out. Other instances' sessions never enter.
+ * reconciliation) take ids back out. Strangers — the TUI/CLI and other
+ * software building on OpenCode — only enter through manual IMPORT.
+ * Sessions created by OTHER Lumina Code clients (desktop windows, the
+ * CEF shell, the mobile app) are the exception: they carry the
+ * CLIENT_SOURCE metadata stamp and auto-register (see
+ * autoRegisterClientSessions) — the whitelist isolates foreign tools,
+ * not Lumina Code's own instances.
  *
  * `null` = NOT YET ADOPTED (the storage key is absent — a fresh install or
  * a pre-registry upgrade). The first successful session list after connect
@@ -90,6 +96,44 @@ export function isSessionRegistered(id: string): boolean {
  *  too (helper sessions must never be adopted wholesale). */
 export function isRootSession(s: OpencodeSession): boolean {
     return !s.parentID && s.metadata?.["source"] !== "lumina-tools";
+}
+
+/** The CLIENT marker: sessions created by ANY Lumina Code client
+ *  (desktop, CEF shell, mobile) carry `{source: "lumina-code"}` from
+ *  the creation choke-point (useSessions.create). Deliberately a
+ *  different value from the plugin's "lumina-tools" — that marker
+ *  HIDES helper sessions, this one ADOPTS them across instances.
+ *  The whitelist's purpose is keeping out subagent children and
+ *  sessions created by OTHER software on OpenCode's shared storage
+ *  (TUI/CLI/third-party clients), never isolating Lumina Code's own
+ *  instances from each other. */
+export const CLIENT_SOURCE = "lumina-code";
+
+/** Whether the session was created by a Lumina Code client. */
+export function isClientSession(s: OpencodeSession): boolean {
+    return s.metadata?.["source"] === CLIENT_SOURCE;
+}
+
+/** AUTO-WHITELIST: register root sessions stamped as Lumina Code
+ *  creations that the registry does not hold yet — the cross-instance
+ *  half of the membership rule (a session started on the phone or in a
+ *  sibling desktop window joins this instance's sidebar on its next
+ *  list, live via the session.created re-list, no manual import).
+ *  Called from useSessions' seed fold and relist() BEFORE the two lists
+ *  derive, so stamped sessions land in `sessions` and drop out of
+ *  `foreignSessions` on their own. Returns the newly registered ids
+ *  (for aggregate logging); an UNADOPTED registry (null) registers
+ *  nothing — the one-time adoption covers everything visible. */
+export function autoRegisterClientSessions(raw: readonly OpencodeSession[]): string[] {
+    const registered = store.get();
+    if (registered === null) return [];
+    const members = new Set(registered);
+    const added: string[] = [];
+    for (const s of raw) {
+        if (isRootSession(s) && isClientSession(s) && !members.has(s.id)) added.push(s.id);
+    }
+    for (const id of added) registerSession(id);
+    return added;
 }
 
 /** The IMPORT CANDIDATE set: root sessions from the server's list that

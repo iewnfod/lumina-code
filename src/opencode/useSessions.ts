@@ -6,6 +6,8 @@ import {applyPromptQueueBusEvent} from "./promptQueue.ts";
 import {applyTurnEditsBusEvent} from "./turnEdits.ts";
 import {
     adoptSessions,
+    autoRegisterClientSessions,
+    CLIENT_SOURCE,
     importableSessions,
     isRootSession,
     isSessionRegistered,
@@ -23,11 +25,14 @@ import type {EventMap, OpencodeSession} from "./types.ts";
  * instance) are listed, no matter who else creates sessions in the shared
  * server storage (the TUI/CLI in the home dir, other desktop instances).
  * Membership is granted at the creation choke-point (`create` below,
- * reached only through sendFirst) or by the user through IMPORT
+ * reached only through sendFirst), by the user through IMPORT
  * (`importSessions`, fed by `foreignSessions` — the root sessions the
- * server lists but the registry does not hold), and revoked on every
- * deletion path (the `remove` here, the session.deleted event, and
- * seed-time reconciliation).
+ * server lists but the registry does not hold), and AUTOMATICALLY for
+ * sessions stamped as Lumina Code creations by another instance (the
+ * CLIENT_SOURCE marker — every `create` stamps it; the seed/relist
+ * folds register stamped strangers, see sessionRegistry), and revoked
+ * on every deletion path (the `remove` here, the session.deleted event,
+ * and seed-time reconciliation).
  *
  * Listed sessions stay in sync with the OpenCode server: seeded from
  * `GET /api/session` (intersected with the registry — and the seed is also
@@ -137,12 +142,18 @@ export function useSessions(
     // Re-list helper: registered root sessions only (the registry is the
     // membership truth), server order (most recently updated first). The
     // complement — root sessions NOT in the registry — feeds the import
-    // picker as `foreignSessions`.
+    // picker as `foreignSessions`. Sessions stamped as Lumina Code
+    // creations (another window / the mobile app) auto-register first,
+    // so they land in `sessions` and never show as import candidates.
     const relist = useCallback(() => {
         const a = apiRef.current;
         if (!a) return Promise.resolve();
         return a.listSessions().then((list) => {
             const raw = list ?? [];
+            const added = autoRegisterClientSessions(raw);
+            if (added.length > 0) {
+                info(`Auto-whitelisted ${added.length} Lumina Code session(s) from other instances`).catch(() => {});
+            }
             setSessions(raw.filter((s) => isRootSession(s) && isSessionRegistered(s.id)));
             setForeignSessions(importableSessions(raw, registeredSessionIds()));
             trackToolSessions(raw);
@@ -174,6 +185,15 @@ export function useSessions(
                 for (const id of missingRegisteredIds(registered, raw.map((s) => s.id))) {
                     info(`Pruning session ${id} from the registry (no longer on the server)`).catch(() => {});
                     unregisterSession(id);
+                }
+                // Cross-instance joins that happened while we were away
+                // (or before this feature existed) register here too —
+                // same fold as relist, so the seed and the live path
+                // agree. ADOPTED-EMPTY registries included ("[]" is not
+                // null, so the auto-register runs after adoption too).
+                const joined = autoRegisterClientSessions(raw);
+                if (joined.length > 0) {
+                    info(`Auto-whitelisted ${joined.length} Lumina Code session(s) from other instances`).catch(() => {});
                 }
             }
             const listed = roots.filter((s) => isSessionRegistered(s.id));
@@ -322,7 +342,14 @@ export function useSessions(
         const a = apiRef.current;
         if (!a) return null;
         try {
-            const created = await a.createSession(directory ? {directory} : {});
+            // EVERY Lumina Code client stamps its creations — the marker
+            // is the cross-instance auto-whitelist channel (another
+            // desktop window / the mobile app registers stamped sessions
+            // on its next list; see sessionRegistry.CLIENT_SOURCE).
+            const created = await a.createSession({
+                ...(directory ? {directory} : {}),
+                metadata: {source: CLIENT_SOURCE},
+            });
             // Whitelist membership is granted HERE — the single creation
             // choke-point (sendFirst is the only caller). Registered before
             // the prepend so the session.created event's re-list already
