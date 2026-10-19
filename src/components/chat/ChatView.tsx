@@ -37,6 +37,8 @@ import type {
     SessionUsage,
 } from "../../opencode/types.ts";
 import {isUserMessage} from "../../opencode/types.ts";
+import {dropOptimisticBubble} from "../../opencode/useSessionMessages.ts";
+import {filesFromMessage} from "../composer/composerAttachments.ts";
 import {lastContextMessage, type ContextUsage} from "./usageStats.ts";
 import TranscriptList from "./TranscriptList.tsx";
 import {ExitList} from "../ui/ExitPresence.tsx";
@@ -232,6 +234,19 @@ const ChatView = memo(function ChatView({
             });
         },
         [send, api, models, model, snapToBottom],
+    );
+    /** Retry a FAILED prompt row (sendFailed): drop the row, re-deliver
+     *  its text + attachments through the one send path. The divert note
+     *  (text-only model) already rides the stored text — the re-divert
+     *  pass finds no images left to divert (they are on disk) and never
+     *  appends a second note; a slash-command row retries as a command
+     *  (with the plain-prompt fallback send() already provides). */
+    const handleRetrySend = useCallback(
+        (message: ChatUserMessage) => {
+            dropOptimisticBubble(sessionId, message.id);
+            deliver(message.text, filesFromMessage(message), [], message.command ?? null);
+        },
+        [sessionId, deliver],
     );
     const handleSend = useCallback(
         (
@@ -730,6 +745,7 @@ const ChatView = memo(function ChatView({
                         waitingForUser={waitingForUser}
                         stopping={stopping}
                         edit={editProps}
+                        onRetrySend={handleRetrySend}
                     />
                 </div>
             </div>

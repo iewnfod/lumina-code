@@ -1,5 +1,5 @@
 import {Fragment, memo, useEffect, useRef, type ReactNode} from "react";
-import {isAssistantMessage, isUserMessage, type ChatMessage, type OpencodeModel} from "../../opencode/types.ts";
+import {isAssistantMessage, isUserMessage, type ChatMessage, type ChatUserMessage, type OpencodeModel} from "../../opencode/types.ts";
 import MessageItem, {type TranscriptEditProps} from "./MessageItem.tsx";
 import ActivityGroup from "./ActivityGroup.tsx";
 import ModelChangeDivider from "./ModelChangeDivider.tsx";
@@ -40,6 +40,7 @@ const TranscriptList = memo(function TranscriptList({
     waitingForUser = false,
     stopping = false,
     edit,
+    onRetrySend,
 }: {
     /** The window of messages currently mounted (newest N). */
     messages: ChatMessage[];
@@ -62,6 +63,9 @@ const TranscriptList = memo(function TranscriptList({
     /** Edit-flow bundle (see MessageItem.TranscriptEditProps); absent in
      *  subagent transcripts — no row is editable there. */
     edit?: TranscriptEditProps;
+    /** Failed-send retry (see MessageItem) — absent in subagent
+     *  transcripts. */
+    onRetrySend?: (message: ChatUserMessage) => void;
 }) {
     // An assistant message still lacks its completion stamp while the
     // session is working — that's the streaming state (caret / thinking).
@@ -128,6 +132,7 @@ const TranscriptList = memo(function TranscriptList({
                             directory={directory}
                             enter={enterIds.has(block.message.id)}
                             edit={edit}
+                            onRetrySend={onRetrySend}
                         />
                     );
                     if (isAssistantMessage(block.message)) runEndId = block.message.id;

@@ -212,6 +212,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Verification code": "验证码",
     "Copy code": "复制验证码",
     "Retry": "重试",
+    "Failed to send": "发送失败",
     "Cancel": "取消",
     "Add custom provider": "添加自定义供应商",
     "Edit custom provider": "编辑自定义供应商",

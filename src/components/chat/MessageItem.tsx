@@ -1,6 +1,6 @@
 import {memo, useEffect, useMemo, useRef, useState, type CSSProperties} from "react";
 import {motion} from "framer-motion";
-import {Terminal, Check, Copy, AlertCircle, Pencil} from "lucide-react";
+import {Terminal, Check, Copy, AlertCircle, Pencil, RotateCcw} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {
@@ -71,6 +71,7 @@ const MessageItem = memo(function MessageItem({
     directory,
     enter,
     edit,
+    onRetrySend,
 }: {
     message: ChatMessage;
     /** True while this assistant message is still being produced. */
@@ -81,6 +82,10 @@ const MessageItem = memo(function MessageItem({
     enter: boolean;
     /** Edit-flow bundle (see {@link TranscriptEditProps}). */
     edit?: TranscriptEditProps;
+    /** Failed-send retry: invoked on a user message whose POST failed
+     * (sendFailed) — ChatView drops the row and re-delivers its text +
+     * attachments. Optional so subagent transcripts render without it. */
+    onRetrySend?: (message: ChatUserMessage) => void;
 }) {
     if (isUserMessage(message)) {
         return (
@@ -91,6 +96,7 @@ const MessageItem = memo(function MessageItem({
                 editing={edit != null && edit.editingMessageId === message.id}
                 editDisabled={edit?.editDisabled ?? false}
                 onStartEdit={edit?.onStartEdit}
+                onRetry={onRetrySend != null && message.sendFailed ? () => onRetrySend(message) : undefined}
             />
         );
     }
@@ -121,6 +127,7 @@ function UserBubble({
     editing = false,
     editDisabled = false,
     onStartEdit,
+    onRetry,
 }: {
     message: ChatUserMessage;
     enter: boolean;
@@ -134,6 +141,9 @@ function UserBubble({
      *  session) — still hover-revealed, just inert. */
     editDisabled?: boolean;
     onStartEdit?: (message: ChatUserMessage) => void;
+    /** Present only on a FAILED row (sendFailed) with a live retry
+     *  handler — renders the always-visible failure notice + retry. */
+    onRetry?: () => void;
 }) {
     const colors = useColors();
     const t = useI18n();
@@ -280,6 +290,31 @@ function UserBubble({
                         </div>
                     </div>
                 </Hint>
+            )}
+            {/* FAILED SEND: the optimistic row's POST died (network /
+                timeout — the mobile frp route's norm). Always visible
+                (not hover-gated): the user must see the message did not
+                go out and be able to retry it in place — dropping the
+                row silently reads as "my message vanished". */}
+            {message.sendFailed && (
+                <div
+                    className="flex items-center gap-1.5 mt-1 text-xs select-none"
+                    style={{color: "var(--color-danger-text)"}}
+                >
+                    <AlertCircle size={12} className="shrink-0" style={{color: "var(--color-danger)"}}/>
+                    <span>{t["Failed to send"]}</span>
+                    {onRetry && (
+                        <button
+                            type="button"
+                            onClick={onRetry}
+                            className="inline-flex items-center gap-1 h-5 px-1.5 rounded-[var(--radius-xs)] cursor-pointer lum-wash font-medium"
+                            style={{"--lum-wash": colors.hoverOverlay} as CSSProperties}
+                        >
+                            <RotateCcw size={11} className="shrink-0"/>
+                            {t["Retry"]}
+                        </button>
+                    )}
+                </div>
             )}
             {/* Quiet actions row under the bubble: the copy affordance sits
                 beside the clamp expander (hover-revealed like the sidebar's

@@ -40,6 +40,14 @@ export type {
     WorkspaceDiffEntry,
 } from "./types.ts";
 
+/** Abort deadline for the upload-shaped requests (prompt POST with base64
+ *  attachments, the fs write of a diverted image): the mobile app pushes
+ *  them over the frp route, and a dropped tunnel would otherwise park the
+ *  fetch forever — see requestRaw's timeout handling. Generous on purpose
+ *  (a compressed multi-image prompt is still hundreds of KB on a slow
+ *  uplink). */
+const UPLOAD_TIMEOUT_MS = 120_000;
+
 /** Raw shape of `GET /api/session/{id}/message` — NOT envelope-unwrapped
  *  (the `data` here is the payload itself; unwrapping would lose `cursor`).
  *  The server nulls (not omits) spent cursor fields on the wire. */
@@ -92,8 +100,8 @@ export class OpencodeApi {
         public readonly authorization: string,
     ) {}
 
-    private async request<T>(path: string, init?: RequestInit): Promise<T> {
-        const json = await this.requestRaw<unknown>(path, init);
+    private async request<T>(path: string, init?: RequestInit, timeoutMs?: number): Promise<T> {
+        const json = await this.requestRaw<unknown>(path, init, timeoutMs);
         if (json !== null && typeof json === "object" && "data" in json) {
             return (json as {data: T}).data;
         }
@@ -105,24 +113,42 @@ export class OpencodeApi {
      * Error replies are still JSON; thrown errors carry the HTTP `status`
      * (same as {@link requestRawText}) so callers can tell "no longer
      * pending" (404) from failure. */
-    private async requestRaw<T>(path: string, init?: RequestInit): Promise<T> {
-        const res = await fetch(this.baseUrl + path, {
-            ...init,
-            headers: {
-                Accept: "application/json",
-                ...(init?.body !== undefined ? {"Content-Type": "application/json"} : {}),
-                Authorization: this.authorization,
-                ...init?.headers,
-            },
-        });
-        if (!res.ok) {
-            const detail = await res.text().catch(() => "");
-            const err = new Error(`${res.status} ${res.statusText}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
-            (err as Error & {status?: number}).status = res.status;
-            throw err;
+    private async requestRaw<T>(path: string, init?: RequestInit, timeoutMs?: number): Promise<T> {
+        // Optional abort deadline for the big UPLOAD-shaped requests (the
+        // prompt POST with base64 attachments, the fs write of a diverted
+        // image): on the mobile frp route a dropped tunnel parks the fetch
+        // forever, which reads to the user as an endless send instead of
+        // a failure. Aborts become a readable Error; every other path —
+        // including the !ok throw below — still clears the timer.
+        const controller = timeoutMs != null ? new AbortController() : null;
+        const timer = controller != null ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
+        try {
+            const res = await fetch(this.baseUrl + path, {
+                ...init,
+                ...(controller != null ? {signal: controller.signal} : {}),
+                headers: {
+                    Accept: "application/json",
+                    ...(init?.body !== undefined ? {"Content-Type": "application/json"} : {}),
+                    Authorization: this.authorization,
+                    ...init?.headers,
+                },
+            });
+            if (!res.ok) {
+                const detail = await res.text().catch(() => "");
+                const err = new Error(`${res.status} ${res.statusText}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+                (err as Error & {status?: number}).status = res.status;
+                throw err;
+            }
+            if (res.status === 204) return undefined as T;
+            return (await res.json()) as T;
+        } catch (e) {
+            if (controller?.signal.aborted) {
+                throw new Error(`request timed out after ${timeoutMs}ms: ${path}`);
+            }
+            throw e;
+        } finally {
+            if (timer !== null) clearTimeout(timer);
         }
-        if (res.status === 204) return undefined as T;
-        return (await res.json()) as T;
     }
 
     /** Raw-file variant of {@link requestRaw} for fs endpoints: the body
@@ -221,16 +247,22 @@ export class OpencodeApi {
     }
 
     /** Sends a prompt; the reply streams in over the event bus. Attachments
-     *  ride as data-URI `files` (the server normalizes them inline). */
+     *  ride as data-URI `files` (the server normalizes them inline).
+     *  Deadline-bounded: the base64 body is the largest request the client
+     *  makes, and the mobile frp route must not park it forever. */
     sendPrompt(
         sessionId: string,
         text: string,
         files?: {uri: string; name: string}[],
     ): Promise<unknown> {
-        return this.request(`/api/session/${encodeURIComponent(sessionId)}/prompt`, {
-            method: "POST",
-            body: JSON.stringify(files?.length ? {text, files} : {text}),
-        });
+        return this.request(
+            `/api/session/${encodeURIComponent(sessionId)}/prompt`,
+            {
+                method: "POST",
+                body: JSON.stringify(files?.length ? {text, files} : {text}),
+            },
+            UPLOAD_TIMEOUT_MS,
+        );
     }
 
     /** Stop a running session. Returns whether an execution was interrupted.
@@ -859,14 +891,15 @@ export class OpencodeApi {
 
     /** Binary twin of {@link writeTextFile} for raw bytes (image
      * attachments diverted for the vision tool) — same octet-stream
-     * fs/write endpoint. */
+     * fs/write endpoint, deadline-bounded like the prompt POST (same
+     * mobile-route rationale). */
     writeBinaryFile(absolutePath: string, bytes: Uint8Array<ArrayBuffer>): Promise<void> {
         const params = new URLSearchParams({path: absolutePath});
         return this.request<void>(`/api/experimental/fs/write?${params.toString()}`, {
             method: "POST",
             headers: {"Content-Type": "application/octet-stream"},
             body: new Blob([bytes]),
-        });
+        }, UPLOAD_TIMEOUT_MS);
     }
 }
 

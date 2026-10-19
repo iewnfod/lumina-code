@@ -2,7 +2,7 @@ import {useCallback, useEffect, useMemo, useState} from "react";
 import {error, info, warn} from "@tauri-apps/plugin-log";
 import {loadState, saveState} from "../lib/persist.ts";
 import {OpencodeApi} from "./api.ts";
-import {prepareCommandSubmission} from "./useSessionMessages.ts";
+import {appendFailedPrompt, prepareCommandSubmission} from "./useSessionMessages.ts";
 import {useCatalog} from "./catalogContext.tsx";
 import {useConnection} from "./connectionContext.tsx";
 import {useSessionData} from "./sessionDataContext.tsx";
@@ -291,6 +291,19 @@ export function useSessionFlow(): {
         })();
         await deliver.catch((e) => {
             error(`Failed to send prompt: ${e}`).catch(() => {});
+            undoPending?.();
+            // Keep the first message as a FAILED row in the new session's
+            // transcript (retry affordance there) — the composer is gone
+            // (the view already switched off the welcome screen) and a
+            // dropped first message reads as "it vanished".
+            appendFailedPrompt(created.id, {
+                text: deliveredText,
+                files: [
+                    ...inline.map((f) => ({name: f.name, mime: f.mime, uri: f.uri})),
+                    ...fileRefs.map((r) => OpencodeApi.fileRefToPromptFile(r)),
+                ],
+                ...(command ? {command} : {}),
+            });
         });
     }, [api, create, models, pendingAgent, pendingBranch, pendingDirectory, pendingModel]);
 

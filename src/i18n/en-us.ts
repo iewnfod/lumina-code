@@ -215,6 +215,7 @@ const enUs = {
     "Verification code": "Verification code",
     "Copy code": "Copy code",
     "Retry": "Retry",
+    "Failed to send": "Failed to send",
     "Cancel": "Cancel",
     "Add custom provider": "Add custom provider",
     "Edit custom provider": "Edit custom provider",

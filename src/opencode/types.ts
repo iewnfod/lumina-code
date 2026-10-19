@@ -421,6 +421,13 @@ export interface ChatUserMessage {
      *  which flashes the whole conversation area on WebKitGTK (same
      *  class as FoldRow's transform-gpu note). */
     localKey?: string;
+    /** LOCAL-ONLY flag (never on the wire): the optimistic bubble's POST
+     *  FAILED (network/timeout — the mobile frp route's norm) and the
+     *  bubble was kept as a FAILED row offering a retry instead of being
+     *  silently dropped (the old behavior read as "my message vanished").
+     *  Cleared implicitly: a retry drops the bubble and re-sends, and a
+     *  server seed/page merge never carries the flag. */
+    sendFailed?: boolean;
     time?: {created?: number};
 }
 

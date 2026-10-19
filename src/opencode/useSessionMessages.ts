@@ -72,9 +72,50 @@ function appendOptimisticBubble(sessionId: string, optimistic: ChatUserMessage):
     notify(sessionId);
 }
 
-/** Drop an optimistic bubble whose delivery failed — the failure must be
- *  a visible absence, not a phantom row. */
-function dropOptimisticBubble(sessionId: string, id: string): void {
+/** Mark an optimistic bubble's delivery as FAILED — the bubble stays in
+ * the transcript as a visible failed row (the retry UI hangs off it);
+ * dropping it outright reads as "my message vanished", the worst failure
+ * mode on a flaky mobile link. */
+function markOptimisticFailed(sessionId: string, id: string): void {
+    const current = entries.get(sessionId);
+    if (!current) return;
+    let touched = false;
+    current.messages = current.messages.map((m) => {
+        if (m.id !== id || m.type !== "user" || m.sendFailed) return m;
+        touched = true;
+        return {...m, sendFailed: true};
+    });
+    if (touched) notify(sessionId);
+}
+
+/** Append a FAILED prompt row straight into a session's store — the
+ * welcome-screen first send (useSessionFlow.sendFirst) has no optimistic
+ * bubble of its own (there is no transcript mounted yet), and a lost
+ * first message on a flaky mobile link must still be retryable from the
+ * transcript instead of vanishing into an empty session. */
+export function appendFailedPrompt(
+    sessionId: string,
+    message: {text: string; files: UserMessageFile[]; command?: PendingCommand},
+): void {
+    const entry = entryOf(sessionId);
+    const localId = `local-${Date.now()}`;
+    entry.messages = [...entry.messages, {
+        id: localId,
+        type: "user",
+        text: message.text,
+        localKey: localId,
+        files: message.files,
+        ...(message.command ? {command: {name: message.command.name, arguments: message.command.arguments}} : {}),
+        sendFailed: true,
+    }];
+    notify(sessionId);
+}
+
+/** Drop a local (optimistic/failed) bubble by id — the RETRY path's
+ * cleanup: a retried failed row is dropped and re-sent through the
+ * normal send (whose own optimistic bubble takes over). Also the
+ * failure path for optimistic rows that must NOT linger. */
+export function dropOptimisticBubble(sessionId: string, id: string): void {
     const current = entries.get(sessionId);
     if (!current) return;
     current.messages = current.messages.filter((m) => m.id !== id);
@@ -443,7 +484,10 @@ export function useSessionMessages(
             localKey: localId,
             files: [
                 ...(files ?? []).map((f) => ({name: f.name, mime: f.mime, uri: f.uri})),
-                ...(fileRefs ?? []).map((r) => ({name: r.path.split("/").pop() ?? r.path})),
+                // File refs keep their `file://` URI so a failed send's
+                // RETRY can rebuild identical prompt files (and the chip
+                // preview resolves like an adopted server message's).
+                ...(fileRefs ?? []).map((r) => OpencodeApi.fileRefToPromptFile(r)),
             ],
             ...(command ? {command} : {}),
         };
@@ -472,8 +516,11 @@ export function useSessionMessages(
                 }
             }
             logError(`Failed to send prompt: ${e}`).catch(() => {});
-            // Drop the optimistic bubble so the failure is visible.
-            dropOptimisticBubble(sid, optimistic.id);
+            // Keep the bubble as a FAILED row (retry affordance in the
+            // transcript) — silently dropping it reads as "the message
+            // vanished", which on a flaky mobile link is exactly what
+            // the user just lived through.
+            markOptimisticFailed(sid, optimistic.id);
         }
     }, []);
 
@@ -560,7 +607,7 @@ export function useSessionMessages(
             // The edit DID happen (the old message is gone server-side) —
             // only the delivery failed; surface it like a failed send.
             logError(`Failed to send edited prompt: ${e}`).catch(() => {});
-            dropOptimisticBubble(sid, localId);
+            markOptimisticFailed(sid, localId);
         }
         return true;
     }, []);

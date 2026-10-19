@@ -387,6 +387,14 @@ src/
 ├── opencode/              # THE domain layer — everything talking to the server
 │   ├── api.ts             # OpencodeApi: hand-rolled typed REST client (fetch +
 │   │                      #   basic auth, `{"data": …}` envelope unwrap).
+│   │                      #   UPLOAD_TIMEOUT_MS: requestRaw takes an optional
+│   │                      #   abort deadline (AbortController + timer, no
+│   │                      #   AbortSignal.timeout engine dependency) —
+│   │                      #   sendPrompt and the divert's writeBinaryFile
+│   │                      #   pass 120s: they carry the base64 attachment
+│   │                      #   bodies, the mobile frp route's biggest
+│   │                      #   uploads, and a dropped tunnel would park the
+│   │                      #   fetch forever (reads as an endless send).
 │   │                      #   Hand-rolled on purpose: the SDK's generated
 │   │                      #   client drifts from the installed v2.0.x server
 │   │                      #   (paths & body encoding); the SDK is imported
@@ -506,9 +514,31 @@ src/
 │   │                      #   the diverted images as attachment chips instead;
 │   │                      #   editResend re-appends the original note so an
 │   │                      #   edited prompt keeps its image paths. A failed
-│   │                      #   write falls back to inline. Wired into BOTH send
+│   │                      #   write falls back to inline. THE DIVERT TARGET'S
+│   │                      #   RESILIENCE: the config-directory probe
+│   │                      #   (GET /api/config) runs once per app run with
+│   │                      #   ONE silent retry, every success is remembered
+│   │                      #   durably (persistedStore
+│   │                      #   "lumina-code:config-directory"), and a dead
+│   │                      #   probe falls back to the remembered directory
+│   │                      #   across cold starts — on the mobile frp route
+│   │                      #   the probe is a full round-trip and its
+│   │                      #   transient failure used to degrade a
+│   │                      #   text-only model's images to inline, which the
+│   │                      #   provider then rejects (live-observed
+│   │                      #   glm-5.3: "this model does not support image
+│   │                      #   input"); a stale remembrance self-corrects
+│   │                      #   (fs/write creates parents, the vision tool
+│   │                      #   reads the path just written, the next healthy
+│   │                      #   probe re-pins). Only a dead probe with
+│   │                      #   NOTHING remembered falls back to inline.
+│   │                      #   Wired into BOTH send
 │   │                      #   paths (ChatView.handleSend,
-│   │                      #   useSessionFlow.sendFirst). node-testable.
+│   │                      #   useSessionFlow.sendFirst). node-testable
+│   │                      #   (the divert cases re-import the module per
+│   │                      #   query — fresh per-run memo + a shared
+│   │                      #   localStorage stub re-seeding each instance's
+│   │                      #   persisted store).
 │   ├── eventStream.ts     # SSE transport: OpencodeEvent envelope +
 │   │                      #   streamServerEvents (fetch-based; the Authorization
 │   │                      #   header rules out native EventSource) with backoff
@@ -2377,6 +2407,14 @@ src/
         ├── composerTriggers.ts # Lexical node-tree algorithms: `@`/`/` trigger
         │                  #   detection (CJK-aware) + atomic mention ←/→.
         ├── composerAttachments.ts # Data-URI attachment reader + size cap
+        │                      #   (10MB; oversize/unreadable picks are
+        │                      #   COUNTED back to ChatInput's red notice,
+        │                      #   never silently dropped) + filesFromMessage
+        │                      #   — the sent-message → attachments rebuild
+        │                      #   shared by edit-mode chip staging AND the
+        │                      #   failed-send retry (uri riders and
+        │                      #   file:// refs pass through verbatim;
+        │                      #   node-testable, composerAttachments.test.ts).
         ├── composerDrafts.ts  # In-memory composer draft store (Map keyed
         │                      #   by surface — WELCOME_DRAFT_KEY or the
         │                      #   session id): serialized Lexical
