@@ -1,6 +1,9 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.lumina_code_mobile" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <!-- Same windowBackground as the day theme — the day/night
+             difference lives in the color resource's qualifiers, not
+             here. See values/colors.xml. -->
+        <item name="android:windowBackground">@color/lumina_window_bg</item>
     </style>
 </resources>

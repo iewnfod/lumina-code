@@ -26,7 +26,7 @@ import {probeBms, useBmsFocusRefresh, useCompositorBlurActive} from "./hooks/use
 import {useNotifications} from "./hooks/useNotifications.ts";
 import {useServerFrp} from "./hooks/useServerFrp.ts";
 import {useBackLevel} from "./hooks/useBackLevel.ts";
-import {glassSurface, windowOutline} from "./lib/glass.ts";
+import {glassSurface, glassSurfaceEquivalent, windowOutline} from "./lib/glass.ts";
 import {isColorDark, withAlpha} from "./lib/color.ts";
 import {isLinux, isCefRuntime, isMobileApp} from "./lib/platform.ts";
 import {appThemeFor, type ChromeTheme} from "./lib/theme.ts";
@@ -349,6 +349,27 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
         root.classList.toggle("light", !dark);
         root.setAttribute("data-theme", dark ? "dark" : "light");
     }, [dark]);
+
+    // MOBILE ONLY — push the resolved chrome base to the Android shell.
+    // The edge-to-edge safe-area bands are painted by the native window
+    // background, which follows the SYSTEM theme (static resource) while
+    // the app chrome follows the in-app preference — the bridge exists
+    // only in the Android webview (MainActivity's onWebViewCreate
+    // injects window.__luminaNative); desktop/CEF have no such object
+    // and the call is a no-op. The pushed value is NOT effectiveBg but
+    // its GLASS-SURFACE EQUIVALENT (lib/glass.ts): the chrome the bands
+    // sit next to (title bar / chrome glass layer) renders as the glass
+    // tint over the base, so the opaque band must match that composite,
+    // not the raw base — pushing the base read as too-dark on dark /
+    // too-light on light. The static lumina_window_bg resources mirror
+    // the same derivation. systemTheme rides the deps so a system
+    // day/night switch re-pushes even when the resolved base doesn't
+    // change — MainActivity's onConfigurationChanged resets the native
+    // background to the system color, and a manual preference override
+    // must re-win right after.
+    useEffect(() => {
+        (window as unknown as {__luminaNative?: {setChromeBackground: (colorHex: string, dark: boolean) => void}}).__luminaNative?.setChromeBackground(glassSurfaceEquivalent(effectiveBg), dark);
+    }, [effectiveBg, dark, systemTheme]);
 
     // The chrome glass layer is derived per connection state (supportsGlass
     // flips only on platform; compositorBlur on the BMS probe), so

@@ -11,6 +11,7 @@ import {
     type ChatMessage,
     type ChatUserMessage,
     type EventMap,
+    type OpencodeSession,
     type ToolState,
 } from "./types.ts";
 import {isSubagentToolName} from "./sessionActivity.ts";
@@ -549,4 +550,109 @@ function mergePart(local: AssistantPart | undefined, page: AssistantPart): Assis
 /** No keys (or absent) — see mergePart's metadata rescue. */
 function isEmptyRecord(o: Record<string, unknown> | undefined): boolean {
     return !o || Object.keys(o).length === 0;
+}
+
+// --- Subagent child-link backfill (seed-time) --------------------------------
+
+/** A tool part's linked child session id, under either wire key (the
+ *  settled metadata uses `sessionID`; `session_id` kept for older
+ *  servers — same dual read as collectSessionSubagents). */
+function toolChildId(part: AssistantToolPart): string | undefined {
+    const meta = part.state.metadata;
+    if (!meta) return undefined;
+    for (const key of ["sessionID", "session_id"]) {
+        const v = meta[key];
+        if (typeof v === "string" && v !== "") return v;
+    }
+    return undefined;
+}
+
+/**
+ * Does the list hold a running subagent part with NO child session link?
+ * The link normally arrives via the one-shot `session.tool.progress`
+ * frame at spawn; a client that missed it (remote SSE gap, cold start
+ * into a session that is already running — the mobile norm) finds only
+ * the server's EMPTY running metadata in every seed. True ⇒ the caller
+ * should consult the session list (backfillSubagentLink) — cheap scan,
+ * so requestSeed gates its extra request on it.
+ */
+export function needsSubagentBackfill(list: ChatMessage[]): boolean {
+    for (const m of list) {
+        if (!isAssistantMessage(m)) continue;
+        for (const part of m.content) {
+            if (part.type !== "tool" || !isSubagentToolName(part.name)) continue;
+            if (part.state.status !== "running" && part.state.status !== "pending") continue;
+            if (!toolChildId(part)) return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Link an unlinked running subagent part to its child session via the
+ * SESSION LIST (parentID reverse lookup) — the seed-time fallback for a
+ * missed `session.tool.progress` frame (see needsSubagentBackfill).
+ * Deliberately conservative, one-to-one and never a guess:
+ *
+ *  - exactly ONE unlinked running/pending subagent part, and
+ *  - exactly ONE candidate child: `parentID === sessionId`, not already
+ *    referenced by ANY tool part's metadata (settled parts carry their
+ *    child ids — including the vision tool's helper links; an error
+ *    part settles WITHOUT metadata, so its orphaned child stays a
+ *    candidate and the time bound below must reject it), not a
+ *    lumina-tools helper (those carry {source:"lumina-tools"}), and
+ *    created at/after the part itself (a child cannot predate the call
+ *    that spawned it — the bound that disambiguates an earlier turn's
+ *    leftover child from the current one).
+ *
+ * Anything ambiguous returns the list UNCHANGED — the visible cost of a
+ * wrong pairing (drilling into the wrong child transcript) far exceeds
+ * the invisible cost of staying unlinked until settle. Idempotent: once
+ * linked, the part no longer counts as unlinked.
+ */
+export function backfillSubagentLink(
+    list: ChatMessage[],
+    sessionId: string,
+    sessions: OpencodeSession[],
+): ChatMessage[] {
+    // Every child id any tool part already references — subagent AND
+    // other tools (the vision tool's helper links ride the same key).
+    const referenced = new Set<string>();
+    let unlinked: {messageId: string; partId: string; lowerBound: number} | null = null;
+    let unlinkedCount = 0;
+    for (const m of list) {
+        if (!isAssistantMessage(m)) continue;
+        for (const part of m.content) {
+            if (part.type !== "tool") continue;
+            const child = toolChildId(part);
+            if (child) {
+                referenced.add(child);
+                continue;
+            }
+            if (!isSubagentToolName(part.name)) continue;
+            if (part.state.status !== "running" && part.state.status !== "pending") continue;
+            unlinkedCount += 1;
+            if (unlinkedCount > 1) break;
+            unlinked = {
+                messageId: m.id,
+                partId: part.id,
+                lowerBound: part.time?.created ?? m.time?.created ?? 0,
+            };
+        }
+        if (unlinkedCount > 1) break;
+    }
+    if (unlinkedCount !== 1 || !unlinked) return list;
+
+    const candidates = sessions.filter((s) =>
+        s.parentID === sessionId &&
+        !referenced.has(s.id) &&
+        s.metadata?.["source"] !== "lumina-tools" &&
+        (s.time?.created === undefined || s.time.created >= unlinked.lowerBound),
+    );
+    if (candidates.length !== 1) return list;
+
+    const childId = candidates[0].id;
+    return mutateTool(list, unlinked.messageId, unlinked.partId, (t) => {
+        t.state = {...t.state, metadata: {...t.state.metadata, sessionID: childId}};
+    });
 }

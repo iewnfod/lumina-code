@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useRef, useState, useSyncExternalStore} from "react";
 import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
 import {OpencodeApi} from "./api.ts";
-import {applyEvent, applyOlderPage, applySeedPage, dropFromBoundary} from "./messageStore.ts";
+import {applyEvent, applyOlderPage, applySeedPage, backfillSubagentLink, dropFromBoundary, needsSubagentBackfill} from "./messageStore.ts";
 import {dropPendingCommands, recordPendingCommand} from "./pendingCommands.ts";
 import {clearSessionStopping, isSessionStopping, markSessionStopping} from "./sessionStopping.ts";
 import {attachmentNoteLine, splitAttachmentNote} from "./visionAttachments.ts";
@@ -94,6 +94,7 @@ function requestSeed(api: OpencodeApi, sessionId: string): void {
         entry.cursor = merged.cursor;
         entry.seeded = true;
         notify(sessionId);
+        backfillSubagentLinks(api, sessionId, entry, seq);
     }).catch((e) => {
         if (seq !== entry.seq) return;
         logError(`Failed to load messages for ${sessionId}: ${e}`).catch(() => {});
@@ -103,6 +104,37 @@ function requestSeed(api: OpencodeApi, sessionId: string): void {
         // whatever the store holds (possibly empty).
         entry.seeded = true;
         notify(sessionId);
+    });
+}
+
+/** Seed-time recovery for a MISSED `session.tool.progress` frame: a
+ *  running subagent part whose child link never arrived (remote SSE
+ *  gap, cold start into a session that is already running — the mobile
+ *  norm; the server persists the running part with an EMPTY metadata)
+ *  is re-linked from the session list's parentID reverse lookup. Only
+ *  consults the list when the cheap scan finds an unlinked part, and
+ *  only links unambiguous one-to-one pairings (backfillSubagentLink).
+ *  Runs on EVERY seed path — mount, ensureSessionSeeded warm-up and
+ *  the remote reconnect heal (reseedAllSessions) — so each gap heals at
+ *  the next seed; the link then survives later re-seeds via mergePart's
+ *  metadata rescue. */
+function backfillSubagentLinks(
+    api: OpencodeApi,
+    sessionId: string,
+    entry: SessionEntry,
+    seq: number,
+): void {
+    if (!needsSubagentBackfill(entry.messages)) return;
+    api.listSessions().then((sessions) => {
+        if (seq !== entry.seq) return; // superseded — the newer seed re-runs this
+        const next = backfillSubagentLink(entry.messages, sessionId, sessions ?? []);
+        if (next !== entry.messages) {
+            entry.messages = next;
+            notify(sessionId);
+            logInfo(`Backfilled subagent child link for ${sessionId}`).catch(() => {});
+        }
+    }).catch((e) => {
+        logWarn(`Subagent backfill session list failed for ${sessionId}: ${e}`).catch(() => {});
     });
 }
 

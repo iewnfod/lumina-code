@@ -4,4 +4,18 @@
          `tauri icon` from the manifest's bg_color. -->
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <!-- The window background behind the edge-to-edge safe-area bands
+         (status bar / navigation bar / cutout — MainActivity pads the
+         content view, so those bands expose the WINDOW background).
+         NOT the raw chrome base but its GLASS-SURFACE EQUIVALENT: the
+         chrome the bands sit next to (title bar / chrome glass layer)
+         renders as the glass tint over the base (dark: +6% white,
+         light: +4% black), so the opaque band must match that
+         composite. Derived by src/lib/glass.ts's glassSurfaceEquivalent
+         from src/lib/theme.ts's bases (LIGHT_BG #fafafa / DARK_BG
+         #1a1a1a): #f0f0f0 here, #282828 in values-night/colors.xml —
+         the frontend pushes the same value at runtime (InnerApp's
+         __luminaNative bridge). Android 12+ splash and the task
+         snapshot pick it up too. -->
+    <color name="lumina_window_bg">#F0F0F0</color>
 </resources>

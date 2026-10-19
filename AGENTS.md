@@ -554,6 +554,32 @@ src/
 │   │                      #   (mergePart's metadata rescue) — else every
 │   │                      #   re-seed mid-run would hide the subagent
 │   │                      #   from the stats panel again.
+│   │                      #   SUBAGENT LINK BACKFILL: the progress
+│   │                      #   frame is ONE-SHOT (spawn) and the
+│   │                      #   server's running snapshot has no child
+│   │                      #   id, so any client that MISSED the frame
+│   │                      #   (remote SSE gap, cold start into a
+│   │                      #   session that is already running — the
+│   │                      #   MOBILE norm; desktop loopback SSE
+│   │                      #   essentially never drops it) can never
+│   │                      #   link the part from the stream alone.
+│   │                      #   needsSubagentBackfill (cheap scan) +
+│   │                      #   backfillSubagentLink re-link it from the
+│   │                      #   SESSION LIST (parentID reverse lookup):
+│   │                      #   conservative one-to-one — exactly one
+│   │                      #   unlinked running part ∧ exactly one
+│   │                      #   candidate child (parentID match, not
+│   │                      #   referenced by any part's metadata, not a
+│   │                      #   lumina-tools helper, created at/after
+│   │                      #   the calling part — the time bound
+│   │                      #   rejects an errored earlier turn's
+│   │                      #   orphaned child, since error settle
+│   │                      #   carries NO metadata); ambiguity keeps
+│   │                      #   the list unchanged rather than guess.
+│   │                      #   Wired into EVERY seed path by
+│   │                      #   useSessionMessages (requestSeed →
+│   │                      #   backfillSubagentLinks), so the remote
+│   │                      #   reconnect heal re-runs it per gap.
 │   │                      #   EDIT-LAST-MESSAGE: dropFromBoundary + the
 │   │                      #   session.revert.committed event case truncate a
 │   │                      #   list at the first id >= boundary (the TUI's
@@ -856,7 +882,14 @@ src/
 │   │                      #   switch/hover time), useSessionSeeded(id) is its
 │   │                      #   boolean useSyncExternalStore mirror, and a FAILED seed
 │   │                      #   still sets seeded+notify (otherwise the loading phase
-│   │                      #   would loop forever).
+│   │                      #   would loop forever). Every seed path also runs
+│   │                      #   backfillSubagentLinks — the missed-
+│   │                      #   tool.progress recovery (a running subagent
+│   │                      #   part re-linked from the session list's
+│   │                      #   parentID; see messageStore's SUBAGENT LINK
+│   │                      #   BACKFILL) — so a remote client heals a
+│   │                      #   dropped child link at the next seed,
+│   │                      #   including the SSE-reconnect reseed.
 │   │                      #   prepareCommandSubmission pre-creates the entry so a
 │   │                      #   first-send slash command keeps its enqueue frame;
 │   │                      #   a session.model.selected event re-pulls the newest
@@ -2819,6 +2852,28 @@ desktop layout still connects to the DESKTOP's opencode remotely.
   shrink. Deliberately NO visualViewport/`--lum-kb` web fallback —
   Android-native is authoritative and the only live platform (a web
   fallback would be untested code; revisit when iOS/ohos resumes).
+- **The safe-area bands' background is NATIVE and chrome-synced**: the
+  edge-to-edge insets listener pads the content view, so the status /
+  nav-bar bands are painted by the Android WINDOW background — the
+  theme's `windowBackground` = `lumina_window_bg` (values/values-night
+  `colors.xml`, #f0f0f0 / #282828 — NOT the raw chrome bases but their
+  GLASS-SURFACE EQUIVALENTS: the chrome the bands adjoin renders as the
+  glass tint over the base, derived by lib/glass.ts's
+  `glassSurfaceEquivalent` from lib/theme.ts's LIGHT_BG #fafafa /
+  DARK_BG #1a1a1a — keep the derivation, not just the values, in
+  sync), plus the v31 splash override so the launch never flashes a
+  foreign color. Because the manifest swallows the uiMode config
+  change, `MainActivity.onConfigurationChanged` re-applies the
+  background AND the system-bar icon appearance (enableEdgeToEdge sets
+  it once; a day→night switch would otherwise leave dark icons on the
+  dark bands). The in-app theme preference can disagree with the
+  system theme (the static resource follows the system, the chrome
+  follows the preference), so the resolved base is PUSHED from the
+  frontend: MainActivity's `onWebViewCreate` injects
+  `window.__luminaNative` (a JS interface — trusted local content only)
+  and InnerApp's effect calls `setChromeBackground(glassSurfaceEquivalent(effectiveBg), dark)`
+  (deps include systemTheme so a manual override re-wins after every
+  system switch); desktop/CEF have no such object and no-op.
 - **The system back gesture closes page levels, not the app**:
   MainActivity overrides `handleBackNavigation = true` (TauriActivity
   hard-disables wry's built-in OnBackPressedCallback routing — back

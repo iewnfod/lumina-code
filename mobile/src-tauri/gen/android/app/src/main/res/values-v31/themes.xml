@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- v31 overlay: Android 12+ draws its OWN splash before the
+         activity, defaulting windowSplashScreenBackground to something
+         that is NOT our windowBackground — without this override the
+         launch sequence would flash two different colors before the
+         webview paints. -->
+    <style name="Theme.lumina_code_mobile" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/lumina_window_bg</item>
+        <item name="android:windowSplashScreenBackground">@color/lumina_window_bg</item>
+    </style>
+</resources>

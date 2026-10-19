@@ -1,9 +1,15 @@
 package com.iewnfod.lumina_code_mobile
 
+import android.content.res.Configuration
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.View
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
@@ -64,4 +70,66 @@ class MainActivity : TauriActivity() {
     // clean jump instead. Do not re-add for native-view smoothness; for
     // a WebView the jump IS the correct trade.
   }
+
+  // ---- Native chrome sync (the safe-area bands' background) ----
+  //
+  // The padded content view leaves the system-bar bands painted by the
+  // WINDOW background (the theme's windowBackground = lumina_window_bg,
+  // kept in sync with src/lib/theme.ts). Two things can desync it, both
+  // handled below:
+  //
+  // 1. System day/night switch. The manifest swallows the uiMode config
+  //    change (android:configChanges — the webview must not re-create),
+  //    so on a system theme switch the activity is NOT recreated, the
+  //    decor view never re-resolves its windowBackground, and
+  //    enableEdgeToEdge's one-shot system-bar icon appearance goes
+  //    stale (dark icons on the now-dark background would be
+  //    unreadable). Re-apply both here.
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    super.onConfigurationChanged(newConfig)
+    applySystemBarAppearance(night = newConfig.isNightMode())
+    window.setBackgroundDrawable(
+      ColorDrawable(getColor(R.color.lumina_window_bg))
+    )
+    // A manual in-app theme override (see onWebViewCreate below) is
+    // re-pushed by the frontend right after this fires — its effect
+    // depends on the resolved system theme too, so the override color
+    // re-wins without any native bookkeeping.
+  }
+
+  // 2. The in-app theme preference (General settings: light/dark/system)
+  //    can DISAGREE with the system theme — the static resource follows
+  //    the system, the webview chrome follows the preference. The
+  //    frontend pushes its resolved chrome base (src/App.tsx InnerApp)
+  //    through this tiny bridge so the bands always match the app
+  //    chrome, whatever the preference. Called on a JavaBridge thread;
+  //    the window may only be touched on the UI thread. Content is
+  //    local and trusted, and the interface only ever exists in this
+  //    app's own pages — no external URLs are loaded into this webview.
+  override fun onWebViewCreate(webView: WebView) {
+    webView.addJavascriptInterface(object {
+      @JavascriptInterface
+      fun setChromeBackground(colorHex: String, dark: Boolean) {
+        runOnUiThread {
+          val color = try {
+            Color.parseColor(colorHex)
+          } catch (_: IllegalArgumentException) {
+            // Not a parseable #rrggbb — fall back to the theme resource.
+            getColor(R.color.lumina_window_bg)
+          }
+          window.setBackgroundDrawable(ColorDrawable(color))
+          applySystemBarAppearance(night = dark)
+        }
+      }
+    }, "__luminaNative")
+  }
+
+  private fun applySystemBarAppearance(night: Boolean) {
+    val controller = WindowCompat.getInsetsController(window, window.decorView)
+    controller.isAppearanceLightStatusBars = !night
+    controller.isAppearanceLightNavigationBars = !night
+  }
 }
+
+private fun Configuration.isNightMode(): Boolean =
+  (uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES

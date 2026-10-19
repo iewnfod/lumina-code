@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {applyEvent, applyOlderPage, applySeedPage, dropFromBoundary} from "./messageStore.ts";
+import {applyEvent, applyOlderPage, applySeedPage, backfillSubagentLink, dropFromBoundary, needsSubagentBackfill} from "./messageStore.ts";
 import type {MessagesPage} from "./api.ts";
 import {MESSAGES_PAGE_SIZE} from "./types.ts";
 import {recordPendingCommand} from "./pendingCommands.ts";
@@ -8,6 +8,8 @@ import type {OpencodeEvent} from "./eventStream.ts";
 import type {ChatAssistantMessage, ChatMessage, ChatUserMessage} from "./types.ts";
 import {isUserMessage} from "./types.ts";
 import type {AssistantToolPart} from "./types.ts";
+import type {OpencodeSession} from "./types.ts";
+import {collectSessionSubagents} from "./sessionActivity.ts";
 
 /**
  * Pure-logic tests for the per-session message store: the event reducer
@@ -286,6 +288,129 @@ test("equal-rank seed merge keeps a progress-merged child link over the server's
     assert.ok(tool && tool.type === "tool");
     assert.equal(tool.state.status, "running");
     assert.equal((tool.state.metadata as Record<string, unknown>).sessionID, "ses_child_1");
+});
+
+// --- Subagent child-link backfill (seed-time) --------------------------------
+// The missed-`tool.progress` recovery for remote/mobile clients: a running
+// subagent part with no child link is paired with the session list's
+// parentID reverse lookup. Every case asserts the conservative rule:
+// one unlinked part + one candidate ⇒ link; anything ambiguous ⇒ no-op.
+
+/** A list holding one RUNNING subagent part with NO progress event —
+ *  the exact state a mobile client seeds after an SSE gap / cold start
+ *  into a running session (the server persists metadata:{}). The
+ *  message's created time is 1000 so the time-bound cases below have a
+ *  real lower bound to work against. */
+function unlinkedSubagentList(): ChatMessage[] {
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, ev("session.step.started", {assistantMessageID: MID, agent: "build", model: {id: "m"}, started: 1000}));
+    list = applyEvent(list, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_1", name: "subagent"}));
+    list = applyEvent(list, ev("session.tool.called", {assistantMessageID: MID, id: "tool_1", input: {agent: "explore", description: "find auth"}}));
+    return list;
+}
+
+function childSession(over: Partial<OpencodeSession>): OpencodeSession {
+    return {id: "ses_child_new", projectID: "p", time: {created: 1200, updated: 1200}, ...over};
+}
+
+test("needsSubagentBackfill: true only for an unlinked running subagent part", () => {
+    const running = unlinkedSubagentList();
+    assert.equal(needsSubagentBackfill(running), true);
+
+    // Settled parts carry their child link — no backfill needed.
+    const settled = applyEvent(running, ev("session.tool.success", {
+        assistantMessageID: MID,
+        id: "tool_1",
+        content: [{type: "text", text: "done"}],
+        metadata: {sessionID: "ses_child_1", status: "completed"},
+    }));
+    assert.equal(needsSubagentBackfill(settled), false);
+
+    // Non-subagent running tools never trigger it.
+    let shell: ChatMessage[] = [];
+    shell = applyEvent(shell, stepStarted());
+    shell = applyEvent(shell, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_1", name: "shell"}));
+    shell = applyEvent(shell, ev("session.tool.called", {assistantMessageID: MID, id: "tool_1", input: {command: "ls"}}));
+    assert.equal(needsSubagentBackfill(shell), false);
+});
+
+test("backfillSubagentLink links one unlinked part to one parentID match, collectible by the stats fold", () => {
+    const list = unlinkedSubagentList();
+    const out = backfillSubagentLink(list, SID, [
+        childSession({id: "ses_child_new", parentID: SID}),
+    ]);
+    assert.notEqual(out, list, "the linked list must be a new array");
+    const part = asst(out).content.find((p) => p.type === "tool") as AssistantToolPart;
+    assert.equal(part.state.metadata?.["sessionID"], "ses_child_new");
+    // The whole point: the stats panel can see the RUNNING subagent.
+    assert.deepEqual(collectSessionSubagents(out).map((s) => s.id), ["ses_child_new"]);
+});
+
+test("backfillSubagentLink rejects candidates from other parents, helpers and already-referenced children", () => {
+    const list = unlinkedSubagentList();
+    // A settled EARLIER subagent turn referencing ses_child_old.
+    let withHistory: ChatMessage[] = [];
+    withHistory = applyEvent(withHistory, ev("session.step.started", {assistantMessageID: "msg_asst_0", agent: "build", model: {id: "m"}}));
+    withHistory = applyEvent(withHistory, ev("session.tool.input.started", {assistantMessageID: "msg_asst_0", id: "tool_0", name: "task"}));
+    withHistory = applyEvent(withHistory, ev("session.tool.success", {
+        assistantMessageID: "msg_asst_0",
+        id: "tool_0",
+        content: [],
+        metadata: {sessionID: "ses_child_old", status: "completed"},
+    }));
+    withHistory = [...withHistory, ...list];
+
+    const out = backfillSubagentLink(withHistory, SID, [
+        childSession({id: "ses_other_parent", parentID: "ses_elsewhere"}), // wrong parent
+        childSession({id: "ses_child_old", parentID: SID}), // already referenced by the settled part
+        childSession({id: "ses_helper", parentID: SID, metadata: {source: "lumina-tools"}}), // vision helper
+        childSession({id: "ses_child_new", parentID: SID}), // the one true candidate
+    ]);
+    const msg = out.find((x) => x.type === "assistant" && x.id === MID) as ChatAssistantMessage;
+    const part = msg.content.find((p) => p.type === "tool" && (p as AssistantToolPart).id === "tool_1") as AssistantToolPart;
+    assert.equal(part.state.metadata?.["sessionID"], "ses_child_new");
+});
+
+test("backfillSubagentLink drops a pre-message child via the time bound (error-part leftovers)", () => {
+    // An earlier subagent call ERRORED — error settle carries no
+    // metadata, so its child stays unreferenced in the list; only the
+    // time bound (child can't predate the calling message) rejects it.
+    const list = unlinkedSubagentList();
+    const out = backfillSubagentLink(list, SID, [
+        childSession({id: "ses_child_stale", parentID: SID, time: {created: 500, updated: 500}}),
+        childSession({id: "ses_child_new", parentID: SID}),
+    ]);
+    const part = asst(out).content.find((p) => p.type === "tool") as AssistantToolPart;
+    assert.equal(part.state.metadata?.["sessionID"], "ses_child_new");
+});
+
+test("backfillSubagentLink stays a no-op on any ambiguity", () => {
+    const list = unlinkedSubagentList();
+
+    // Two equally-valid candidates — never a coin flip.
+    assert.equal(backfillSubagentLink(list, SID, [
+        childSession({id: "ses_child_a", parentID: SID}),
+        childSession({id: "ses_child_b", parentID: SID}),
+    ]), list);
+
+    // No candidate at all.
+    assert.equal(backfillSubagentLink(list, SID, []), list);
+
+    // Two unlinked running parts (parallel subagents) — pairing would
+    // be a guess, so keep the list unchanged.
+    let two = applyEvent(list, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_2", name: "subagent"}));
+    two = applyEvent(two, ev("session.tool.called", {assistantMessageID: MID, id: "tool_2", input: {agent: "general"}}));
+    assert.equal(backfillSubagentLink(two, SID, [
+        childSession({id: "ses_child_a", parentID: SID}),
+        childSession({id: "ses_child_b", parentID: SID}),
+    ]), two);
+});
+
+test("backfillSubagentLink is idempotent: a linked list needs nothing", () => {
+    const list = unlinkedSubagentList();
+    const linked = backfillSubagentLink(list, SID, [childSession({id: "ses_child_new", parentID: SID})]);
+    assert.equal(needsSubagentBackfill(linked), false);
+    assert.equal(backfillSubagentLink(linked, SID, [childSession({id: "ses_child_new", parentID: SID})]), linked);
 });
 
 test("step.ended stamps the step's usage onto the message", () => {

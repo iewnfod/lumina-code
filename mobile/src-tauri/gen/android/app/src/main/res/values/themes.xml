@@ -1,6 +1,11 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.lumina_code_mobile" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <!-- The safe-area bands (edge-to-edge) expose the window
+             background — paint it with the app chrome base so they
+             match the webview chrome instead of Material3's default.
+             Day/night resolution rides the color resource's own
+             qualifiers (values / values-night). -->
+        <item name="android:windowBackground">@color/lumina_window_bg</item>
     </style>
 </resources>
