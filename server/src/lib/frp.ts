@@ -184,9 +184,22 @@ export interface FrpRouteRow {
   updatedAt: string;
 }
 
-/** All registered desktop routes, newest heartbeat first, joined with
- * their owners — the console's "connected desktops" list. */
-export function listFrpRoutes(db: Db): FrpRouteRow[] {
+/** Registered desktop routes, newest heartbeat first, joined with
+ * their owners — the console's "connected desktops" list. Scope by
+ * owner with `userId` (a regular user must only ever see their OWN
+ * route); omit it for the admin overview of every route. */
+export function listFrpRoutes(db: Db, userId?: number): FrpRouteRow[] {
+  if (userId !== undefined) {
+    return db
+      .prepare(
+        `SELECT r.user_id AS "userId", u.username, r.route_id AS "routeId",
+                r.updated_at AS "updatedAt"
+           FROM frp_routes r JOIN users u ON u.id = r.user_id
+          WHERE r.user_id = ?
+          ORDER BY r.updated_at DESC`,
+      )
+      .all(userId) as FrpRouteRow[];
+  }
   return db
     .prepare(
       `SELECT r.user_id AS "userId", u.username, r.route_id AS "routeId",

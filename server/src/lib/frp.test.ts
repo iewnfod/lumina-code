@@ -162,6 +162,19 @@ describe("listFrpRoutes", () => {
     }
   });
 
+  it("scopes to one owner — a regular user never sees other routes", async () => {
+    const {db, u1, u2} = await setup();
+    const one = registerFrpRoute(db, u1.id, "secret-one");
+    const two = registerFrpRoute(db, u2.id, "secret-two");
+    const mine = listFrpRoutes(db, u1.id);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({userId: u1.id, username: "desktop1"});
+    expect(mine[0].routeId).toBe(one.routeId);
+    expect(JSON.stringify(mine)).not.toContain(two.routeId);
+    // no filter = the admin overview still sees every route
+    expect(listFrpRoutes(db)).toHaveLength(2);
+  });
+
   it("empty when no desktop registered", async () => {
     const {db} = await setup();
     expect(listFrpRoutes(db)).toEqual([]);

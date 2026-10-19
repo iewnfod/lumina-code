@@ -2858,8 +2858,12 @@ src/
 │   │                 re-checks auth from the cookie
 │   ├── login|register/  public auth pages
 │   ├── (protected)/     the console shell (layout redirects to /login):
-│   │                 / overview (counts + frps state + last route
-│   │                 heartbeat), /users admin
+│   │                 / overview — ROLE-SCOPED (a regular user sees ONLY
+│   │                 their own desktop's route + state, never other
+│   │                 users' route ids or server counts/paths; admin
+│   │                 keeps the full counts + frps state + last route
+│   │                 heartbeat view; listFrpRoutes' userId filter is
+│   │                 the data half), /users admin
 │   │                 management (disable/enable + reset password; you
 │   │                 cannot disable yourself), /account (password +
 │   │                 device-token revocation)
