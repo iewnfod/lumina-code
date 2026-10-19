@@ -29,6 +29,19 @@ class MainActivity : TauriActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
+    // androidx's enableEdgeToEdge leaves nav-bar CONTRAST ENFORCEMENT on
+    // for the default SystemBarStyle.auto(...) (bytecode-verified
+    // against activity 1.10.1's EdgeToEdgeApi29.setUp: the STATUS bar's
+    // twin is hardcoded false — the asymmetry behind "top band correct,
+    // bottom band white"). With enforcement on, the system paints its
+    // own semi-transparent contrast scrim over the transparent
+    // navigation bar, covering our windowBackground (live-observed:
+    // #f0f0f0 reading as ~#fefefe on the bottom band only). Turn it
+    // off — the band's color is ours to paint; the gesture handle keeps
+    // its SystemUI contrast through the appearance flags.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      window.isNavigationBarContrastEnforced = false
+    }
     super.onCreate(savedInstanceState)
 
     // The webview must never paint under the system bars. Android

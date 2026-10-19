@@ -2866,7 +2866,15 @@ desktop layout still connects to the DESKTOP's opencode remotely.
   change, `MainActivity.onConfigurationChanged` re-applies the
   background AND the system-bar icon appearance (enableEdgeToEdge sets
   it once; a day→night switch would otherwise leave dark icons on the
-  dark bands). The in-app theme preference can disagree with the
+  dark bands). ALSO: enableEdgeToEdge leaves the nav-bar CONTRAST
+  ENFORCEMENT on for its default auto() style while hardcoding the
+  status-bar twin to false (bytecode-verified, activity 1.10.1
+  EdgeToEdgeApi29) — the system would paint a semi-transparent scrim
+  over the transparent navigation bar, covering the windowBackground
+  (live-observed: bottom band reading ~#fefefe next to a correct
+  #f0f0f0 top band), so MainActivity onCreate explicitly sets
+  `isNavigationBarContrastEnforced = false` (API 29+). The in-app theme
+  preference can disagree with the
   system theme (the static resource follows the system, the chrome
   follows the preference), so the resolved base is PUSHED from the
   frontend: MainActivity's `onWebViewCreate` injects
