@@ -40,6 +40,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Choose This Folder": "选择此文件夹",
     "Add attachment": "添加附件",
     "Remove attachment": "移除附件",
+    "Some attachments were not added (too large or unreadable)": "部分附件未添加(过大或无法读取)",
     "No matching commands": "没有匹配的命令",
     "No matching files": "没有匹配的文件",
     // --- Transcript run footer ---

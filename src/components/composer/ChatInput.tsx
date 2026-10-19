@@ -1,5 +1,5 @@
 import {memo, useCallback, useEffect, useRef, useState} from "react";
-import {Pencil, X} from "lucide-react";
+import {AlertCircle, Pencil, X} from "lucide-react";
 import {LexicalComposer} from "@lexical/react/LexicalComposer";
 import {error} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
@@ -15,6 +15,8 @@ import type {
 } from "../../opencode/types.ts";
 import type {ContextUsage} from "../chat/usageStats.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
+import {compressImageFile} from "../../lib/imageCompress.ts";
+import {isMobileApp} from "../../lib/platform.ts";
 import {splitAttachmentNote} from "../../opencode/visionAttachments.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import ComposerCore, {type ComposerHandle} from "./ComposerCore.tsx";
@@ -133,6 +135,15 @@ const ChatInput = memo(function ChatInput({
     // (both were saved into the draft store on every change); a submit
     // clears the entry, so a fresh mount after sending starts empty.
     const [attachments, setAttachments] = useState<ComposerAttachment[]>(() => takeInitialDraft(draftKey)?.attachments ?? []);
+    // Attachments the size cap/read path rejected on the last addFiles —
+    // surfaced as a short-lived notice instead of the silent drop the
+    // mobile path made unfelt (big camera picks hit the cap regularly).
+    const [skippedAttachments, setSkippedAttachments] = useState(0);
+    const skipNoticeTimer = useRef<number | null>(null);
+    useEffect(() => () => {
+        if (skipNoticeTimer.current !== null) clearTimeout(skipNoticeTimer.current);
+    }, []);
+
     // Mirror staged attachments into the draft store (the editor half is
     // ComposerCore's concern — it owns the EditorState).
     useEffect(() => {
@@ -242,8 +253,22 @@ const ChatInput = memo(function ChatInput({
     }, [api, directory]);
 
     const addFiles = useCallback(async (files: File[]) => {
-        const staged = await Promise.all(files.map(readAttachment));
+        // MOBILE: camera photos are multi-MB and ride the prompt POST as
+        // base64 over the frp route — re-encode images first (longest-edge
+        // cap + JPEG). The desktop's loopback upload is insensitive, so it
+        // keeps the originals. Undecodable/failed inputs pass through
+        // unchanged (compression never gates sending).
+        const prepared = isMobileApp()
+            ? await Promise.all(files.map((f) => compressImageFile(f)))
+            : files;
+        const staged = await Promise.all(prepared.map(readAttachment));
         const fresh = staged.filter((f): f is ComposerAttachment => f !== null);
+        const skipped = staged.length - fresh.length;
+        if (skipped > 0) {
+            setSkippedAttachments(skipped);
+            if (skipNoticeTimer.current !== null) clearTimeout(skipNoticeTimer.current);
+            skipNoticeTimer.current = window.setTimeout(() => setSkippedAttachments(0), 6000);
+        }
         if (fresh.length === 0) return;
         setAttachments((prev) => {
             const held = new Set(prev.map((a) => a.id));
@@ -330,6 +355,15 @@ const ChatInput = memo(function ChatInput({
                             <X size={11}/>
                         </button>
                     </Hint>
+                </div>
+            )}
+
+            {skippedAttachments > 0 && (
+                <div className="flex items-center gap-1.5 px-3 pt-2.5 text-xs select-none" style={{color: "var(--color-danger-text)"}}>
+                    <AlertCircle size={12} className="shrink-0"/>
+                    <span className="truncate">
+                        {t["Some attachments were not added (too large or unreadable)"]} ({skippedAttachments})
+                    </span>
                 </div>
             )}
 

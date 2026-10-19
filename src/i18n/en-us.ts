@@ -38,6 +38,7 @@ const enUs = {
     "Choose This Folder": "Choose This Folder",
     "Add attachment": "Add attachment",
     "Remove attachment": "Remove attachment",
+    "Some attachments were not added (too large or unreadable)": "Some attachments were not added (too large or unreadable)",
     "No matching commands": "No matching commands",
     "No matching files": "No matching files",
     // --- Transcript run footer ---

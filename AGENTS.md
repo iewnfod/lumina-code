@@ -909,7 +909,28 @@ src/
 │   │                      #   parsed back out and re-appended, keeping
 │   │                      #   a text-only model's image paths).
 │   │                      #   A failed commit unwinds via clearRevert
-│   │                      #   and returns false. THE INTERRUPT SWEEP +
+│   │                      #   and returns false. FAILED-SEND SEMANTICS:
+│   │                      #   a POST that dies (network, the mobile frp
+│   │                      #   route, sendPrompt's 120s abort) does NOT
+│   │                      #   drop the optimistic bubble — markOptimistic
+│   │                      #   Failed keeps it as a sendFailed row whose
+│   │                      #   UserBubble renders an always-visible
+│   │                      #   "Failed to send" + retry (ChatView.
+│   │                      #   handleRetrySend: drop the row, filesFrom
+│   │                      #   Message rebuilds the attachments, deliver
+│   │                      #   re-runs — the divert note already rides
+│   │                      #   the stored text, so the re-divert pass
+│   │                      #   appends no second note); the welcome
+│   │                      #   screen's first send has no bubble yet, so
+│   │                      #   sendFirst's failure goes through the
+│   │                      #   exported appendFailedPrompt (a ready-made
+│   │                      #   failed row straight into the new session's
+│   │                      #   store). Self-healing duplicates are
+│   │                      #   impossible: the enqueued event ADOPTS the
+│   │                      #   failed row by text (a timeout whose POST
+│   │                      #   actually landed), and a re-seed's merge
+│   │                      #   drops local rows the page already carries.
+│   │                      #   THE INTERRUPT SWEEP +
 │   │                      #   SEND FENCE (v2.0.11, source-verified):
 │   │                      #   the server's interrupt kills ONLY the
 │   │                      #   in-flight execution — prompts POSTed
