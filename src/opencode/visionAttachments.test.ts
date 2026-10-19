@@ -1,6 +1,34 @@
-import {test} from "node:test";
+import test from "node:test";
 import assert from "node:assert/strict";
-import {
+import type {OpencodeApi} from "./api.ts";
+import type {ComposerAttachment, OpencodeConfigEntry, OpencodeModel, SessionModelRef} from "./types.ts";
+
+/**
+ * The divert's config-directory memory persists through persistedStore's
+ * LOCALSTORAGE tier here (no invoke → the plain-browser degradation;
+ * sessionRegistry.test.ts's storage-stub pattern). The stub must exist
+ * BEFORE the dynamic imports below — persistedStore locks its backend
+ * mode at first module evaluation, so a late stub would read as memory.
+ * The divert cases then re-import the module WITH A QUERY per case: a
+ * fresh module instance = a fresh session memo, while the shared stub
+ * re-seeds each new instance's persisted store (the cross-restart
+ * remembrance under test).
+ */
+class MemoryStorage {
+    private map = new Map<string, string>();
+    getItem(key: string): string | null {
+        return this.map.get(key) ?? null;
+    }
+    setItem(key: string, value: string): void {
+        this.map.set(key, value);
+    }
+    removeItem(key: string): void {
+        this.map.delete(key);
+    }
+}
+(globalThis as unknown as {localStorage: MemoryStorage}).localStorage = new MemoryStorage();
+
+const {
     attachmentDiskName,
     attachmentNoteLine,
     dataUriToBytes,
@@ -8,8 +36,7 @@ import {
     modelAcceptsImages,
     planAttachmentDivert,
     splitAttachmentNote,
-} from "./visionAttachments.ts";
-import type {ComposerAttachment, OpencodeModel, SessionModelRef} from "./types.ts";
+} = await import("./visionAttachments.ts");
 
 function attachment(name: string, mime: string): ComposerAttachment {
     return {id: name, name, mime, size: 1, uri: "data:" + mime + ";base64,AAAA"};
@@ -105,4 +132,120 @@ test("dataUriToBytes decodes base64 payloads, rejects others", () => {
     assert.deepEqual(dataUriToBytes("data:image/png;base64,AAEC"), new Uint8Array([0, 1, 2]));
     assert.equal(dataUriToBytes("https://example.com/a.png"), null);
     assert.equal(dataUriToBytes("data:image/png,AAEC"), null); // non-base64 data URI
+});
+
+// --- divertAttachmentsForSend: probe retry + remembered-directory fallback
+//
+// The live-observed mobile failure this pins: a text-only model whose
+// image was INLINED (provider rejects it) because the config-directory
+// probe died on a flaky frp route. The probe now retries once, and a
+// directory remembered from any earlier successful probe (persisted
+// across cold starts) rides every later dead probe.
+
+const CONFIG_ENTRIES: OpencodeConfigEntry[] = [
+    {type: "document", path: "/cfg/opencode/opencode.json"},
+];
+
+/** A fake OpencodeApi replying the scripted config results in order and
+ * recording every divert write. */
+function divertApi(replies: (OpencodeConfigEntry[] | Error)[], writes: string[]): OpencodeApi {
+    return {
+        listConfigEntries: async () => {
+            const next = replies.shift();
+            if (next instanceof Error) throw next;
+            return next;
+        },
+        writeBinaryFile: async (path: string) => {
+            writes.push(path);
+        },
+    } as unknown as OpencodeApi;
+}
+
+function img(name = "shot.png"): ComposerAttachment {
+    return {id: name, name, mime: "image/png", size: 1, uri: "data:image/png;base64,AAEC"};
+}
+
+/** Drop the persisted remembrance — the stub is SHARED across cases (and
+ * across module instances, which is the point), so each case starts from
+ * the remembered state it means to stage. */
+function clearRememberedDirectory(): void {
+    (globalThis as unknown as {localStorage: MemoryStorage}).localStorage.removeItem("lumina-code:config-directory");
+}
+
+/** Re-import the module WITH A QUERY per case — node mints a fresh
+ * module instance (a fresh per-run memo; the persisted store re-seeds
+ * from the shared stub), which is exactly the cold start under test.
+ * TS cannot resolve query-suffixed specifiers, hence the assertion. */
+async function loadDivertCase(tag: string): Promise<typeof import("./visionAttachments.ts")> {
+    return import(`./visionAttachments.ts?${tag}`) as Promise<typeof import("./visionAttachments.ts")>;
+}
+
+test("divert writes to the probed config directory", async () => {
+    clearRememberedDirectory();
+    const mod = await loadDivertCase("ok");
+    const writes: string[] = [];
+    const {inline, note} = await mod.divertAttachmentsForSend({
+        api: divertApi([CONFIG_ENTRIES], writes),
+        attachments: [img()],
+        acceptsImages: false,
+    });
+    assert.equal(inline.length, 0);
+    assert.ok(note?.includes("/cfg/opencode/attachments/"));
+    assert.equal(writes.length, 1);
+    assert.ok(writes[0].startsWith("/cfg/opencode/attachments/"));
+});
+
+test("a transient probe failure retries once and still diverts", async () => {
+    clearRememberedDirectory();
+    const mod = await loadDivertCase("retry");
+    const writes: string[] = [];
+    const {inline, note} = await mod.divertAttachmentsForSend({
+        api: divertApi([new Error("network drop"), CONFIG_ENTRIES], writes),
+        attachments: [img()],
+        acceptsImages: false,
+    });
+    assert.equal(inline.length, 0);
+    assert.ok(note != null);
+    assert.equal(writes.length, 1);
+});
+
+test("a dead probe with NOTHING remembered keeps the file inline (never lose it)", async () => {
+    clearRememberedDirectory();
+    const mod = await loadDivertCase("bare");
+    const writes: string[] = [];
+    const {inline, note} = await mod.divertAttachmentsForSend({
+        api: divertApi([new Error("down"), new Error("still down")], writes),
+        attachments: [img()],
+        acceptsImages: false,
+    });
+    assert.equal(inline.length, 1);
+    assert.equal(note, null);
+    assert.equal(writes.length, 0);
+});
+
+test("a directory remembered in an earlier run diverts a later cold start's dead probe", async () => {
+    clearRememberedDirectory();
+    // "Run 1": a healthy probe diverts and remembers the directory.
+    const first = await loadDivertCase("remember-1");
+    const writes1: string[] = [];
+    await first.divertAttachmentsForSend({
+        api: divertApi([CONFIG_ENTRIES], writes1),
+        attachments: [img("a.png")],
+        acceptsImages: false,
+    });
+    assert.equal(writes1.length, 1);
+    // "Run 2": a FRESH module instance (cold start — the per-run memo is
+    // empty again) whose every probe dies; the persisted remembrance
+    // keeps the divert alive instead of degrading to inline.
+    const second = await loadDivertCase("remember-2");
+    const writes2: string[] = [];
+    const {inline, note} = await second.divertAttachmentsForSend({
+        api: divertApi([new Error("down"), new Error("down")], writes2),
+        attachments: [img("b.png")],
+        acceptsImages: false,
+    });
+    assert.equal(inline.length, 0);
+    assert.ok(note?.startsWith("[image attachments"));
+    assert.equal(writes2.length, 1);
+    assert.ok(writes2[0].startsWith("/cfg/opencode/attachments/"));
 });

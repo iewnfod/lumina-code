@@ -1326,6 +1326,19 @@ src/
 │   │                      #   + notifies.
 │   ├── clipboard.ts       # copyText — clipboard write with an execCommand
 │   │                      #   fallback for webviews lacking the async API
+│   ├── imageCompress.ts   # MOBILE attachment compression (DOM-bound,
+│   │                      #   React-free): compressImageFile re-encodes
+│   │                      #   images through a canvas — longest edge
+│   │                      #   2048, JPEG 0.85 (3–8MB camera photos →
+│   │                      #   0.3–0.8MB; also normalizes HEIC picks
+│   │                      #   providers can't read). Never a gate:
+│   │                      #   non-images, undecodable inputs and
+│   │                      #   no-gain results return the ORIGINAL file.
+│   │                      #   Wired in ChatInput.addFiles under
+│   │                      #   isMobileApp() — the desktop's loopback
+│   │                      #   upload keeps originals (the base64 prompt
+│   │                      #   POST is the mobile frp route's biggest
+│   │                      #   body; see api.ts's UPLOAD_TIMEOUT_MS).
 │   ├── dragRegionDoubleClick.ts # pure predicate behind the title-bar double-click
 │   ├── backStack.ts      # The mobile BACK-LEVEL STACK (node-testable,
 │   │                      #   the persistedStore degradation pattern):
