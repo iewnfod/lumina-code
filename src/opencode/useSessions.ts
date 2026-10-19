@@ -2,7 +2,7 @@ import {useCallback, useEffect, useRef, useState} from "react";
 import {error as logError, info, warn as logWarn} from "@tauri-apps/plugin-log";
 import type {OpencodeApi} from "./api.ts";
 import {applyStoppingBusEvent} from "./sessionStopping.ts";
-import {applyPromptQueueBusEvent} from "./promptQueue.ts";
+import {applyQueueBusEvent} from "./promptQueue.ts";
 import {applyTurnEditsBusEvent} from "./turnEdits.ts";
 import {
     adoptSessions,
@@ -287,7 +287,7 @@ export function useSessions(
             // store caches forever otherwise; no-op for other event types).
             applyTurnEditsBusEvent(event.type, (event.data as {sessionID?: unknown} | null | undefined)?.sessionID);
             // ... and its queued prompts (no-op for other event types).
-            applyPromptQueueBusEvent(event);
+            applyQueueBusEvent(event);
             switch (event.type) {
                 case "session.created": {
                     void relist();

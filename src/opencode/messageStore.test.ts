@@ -1,9 +1,9 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {applyEvent, applyOlderPage, applySeedPage, backfillSubagentLink, dropFromBoundary, needsSubagentBackfill} from "./messageStore.ts";
+import {appendUserMessage, applyEvent, applyOlderPage, applySeedPage, backfillSubagentLink, dropFromBoundary, needsSubagentBackfill} from "./messageStore.ts";
 import type {MessagesPage} from "./api.ts";
 import {MESSAGES_PAGE_SIZE} from "./types.ts";
-import {recordPendingCommand} from "./pendingCommands.ts";
+import {recordPendingCommand, takePendingCommand} from "./pendingCommands.ts";
 import type {OpencodeEvent} from "./eventStream.ts";
 import type {ChatAssistantMessage, ChatMessage, ChatUserMessage} from "./types.ts";
 import {isUserMessage} from "./types.ts";
@@ -684,6 +684,39 @@ test("inbox cancelled does not touch a local optimistic bubble still awaiting ad
     const out = applyEvent(list, ev("session.inbox.cancelled", {inboxID: "msg_user_x"}));
     assert.equal(out, list, "unrelated cancel is a no-op");
     assert.equal(out.length, 1);
+});
+
+// --- Server-native queued prompts (delivery:"queue") ---
+
+test("a queued enqueue never renders in the transcript", () => {
+    // Queue rows live above the composer (promptQueue.ts); the
+    // transcript only sees them at `session.inbox.delivered` time (the
+    // appendUserMessage path below). The pending-command stamp stays
+    // unconsumed for the queue fold to take.
+    recordPendingCommand(SID, {name: "init", arguments: ""});
+    let list: ChatMessage[] = [{id: "msg_user_prev", type: "user", text: "earlier"}];
+    list = applyEvent(
+        list,
+        ev("session.inbox.enqueued", {
+            inboxID: "msg_q1",
+            item: {type: "user", delivery: "queue", payload: {text: "parked prompt"}},
+        }),
+    );
+    assert.equal(list.length, 1, "queue row skipped");
+    assert.equal(list[0].id, "msg_user_prev");
+    // The stamp survived for the queue fold (the transcript took nothing).
+    assert.deepEqual(takePendingCommand(SID), {name: "init", arguments: ""});
+});
+
+test("appendUserMessage appends a delivered queue row, idempotent by id", () => {
+    let list: ChatMessage[] = [{id: "msg_user_prev", type: "user", text: "earlier"}];
+    list = appendUserMessage(list, {id: "msg_q1", type: "user", text: "parked prompt"});
+    assert.deepEqual(
+        list.map((m) => m.id),
+        ["msg_user_prev", "msg_q1"],
+    );
+    const again = appendUserMessage(list, {id: "msg_q1", type: "user", text: "parked prompt"});
+    assert.equal(again, list, "duplicate append keeps the array identity");
 });
 
 test("adoption replaces a bubble even when a later assistant shell raced it", () => {

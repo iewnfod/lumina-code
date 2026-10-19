@@ -450,18 +450,30 @@ src/
 │   │                      #   exit code comes from data.exit — echoing $?
 │   │                      #   would be a bashism under fish). PLUS THE
 │   │                      #   SESSION INBOX trio feeding the interrupt
-│   │                      #   sweep (source-verified v2.0.11):
+│   │                      #   sweep AND the queued-prompt mirror
+│   │                      #   (source-verified v2.0.11):
 │   │                      #   listSessionInbox (GET /api/session/{id}/inbox
-│   │                      #   — the PENDING-ONLY input table; a prompt
-│   │                      #   POSTed mid-run without `delivery` parks
-│   │                      #   there as a steer row until a step boundary
-│   │                      #   promotes it) + cancelSessionInbox (DELETE
+│   │                      #   — the PERSISTED pending input table, rows
+│   │                      #   ordered by enqueued_seq; a prompt POSTed
+│   │                      #   mid-run without `delivery` parks there as
+│   │                      #   a steer row until a step boundary promotes
+│   │                      #   it, while delivery:"queue" rows are the
+│   │                      #   SERVER-NATIVE queued prompts — invisible
+│   │                      #   to the running turn, auto-drained as fresh
+│   │                      #   turns when it ends, and readable by every
+│   │                      #   client; see promptQueue.ts) +
+│   │                      #   cancelSessionInbox (DELETE
 │   │                      #   /api/session/{id}/inbox/{inboxID} — no-op
 │   │                      #   on already-delivered rows; emits
 │   │                      #   session.inbox.cancelled) — the server's
 │   │                      #   interrupt endpoint does NOT clear the
 │   │                      #   inbox, so "stop means stop" needs the sweep
-│   │                      #   (useSessionMessages.interrupt).
+│   │                      #   (useSessionMessages.interrupt). sendPrompt
+│   │                      #   takes an optional delivery:"queue" — the
+│   │                      #   POST RESPONSE IS the inbox row (id +
+│   │                      #   delivery + payload, curl-verified), which
+│   │                      #   is what lets the optimistic queue row
+│   │                      #   adopt the server id without text matching.
 │   ├── configFiles.ts     # globalConfigTarget — where the global opencode.json
 │   │                      #   lives, derived from GET /api/config (pure; shared
 │   │                      #   by the settings config editor and the attachment
@@ -649,49 +661,73 @@ src/
 │   │                      #   (see useSessionMessages — a prompt landing
 │   │                      #   during the stop's cleanup would restart the
 │   │                      #   run server-side).
-│   ├── promptQueue.ts    # The per-session QUEUED-PROMPT store (module store +
-│   │                      #   useSyncExternalStore, the sessionStopping
-│   │                      #   pattern): prompts composed mid-run QUEUE here
-│   │                      #   instead of steering the running turn, render as
-│   │                      #   rows above the composer (QueuedPromptRow —
-│   │                      #   grip-reorder / send-now / edit / remove) and
-│   │                      #   flush through the normal send path when the
-│   │                      #   run ends. THE FLUSH IS ChatView'S (it owns the
-│   │                      #   send path) and delivers EXACTLY ONE prompt per
-│   │                      #   idle window (a guard ref — busy flips true a
-│   │                      #   beat AFTER deliver, and the shrunken queue
-│   │                      #   re-fires the effect; without the guard the
-│   │                      #   whole queue would flush at once), re-armed on
-│   │                      #   busy→true and on session switch; a
-│   │                      #   backgrounded session's queue flushes when the
-│   │                      #   session is reopened (mount + idle). INTERRUPT
-│   │                      #   CLEARS the queue (stopping means stop — an
-│   │                      #   auto-flush right after would restart the
-│   │                      #   aborted work; rows collapse away with their
-│   │                      #   exit animation). The SERVER half of the same
-│   │                      #   doctrine is the inbox sweep in
-│   │                      #   useSessionMessages.interrupt: "send now"
-│   │                      #   prompts already POSTed park in the server's
-│   │                      #   pending inbox as steer rows and must be
-│   │                      #   cancelled too, or the next wake resurrects
-│   │                      #   them (send() also fences on the stopping
-│   │                      #   marker). "STOP AND SEND" (the row's
-│   │                      #   lightning action) NEVER steers the running
-│   │                      #   turn — the row is EXPEDITED
-│   │                      #   (expeditePrompt, click order; stays
-│   │                      #   visible) and the run interrupted; when it
-│   │                      #   settles, the flush effect delivers the
-│   │                      #   batch as the fresh turn's opening prompts
-│   │                      #   (takeExpeditedPrompts; interrupt() is
-│   │                      #   idempotent so stacked rows share one stop);
-│   │                      #   "edit" loads
-│   │                      #   text + attachments back into the composer via
-│   │                      #   ChatInput's draftLoad prop (mention nodes
-│   │                      #   degrade to plain @path text — Lexical nodes
-│   │                      #   can't rehydrate from it). session.deleted
-│   │                      #   drops the queue (applyPromptQueueBusEvent,
-│   │                      #   folded in useSessions next to
-│   │                      #   applyStoppingBusEvent).
+│   ├── promptQueue.ts    # The per-session QUEUED-PROMPT store — now a MIRROR
+│   │                      #   of the SERVER's native queue (v2.0.11
+│   │                      #   `delivery:"queue"`, curl-verified): prompts
+│   │                      #   composed mid-run POST with delivery:"queue"
+│   │                      #   and park in the server's PERSISTED inbox
+│   │                      #   (session_pending table, enqueued_seq order)
+│   │                      #   — every client of the server (desktop
+│   │                      #   windows AND the mobile app) reads the same
+│   │                      #   rows, and they survive app kills (the old
+│   │                      #   in-memory queue never synced across
+│   │                      #   devices, which was the bug). Division of
+│   │                      #   labor (binary- + live-verified): PARKING —
+│   │                      #   steer-mode drain never sees queue rows, so
+│   │                      #   the running turn is untouched; FLUSH — the
+│   │                      #   SERVER does it (the POST's wake lingers as
+│   │                      #   pendingWake="input"; the run's natural end
+│   │                      #   drains queue rows as fresh turns — multiple
+│   │                      #   queued rows chain inside one successor
+│   │                      #   execution); DISPLAY — rows render above the
+│   │                      #   composer ONLY (messageStore's enqueued case
+│   │                      #   skips delivery:"queue" user rows; the
+│   │                      #   delivered frame appends the transcript
+│   │                      #   message under the SAME id); STOP — the
+│   │                      #   interrupt's inbox sweep cancels every
+│   │                      #   pending row server-side. The store itself
+│   │                      #   (module store + useSyncExternalStore, the
+│   │                      #   sessionStopping pattern): seeded from GET
+│   │                      #   /api/session/{id}/inbox on every
+│   │                      #   requestSeed (mount / surface warm / the
+│   │                      #   mobile SSE-reconnect heal), live-patched
+│   │                      #   from the bus (applyQueueBusEvent in
+│   │                      #   useSessions: enqueued/cancelled/delivered/
+│   │                      #   session.deleted; the pending-command
+│   │                      #   stamp is consumed HERE — messageStore
+│   │                      #   leaves it for queue rows). In-flight POSTs
+│   │                      #   render optimistically (local-* sending
+│   │                      #   rows); the POST RESPONSE IS the inbox row
+│   │                      #   (live-verified), so adoption is a straight
+│   │                      #   id swap; a dead POST keeps a failed row
+│   │                      #   (retry affordance). Queued COMMANDS ride
+│   │                      #   as their expanded template text (the
+│   │                      #   command endpoint takes no delivery
+│   │                      #   parameter). REORDER (drag) has no server
+│   │                      #   API — the commit REWRITES the queue
+│   │                      #   (cancel + re-POST in the new order,
+│   │                      #   useSessionMessages.rewriteQueuedOrder).
+│   │                      #   "STOP AND SEND" (⚡) still never steers the
+│   │                      #   running turn: the queue's content is
+│   │                      #   snapshotted locally (the sweep deletes the
+│   │                      #   server rows), the run interrupted, and
+│   │                      #   ChatView's flush effect re-POSTs the batch
+│   │                      #   in the first idle window — expedited first
+│   │                      #   (click order), the rest in queue order
+│   │                      #   (takeExpeditedBatch; the first POST
+│   │                      #   executes immediately, the rest park and
+│   │                      #   chain). "edit" loads text + attachments
+│   │                      #   back into the composer via queuedRowToDraft
+│   │                      #   (divert note stripped, saved images
+│   │                      #   re-referenced as file:// chips; ChatInput's
+│   │                      #   draftLoad prop — mention nodes degrade to
+│   │                      #   plain @path text). Node-testable pure
+│   │                      #   halves: mergeSeedRows / foldQueuedRows /
+│   │                      #   planQueueRewrite / mergeExpeditedSnapshot
+│   │                      #   (promptQueue.test.ts). KNOWN EDGE: after a
+│   │                      #   SERVER restart, idle leftover queue rows
+│   │                      #   have no wake — they drain with the user's
+│   │                      #   next POST (seq order), acceptable.
 │   ├── turnEdits.ts      # The per-turn EDIT SUMMARY store (module store +
 │   │                      #   useSyncExternalStore, the sessionStopping
 │   │                      #   pattern): one entry per (session, user
@@ -987,7 +1023,23 @@ src/
 │   │                      #   stop window is dropped instead (stop means
 │   │                      #   stop). messageStore drops the cancelled
 │   │                      #   rows' ghost bubbles on
-│   │                      #   session.inbox.cancelled.
+│   │                      #   session.inbox.cancelled. ALSO THE QUEUE
+│   │                      #   ACTION SET (the server-native queue's
+│   │                      #   client half, see promptQueue.ts):
+│   │                      #   sendQueued (the busy-path POST with
+│   │                      #   delivery:"queue" — optimistic row, the
+│   │                      #   POST response adopts the server id, a
+│   │                      #   dead POST keeps a retryable failed row),
+│   │                      #   retryQueued / removeQueued (cancel +
+│   │                      #   restore-on-failed-cancel) /
+│   │                      #   deliverQueuedRows (the "stop and send"
+│   │                      #   re-POST batch) / rewriteQueuedOrder (drag
+│   │                      #   reorder = cancel + re-POST, no server
+│   │                      #   reorder API); every requestSeed also seeds
+│   │                      #   the queue mirror, and the bus handler
+│   │                      #   appends a delivered queue row's transcript
+│   │                      #   message from the row content it holds
+│   │                      #   (appendUserMessage, id = the inboxID).
 │   ├── useSessionFlow.ts  # App-level session flow: active session id + composer
 │   │                      #   staging (pendingModel/pendingAgent/pendingDirectory
 │   │                      #   seeded from lib/persist.ts, plus the NOT-persisted
@@ -1883,15 +1935,16 @@ src/
     │   │                  #   submit = editResend (revert + resend),
     │   │                  #   success snaps to bottom and ends the
     │   │                  #   edit, failure keeps the composer editing.
-    │   │                  #   THE QUEUED-PROMPT SITE too: handleSend
-    │   │                  #   branches on busy (enqueue vs deliver), the
-    │   │                  #   ONE shared `deliver` feeds the live send /
-    │   │                  #   the flush effect (which delivers the
-    │   │                  #   "stop and send" expedited batch first, then
-    │   │                  #   the regular queue one-per-window; see
-    │   │                  #   opencode/promptQueue.ts for the rules),
-    │   │                  #   and the rows' ExitList sits at the top of
-    │   │                  #   the pinned stack above the composer.
+     │   │                  #   THE QUEUED-PROMPT SITE too: handleSend
+     │   │                  #   branches on busy (queue POST vs deliver) —
+     │   │                  #   deliverQueued is deliver's twin (same
+     │   │                  #   vision divert) feeding the server-native
+     │   │                  #   queue POST, and the flush effect is now
+     │   │                  #   ONLY the "stop and send" re-POST batch
+     │   │                  #   (the regular flush is the SERVER's — see
+     │   │                  #   opencode/promptQueue.ts); the rows'
+     │   │                  #   ExitList sits at the top of
+     │   │                  #   the pinned stack above the composer.
     │   ├── transcript.ts  # Pure blockify(): folds runs of activity-only
     │   │                  #   assistant messages into TranscriptBlocks; a persisted
     │   │                  #   model-switched marker becomes its own model-change
@@ -2195,22 +2248,29 @@ src/
     │   │                  #   window listeners resolve the row under
     │   │                  #   the pointer via elementFromPoint — the row
     │   │                  #   root carries data-queued-id — and pointerup
-    │   │                  #   commits moveQueuedPrompt; Esc/release
-    │   │                  #   outside cancels, source dims, target
-    │   │                  #   outlines, and a FIXED ghost copy of the
-    │   │                  #   row follows the pointer — portaled to
-    │   │                  #   document.body (a fixed element inside the
-    │   │                  #   tree gets caught by .lum-row's
-    │   │                  #   container-type containment and offsets
-    │   │                  #   from the cursor), imperative
-    │   │                  #   transform writes, pointer-events:none so
-    │   │                  #   elementFromPoint still resolves the row
-    │   │                  #   beneath it),
-    │   │                  #   the text preview (a slash-command entry shows
-    │   │                  #   its compact /name args form, not the expanded
-    │   │                  #   template), and stop-and-send (expedite +
-    │   │                  #   interrupt, NEVER a mid-run steer — see
-    │   │                  #   promptQueue.ts) / edit / remove.
+     │   │                  #   root carries data-queued-id — and pointerup
+     │   │                  #   commits the rewrite (rewriteQueuedOrder —
+     │   │                  #   cancel + re-POST, no server reorder API);
+     │   │                  #   Esc/release
+     │   │                  #   outside cancels, source dims, target
+     │   │                  #   outlines, and a FIXED ghost copy of the
+     │   │                  #   row follows the pointer — portaled to
+     │   │                  #   document.body (a fixed element inside the
+     │   │                  #   tree gets caught by .lum-row's
+     │   │                  #   container-type containment and offsets
+     │   │                  #   from the cursor), imperative
+     │   │                  #   transform writes, pointer-events:none so
+     │   │                  #   elementFromPoint still resolves the row
+     │   │                  #   beneath it),
+     │   │                  #   the text preview (a slash-command entry shows
+     │   │                  #   its compact /name args form, not the expanded
+     │   │                  #   template; a diverted send strips its
+     │   │                  #   protocol note), and stop-and-send (snapshot +
+     │   │                  #   interrupt, NEVER a mid-run steer — see
+     │   │                  #   promptQueue.ts) / edit / remove. A row whose
+     │   │                  #   queue POST DIED renders failed (danger-text
+     │   │                  #   label + retry button; a `sending` row dims
+     │   │                  #   with its actions disabled).
     │   │                  #   The edit pencil locks while edit-last-message
     │   │                  #   owns the composer (the two buffers must not
     │   │                  #   clobber each other). ENTRANCE is SYNCED

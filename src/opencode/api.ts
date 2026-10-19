@@ -20,6 +20,7 @@ import type {
     SessionModelRef,
     ShellInfo,
     ShellOutput,
+    UserMessageFile,
     WorkspaceDiffEntry,
 } from "./types.ts";
 export type {Session} from "@opencode-ai/sdk/v2/client";
@@ -59,12 +60,21 @@ export interface MessagesPage {
 /** One PENDING row of `GET /api/session/{id}/inbox` (server v2.0.11): a
  * prompt parked as `steer` or `queue` that no step boundary has promoted
  * into the live turn yet. `type` is "user" | "synthetic" | "compaction" |
- * "move"; `delivery` is "steer" | "queue". Only the fields the interrupt
- * sweep reads are declared. */
+ * "move"; `delivery` is "steer" | "queue". Rows are PERSISTED (the
+ * `session_pending` sqlite table, ordered by `enqueued_seq` — the wire
+ * list arrives in send order), which is what makes the queue visible to
+ * every client of the server (desktop windows + the mobile app): the
+ * queued-prompt store is a mirror of these rows, see promptQueue.ts.
+ * `payload` (user rows: text + files) was curl-verified live — the POST
+ * response carries the SAME row shape (including `id` + `delivery`), so
+ * the optimistic queue row can adopt the server id straight from it. */
 export interface SessionInboxItem {
     id: string;
+    sessionID?: string;
     type: string;
     delivery: string;
+    time?: {created?: number};
+    payload?: {text?: string; files?: UserMessageFile[]};
 }
 
 /**
@@ -247,19 +257,39 @@ export class OpencodeApi {
     }
 
     /** Sends a prompt; the reply streams in over the event bus. Attachments
-     *  ride as data-URI `files` (the server normalizes them inline).
-     *  Deadline-bounded: the base64 body is the largest request the client
-     *  makes, and the mobile frp route must not park it forever. */
+     *  ride as data-URI `files` (the server normalizes them to bare base64
+     *  `data` fields in the stored message/inbox row). Deadline-bounded:
+     *  the base64 body is the largest request the client makes, and the
+     *  mobile frp route must not park it forever.
+     *
+     *  `delivery` (curl-verified v2.0.11; the payload schema is
+     *  `{id, …promptFields, metadata, delivery, resume}`): omitted → the
+     *  server normalizes to `"steer"`. `"queue"` is the SERVER-NATIVE
+     *  queued prompt — the row parks in the persisted session inbox while
+     *  a run is active (steer-mode drain never sees queue rows, so the
+     *  current run is untouched), and the POST's wake is remembered as
+     *  `pendingWake="input"` so the run's natural end automatically drains
+     *  queue rows as fresh turns — the server performs the flush, and the
+     *  queue is durable + visible to every client of this server (the
+     *  mobile app reads the same rows; see promptQueue.ts). On an idle
+     *  session a `"queue"` POST executes immediately (wake → input drain).
+     *  The response body IS the inbox row shape (id/delivery/payload),
+     *  live-verified. */
     sendPrompt(
         sessionId: string,
         text: string,
         files?: {uri: string; name: string}[],
+        delivery?: "steer" | "queue",
     ): Promise<unknown> {
         return this.request(
             `/api/session/${encodeURIComponent(sessionId)}/prompt`,
             {
                 method: "POST",
-                body: JSON.stringify(files?.length ? {text, files} : {text}),
+                body: JSON.stringify({
+                    text,
+                    ...(files?.length ? {files} : {}),
+                    ...(delivery ? {delivery} : {}),
+                }),
             },
             UPLOAD_TIMEOUT_MS,
         );

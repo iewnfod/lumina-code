@@ -11,13 +11,9 @@ import {useConnection} from "../../opencode/connectionContext.tsx";
 import {usePendingRequests, useSessionData, useSessionTranscript} from "../../opencode/sessionDataContext.tsx";
 import {useSessionStopping} from "../../opencode/sessionStopping.ts";
 import {
-    clearSessionQueue,
-    enqueuePrompt,
-    expeditePrompt,
-    moveQueuedPrompt,
-    removeQueuedPrompt,
-    takeExpeditedPrompts,
-    takeQueuedPrompt,
+    expediteQueuedRow,
+    queuedRowToDraft,
+    takeExpeditedBatch,
     useQueuedPrompts,
 } from "../../opencode/promptQueue.ts";
 import {type GateContext, planApprovalPending, workApprovalPending} from "../../opencode/sessionActivity.ts";
@@ -135,8 +131,20 @@ const ChatView = memo(function ChatView({
     const {api} = useConnection();
     const {models} = useCatalog();
     const {replyPermission, replyForm, cancelForm} = useSessionData();
-    const {messages, hasMore, loadingOlder, loadOlder, send, editResend, interrupt} =
-        useSessionTranscript(sessionId);
+    const {
+        messages,
+        hasMore,
+        loadingOlder,
+        loadOlder,
+        send,
+        editResend,
+        interrupt,
+        sendQueued,
+        retryQueued,
+        removeQueued,
+        deliverQueuedRows,
+        rewriteQueuedOrder,
+    } = useSessionTranscript(sessionId);
     const {permissions: pendingPermissions, forms: pendingForms} = usePendingRequests(sessionId);
     // Identical asks (same action + resources) merge into ONE card: the
     // server fires one permission assert per tool invocation with no
@@ -248,6 +256,27 @@ const ChatView = memo(function ChatView({
         },
         [sessionId, deliver],
     );
+    /** The queue's send path — `deliver`'s twin for the busy branch:
+     *  same vision divert, then a server-native `queue` POST (the row
+     *  parks in the persistent inbox instead of steering the run; every
+     *  client of this server sees it — see promptQueue.ts). */
+    const deliverQueued = useCallback(
+        (
+            text: string,
+            files: ComposerAttachment[],
+            fileRefs: ComposerFileRef[],
+            command: PendingCommand | null,
+        ) => {
+            void divertAttachmentsForSend({
+                api,
+                attachments: files,
+                acceptsImages: modelAcceptsImages(models, model),
+            }).then(({inline, note}) => {
+                void sendQueued(note ? `${text}\n\n${note}` : text, inline, fileRefs, command);
+            });
+        },
+        [api, models, model, sendQueued],
+    );
     const handleSend = useCallback(
         (
             text: string,
@@ -256,31 +285,36 @@ const ChatView = memo(function ChatView({
             command: PendingCommand | null,
         ) => {
             // Mid-run the prompt QUEUES instead of steering the current
-            // turn — it renders as a row above the composer and goes out
-            // through `deliver` when the run ends (the flush effect).
+            // turn — server-side (`delivery:"queue"`), so the row is
+            // visible on every client and the server itself flushes it
+            // when the run ends.
             if (busy) {
-                enqueuePrompt(sessionId, {text, files, fileRefs, command});
+                deliverQueued(text, files, fileRefs, command);
                 return;
             }
             deliver(text, files, fileRefs, command);
         },
-        [busy, sessionId, deliver],
+        [busy, deliver, deliverQueued],
     );
     const handleInterrupt = useCallback(() => {
-        // Stopping means STOP: the queue clears too, so the aborted work
-        // is not immediately restarted by the next queued prompt (the
-        // rows collapse away with their exit animation).
-        clearSessionQueue(sessionId);
+        // Stopping means STOP: the interrupt's inbox sweep cancels every
+        // pending row server-side (queue rows included — same doctrine as
+        // the old local clear, now enforced where the rows live); the
+        // `cancelled` frames collapse the rows away with their exit
+        // animation.
         void interrupt();
-    }, [sessionId, interrupt]);
+    }, [interrupt]);
 
-    // --- Queued-prompt flush + row actions ---
-    // Exactly ONE queued prompt delivers per idle window (the guard ref):
-    // after `deliver` the queue shrinks, which re-runs this effect while
-    // `busy` is still false (execution.started arrives a beat later) —
-    // without the guard the whole queue would flush at once instead of
-    // one-prompt-per-run. busy turning true re-arms the guard; so does a
-    // session switch (the ref outlives it otherwise).
+    // --- "Stop and send" flush (the queue's regular flush is the
+    //     SERVER's: the run's natural end drains its queue rows) ---
+    // The expedited batch is the one client-driven delivery left: the
+    // rows' content was snapshotted at expedite time (the sweep deletes
+    // the server rows right after), and once the interrupted run settles
+    // (busy turning false) the batch re-POSTs in order — expedited first
+    // (click order), the rest in queue order. The guard ref keeps this to
+    // ONE batch per idle window (the re-run while busy is still false
+    // would otherwise re-enter on every row mutation); busy turning true
+    // re-arms it, so does a session switch.
     const flushedIdleRef = useRef(false);
     useEffect(() => {
         flushedIdleRef.current = false;
@@ -291,48 +325,43 @@ const ChatView = memo(function ChatView({
             return;
         }
         if (flushedIdleRef.current) return;
-        // The "stop and send" batch owns the first idle window: every
-        // expedited row delivers in click order — the first POST starts
-        // the fresh turn, the rest join at its first step boundary
-        // (promote runs BEFORE the first model call, so they share one
-        // turn) — and the regular queue resumes one-per-window after.
-        const expedited = takeExpeditedPrompts(sessionId);
-        if (expedited.length > 0) {
-            flushedIdleRef.current = true;
-            for (const entry of expedited) {
-                deliver(entry.text, entry.files, entry.fileRefs, entry.command);
-            }
-            return;
-        }
-        if (queued.length === 0) return;
-        const head = takeQueuedPrompt(sessionId);
-        if (!head) return;
+        const batch = takeExpeditedBatch(sessionId);
+        if (batch.length === 0) return;
         flushedIdleRef.current = true;
-        deliver(head.text, head.files, head.fileRefs, head.command);
-    }, [busy, queued, sessionId, deliver]);
+        void deliverQueuedRows(batch);
+    }, [busy, sessionId, deliverQueuedRows]);
     // "Stop and send" pulls one row out of the queue's waiting line:
     // idle it delivers immediately; mid-run it NEVER steers the running
     // turn (parked steers are what made interrupts unreliable — they
     // survive the stop server-side, see useSessionMessages' sweep).
-    // Instead the row is expedited and the current run interrupted;
-    // the flush effect above delivers the batch once it settles.
+    // Instead the row is expedited (content snapshotted — the sweep is
+    // about to cancel the server rows) and the current run interrupted;
+    // the flush effect above re-POSTs the batch once it settles.
     const handleSendQueuedNow = useCallback(
         (id: string) => {
-            const entry = queued.find((q) => q.id === id);
-            if (!entry) return;
             if (busy) {
-                expeditePrompt(sessionId, id);
+                expediteQueuedRow(sessionId, id);
                 void interrupt();
                 return;
             }
-            removeQueuedPrompt(sessionId, id);
-            deliver(entry.text, entry.files, entry.fileRefs, entry.command);
+            // Idle with a leftover row (a sweep that failed, or the app
+            // died mid-queue): cancel it and deliver through the normal
+            // path — `deliver` keeps the optimistic-bubble transcript
+            // treatment, and the draft rebuild (note stripped, file://
+            // refs kept) round-trips the attachments.
+            const entry = queued.find((q) => q.id === id);
+            if (!entry) return;
+            const draft = queuedRowToDraft(entry);
+            void removeQueued(id);
+            deliver(draft.text, draft.files, [], entry.command);
         },
-        [queued, sessionId, deliver, busy, interrupt],
+        [busy, queued, sessionId, interrupt, removeQueued, deliver],
     );
     // Edit: the row's text + attachments load back into the composer
     // (ChatInput's draftLoad prop) and the entry leaves the queue;
-    // resubmitting re-enqueues while the session still runs.
+    // resubmitting re-enqueues while the session still runs. The draft
+    // rebuilds from the row's wire content (divert note stripped, the
+    // saved images re-referenced as file:// chips).
     const [queueEdit, setQueueEdit] = useState<{token: number; text: string; files: ComposerAttachment[]} | null>(null);
     useEffect(() => {
         setQueueEdit(null);
@@ -342,10 +371,10 @@ const ChatView = memo(function ChatView({
         (id: string) => {
             const entry = queued.find((q) => q.id === id);
             if (!entry) return;
-            removeQueuedPrompt(sessionId, id);
-            setQueueEdit({token: Date.now(), text: entry.text, files: entry.files});
+            void removeQueued(id);
+            setQueueEdit({token: Date.now(), ...queuedRowToDraft(entry)});
         },
-        [queued, sessionId],
+        [queued, removeQueued],
     );
     const handleDraftLoaded = useCallback(() => setQueueEdit(null), []);
 
@@ -388,8 +417,10 @@ const ChatView = memo(function ChatView({
             if (!d) return;
             const overId = rowAt(e.clientX, e.clientY);
             // Drop = insert BEFORE the target row (the pinned stack
-            // grows upward; both directions work).
-            if (overId && overId !== d.draggedId) moveQueuedPrompt(sessionId, d.draggedId, overId);
+            // grows upward; both directions work). The server queue has
+            // no reorder API — the commit rewrites it (cancel + re-POST
+            // in the new order; see useSessionMessages).
+            if (overId && overId !== d.draggedId) void rewriteQueuedOrder(d.draggedId, overId);
         };
         const onCancel = () => setQueueDrag(null);
         const onKey = (e: KeyboardEvent) => {
@@ -775,7 +806,8 @@ const ChatView = memo(function ChatView({
                             dropTarget={queueDrag !== null && queueDrag.draggedId !== q.id && queueDrag.overId === q.id}
                             onSendNow={handleSendQueuedNow}
                             onEdit={handleEditQueued}
-                            onRemove={(id) => removeQueuedPrompt(sessionId, id)}
+                            onRemove={(id) => void removeQueued(id)}
+                            onRetry={(id) => void retryQueued(id)}
                             onGripPointerDown={(e) => startQueueDrag(e, q.id)}
                             editLocked={editMessage !== null}
                         />
@@ -921,15 +953,7 @@ const ChatView = memo(function ChatView({
                         >
                             <GripVertical size={14} className="shrink-0" style={{color: colors.inactiveText}}/>
                             <span className="flex-1 min-w-0 truncate text-xs" style={{color: colors.textPrimary}}>
-                                {queuedRowDisplay(
-                                    queued.find((q) => q.id === queueDrag.draggedId) ?? {
-                                        text: "",
-                                        files: [],
-                                        fileRefs: [],
-                                        command: null,
-                                        id: queueDrag.draggedId,
-                                    },
-                                )}
+                                {queuedRowDisplay(queued.find((q) => q.id === queueDrag.draggedId) ?? {text: "", command: null})}
                             </span>
                         </div>
                     </div>,

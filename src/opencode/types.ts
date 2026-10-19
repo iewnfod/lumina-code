@@ -510,11 +510,30 @@ export interface EventMap {
     "session.model.selected": {sessionID: string; model: SessionModelRef; previous?: SessionModelRef};
     "session.deleted": {sessionID: string};
     "session.renamed": {sessionID: string; title: string};
+    /** A prompt was admitted to the session's PERSISTED inbox (fires at POST
+     *  time — parking, not delivery). `item.delivery` (curl-verified on the
+     *  wire; absent only on servers older than the field) splits the UI:
+     *  `"queue"` rows are the QUEUED prompts — they render above the
+     *  composer (promptQueue.ts) and are EXCLUDED from the transcript;
+     *  `"steer"` rows (the server's default for a delivery-less POST, i.e.
+     *  this client's normal sends while idle, or another client steering)
+     *  render as the transcript's ghost bubble under the inboxID. */
     "session.inbox.enqueued": {
         sessionID: string;
         inboxID: string;
-        item: {type: string; payload?: {text?: string; files?: UserMessageFile[]}};
+        item: {type: string; delivery?: string; payload?: {text?: string; files?: UserMessageFile[]}};
     };
+    /** A pending inbox row was DELIVERED — promoted into the transcript as
+     * a real message (server v2.0.11; curl-verified wire shape). For queue
+     * rows this is the moment the parked prompt starts executing: the run
+     * that consumed it opens its first step right after. The persisted
+     * message keeps the row's id (the inboxID), so a client that rendered
+     * the row (queue list or ghost bubble) can adopt it in place. No
+     * content rides the event — readers take the text/files from the row
+     * they already hold (the queued-prompt store) or re-pull the newest
+     * message page. A delivered row never fires `session.inbox.cancelled`
+     * (delivery consumes the row inside an uninterruptible transaction). */
+    "session.inbox.delivered": {sessionID: string; inboxID: string};
     /** A pending inbox row was cancelled (server v2.0.11: the interrupt
      * sweep's DELETE, or another client's cancel). The row's ghost bubble
      * — rendered at enqueued time under the inboxID — must leave the

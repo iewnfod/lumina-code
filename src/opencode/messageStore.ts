@@ -39,6 +39,12 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
         case "session.inbox.enqueued": {
             const d = data as EventMap["session.inbox.enqueued"];
             if (d.item?.type !== "user") return list;
+            // A QUEUED prompt renders ABOVE THE COMPOSER (promptQueue.ts),
+            // never in the transcript — its `session.inbox.delivered` frame
+            // is what appends the user message (see appendUserMessage +
+            // useSessionMessages' handler). The pending-command stamp is
+            // the queue fold's to take on the same frame.
+            if (d.item.delivery === "queue") return list;
             const text = d.item.payload?.text ?? "";
             const files = d.item.payload?.files;
             // Already held (seed race or another handler pass)?
@@ -218,6 +224,18 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
         default:
             return list;
     }
+}
+
+/** Append a delivered user message to a session's list — the QUEUED
+ * prompt's `session.inbox.delivered` frame (the row's content rides no
+ * wire: useSessionMessages' handler rebuilds the message from the queued
+ * row it holds, with the row's id — the promoted message KEEPS the
+ * inboxID, live-verified, so the later server page merges over it in
+ * place). Idempotent by id: a seed that already landed the message, or
+ * a duplicate frame, leaves the list untouched. */
+export function appendUserMessage(list: ChatMessage[], message: ChatUserMessage): ChatMessage[] {
+    if (list.some((m) => m.id === message.id)) return list;
+    return [...list, message];
 }
 
 /** Drop the revert boundary message and everything after it (server
