@@ -16,6 +16,7 @@ import {usePaddingOffset} from "./hooks/paddingOffset.ts";
 import {useDragRegionDoubleClick} from "./hooks/useDragRegionDoubleClick.ts";
 import {useGlass} from "./hooks/useGlass.ts";
 import {useI18n} from "./hooks/i18n.tsx";
+import {usePhoneLayout} from "./hooks/useLayoutMode.ts";
 import {useSystemTheme} from "./hooks/useSystemTheme.ts";
 import {useThemePreference} from "./hooks/useThemePreference.ts";
 import {useSurfaceColors} from "./hooks/surfaceColors.ts";
@@ -468,18 +469,24 @@ function AppBody({
         setSettings({open: true, tab});
     }, []);
 
-    // The MOBILE chrome: the desktop tree with the sidebar as a DRAWER
-    // (TitleBar hamburger) — it is the only session navigation, so it
-    // overlays instead of docking. The stats panel mounts too, always
-    // overlaying the conversation (mobile.css sizes the expanded panel
-    // to span the row); the resize seam is the one desktop surface not
-    // mounted on a phone (lib/platform.ts isMobileApp).
+    // The MOBILE chrome splits along the device/layout line (see
+    // hooks/useLayoutMode.ts — tablet mode): `mobile` keeps the DEVICE
+    // semantics that never change with the layout (the TitleBar ⋯
+    // delete entry below — touch has no hover, SessionFolder's row X
+    // stays off), while `phoneLayout` drives the LAYOUT branches — the
+    // sidebar as a DRAWER (TitleBar hamburger, the only session
+    // navigation on a phone) vs DOCKED, the stats resize seam, the
+    // corner cutaways. In tablet mode (layout pinned/auto-resolved to
+    // "desktop") the sidebar docks like the desktop's, the resize seam
+    // mounts, and the stats panel's flex-sibling container-query tier
+    // becomes reachable (a wide row) with no further gating here.
     const mobile = isMobileApp();
+    const phoneLayout = usePhoneLayout();
     const [drawerOpen, setDrawerOpen] = useState(false);
     const closeDrawer = useCallback(() => setDrawerOpen(false), []);
-    // SYSTEM BACK closes the drawer (mobile): it is the top page level
-    // while open — same as tapping the scrim.
-    useBackLevel(mobile && drawerOpen, closeDrawer);
+    // SYSTEM BACK closes the drawer (phone layout): it is the top page
+    // level while open — same as tapping the scrim.
+    useBackLevel(phoneLayout && drawerOpen, closeDrawer);
     const closeSettings = useCallback(() => {
         setSettings((prev) => ({...prev, open: false}));
     }, []);
@@ -545,7 +552,7 @@ function AppBody({
                 "--lum-glass-border": colors.glassBorder,
             } as React.CSSProperties}
         >
-            {mobile ? (
+            {phoneLayout ? (
                 drawerOpen && (
                     <div className="lum-m-drawer-scrim" onClick={closeDrawer}>
                         <div
@@ -612,7 +619,7 @@ function AppBody({
                     branch={shownBranch}
                     onOpenSettings={() => openSettings()}
                     isMaximized={isMaximized}
-                    onMenu={mobile ? () => setDrawerOpen(true) : undefined}
+                    onMenu={phoneLayout ? () => setDrawerOpen(true) : undefined}
                     // MOBILE delete entry: only while a session is open
                     // (TitleBar renders the ⋯ menu only when this is
                     // passed — desktop never does, its sidebar row X
@@ -638,10 +645,14 @@ function AppBody({
                     <MaskedSurface
                         className="absolute inset-0"
                         style={{zIndex: 1}}
-                        // Mobile: square corners — the rounded cutaways (the
-                        // desktop 拼接倒角 seam aesthetic) read as window
-                        // chrome and have no place on a fullscreen phone.
-                        radius={mobile ? 0 : undefined}
+                        // Phone layout: square corners — the rounded
+                        // cutaways (the desktop 拼接倒角 seam aesthetic)
+                        // read as window chrome and have no place on a
+                        // fullscreen phone. Tablet mode keeps them: they
+                        // are IN-PAGE chrome (they expose the glass layer
+                        // below, never the desktop) and read as the
+                        // desktop layout's aesthetic, not window chrome.
+                        radius={phoneLayout ? 0 : undefined}
                     >
                         {/* The conversation canvas — its own opaque bg in
                             light mode, distinct from the chrome glass frame
@@ -729,11 +740,15 @@ function AppBody({
                                     StatsCardSwap: the previous card fades out
                                     (frozen snapshot) while the successor
                                     mounts. Never rendered on the welcome
-                                    screen. On MOBILE the panel mounts too —
-                                    always an overlay over the conversation
-                                    (a phone row can never reach the wide-row
-                                    flex-sibling tier, and mobile.css widens
-                                    the expanded panel to span the row). */}
+                                    screen. On the MOBILE app the panel mounts
+                                    too — on the phone layout it is always an
+                                    overlay over the conversation (mobile.css
+                                    widens the expanded panel to span the row;
+                                    a phone row can never reach the wide-row
+                                    flex-sibling tier), while tablet mode
+                                    (hooks/useLayoutMode.ts) lets the
+                                    container-query tiers decide exactly like
+                                    a desktop window. */}
                                 <StatsCardSwap
                                     swapKey={activeSession ? (activeDirectory ?? "") : null}
                                     render={(dir) => (
@@ -756,8 +771,10 @@ function AppBody({
                 to resize (persisted), double-click to reset. Rendered
                 AFTER the content column so its absolute box (main.css)
                 paints above it; hidden with the sidebar when collapsed.
-                Never on the MOBILE app (no docked sidebar to resize). */}
-            {!mobile && <SidebarResizer collapsed={false}/>}
+                Off the PHONE layout only — tablet mode docks the
+                sidebar and the seam (pointer-capture drag) works on
+                touch. */}
+            {!phoneLayout && <SidebarResizer collapsed={false}/>}
             {/* The settings modal (title-bar gear; the model picker
                 deep-links to its Model tab). */}
             <SettingsModal

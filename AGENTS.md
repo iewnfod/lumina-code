@@ -1446,6 +1446,41 @@ src/
 │   │                      #   pane, App's drawer, PopoverMenu (every
 │   │                      #   picker/menu) and the stats overlay's
 │   │                      #   expanded state.
+│   ├── useLayoutMode.ts  # The mobile app's LAYOUT mode (tablet mode):
+│   │                      #   a persistedStore.ts store
+│   │                      #   ("lumina-code:mobile-layout", auto |
+│   │                      #   phone | desktop, default auto) splitting
+│   │                      #   isMobileApp()'s two jobs apart — the
+│   │                      #   DEVICE/connection semantics (remote frp
+│   │                      #   route, system-back stack, window
+│   │                      #   controls, touch delete surfaces, soft-
+│   │                      #   keyboard focus guard) stay on
+│   │                      #   isMobileApp() forever, while the LAYOUT
+│   │                      #   branches (drawer vs docked sidebar,
+│   │                      #   SidebarResizer, two-level settings vs tab
+│   │                      #   rail, fullscreen vs centered modals, the
+│   │                      #   welcome cluster, mobile.css's phone
+│   │                      #   adaptations) read usePhoneLayout() —
+│   │                      #   tablet mode (layout "desktop") renders
+│   │                      #   the DESKTOP chrome with the remote
+│   │                      #   connection untouched. auto resolves by
+│   │                      #   the Material breakpoint (shortest side
+│   │                      #   >= 600px; WebView CSS px ≈ dp — phones
+│   │                      #   ~410, 7" tablets 600, foldables OPENED
+│   │                      #   ~674) and tracks viewport changes
+│   │                      #   (rotation/fold/split); pinned modes are
+│   │                      #   stable. The General tab's Layout row
+│   │                      #   (mobile-only) edits it; src/mobile/App.tsx
+│   │                      #   mirrors the resolved layout onto #root as
+│   │                      #   data-lum-layout DURING RENDER (first
+│   │                      #   paint correct — an effect would flash),
+│   │                      #   which is mobile.css's hook for scoping
+│   │                      #   the phone-sized overrides. The stats
+│   │                      #   panel needs NO gating: its always-overlay
+│   │                      #   phone behavior is just the phone row
+│   │                      #   never reaching the 79rem flex-sibling
+│   │                      #   container-query tier — a tablet row
+│   │                      #   docks it like the desktop's.
 │   ├── useFollowBottom.ts # stream-follow stickiness for inner scroll regions;
 │   │                      #   also exposes top/bottom edge flags for the
 │   │                      #   conditional .lum-fade-* fades on its boxes
@@ -2726,6 +2761,17 @@ narrow-layout adaptations + the login card — html/body get NO colors
 (splash-era inline colors poison the app tree's inherited text) — plus
 the settings modal's second-level PAGE animations (.lum-m-page-in/-out,
 the push/pop over the category list; see SettingsModal).
+TABLET MODE splits that flag's two jobs (hooks/useLayoutMode.ts): the
+LAYOUT half of those decisions (drawer, resize seam, settings
+navigation, modal shape, welcome cluster, mobile.css's phone
+adaptations via #root[data-lum-layout]) reads usePhoneLayout() instead
+and resolves to the DESKTOP chrome on tablet-class screens (auto =
+Material 600px shortest-side breakpoint; user-pinnable in General →
+Layout — phone / auto / tablet), while the DEVICE/connection half
+(remote frp-route opencode, system-back stack, hidden window controls,
+touch delete surfaces, soft-keyboard focus guard, touch composer
+height) stays on isMobileApp() regardless of layout — a tablet in
+desktop layout still connects to the DESKTOP's opencode remotely.
 
 - **Frontend = second vite entry**: `mobile/index.html` → `src/mobile/`
   (config `mobile/vite.config.ts`, port 1421, outDir `dist-mobile/`).

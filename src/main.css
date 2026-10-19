@@ -535,6 +535,18 @@ body {
     position: relative;
     margin: 0.6em 0;
 }
+/* The copy chip's Hint trigger wrapper (HeroUI's Tooltip.Trigger div) rides
+ * AFTER the pre inside this block host, and HeroUI's global stylesheet
+ * (heroui.min.css) makes every .tooltip__trigger display: inline-block.
+ * A zero-height INLINE-LEVEL box in a block container still generates an
+ * anonymous line box whose strut is the host's line-height (14px × 1.65 ≈
+ * 23px) — one blank text line hanging under EVERY code block (live-measured
+ * in WebKit2-4.1: hostPreGap=23.1). Forcing block layout removes the line
+ * box; the wrapper stays 0-tall (its only child, the copy button, is
+ * position: absolute), and the tooltip's anchor position is unchanged. */
+.lum-md .lum-md-pre-host [data-slot="tooltip-trigger"] {
+    display: block;
+}
 .lum-md pre {
     background: var(--lum-neutral-fill);
     padding: 0.75em 1em;

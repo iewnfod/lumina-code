@@ -12,6 +12,7 @@ import {ensureLuminaToolsPlugin} from "../../opencode/useLuminaTools.ts";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n, useLanguageChoice, setLanguage, type Language} from "../../hooks/i18n.tsx";
 import {setThemePreference, useThemePreference, type ThemePreference} from "../../hooks/useThemePreference.ts";
+import {setMobileLayoutMode, useMobileLayoutMode} from "../../hooks/useLayoutMode.ts";
 import {setStatsPanelMode, useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
 import {setNotificationSettings, useNotificationSettings} from "../../hooks/useNotificationMode.ts";
 import {setWindowOutline, useWindowOutline} from "../../hooks/useWindowOutline.ts";
@@ -24,7 +25,7 @@ import {
 } from "../../hooks/useBlurMyShell.ts";
 import {setTypography, useTypography} from "../../hooks/useTypography.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
-import {isLinux} from "../../lib/platform.ts";
+import {isLinux, isMobileApp} from "../../lib/platform.ts";
 import {
     CODE_SIZE_MAX,
     CODE_SIZE_MIN,
@@ -335,6 +336,7 @@ export default function GeneralSettings({api}: {api: OpencodeApi | null}) {
     const language = useLanguageChoice();
     const theme = useThemePreference();
     const outline = useWindowOutline();
+    const layoutMode = useMobileLayoutMode();
     const panelMode = useStatsPanelMode();
     const notifications = useNotificationSettings();
     const typography = useTypography();
@@ -362,6 +364,15 @@ export default function GeneralSettings({api}: {api: OpencodeApi | null}) {
         {value: "system", text: t["Follow System"]},
         {value: "light", text: t["Light"]},
         {value: "dark", text: t["Dark"]},
+    ];
+    // The mobile app's LAYOUT (tablet mode — hooks/useLayoutMode.ts):
+    // auto resolves by the Material 600px shortest-side breakpoint, the
+    // other two pin the layout. Mobile-only row (the desktop app has
+    // no layout choice to make).
+    const layoutOptions = [
+        {value: "auto", text: t["Automatic"]},
+        {value: "phone", text: t["Phone"]},
+        {value: "desktop", text: t["Desktop"]},
     ];
     const panelOptions = [
         {value: "auto", text: t["Auto collapse"]},
@@ -403,6 +414,25 @@ export default function GeneralSettings({api}: {api: OpencodeApi | null}) {
                         setThemePreference(value as ThemePreference);
                     }}
                 />
+                {/* The mobile app's layout (tablet mode): phone chrome vs
+                    the desktop layout (docked sidebar, tab-rail settings,
+                    centered modals — the remote opencode connection is
+                    layout-independent either way). The connection stays
+                    remote; only the chrome changes. */}
+                {isMobileApp() && (
+                    <OptionRow
+                        label={t["Layout"]}
+                        description={t["Which layout the app uses on this device"]}
+                        options={layoutOptions}
+                        selected={layoutMode}
+
+                        onSelect={(value) => {
+                            const mode = value === "phone" || value === "desktop" ? value : "auto";
+                            info(`Mobile layout mode set to ${mode} from settings`).catch(() => {});
+                            setMobileLayoutMode(mode);
+                        }}
+                    />
+                )}
                 {/* The session-activity panel's expansion mode: auto
                     collapses on outside clicks/Escape; always mounts it
                     expanded and keeps it open (a manual collapse lasts

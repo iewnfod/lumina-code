@@ -4,6 +4,7 @@ import {ArrowLeft, X} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useBackLevel} from "../../hooks/useBackLevel.ts";
+import {usePhoneLayout} from "../../hooks/useLayoutMode.ts";
 import {isMobileApp} from "../../lib/platform.ts";
 import ExitPresence from "./ExitPresence.tsx";
 import IconButton from "./IconButton.tsx";
@@ -46,12 +47,16 @@ export default function Modal({
 }) {
     const colors = useColors();
     const t = useI18n();
-    const mobile = isMobileApp();
+    // Split along the device/layout line (hooks/useLayoutMode.ts): the
+    // fullscreen-sheet STYLE follows the phone layout (tablet mode gets
+    // the desktop centered panel), while the system-back close below
+    // stays on the DEVICE — a tablet still has the back gesture.
+    const mobile = usePhoneLayout();
 
-    // SYSTEM BACK as a close (mobile): every modal is a page level —
-    // the back gesture pops it exactly like the X button (desktop
-    // short-circuits inside the hook).
-    useBackLevel(open && mobile, onClose);
+    // SYSTEM BACK as a close (mobile device): every modal is a page
+    // level — the back gesture pops it exactly like the X button
+    // (desktop short-circuits inside the hook).
+    useBackLevel(open && isMobileApp(), onClose);
 
     useEffect(() => {
         if (!open) return;

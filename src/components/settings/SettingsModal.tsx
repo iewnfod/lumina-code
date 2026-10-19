@@ -5,7 +5,7 @@ import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useBackLevel} from "../../hooks/useBackLevel.ts";
-import {isMobileApp} from "../../lib/platform.ts";
+import {usePhoneLayout} from "../../hooks/useLayoutMode.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
 import Modal from "../ui/Modal.tsx";
 import ExitPresence from "../ui/ExitPresence.tsx";
@@ -56,7 +56,11 @@ export default function SettingsModal({
 }) {
     const colors = useColors();
     const t = useI18n();
-    const mobile = isMobileApp();
+    // The LAYOUT branch (phone layout vs desktop/tab-rail — tablet mode
+    // lands on the desktop rail; see hooks/useLayoutMode.ts). The
+    // system-back wiring below follows it too: only the two-level
+    // navigation pushes a page level for back to pop.
+    const mobile = usePhoneLayout();
 
     // The desktop rail (and the mobile panes' fallback) read null as
     // "general" — the gear's plain open lands on the General pane there.

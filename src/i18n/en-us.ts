@@ -107,6 +107,12 @@ const enUs = {
     "Appearance": "Appearance",
     "Light": "Light",
     "Dark": "Dark",
+    // --- Layout (mobile app — tablet mode) ---
+    "Layout": "Layout",
+    "Which layout the app uses on this device": "Which layout the app uses on this device",
+    "Automatic": "Automatic",
+    "Phone": "Phone",
+    "Desktop": "Desktop",
     "Window outline": "Window outline",
     "Show a thin window edge when the desktop draws no shadow": "Show a thin window edge when the desktop draws no shadow",
     // --- Blur my Shell (Linux/GNOME window blur) ---

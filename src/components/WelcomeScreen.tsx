@@ -4,7 +4,7 @@ import type {
     PendingCommand,
     SessionModelRef,
 } from "../opencode/types.ts";
-import {isMobileApp} from "../lib/platform.ts";
+import {usePhoneLayout} from "../hooks/useLayoutMode.ts";
 import ChatPlaceholder from "./ChatPlaceholder.tsx";
 import ChatInput from "./composer/ChatInput.tsx";
 import {ComposerSelectors, ComposerSettingsControls} from "./composer/ComposerToolbar.tsx";
@@ -50,13 +50,14 @@ export default function WelcomeScreen({
     /** Opens the settings modal on its Model tab (model/provider config). */
     onOpenModelConfig: () => void;
 }) {
-    // MOBILE: the composer's settings controls — mode, project/branch
-    // pickers, model, thinking depth — move OUT of the input box (five
-    // labeled controls cannot fit one phone row) into a centered,
-    // wrap-friendly cluster BELOW the box; the toolbar keeps only attach
-    // + send. The in-session composer (and the whole desktop tree) is
-    // untouched.
-    const mobile = isMobileApp();
+    // PHONE LAYOUT: the composer's settings controls — mode, project/
+    // branch pickers, model, thinking depth — move OUT of the input box
+    // (five labeled controls cannot fit one phone row) into a centered,
+    // wrap-friendly cluster BELOW the box; the toolbar keeps only
+    // attach + send. Tablet mode (hooks/useLayoutMode.ts) keeps the
+    // standard desktop toolbar instead. The in-session composer (and
+    // the whole desktop tree) is untouched.
+    const mobile = usePhoneLayout();
     return (
         <div className="lum-enter h-full min-w-0 flex-1">
             {/* No horizontal padding here — the composer column's shared

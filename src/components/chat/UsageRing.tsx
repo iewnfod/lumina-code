@@ -1,6 +1,6 @@
 import type {CSSProperties} from "react";
 import {useColors} from "../../hooks/colors.tsx";
-import {isMobileApp} from "../../lib/platform.ts";
+import {usePhoneLayout} from "../../hooks/useLayoutMode.ts";
 import type {SessionUsage} from "../../opencode/types.ts";
 import PopoverMenu, {MenuLabel} from "../ui/PopoverMenu.tsx";
 import Hint from "../ui/Hint.tsx";
@@ -37,6 +37,11 @@ export default function UsageRing({tokens, sessionUsage, contextLimit}: {
 }) {
     const colors = useColors();
     const t = useI18n();
+    // The ring's panel alignment follows the LAYOUT (hooks/
+    // useLayoutMode.ts): the phone layout's one-row toolbar parks the
+    // ring near the screen's midpoint (a centered panel reads
+    // balanced), every other layout keeps the right-aligned panel.
+    const phoneLayout = usePhoneLayout();
     const total = totalTokens(tokens);
     if (total <= 0) return null;
 
@@ -54,11 +59,10 @@ export default function UsageRing({tokens, sessionUsage, contextLimit}: {
 
     return (
         <PopoverMenu
-            // MOBILE centers the details panel ON the ring: the one-row
-            // toolbar parks the ring near the screen's midpoint, so a
-            // centered panel reads balanced where an end-aligned one
-            // hugs the right edge. Desktop keeps the right-aligned panel.
-            align={isMobileApp() ? "center" : "end"}
+            // The phone layout centers the details panel ON the ring
+            // (see the phoneLayout note above); other layouts keep the
+            // right-aligned panel.
+            align={phoneLayout ? "center" : "end"}
             panelClassName="w-64"
             trigger={({open, toggle}) => (
                 // Hint idles while the menu is open — both the tooltip and

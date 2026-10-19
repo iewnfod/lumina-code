@@ -1,6 +1,7 @@
 import {useSystemTheme} from "../hooks/useSystemTheme.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
 import {ColorsProvider} from "../hooks/colors.tsx";
+import {usePhoneLayout} from "../hooks/useLayoutMode.ts";
 import {appThemeFor} from "../lib/theme.ts";
 import {useMobileConnection} from "../opencode/mobileConnection.ts";
 import App from "../App.tsx";
@@ -21,15 +22,23 @@ import LoginScreen from "./screens/LoginScreen.tsx";
  */
 export default function MobileApp() {
     const connection = useMobileConnection();
+    const phoneLayout = usePhoneLayout();
 
-    if (connection) return <App/>;
+    // The CSS hook for mobile.css's PHONE-scoped adaptations: the
+    // resolved layout rides #root as data-lum-layout (tablet mode —
+    // hooks/useLayoutMode.ts — keeps those rules out of play and the
+    // desktop container-query tiers take over). Written DURING RENDER
+    // so the very first paint carries the right layout (an effect
+    // would flash one wrong frame) — safe because #root is the React
+    // container itself, an attribute React does not manage. The login
+    // gate clears it: no App tree, no layout concept.
+    if (connection) {
+        document.getElementById("root")?.setAttribute("data-lum-layout", phoneLayout ? "phone" : "desktop");
+        return <App/>;
+    }
 
-    // The login screen's palette: the same system-theme-only derivation
-    // the desktop App runs (the ONE useSurfaceColors + ColorsProvider
-    // pattern — the tree below just hasn't mounted yet).
-    return (
-        <LoginGate/>
-    );
+    document.getElementById("root")?.removeAttribute("data-lum-layout");
+    return <LoginGate/>;
 }
 
 function LoginGate() {

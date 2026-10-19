@@ -105,6 +105,12 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Appearance": "外观",
     "Light": "浅色",
     "Dark": "深色",
+    // --- 布局（移动端 —— 平板模式）---
+    "Layout": "布局",
+    "Which layout the app uses on this device": "应用在此设备上使用的界面布局",
+    "Automatic": "自动",
+    "Phone": "手机",
+    "Desktop": "桌面",
     "Window outline": "窗口描边",
     "Show a thin window edge when the desktop draws no shadow": "在无窗口阴影的桌面显示窗口边缘",
     // --- Blur my Shell（Linux/GNOME 窗口模糊）---

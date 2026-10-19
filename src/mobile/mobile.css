@@ -117,33 +117,40 @@ body,
 
 /* ------------------------------------------------ The desktop tree's
  * mobile adaptations. mobile.css loads ONLY in the mobile bundle, so
- * plain selectors here are mobile-scoped by construction. */
+ * plain selectors here are mobile-scoped by construction. The LAYOUT
+ * rules below are further scoped to [data-lum-layout="phone"] on #root
+ * (written by src/mobile/App.tsx from hooks/useLayoutMode.ts): tablet
+ * mode resolves to the DESKTOP layout, where these phone-sized
+ * overrides must stand down and main.css's container-query tiers do
+ * the real responsive work again. Device-scoped rules (the touch
+ * composer height) carry no attribute — a tablet is still a touchscreen. */
 
 /* Safe areas are handled NATIVELY: MainActivity pads the content view
  * by the real window insets (Android WebView does not reliably surface
  * env(safe-area-inset-*) to CSS — live-observed device overlap). No
  * env() padding here, or devices where it DOES work would double-pad. */
 
-/* The composer toolbar is ONE row on mobile at every width — the same
- * shape as the desktop's wide tier (actions | spring | selectors |
- * send), long labels truncating to "..." instead of the toolbar growing
- * a second line. main.css's <30rem container query (the two-row split
- * that lifts the selectors above the send button) remains for NARROW
- * DESKTOP WINDOWS only; these resets neutralize it on mobile (#root
+/* The composer toolbar is ONE row on the phone layout at every width —
+ * the same shape as the desktop's wide tier (actions | spring |
+ * selectors | send), long labels truncating to "..." instead of the
+ * toolbar growing a second line. main.css's <30rem container query
+ * (the two-row split that lifts the selectors above the send button)
+ * remains for NARROW DESKTOP WINDOWS (and tablet mode) only; these
+ * resets neutralize it on the phone layout (#root[data-lum-layout]
  * outspecifies the layered query rules at every width, and the reset
- * values equal the wide tier, so tablets are unaffected — the send
- * reset deliberately spares .lum-toolbar-plain, whose spring must
+ * values equal the wide tier, so the phablet edge is unaffected — the
+ * send reset deliberately spares .lum-toolbar-plain, whose spring must
  * survive). flex-wrap: nowrap matters beyond aesthetics: a wrapping
  * flex line decides on HYPOTHETICAL (unshrunken) sizes, so an over-long
  * row would drop the send button onto a second line even though the
  * truncate labels could have absorbed the overflow; nowrap makes the
  * labels shrink first (both clusters carry min-w-0). User-verified on
  * device: the in-session row fits with room to spare. */
-#root .lum-toolbar {
+#root[data-lum-layout="phone"] .lum-toolbar {
     flex-wrap: nowrap;
 }
 
-#root .lum-tb-selectors {
+#root[data-lum-layout="phone"] .lum-tb-selectors {
     order: 0;
     flex-basis: auto;
     justify-content: flex-start;
@@ -152,7 +159,7 @@ body,
     margin-left: auto;
 }
 
-#root .lum-toolbar:not(.lum-toolbar-plain) .lum-tb-send {
+#root[data-lum-layout="phone"] .lum-toolbar:not(.lum-toolbar-plain) .lum-tb-send {
     margin-left: 0;
 }
 
@@ -166,19 +173,20 @@ body,
  * the wrap reads as layout. Longer names ellipsize — the full name
  * always shows in the picker menu. #root (unlayered) beats the layered
  * max-w-44 utility. */
-#root .lum-tb-selectors .lum-tb-label,
-#root .lum-m-welcome-controls .lum-tb-label {
+#root[data-lum-layout="phone"] .lum-tb-selectors .lum-tb-label,
+#root[data-lum-layout="phone"] .lum-m-welcome-controls .lum-tb-label {
     max-width: 7rem;
 }
 
 /* The conversation column's gutters: the desktop base tier is a roomy
  * 3rem (the only edge breathing room when the column spans a wide
- * window) — on a phone that's a quarter of the width gone. Mobile gets
- * tight 1rem gutters instead; transcript + composer share .lum-column,
- * so both shrink together and stay aligned. Unlayered #root rules beat
- * the layered utilities AND main.css's container-query tiers (single
- * class each). */
-#root .lum-column {
+ * window) — on a phone that's a quarter of the width gone. The phone
+ * layout gets tight 1rem gutters instead; transcript + composer share
+ * .lum-column, so both shrink together and stay aligned. Tablet mode
+ * keeps the desktop gutters (and their container-query tiers).
+ * Unlayered #root rules beat the layered utilities AND main.css's
+ * container-query tiers (single class each). */
+#root[data-lum-layout="phone"] .lum-column {
     padding-inline: 1rem;
 }
 
@@ -189,12 +197,15 @@ body,
  * the desktop's and stays untouched, so the placeholder (same pt-3)
  * needs no override either. The growth cap and scroll behavior above
  * one line are untouched (CSS owns the geometry, see ComposerCore).
- * Unlayered #root rules beat the layered utilities. */
+ * Unlayered #root rules beat the layered utilities. Deliberately NOT
+ * phone-scoped: a tablet in desktop layout is still a TOUCHSCREEN —
+ * the taller composer remains the right touch target (device rule,
+ * not a layout one — see the [data-lum-layout] note above). */
 #root .lum-composer-input {
     min-height: 60px;
 }
 
-/* The workspace stats panel: mounted on mobile TOO, always overlaying
+/* The workspace stats panel: on the phone layout it always overlays
  * the conversation (a phone row can never reach main.css's 79rem
  * flex-sibling tier, so the float rule is the only one in play). The
  * desktop narrow-float cap — max(18rem, 100cqw − 16rem), built to keep
@@ -202,10 +213,11 @@ body,
  * strip on a phone; the expanded panel instead spans the row minus the
  * 1rem float insets, covering the conversation area like a sheet. The
  * collapsed pill and the height caps stay desktop-identical. #root
- * specificity beats main.css's base tier; on a wide container row
- * (100cqw − 2rem > 40rem) the cap never bites, so the flex-sibling
- * tier survives untouched for tablet-class rows. */
-#root .lum-stats[data-expanded="true"] {
+ * specificity beats main.css's base tier. Tablet mode is NOT scoped
+ * here: its rows either reach the flex-sibling tier (the panel docks
+ * as a real sibling) or keep the desktop float cap — desktop behavior
+ * both ways. */
+#root[data-lum-layout="phone"] .lum-stats[data-expanded="true"] {
     max-width: calc(100cqw - 2rem);
 }
 

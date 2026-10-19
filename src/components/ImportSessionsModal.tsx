@@ -7,7 +7,7 @@ import {ExitList} from "./ui/ExitPresence.tsx";
 import {useColors} from "../hooks/colors.tsx";
 import {useI18n} from "../hooks/i18n.tsx";
 import {useScrollEdges} from "../hooks/useScrollEdges.ts";
-import {isMobileApp} from "../lib/platform.ts";
+import {usePhoneLayout} from "../hooks/useLayoutMode.ts";
 import {folderLabel} from "../lib/path.ts";
 import {groupByDirectory, relativeAge, type SessionInfo} from "./sessionGrouping.ts";
 import {useSessionData} from "../opencode/sessionDataContext.tsx";
@@ -39,6 +39,10 @@ export default function ImportSessionsModal({
 }) {
     const t = useI18n();
     const colors = useColors();
+    // The scroll cap follows the LAYOUT (hooks/useLayoutMode.ts): the
+    // fullscreen sheet of the phone layout needs no max-h, tablet
+    // mode's centered panel keeps the desktop cap.
+    const phoneLayout = usePhoneLayout();
     const {foreignSessions, busyIds, importSessions} = useSessionData();
     // Branch-worktree bindings feed the PROJECT grouping (a worktree
     // session joins its main repo's group), same as the sidebar.
@@ -86,7 +90,7 @@ export default function ImportSessionsModal({
             <div
                 ref={edges.ref}
                 onScroll={edges.onScroll}
-                className={`flex-1 min-h-0 overflow-y-auto px-3 py-2 lum-fade-md ${isMobileApp() ? "" : "max-h-[70vh]"} ${
+                className={`flex-1 min-h-0 overflow-y-auto px-3 py-2 lum-fade-md ${phoneLayout ? "" : "max-h-[70vh]"} ${
                     edges.top ? "lum-fade-top " : ""
                 }${edges.bottom ? "lum-fade-bottom" : ""}`}
             >
