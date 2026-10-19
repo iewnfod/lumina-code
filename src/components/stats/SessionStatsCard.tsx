@@ -195,21 +195,34 @@ const SessionStatsCard = memo(function SessionStatsCard({
     // Outside pointer-down / Escape collapse the panel (PopoverMenu's
     // capture-phase pattern) — only in "auto" mode. "always" keeps the
     // panel open through outside interaction; its own collapse button
-    // still works and lasts until the card remounts. A pointer-down on
-    // a turn-edit drill row ([data-lum-stats-drill], in the transcript)
-    // is exempt: its click re-aims the panel at that file, and the
-    // collapse-then-re-expand would jank the width transition.
+    // still works and lasts until the card remounts. Two exemptions:
+    // a pointer-down on a turn-edit drill row ([data-lum-stats-drill],
+    // in the transcript) re-aims the panel at that file, and the
+    // collapse-then-re-expand would jank the width transition; and a
+    // pointer-down inside ANY modal ([data-lum-modal], portal-rendered
+    // by the Modal primitive — e.g. the plan/report documents opened
+    // from TodoSection's header) is the modal's own interaction — a
+    // portal subtree is never inside rootRef, so without the exemption
+    // the first click in the modal would collapse the panel, unmounting
+    // TodoSection and its modal with it. Escape follows the same layer
+    // discipline: while a modal is open it belongs to the modal (Modal's
+    // own Escape handler closes it); the panel takes over once none is.
     useEffect(() => {
         if (!expanded || panelMode !== "auto") return;
         const onPointerDown = (e: PointerEvent) => {
             if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
                 const el = e.target as Element;
-                if (typeof el.closest === "function" && el.closest("[data-lum-stats-drill]")) return;
+                if (
+                    typeof el.closest === "function" &&
+                    (el.closest("[data-lum-stats-drill]") || el.closest("[data-lum-modal]"))
+                ) {
+                    return;
+                }
                 collapse();
             }
         };
         const onKeyDown = (e: KeyboardEvent) => {
-            if (e.key === "Escape") collapse();
+            if (e.key === "Escape" && !document.querySelector("[data-lum-modal]")) collapse();
         };
         document.addEventListener("pointerdown", onPointerDown, true);
         document.addEventListener("keydown", onKeyDown, true);

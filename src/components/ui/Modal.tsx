@@ -79,6 +79,15 @@ export default function Modal({
                 <div
                     aria-modal="true"
                     role="dialog"
+                    // Marks the portal layer for OUTSIDE-CLICK consumers
+                    // (the stats panel's auto-collapse): the portal subtree
+                    // is not inside any panel's rootRef, but interacting
+                    // with a modal is the MODAL's business — a pointerdown
+                    // in here must never read as "clicked outside the
+                    // panel" (it used to collapse the panel, unmounting
+                    // the very section that owns the modal — the plan
+                    // detail view died on its first click).
+                    data-lum-modal
                     className={`fixed inset-0 flex items-center justify-center ${mobile ? "" : "p-6"} ${closing ? "lum-fade-exit" : "lum-enter"}`}
                     style={{background: colors.dark ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.25)", zIndex: 9000}}
                     onPointerDown={(e) => {
