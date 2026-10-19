@@ -267,8 +267,12 @@ jobs:
 
       # Ensures the Android SDK + sdkmanager exist even if the runner image
       # drops its preinstalled copy; ANDROID_HOME comes preset either way.
+      # v4 specifically: Google stopped serving the obsolete `tools` SDK
+      # package on 2026-09-15, which breaks v3's default
+      # `tools platform-tools` install with "Failed to find package 'tools'"
+      # (android-actions/setup-android#537) — v4 defaults to platform-tools.
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       # The tauri CLI needs a concrete NDK version dir. GitHub's ubuntu
       # images ship side-by-side NDKs under $ANDROID_HOME/ndk — pick the
