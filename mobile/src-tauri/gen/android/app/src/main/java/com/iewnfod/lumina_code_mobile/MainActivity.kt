@@ -3,6 +3,7 @@ package com.iewnfod.lumina_code_mobile
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.webkit.JavascriptInterface
@@ -108,6 +109,14 @@ class MainActivity : TauriActivity() {
   //    app's own pages — no external URLs are loaded into this webview.
   override fun onWebViewCreate(webView: WebView) {
     webView.addJavascriptInterface(object {
+      // The device's model name (e.g. "Pixel 9") — the mobile login's
+      // token label on lumina-server (src/opencode/serverConnection.ts
+      // deviceLoginLabel). A plain synchronous return; gethostname on
+      // Android only ever answers "localhost", so the model IS the
+      // device name here.
+      @JavascriptInterface
+      fun deviceName(): String = Build.MODEL
+
       @JavascriptInterface
       fun setChromeBackground(colorHex: String, dark: Boolean) {
         runOnUiThread {

@@ -1,6 +1,7 @@
 import {useSyncExternalStore} from "react";
 import {invoke} from "@tauri-apps/api/core";
-import {info as logInfo} from "@tauri-apps/plugin-log";
+import {hostname} from "@tauri-apps/plugin-os";
+import {info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
 import {isMobileApp} from "../lib/platform.ts";
 import {createPersistedStore} from "../lib/persistedStore.ts";
 
@@ -199,6 +200,55 @@ function httpError(status: number, body: string): Error {
     return err;
 }
 
+/** Hostname readings that carry no identity — Android's gethostname
+ * resolves to "localhost" and build images report placeholders; those
+ * read as "no device name" so the label falls back to the bare kind. */
+const MEANINGLESS_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "android-build"]);
+
+let deviceLoginLabelCache: string | null = null;
+
+/**
+ * THIS device's label for a lumina-server login token: the client kind
+ * (desktop/mobile) plus the device name when one can be read — mobile
+ * asks the Android bridge (Build.MODEL via MainActivity's
+ * __luminaNative), everything else probes the OS hostname
+ * (plugin-os). No name → the bare kind ("desktop"/"mobile"). Cached:
+ * one probe per app run.
+ */
+export async function deviceLoginLabel(): Promise<string> {
+    if (deviceLoginLabelCache !== null) return deviceLoginLabelCache;
+    const kind = isMobileApp() ? "mobile" : "desktop";
+    let host = "";
+    if (isMobileApp()) {
+        // The Android bridge's synchronous return is a REAL device
+        // name; installs older than the method throw here (and the
+        // hostname probe below answers "localhost" — filtered after).
+        try {
+            host =
+                (window as unknown as {__luminaNative?: {deviceName?: () => string}})
+                    .__luminaNative?.deviceName?.() ?? "";
+        } catch {
+            host = "";
+        }
+    }
+    if (!host) {
+        try {
+            host = (await hostname()) ?? "";
+        } catch {
+            host = "";
+        }
+    }
+    host = host.trim();
+    if (!host || MEANINGLESS_HOSTS.has(host.toLowerCase())) host = "";
+    deviceLoginLabelCache = host ? `${kind} (${host})` : kind;
+    if (!host) {
+        logWarn("Device name unavailable; server login token uses the bare kind label").catch(
+            () => {},
+        );
+    }
+    return deviceLoginLabelCache;
+}
+
 /** Typed client for lumina-server's REST API. Errors carry the HTTP
  * `status` on the thrown Error, like OpencodeApi.
  */
@@ -229,18 +279,21 @@ export class LuminaServerApi {
     }
 
     /** Exchange credentials for a device token. Static: called before a
-     * client instance exists. Throws with `.status` on failure. */
+     * client instance exists. `label` names the token on the server's
+     * account page (see {@link deviceLoginLabel}). Throws with
+     * `.status` on failure. */
     static async login(
         url: string,
         username: string,
         password: string,
+        label?: string,
     ): Promise<{token: string; username: string}> {
         const reply = await serverExchange(
             url,
             "",
             "POST",
             "/api/auth/login",
-            JSON.stringify({username, password}),
+            JSON.stringify({username, password, ...(label ? {label} : {})}),
         );
         if (reply.status < 200 || reply.status >= 300) {
             throw httpError(reply.status, reply.body);

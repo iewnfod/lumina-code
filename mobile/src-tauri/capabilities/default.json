@@ -8,6 +8,7 @@
     "log:default",
     "opener:default",
     "os:default",
+    "os:allow-hostname",
     "dialog:default",
     "notification:default",
     "store:default"

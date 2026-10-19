@@ -5,6 +5,7 @@ import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {
     LuminaServerApi,
+    deviceLoginLabel,
     normalizeServerUrl,
 } from "../../opencode/serverConnection.ts";
 import {setMobileConnection} from "../../opencode/mobileConnection.ts";
@@ -37,7 +38,12 @@ export default function LoginScreen() {
         setBusy(true);
         setErrorText(null);
         try {
-            const login = await LuminaServerApi.login(normalized, username, password);
+            const login = await LuminaServerApi.login(
+                normalized,
+                username,
+                password,
+                await deviceLoginLabel(),
+            );
             setMobileConnection({url: normalized, token: login.token, username: login.username});
         } catch (e) {
             setErrorText(String(e));

@@ -2941,7 +2941,12 @@ src/
 │   │              for unknown users so timing never reveals usernames.
 │   │              tokenFromRequest accepts Bearer OR the httpOnly
 │   │              `lumina_session` cookie — ONE credential mechanism
-│   │              for API clients and the web UI alike.
+│   │              for API clients and the web UI alike. login()'s
+│   │              optional label (sanitized by sanitizeTokenLabel —
+│   │              blank/control-char/capped, vitest-covered) names the
+│   │              token in the account page: clients send their device
+│   │              label ("desktop (myhost)"/"mobile (Pixel 9)"), the
+│   │              web console signs in as "web", default "login".
 │   ├── rateLimit.ts  in-memory fixed-window limiter (login endpoint;
 │   │                 per-instance by design; heavier protection = the
 │   │                 reverse proxy's job)
@@ -2983,7 +2988,14 @@ the app's state/state.json (lib/persistedStore.ts over
 tauri-plugin-store; migrated from the webview's localStorage), revocable
 from the web console; the store
 shape is {url, token, username, remoteEnabled, frpRouteId?} with
-legacy `tunnelEnabled` migrating into remoteEnabled on read) and
+legacy `tunnelEnabled` migrating into remoteEnabled on read.
+deviceLoginLabel — the LOGIN's device label: the client kind plus the
+device name (desktop = plugin-os hostname(), mobile = the Android
+bridge's Build.MODEL via `__luminaNative.deviceName()`, MainActivity;
+meaningless readings like Android's "localhost" filter out), falling
+back to the bare kind — feeds LuminaServerApi.login's label param;
+needs `os:allow-hostname` in every shell's capabilities, which
+`os:default` deliberately withholds) and
 `src/hooks/useServerFrp.ts` (the engine, mounted once in AppBody:
 fetches /api/frp/config, registers the local opencode password —
 derived from the OpencodeApi handle's Basic authorization — with a

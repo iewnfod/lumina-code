@@ -6,6 +6,7 @@ import {isMobileApp} from "../../lib/platform.ts";
 import {
     LuminaServerApi,
     clearServerConnection,
+    deviceLoginLabel,
     normalizeServerUrl,
     setServerConnection,
     setServerRemoteEnabled,
@@ -100,7 +101,12 @@ export default function ServerSettings() {
         setBusy(true);
         setErrorText(null);
         try {
-            const login = await LuminaServerApi.login(normalized, username, password);
+            const login = await LuminaServerApi.login(
+                normalized,
+                username,
+                password,
+                await deviceLoginLabel(),
+            );
             setServerConnection({
                 url: normalized,
                 token: login.token,

@@ -9,6 +9,7 @@
     "core:default",
     "opener:default",
     "os:default",
+    "os:allow-hostname",
     "log:default",
     "dialog:default",
     "notification:default",
