@@ -182,6 +182,10 @@ src/
 │                          #   (useSurfaceColors) and provides it via
 │                          #   ColorsProvider (hooks/colors.tsx) + the
 │                          #   --lum-wash hover vars on the root.
+│                          #   AppBody's last child is the BOOT GATE
+│                          #   (BootScreen) covering the whole chrome
+│                          #   until the app is genuinely usable — see
+│                          #   components/BootScreen.tsx.
 ├── main.tsx               # ReactDOM entry (React.StrictMode) + attachConsole
 │                          #   + the persistence gate: initPersistedState()
 │                          #   seeds the state file BEFORE the App bundle is
@@ -1139,6 +1143,11 @@ src/
 │                          #   holding the shared storage lock) — an empty provider list
 │                          #   must never leak into the filter (`every()` is vacuously
 │                          #   true on [] and would unhide the free catalog).
+│                          #   Also exposes loaded — the INITIAL load's
+│                          #   settle flag (success or final failure;
+│                          #   reset only on api identity change, NOT on
+│                          #   revision refetches) feeding the boot gate
+│                          #   (components/BootScreen.tsx).
 │   ├── gitInfo.ts         # THE branch-parsing pure layer (node-testable):
 │                          #   parseGitHead (a `.git/HEAD` text → branch name |
 │                          #   detached sha — the server has NO current-branch
@@ -1709,6 +1718,31 @@ src/
     │                      #   node-testable.
     ├── ChatPlaceholder.tsx # Welcome-screen logo + greeting
     │                      #   (picked once per mount via greetings.ts).
+    ├── BootScreen.tsx     # THE BOOT GATE (mobile-first): a full-screen
+    │                      #   opaque overlay over the whole chrome from
+    │                      #   the first frame (MOBILE) / past a 1s grace
+    │                      #   (DESKTOP fast path never mounts it) until
+    │                      #   the app is genuinely USABLE — connected ∧
+    │                      #   sessionsLoaded ∧ catalogLoaded (the
+    │                      #   catalog's initial-settle flag, see
+    │                      #   useModelCatalog) ∧ the restored session's
+    │                      #   message store seeded (warmed HERE at
+    │                      #   mount via ensureSessionSeeded, parallel
+    │                      #   with the list/catalog fetches — the mobile
+    │                      #   route saves a serial round trip; the
+    │                      #   reveal lands exactly when the session
+    │                      #   surface's entrance starts, both keying the
+    │                      #   same seeded flag). ONE-WAY reveal with
+    │                      #   three exits: ready / connection error
+    │                      #   (immediately — the welcome subtitle keeps
+    │                      #   showing the error + settings access, the
+    │                      #   mobile credential loop self-heals
+    │                      #   underneath) / a 15s valve (the gate only
+    │                      #   ADDs a loading state, never traps longer
+    │                      #   than the pre-gate UI). Visuals all reused:
+    │                      #   CO wordmark + .lum-loading dots +
+    │                      #   ExitPresence's .lum-fade-exit; mounted as
+    │                      #   AppBody's last child (App.tsx).
     ├── greetings.ts       # Pure welcome-greeting picker: per-language pools
     │                      #   (independent id sets — zh-only memes don't leak
     │                      #   to en), probability-gated special occasions

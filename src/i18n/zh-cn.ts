@@ -17,6 +17,8 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Show less": "收起",
     "Drag to resize; double-click to reset": "拖动调整宽度；双击复位",
     "Connecting to OpenCode...": "正在连接 OpenCode...",
+    "Connecting to OpenCode": "正在连接 OpenCode",
+    "Loading workspace": "正在加载工作区",
     "Ask Lumina Code, use @ to add context, use / for commands": "向 Lumina Code 提问，使用 @ 添加上下文，使用 / 发送命令",
     "Connection error": "连接错误",
     "Send": "发送",

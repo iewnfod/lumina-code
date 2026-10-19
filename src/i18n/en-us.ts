@@ -15,6 +15,12 @@ const enUs = {
     "Show less": "Show less",
     "Drag to resize; double-click to reset": "Drag to resize; double-click to reset",
     "Connecting to OpenCode...": "Connecting to OpenCode...",
+    // The boot screen's own pair — WITHOUT trailing dots: the animated
+    // .lum-loading dots that follow the label already carry the
+    // "ongoing" signal (the welcome-subtitle/composer variants above
+    // keep their literal dots; they have no dots animation beside them).
+    "Connecting to OpenCode": "Connecting to OpenCode",
+    "Loading workspace": "Loading workspace",
     "Ask Lumina Code, use @ to add context, use / for commands": "Ask Lumina Code, use @ to add context, use / for commands",
     "Connection error": "Connection error",
     "Send": "Send",

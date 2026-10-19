@@ -6,6 +6,7 @@ import TitleBar from "./components/TitleBar.tsx";
 import SessionBar from "./components/SessionBar.tsx";
 import SidebarResizer from "./components/SidebarResizer.tsx";
 import WelcomeScreen from "./components/WelcomeScreen.tsx";
+import BootScreen from "./components/BootScreen.tsx";
 import ChatView from "./components/chat/ChatView.tsx";
 import WorkspaceStatsCard from "./components/stats/WorkspaceStatsCard.tsx";
 import SettingsModal, {type SettingsTab} from "./components/settings/SettingsModal.tsx";
@@ -829,6 +830,15 @@ function AppBody({
                     }}
                 />
             )}
+            {/* The boot gate (see components/BootScreen.tsx): a full-screen
+                overlay covering the whole chrome until the app is genuinely
+                usable — connection + session list + model catalog + the
+                restored session's seed all landed. Mobile shows it from the
+                first frame (the remote route's latency is the norm there);
+                desktop only intervenes past a grace period, so the local
+                fast path never sees it. Renders null permanently once
+                revealed. */}
+            <BootScreen activeId={activeId} bg={effectiveBg} fg={effectiveFg}/>
         </div>
     );
 }

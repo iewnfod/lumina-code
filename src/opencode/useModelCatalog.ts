@@ -76,12 +76,30 @@ export function useModelCatalog(
     /** True when the ONLY provider is the free catalog — the user has no
      * authenticated provider of their own (drives the picker's empty state). */
     catalogOnly: boolean;
+    /** True once the INITIAL load for the current connection has SETTLED
+     *  (success or final failure — a fresh install with no providers must
+     *  not hang a gate on "models empty"). Feeds the app's boot gate
+     *  (components/BootScreen.tsx). Reset ONLY when the api handle
+     *  identity changes (a re-issued remote handle re-seeds everything);
+     *  a revision bump (credential/config event → refetch) keeps it true
+     *  so a mid-boot plugin-config write cannot stall the gate for a
+     *  second round trip. */
+    loaded: boolean;
 } {
     const [models, setModels] = useState<OpencodeModel[]>([]);
     const [agents, setAgents] = useState<OpencodeAgent[]>([]);
     const [defaultModel, setDefaultModel] = useState<OpencodeModel | null>(null);
     const [catalogOnly, setCatalogOnly] = useState(false);
+    const [loaded, setLoaded] = useState(false);
     const [revision, setRevision] = useState(0);
+
+    // The settle flag rides the api IDENTITY, not the fetch effect: the
+    // fetch re-runs on revision bumps without un-loading the catalog.
+    // Declared before the fetch effect so an api change resets before
+    // the new chain starts.
+    useEffect(() => {
+        setLoaded(false);
+    }, [api]);
 
     useEffect(() => {
         if (!subscribe) return;
@@ -97,7 +115,7 @@ export function useModelCatalog(
         if (!api) return;
         let cancelled = false;
 
-        loadProviders(api).then((providers) => {
+        const modelsChain = loadProviders(api).then((providers) => {
             if (cancelled) return;
             const onlyCatalog = providers.every((p) => isCatalogProvider(p.settings));
             setCatalogOnly(onlyCatalog);
@@ -123,18 +141,24 @@ export function useModelCatalog(
             });
         }).catch((e) => logError(`Failed to load models: ${e}`).catch(() => {}));
 
-        loadAgents(api).then((list) => {
+        const agentsChain = loadAgents(api).then((list) => {
             if (cancelled) return;
             setAgents(list);
         }).catch((e) => logError(`Failed to load agents: ${e}`).catch(() => {}));
-        api.getDefaultModel().then((m) => {
+        const defaultChain = api.getDefaultModel().then((m) => {
             if (cancelled) return;
             setDefaultModel(m ?? null);
         }).catch((e) => logError(`Failed to load default model: ${e}`).catch(() => {}));
+        // The boot gate's settle signal: every chain above carries its
+        // own .catch (they never reject), so allSettled fires exactly
+        // when the initial load ATTEMPT is done — success or failure.
+        void Promise.allSettled([modelsChain, agentsChain, defaultChain]).then(() => {
+            if (!cancelled) setLoaded(true);
+        });
         return () => {
             cancelled = true;
         };
     }, [api, revision]);
 
-    return {models, agents, defaultModel, catalogOnly};
+    return {models, agents, defaultModel, catalogOnly, loaded};
 }
