@@ -340,11 +340,44 @@ jobs:
         run: |
           gen="mobile/src-tauri/gen/android"
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$gen/lumina-release.jks"
+          # The keystore is the source of truth for its own key alias:
+          # extract the (single) PrivateKeyEntry alias with keytool instead
+          # of trusting the secret to match what keytool -genkey actually
+          # recorded (live-observed: a mismatch fails packaging with
+          # "No key with alias found" — the string you type at secret-set
+          # time is easy to get wrong, the bytes in the store are not).
+          # Parsing is locale-proof: the ENTRY TYPE token ("PrivateKeyEntry")
+          # is hardcoded English in every locale; header/date formats are
+          # not, so only the alias field before the first comma is read.
+          # Falls back to the secret when parsing finds nothing, so a weird
+          # keytool output keeps the error debuggable.
+          real_alias="$(
+            keytool -list -keystore "$gen/lumina-release.jks" \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" 2>/dev/null \
+            | sed -n '/PrivateKeyEntry/ s/^\([^,]\{1,\}\),.*/\1/p' \
+            | head -1
+          )"
+          if [ -n "$real_alias" ] && [ "$real_alias" != "$ANDROID_KEY_ALIAS" ]; then
+            echo "::warning::ANDROID_KEY_ALIAS does not match the keystore — using the store's actual alias '$real_alias' (update the secret to silence this)."
+          fi
+          key_alias="${real_alias:-$ANDROID_KEY_ALIAS}"
+          # PKCS12 (modern keytool's default) has ONE password for store and
+          # key by construction — force them equal so a divergent
+          # ANDROID_KEY_PASSWORD cannot fail key decryption later. Detected
+          # locale-proof as well (the type token appears in the first line).
+          key_password="$ANDROID_KEY_PASSWORD"
+          if keytool -list -keystore "$gen/lumina-release.jks" \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" 2>/dev/null \
+              | head -1 | grep -q PKCS12 \
+              && [ "$ANDROID_KEY_PASSWORD" != "$ANDROID_KEYSTORE_PASSWORD" ]; then
+            echo "::warning::PKCS12 store: using the store password for the key as well (ANDROID_KEY_PASSWORD differs but cannot in PKCS12)."
+            key_password="$ANDROID_KEYSTORE_PASSWORD"
+          fi
           cat > "$gen/keystore.properties" <<EOF
           storeFile=lumina-release.jks
           storePassword=$ANDROID_KEYSTORE_PASSWORD
-          keyAlias=$ANDROID_KEY_ALIAS
-          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$key_alias
+          keyPassword=$key_password
           EOF
 
       # The CLI resolves the mobile project from mobile/ (src-tauri next
