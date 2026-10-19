@@ -60,7 +60,13 @@ android {
             val storeFilePath = keystoreProperties.getProperty("storeFile")
             if (storeFilePath != null) {
                 signingConfig = signingConfigs.create("release") {
-                    storeFile = file(storeFilePath)
+                    // Resolve against the gen/android root — the SAME base
+                    // as keystoreProperties above. A plain file() here is
+                    // module-relative (app/), which silently splits the two
+                    // files across directory levels (live-observed: the
+                    // Release workflow drops both at the project root, and
+                    // validateSigning* looked for the jks under app/).
+                    storeFile = rootProject.file(storeFilePath)
                     storePassword = keystoreProperties.getProperty("storePassword")
                     keyAlias = keystoreProperties.getProperty("keyAlias")
                     keyPassword = keystoreProperties.getProperty("keyPassword")
