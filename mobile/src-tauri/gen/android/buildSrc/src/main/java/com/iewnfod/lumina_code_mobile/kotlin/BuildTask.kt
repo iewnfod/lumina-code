@@ -16,7 +16,14 @@ open class BuildTask : DefaultTask() {
 
     @TaskAction
     fun assemble() {
-        val executable = """cargo""";
+        // The gradle sidecar build calls back into the tauri CLI. The npm
+        // CLI (pinned in the root package.json — the very binary
+        // `pnpm exec tauri` runs) is an N-API module with no standalone
+        // cargo-tauri executable to put on PATH, so route the callback
+        // through pnpm instead of `cargo tauri` (which would demand a
+        // separately installed Rust tauri-cli in every build environment,
+        // drifting from the workspace's pinned CLI version).
+        val executable = """pnpm""";
         try {
             runTauriCli(executable)
         } catch (e: Exception) {
@@ -48,7 +55,7 @@ open class BuildTask : DefaultTask() {
         val rootDirRel = rootDirRel ?: throw GradleException("rootDirRel cannot be null")
         val target = target ?: throw GradleException("target cannot be null")
         val release = release ?: throw GradleException("release cannot be null")
-        val args = listOf("tauri", "android", "android-studio-script");
+        val args = listOf("exec", "tauri", "android", "android-studio-script");
 
         project.exec {
             workingDir(File(project.projectDir, rootDirRel))

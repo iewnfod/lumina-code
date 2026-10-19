@@ -50,6 +50,12 @@ cd mobile/src-tauri && cargo tauri android init   # 首次；gen/android 提交
 cargo tauri android build --debug                 # APK/AAB
 cargo tauri android dev                           # 模拟器热载
 
+# 注意：gradle 的 rustBuild 任务会回调 tauri CLI（android-studio-script），
+# 该回调走 `pnpm exec tauri`（见 gen/android/buildSrc/BuildTask.kt）——npm CLI
+# 是 N-API 模块、没有独立的 cargo-tauri 可执行文件，走 pnpm 保证回调用的就是
+# 根 package.json 钉的同一个 CLI 版本。前提：仓库根跑过 `pnpm install`（构建
+# 本来就需要）；顶层用 `cargo tauri` 驱动也行，但内外两层 CLI 版本可能不同。
+
 # iOS：需 macOS（Linux 上 cc-rs 过不了 xcrun）；cargo tauri ios init/build
 ```
 
