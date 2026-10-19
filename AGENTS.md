@@ -558,6 +558,17 @@ src/
 │   │                      #   query — fresh per-run memo + a shared
 │   │                      #   localStorage stub re-seeding each instance's
 │   │                      #   persisted store).
+│   ├── chatMessages.ts     # The transcript's message VIEW MODEL — split from
+│   │                      #   types.ts (the pure wire types stay there):
+│   │                      #   Assistant*Part, ChatUserMessage (with the
+│   │                      #   LOCAL-ONLY localKey/sendFailed/command fields
+│   │                      #   of the optimistic UI), the ChatMessage union,
+│   │                      #   the type guards + nextLocalId() (the
+│   │                      #   collision-proofed `local-*` id every
+│   │                      #   optimistic row mints — two sends in one
+│   │                      #   Date.now() millisecond used to collide).
+│   │                      #   types.ts re-exports it all (34 imports
+│   │                      #   unchanged).
 │   ├── eventStream.ts     # SSE transport: OpencodeEvent envelope +
 │   │                      #   streamServerEvents (fetch-based; the Authorization
 │   │                      #   header rules out native EventSource) with backoff
@@ -664,6 +675,18 @@ src/
 │   │                      #   (see useSessionMessages — a prompt landing
 │   │                      #   during the stop's cleanup would restart the
 │   │                      #   run server-side).
+│   ├── planWorkflow.ts    # The plan workflow's transcript derivations —
+│   │                      #   the FRONTEND MIRROR of the plugin's
+│   │                      #   planStateFromEntries fold, split from
+│   │                      #   sessionActivity.ts along domain lines:
+│   │                      #   collectSessionTodos (the LAST plan_submit
+│   │                      #   defines the list; task_complete/plan_amend/
+│   │                      #   work_submit advance it), planApprovalPending
+│   │                      #   / workApprovalPending (Route A's two gates
+│   │                      #   over lastUnsettledPart), findPlanSubmitInput,
+│   │                      #   GateContext. sessionActivity re-exports it
+│   │                      #   (imports unchanged); keep in sync with the
+│   │                      #   plugin source.
 │   ├── promptQueue.ts    # The per-session QUEUED-PROMPT store — now a MIRROR
 │   │                      #   of the SERVER's native queue (v2.0.11
 │   │                      #   `delivery:"queue"`, curl-verified): prompts
@@ -1090,6 +1113,11 @@ src/
 │   │                      #   means "already settled" — no restore, or the card
 │   │                      #   would zombie (api.requestRaw attaches the status).
 │   ├── sessionActivity.ts # Pure stats-card derivations from a session's messages:
+│   │                      #   SLIMMED: the plan-workflow folds live in
+│   │                      #   planWorkflow.ts (re-exported here); this file
+│   │                      #   keeps the tool-name predicates, toolParts /
+│   │                      #   inputRecord / metaString low-level helpers and
+│   │                      #   the shells/subagents/mutation collectors.
 │   │                      #   background shells (tool-part metadata.shellID — only
 │   │                      #   background results carry it) with their completion
 │   │                      #   notifications (marker messages with metadata.source ===
@@ -1362,6 +1390,18 @@ src/
 │   │                      #   model, agent, directory). Never throws; built over
 │   │                      #   persistedStore.ts like every persisted preference,
 │   │                      #   keeping its subscriber-less load/save shape.
+│   ├── moduleStore.ts     # THE in-memory store factory (node-testable,
+│   │                      #   moduleStore.test.ts): createListeners (the
+│   │                      #   listeners+notify+subscribe triple a dozen
+│   │                      #   stores hand-rolled before) +
+│   │                      #   createModuleStore (single value, eq
+│   │                      #   short-circuit) + createKeyedStore (Map +
+│   │                      #   lazy entryOf + identity-stable snapshot()
+│   │                      #   for useSyncExternalStore). The IN-MEMORY
+│   │                      #   counterpart of persistedStore.ts; the
+│   │                      #   reference-stable-snapshot and mutable-entry
+│   │                      #   disciplines live here, seq in-flight guards
+│   │                      #   stay at call sites.
 │   ├── persistedStore.ts  # THE persistence factory (node-testable):
 │   │                      #   createPersistedStore({key, label, read, write, eq})
 │   │                      #   is the ONE implementation behind every
@@ -1672,6 +1712,24 @@ src/
 │   │                      #   overrides — a code block or table that
 │   │                      #   fits its column renders mask-free; the
 │   │                      #   .lum-md-table wrap hugs at fit-content).
+│   ├── useNow.ts          # A ticking "now" for relative-age labels (the
+│   │                      #   sidebar + import picker's 30s tickers,
+│   │                      #   previously hand-rolled in both).
+│   ├── useOutsideDismiss.ts # Capture-phase outside-pointerdown + Escape
+│   │                      #   dismissal (PopoverMenu + the stats panel's
+│   │                      #   overlay collapse — verbatim-duplicated
+│   │                      #   effects before; exempt/escapeBusy params
+│   │                      #   carry the stats panel's drill/modal rules).
+│   ├── useWindowFirstShow.ts # Show the hidden window after first paint,
+│   │                      #   racing the BMS probe (App's old inline
+│   │                      #   effect, extracted).
+│   ├── useChromeThemeSync.ts # HeroUI dark-class sync + the mobile
+│   │                      #   setChromeBackground push (App's old inline
+│   │                      #   effects, extracted; the glassSurfaceEquivalent
+│   │                      #   derivation note lives there).
+│   ├── useIntegrationOAuth.ts # The Model pane's browser-OAuth state machine
+│   │                      #   (extracted from ModelSettings.tsx): start /
+│   │                      #   2s poll / cancel over one flow at a time.
 │   ├── useCopy.ts         # copy feedback shared by run footers and the user
 │   │                      #   bubble: copied flag + ✓ linger reset
 │   └── useTranscriptScroll.ts # ChatView's scroll machinery: bottom-follow with
@@ -1771,6 +1829,17 @@ src/
     │                      #   second block); an unbound worktree dir falls
     │                      #   back to grouping under itself.
     │                      #   node-testable.
+    ├── SessionSurface.tsx  # The session ↔ welcome SEQUENTIAL surface swap
+    │                      #   (extracted from App.tsx; the phase logic in
+    │                      #   lib/surfacePhases.ts: the exit plays out
+    │                      #   alone, a not-yet-seeded successor shows the
+    │                      #   loading dots, the entrance starts only when
+    │                      #   the first frame is renderable).
+    ├── StatsCardSwap.tsx  # The stats card's DIRECTORY-keyed swap fade
+    │                      #   (extracted from App.tsx): a cross-directory
+    │                      #   switch holds the previous card as a frozen
+    │                      #   snapshot (.lum-card-hold) for a short fade
+    │                      #   while the successor mounts.
     ├── ChatPlaceholder.tsx # Welcome-screen logo + greeting
     │                      #   (picked once per mount via greetings.ts).
     ├── BootScreen.tsx     # THE BOOT GATE (mobile-first): a full-screen
@@ -1818,6 +1887,11 @@ src/
     │   ├── IconButton.tsx # THE chrome button — never hand-roll <button> hover swaps
     │   ├── Button.tsx     # THE labeled button (primary/ghost) — shared by request
     │   │                  #   cards (re-exported as CardButton) and modals
+    │   ├── AttachmentChip.tsx # The ONE attachment-chip family (§3.8):
+    │   │                  #   ATTACHMENT_CHIP_CLASS (h-7, radius-sm,
+    │   │                  #   activeOverlay — composer staging + message
+    │   │                  #   bubbles had drifted apart) + AttachmentChipIcon
+    │   │                  #   (image thumb vs file-type icon).
     │   ├── Hint.tsx       # THE hover hint — HeroUI tooltip wrapper (the only
     │   │                  #   replacement for native `title` attributes; falsy
     │   │                  #   label renders the child untouched)
@@ -1872,6 +1946,11 @@ src/
     │   └── WindowControls.tsx # minimize/maximize/close cluster (non-macOS)
     ├── chat/              # The conversation surface
     │   ├── ChatView.tsx   # Transcript column + composer for the active session.
+    │   │                  #   SLIMMED in the structure refactor: the queue
+    │   │                  #   rows + drag reorder live in QueuedPromptList,
+    │   │                  #   the plan-workflow gates in useGateCards, the
+    │   │                  #   edit-last-message wiring in useEditLastMessage
+    │   │                  #   (all in this directory).
     │   │                  #   Data via the context split (transcript through
     │   │                  #   useSessionTranscript, pending asks through
     │   │                  #   usePendingRequests, catalog through useCatalog) —
@@ -2214,6 +2293,40 @@ src/
     │   │                  #   "always" only to the first (the rule saves once) + "once" to
     │   │                  #   the rest. Shared chrome in RequestCardChrome.tsx; answer
     │   │                  #   rules in formLogic.ts (pure, node-testable).
+    │   ├── GateCard.tsx       # The plan workflow's shared GATE chrome — title
+    │   │                      #   + icon, restart-orphan warning line, markdown
+    │   │                      #   reading area (conditional fades) and the
+    │   │                      #   reject/approve pair; PlanApprovalCard and
+    │   │                      #   WorkReviewCard are thin wrappers (they were
+    │   │                      #   95% identical before this extraction).
+    │   ├── QueuedPromptList.tsx # The queued rows above the composer AND their
+    │   │                      #   pointer-drag reorder (window listeners +
+    │   │                      #   elementFromPoint + the portaled fixed ghost,
+    │   │                      #   extracted from ChatView — HTML5 DnD proved
+    │   │                      #   unreliable on WebKitGTK). Entrance/exit is
+    │   │                      #   the .lum-queue-enter/-exit synced pair.
+    │   ├── useGateCards.ts    # The gate cards' DERIVATION + DECISION hook (see
+    │   │                      #   ChatView's old inline block): pendingPlan/
+    │   │                      #   pendingWork over the transcript with the
+    │   │                      #   restart-recovery GateContext, the plan/work
+    │   │                      #   decision handlers (switchAgent / the
+    │   │                      #   .lumina/review marker file / interrupt),
+    │   │                      #   the wake-prompt recovery for restart
+    │   │                      #   orphans and the zombie marker probe.
+    │   ├── useEditLastMessage.ts # Edit-last-message wiring (ChatView's old
+    │   │                      #   inline block): which message qualifies,
+    │   │                      #   editing state, the edit bundle threaded to
+    │   │                      #   memoized rows, submit = editResend +
+    │   │                      #   snapToBottom on success.
+    │   ├── UserBubble.tsx     # The USER half of a transcript entry (split from
+    │   │                      #   MessageItem.tsx): the accent bubble,
+    │   │                      #   attachment chips + previews, the send-failed
+    │   │                      #   retry row, the edit pencil — plus
+    │   │                      #   TranscriptEditProps (MessageItem re-exports).
+    │   ├── AssistantBlock.tsx # The ASSISTANT half of a transcript entry (split
+    │   │                      #   from MessageItem.tsx): reasoning disclosure,
+    │   │                      #   markdown text, tool cards — folded into
+    │   │                      #   activity groups by messageParts.
     │   ├── PlanApprovalCard.tsx # The plan workflow's approval card
     │   │                  #   (Route A): the plan_submit executor
     │   │                  #   BLOCKS inside its tool call, so ChatView
@@ -2514,6 +2627,11 @@ src/
         │                  #   toolbar to attach + send and adds
         │                  #   .lum-toolbar-plain (send keeps its
         │                  #   right-edge spring, main.css).
+        ├── composerSerialize.ts # The composer's submit serialization — the
+        │                  #   editor-state → {text, paths} walk (mention
+        │                  #   tokens re-prefixed "@relative"; the
+        │                  #   composerTriggers.ts precedent for extracted
+        │                  #   Lexical node algorithms).
         ├── composerTriggers.ts # Lexical node-tree algorithms: `@`/`/` trigger
         │                  #   detection (CJK-aware) + atomic mention ←/→.
         ├── composerAttachments.ts # Data-URI attachment reader + size cap
@@ -2592,6 +2710,10 @@ src/
     │                      #   onTabChange and openSettings("model")
     │                      #   lands directly on the second level.
     ├── GeneralSettings.tsx # Language + appearance rows, the
+    │                      #   SLIMMED: the system-prompt editor
+    │                      #   (SystemPromptSection.tsx) and the Blur my
+    │                      #   Shell rows (BlurMyShellSettings.tsx) are files
+    │                      #   now; SectionHeader is shared with About.
     │                      #   activity-panel mode OptionRow (auto
     │                      #   collapse / always open), the desktop-
     │                      #   notification tier OptionRow + focus-mute
@@ -2618,7 +2740,47 @@ src/
     │                      #   module stores (i18n, useThemePreference,
     │                      #   useStatsPanelMode, useWindowOutline,
     │                      #   useBlurMyShell, useTypography).
+    ├── modelSettingsChrome.tsx # Shared chrome for the Model pane's sub-views
+    │                      #   (split out of ModelSettings.tsx): Field (the
+    │                      #   labeled form row), AccentBadge (the ONE accent
+    │                      #   status badge — four hand-rolled copies' text
+    │                      #   colors had already drifted), useModelsList
+    │                      #   (the cancel-safe listModels effect ToolsTab and
+    │                      #   ProviderDetail both ran).
+    ├── ToolsTab.tsx      # The Model pane's THIRD tab — Lumina Code's custom
+    │                      #   tools (src/plugins/luminaTools.js): the vision
+    │                      #   tool's model picker + on/off switch, saved
+    │                      #   through the shared installer. Split from
+    │                      #   ModelSettings.tsx.
+    ├── ProviderDetail.tsx # One provider's auth surface (split from
+    │                      #   ModelSettings.tsx): stored credentials
+    │                      #   (activate/remove), the API-key form, OAuth
+    │                      #   buttons + the device-code status block, the
+    │                      #   env hint, per-model picker-visibility toggles.
+    ├── CustomProviderForm.tsx # The custom provider add/edit form (split from
+    │                      #   ModelSettings.tsx); validation + config-text
+    │                      #   building live in modelConfig.ts
+    │                      #   (validateCustomProvider / customProviderText).
+    ├── SystemPromptSection.tsx # The General pane's custom system prompt
+    │                      #   editor (split from GeneralSettings.tsx — a
+    │                      #   server-config editor among instant-apply
+    │                      #   rows): loads the plugin-level systemPrompt
+    │                      #   option, saves through ensureLuminaToolsPlugin
+    │                      #   with withSystemPrompt, JSONC/read-failure
+    │                      #   degrade to the manual-edit notice.
+    ├── BlurMyShellSettings.tsx # The Blur my Shell rows (split from
+    │                      #   GeneralSettings.tsx; the isLinux() gate lives
+    │                      #   HERE — one check, not one per row).
+    ├── SectionHeader.tsx  # The one settings section-header look (General's
+    │                      #   Typography group + About's Dependencies —
+    │                      #   two identical inline copies before).
     ├── ModelSettings.tsx # Formerly composer/ModelConfigModal: searchable
+    │                      #   SLIMMED in the structure refactor: ToolsTab /
+    │                      #   ProviderDetail / CustomProviderForm are files
+    │                      #   now (this directory), the OAuth state machine
+    │                      #   is hooks/useIntegrationOAuth, shared chrome in
+    │                      #   modelSettingsChrome.tsx — this file is the pane
+    │                      #   shell (tabs, providers list, custom list).
     │                      #   integration list, API-key connect, browser-OAuth
     │                      #   flow with attempt polling, credential
     │                      #   activate/remove, per-provider model switches

@@ -1,6 +1,6 @@
-import type {MessagesPage} from "./api.ts";
 import type {OpencodeEvent} from "./eventStream.ts";
 import {takePendingCommand} from "./pendingCommands.ts";
+import {isSubagentToolName, metaString} from "./sessionActivity.ts";
 import {
     isAssistantMessage,
     isUserMessage,
@@ -11,10 +11,12 @@ import {
     type ChatMessage,
     type ChatUserMessage,
     type EventMap,
+    type MessagesPage,
     type OpencodeSession,
     type ToolState,
 } from "./types.ts";
-import {isSubagentToolName} from "./sessionActivity.ts";
+
+/**
 
 /**
  * Pure message-list logic for ONE session: the event-bus reducer and the
@@ -188,20 +190,14 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
             // events' re-attach below).
             return mutateAssistant(list, d.assistantMessageID, (m) => {
                 m.error = d.error;
-                m.time = {...(m.time ?? {}), completed: Date.now()};
-                // A failed step still burned what it burned — keep the
-                // usage the server managed to report.
-                if (d.cost !== undefined) m.cost = d.cost;
-                if (d.tokens !== undefined) m.tokens = d.tokens;
+                settleStepMeta(m, d);
             }, true);
         }
         case "session.step.ended": {
             const d = data as EventMap["session.step.ended"];
             return mutateAssistant(list, d.assistantMessageID, (m) => {
                 m.finish = d.finish;
-                m.time = {...(m.time ?? {}), completed: Date.now()};
-                if (d.cost !== undefined) m.cost = d.cost;
-                if (d.tokens !== undefined) m.tokens = d.tokens;
+                settleStepMeta(m, d);
             });
         }
         case "session.revert.committed": {
@@ -224,6 +220,15 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
         default:
             return list;
     }
+}
+
+/** step.failed / step.ended share the completion tail: stamp the step
+ *  finished and keep whatever usage the server reported — a failed step
+ *  still burned what it burned. */
+function settleStepMeta(m: ChatAssistantMessage, d: {cost?: number; tokens?: ChatAssistantMessage["tokens"]}): void {
+    m.time = {...(m.time ?? {}), completed: Date.now()};
+    if (d.cost !== undefined) m.cost = d.cost;
+    if (d.tokens !== undefined) m.tokens = d.tokens;
 }
 
 /** Append a delivered user message to a session's list — the QUEUED
@@ -377,7 +382,7 @@ function appendStreamPart(
     kind: "text" | "reasoning",
 ): ChatMessage[] {
     return mutateAssistant(list, messageId, (m) => {
-        if (nthPart(m, kind, ordinal)) return;
+        if (nthPart(m, ordinal, kind)) return;
         m.content = [...m.content, kind === "text"
             ? {type: "text", text: ""}
             : {type: "reasoning", text: ""}];
@@ -392,7 +397,7 @@ function appendStreamDelta(
     delta: string,
 ): ChatMessage[] {
     return mutateAssistant(list, messageId, (m) => {
-        const part = nthPart(m, kind, ordinal);
+        const part = nthPart(m, ordinal, kind);
         if (part) part.text = part.text + delta;
         else {
             m.content = [...m.content, kind === "text"
@@ -410,25 +415,21 @@ function settleStreamPart(
     text: string,
 ): ChatMessage[] {
     return mutateAssistant(list, messageId, (m) => {
-        const part = nthPart(m, kind, ordinal);
+        const part = nthPart(m, ordinal, kind);
         if (part) part.text = text;
     }, true);
 }
 
-/** The nth part of a given kind (stream `ordinal`s are per-kind). */
+/** The nth text/reasoning part (stream `ordinal`s are per-kind) — a
+ *  typed view over {@link partOfType} for the stream handlers, which
+ *  only ever deal in text-bearing parts. */
 function nthPart(
     m: ChatAssistantMessage,
-    kind: "text" | "reasoning",
     ordinal: number,
+    kind: "text" | "reasoning",
 ): {text: string} | undefined {
-    let seen = -1;
-    for (const part of m.content) {
-        if (part.type === kind) {
-            seen += 1;
-            if (seen === ordinal) return part;
-        }
-    }
-    return undefined;
+    const part = partOfType(m, ordinal, kind);
+    return part !== undefined && (part.type === "text" || part.type === "reasoning") ? part : undefined;
 }
 
 // --- Clone-on-write helpers. Each produces new arrays/objects so React
@@ -576,13 +577,7 @@ function isEmptyRecord(o: Record<string, unknown> | undefined): boolean {
  *  settled metadata uses `sessionID`; `session_id` kept for older
  *  servers — same dual read as collectSessionSubagents). */
 function toolChildId(part: AssistantToolPart): string | undefined {
-    const meta = part.state.metadata;
-    if (!meta) return undefined;
-    for (const key of ["sessionID", "session_id"]) {
-        const v = meta[key];
-        if (typeof v === "string" && v !== "") return v;
-    }
-    return undefined;
+    return part.state.metadata ? metaString(part.state.metadata, "sessionID", "session_id") : undefined;
 }
 
 /**

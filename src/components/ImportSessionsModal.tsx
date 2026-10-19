@@ -1,10 +1,11 @@
-import {useEffect, useState, type CSSProperties} from "react";
+import {type CSSProperties} from "react";
 import {FolderInput} from "lucide-react";
 import Modal from "./ui/Modal.tsx";
 import Button from "./ui/Button.tsx";
 import Hint from "./ui/Hint.tsx";
 import {ExitList} from "./ui/ExitPresence.tsx";
 import {useColors} from "../hooks/colors.tsx";
+import {useNow} from "../hooks/useNow.ts";
 import {useI18n} from "../hooks/i18n.tsx";
 import {useScrollEdges} from "../hooks/useScrollEdges.ts";
 import {usePhoneLayout} from "../hooks/useLayoutMode.ts";
@@ -48,12 +49,7 @@ export default function ImportSessionsModal({
     // session joins its main repo's group), same as the sidebar.
     const worktreeDirs = useWorktreeDirs();
     // Ticking "now" for relative ages — only while the picker is open.
-    const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        if (!open) return;
-        const timer = window.setInterval(() => setNow(Date.now()), 30_000);
-        return () => window.clearInterval(timer);
-    }, [open]);
+    const now = useNow(30_000, open);
     // Conditional edge fades for the scroll body (short lists stay
     // fade-free).
     const edges = useScrollEdges<HTMLDivElement>();

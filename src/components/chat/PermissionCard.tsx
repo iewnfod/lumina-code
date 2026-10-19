@@ -1,7 +1,7 @@
 import {memo} from "react";
 import {ShieldAlert} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import type {PermissionDecision, PermissionRequest} from "../../opencode/types.ts";
 import {Card, CardButton, MONO_STYLE} from "./RequestCardChrome.tsx";
 
@@ -47,7 +47,7 @@ export const PermissionCard = memo(function PermissionCard({
                 <div
                     ref={edges.ref}
                     onScroll={edges.onScroll}
-                    className={`flex flex-col gap-0.5 pl-6 max-h-32 overflow-y-auto${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
+                    className={`flex flex-col gap-0.5 pl-6 max-h-32 overflow-y-auto${fadeClasses(edges)}`}
                     style={MONO_STYLE}
                 >
                     {request.resources.map((r, i) => (

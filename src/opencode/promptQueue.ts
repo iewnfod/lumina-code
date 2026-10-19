@@ -1,9 +1,11 @@
 import {useSyncExternalStore} from "react";
+import {createListeners} from "../lib/moduleStore.ts";
+import {nextLocalId} from "./chatMessages.ts";
 import {warn as logWarn} from "@tauri-apps/plugin-log";
-import type {OpencodeApi, SessionInboxItem} from "./api.ts";
+import type {OpencodeApi} from "./api.ts";
 import type {OpencodeEvent} from "./eventStream.ts";
 import {takePendingCommand} from "./pendingCommands.ts";
-import type {ComposerAttachment, PendingCommand, UserMessageFile} from "./types.ts";
+import type {ComposerAttachment, PendingCommand, SessionInboxItem, UserMessageFile} from "./types.ts";
 import {splitAttachmentNote} from "./visionAttachments.ts";
 
 /**
@@ -67,13 +69,13 @@ const queues = new Map<string, QueuedPrompt[]>();
  * sweep deletes the server rows right after) + the expedited ids in
  * click order. Cleared when the flush effect takes the batch. */
 const snapshots = new Map<string, {rows: QueuedPrompt[]; expedited: string[]}>();
-const listeners = new Set<() => void>();
+const bus = createListeners();
 
 /** Stable empty snapshot for the React binding (never changes identity). */
 const EMPTY: readonly QueuedPrompt[] = [];
 
 function emit(): void {
-    for (const listener of listeners) listener();
+    bus.notify();
 }
 
 /** Snapshot array — MUST keep a stable identity when empty (a fresh []
@@ -283,7 +285,7 @@ export async function seedSessionQueue(api: OpencodeApi, sessionId: string): Pro
  * the row must be visible while the request is on the wire). */
 export function appendOptimisticQueued(sessionId: string, entry: {text: string; files: UserMessageFile[]; command: PendingCommand | null}): QueuedPrompt {
     const row: QueuedPrompt = {
-        id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: nextLocalId(),
         ...entry,
         status: "sending",
         addedAt: Date.now(),
@@ -406,10 +408,7 @@ export function getQueuedPrompts(sessionId: string): readonly QueuedPrompt[] {
 }
 
 export function subscribePromptQueue(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => {
-        listeners.delete(listener);
-    };
+    return bus.subscribe(listener);
 }
 
 /** The session's queued prompts (server order), for the rows above the composer. */

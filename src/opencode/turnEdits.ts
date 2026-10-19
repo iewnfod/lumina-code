@@ -1,5 +1,6 @@
 import {useEffect, useSyncExternalStore} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
+import {createKeyedStore} from "../lib/moduleStore.ts";
 import type {OpencodeApi} from "./api.ts";
 import type {WorkspaceDiffEntry} from "./types.ts";
 
@@ -43,12 +44,7 @@ export function summarizeTurnDiff(files: WorkspaceDiffEntry[]): {added: number; 
     return {added, removed};
 }
 
-const entries = new Map<string, TurnEdits>();
-const listeners = new Set<() => void>();
-
-function emit(): void {
-    for (const listener of listeners) listener();
-}
+const entries = createKeyedStore<string, TurnEdits>(() => ({status: "loading", files: [], added: 0, removed: 0}));
 
 function key(sessionId: string, userMessageId: string): string {
     return `${sessionId}\0${userMessageId}`;
@@ -64,17 +60,14 @@ export function ensureTurnEdits(
 ): void {
     if (!api || !sessionId || !userMessageId) return;
     const k = key(sessionId, userMessageId);
-    if (entries.has(k)) return;
+    if (entries.peek(k) !== undefined) return;
     entries.set(k, {status: "loading", files: [], added: 0, removed: 0});
-    emit();
     api.sessionTurnDiff(sessionId, userMessageId).then((files) => {
         const totals = summarizeTurnDiff(files);
         entries.set(k, {status: "ready", files, added: totals.added, removed: totals.removed});
-        emit();
     }).catch((e) => {
         logError(`Failed to load turn diff for ${sessionId}/${userMessageId}: ${e}`).catch(() => {});
         entries.set(k, {status: "error", files: [], added: 0, removed: 0});
-        emit();
     });
 }
 
@@ -83,21 +76,9 @@ export function ensureTurnEdits(
 export function applyTurnEditsBusEvent(type: string, sessionID: unknown): void {
     if (type !== "session.deleted" || typeof sessionID !== "string") return;
     const prefix = `${sessionID}\0`;
-    let dropped = false;
-    for (const k of entries.keys()) {
-        if (k.startsWith(prefix)) {
-            entries.delete(k);
-            dropped = true;
-        }
+    for (const k of [...entries.keys()]) {
+        if (k.startsWith(prefix)) entries.delete(k);
     }
-    if (dropped) emit();
-}
-
-function subscribe(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => {
-        listeners.delete(listener);
-    };
 }
 
 const NO_EDITS: TurnEdits = {status: "loading", files: [], added: 0, removed: 0};
@@ -111,10 +92,10 @@ export function useTurnEdits(
     userMessageId: string | null,
 ): TurnEdits {
     const entry = useSyncExternalStore(
-        subscribe,
+        entries.subscribe,
         () =>
             sessionId !== null && userMessageId !== null
-                ? entries.get(key(sessionId, userMessageId)) ?? null
+                ? entries.peek(key(sessionId, userMessageId)) ?? null
                 : null,
         () => null,
     );

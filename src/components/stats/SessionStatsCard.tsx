@@ -5,6 +5,7 @@ import {useColors} from "../../hooks/colors.tsx";
 import {useBackLevel} from "../../hooks/useBackLevel.ts";
 import {isMobileApp} from "../../lib/platform.ts";
 import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {useOutsideDismiss} from "../../hooks/useOutsideDismiss.ts";
 import {useStatsExpanded, useStatsPanelMode, usePendingStatsDrill, clearStatsDrill} from "../../hooks/useStatsPanelMode.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import type {SessionShellRef, SessionSubagentRef, SessionTodos} from "../../opencode/sessionActivity.ts";
@@ -207,30 +208,11 @@ const SessionStatsCard = memo(function SessionStatsCard({
     // TodoSection and its modal with it. Escape follows the same layer
     // discipline: while a modal is open it belongs to the modal (Modal's
     // own Escape handler closes it); the panel takes over once none is.
-    useEffect(() => {
-        if (!expanded || panelMode !== "auto") return;
-        const onPointerDown = (e: PointerEvent) => {
-            if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-                const el = e.target as Element;
-                if (
-                    typeof el.closest === "function" &&
-                    (el.closest("[data-lum-stats-drill]") || el.closest("[data-lum-modal]"))
-                ) {
-                    return;
-                }
-                collapse();
-            }
-        };
-        const onKeyDown = (e: KeyboardEvent) => {
-            if (e.key === "Escape" && !document.querySelector("[data-lum-modal]")) collapse();
-        };
-        document.addEventListener("pointerdown", onPointerDown, true);
-        document.addEventListener("keydown", onKeyDown, true);
-        return () => {
-            document.removeEventListener("pointerdown", onPointerDown, true);
-            document.removeEventListener("keydown", onKeyDown, true);
-        };
-    }, [expanded, panelMode, collapse]);
+    const outsideDismiss = useCallback(() => collapse(), [collapse]);
+    useOutsideDismiss(rootRef, expanded && panelMode === "auto", outsideDismiss, {
+        exempt: (el) => Boolean(el.closest("[data-lum-stats-drill]") || el.closest("[data-lum-modal]")),
+        escapeBusy: () => document.querySelector("[data-lum-modal]") !== null,
+    });
 
     // Switching the mode to "always" mid-session expands a collapsed
     // card right away; switching back to "auto" leaves it as-is. Refs,
@@ -274,13 +256,6 @@ const SessionStatsCard = memo(function SessionStatsCard({
         "--lum-stats-divider": colors.glassBorder,
         "--lum-wash": colors.hoverOverlay,
     } as React.CSSProperties;
-
-    /** "已完成 / 总数" — finished prominent, total dimmed behind the slash. */
-    const StatCount = ({finished, total, label}: {finished: number; total: number; label: string}) => (
-        <Hint label={`${label} · ${finished} / ${total}`}>
-            <FinishedTotal finished={finished} total={total}/>
-        </Hint>
-    );
 
     // The card unmounts with a short fade (the exit engine holds it
     // until the fade actually ends). The root stays a REAL flex sibling
@@ -587,3 +562,15 @@ const SessionStatsCard = memo(function SessionStatsCard({
 });
 
 export default SessionStatsCard;
+
+/** "已完成 / 总数" — finished prominent, total dimmed behind the slash.
+ *  Module-level on purpose: an inline component definition re-creates
+ *  its function identity every render, which defeats the memo checks of
+ *  anything receiving it. */
+function StatCount({finished, total, label}: {finished: number; total: number; label: string}) {
+    return (
+        <Hint label={`${label} · ${finished} / ${total}`}>
+            <FinishedTotal finished={finished} total={total}/>
+        </Hint>
+    );
+}

@@ -1,0 +1,383 @@
+import {useEffect, useMemo, useRef, useState, type CSSProperties} from "react";
+import {motion} from "framer-motion";
+import {Terminal, Check, Copy, AlertCircle, Pencil, RotateCcw} from "lucide-react";
+import {useColors} from "../../hooks/colors.tsx";
+import {useI18n} from "../../hooks/i18n.tsx";
+import type {ChatUserMessage} from "../../opencode/types.ts";
+import {whileHoverTap} from "../../lib/motion.ts";
+import {fileIconUrl} from "../../lib/fileIcons.ts";
+import {splitAttachmentNote} from "../../opencode/visionAttachments.ts";
+import {useCopy} from "../../hooks/useCopy.ts";
+import {COMMAND_MENTION_COLOR} from "../composer/CommandMentionNode.tsx";
+import {useExpansion} from "./useExpansion.ts";
+import {splitUserMentions, type UserMentionSegment} from "./userMentions.ts";
+import {
+    attachmentChips,
+    type AttachmentChipItem,
+    type AttachmentPreviewSource,
+} from "./attachmentPreview.ts";
+import AttachmentPreview from "./AttachmentPreview.tsx";
+import ExitPresence from "../ui/ExitPresence.tsx";
+import Hint from "../ui/Hint.tsx";
+import {AttachmentChipIcon, ATTACHMENT_CHIP_CLASS} from "../ui/AttachmentChip.tsx";
+
+/**
+ * The USER half of a transcript entry — the right-aligned accent bubble
+ * (attachment chips + previews, the send-failed retry row, the
+ * edit-last-message affordances). Split from MessageItem.tsx (the
+ * dispatcher + the assistant document live there); see MessageItem for
+ * the memoization contract. `renderSegment`'s icon resolves through
+ * lib/fileIcons.ts like the composer's mention node.
+ */
+export interface TranscriptEditProps {
+    /** The id of the session's last plain user message — the only row
+     *  that grows the edit affordance (null = none). */
+    editableMessageId: string | null;
+    /** The id of the message being edited in the COMPOSER right now
+     *  (null = none) — that bubble wears a highlight ring so the edit
+     *  target stays visible while the typing happens down in the
+     *  composer. */
+    editingMessageId: string | null;
+    /** Mid-run the pencil renders DISABLED — a revert needs an idle
+     *  session (the server answers 409 to a busy one). */
+    editDisabled: boolean;
+    /** Load the message's text + attachments into the composer. */
+    onStartEdit: (message: ChatUserMessage) => void;
+}
+
+/** Height cap for a user prompt bubble (matches the tool card body's
+ * max-h-64). Longer prompts clamp with a bottom fade and grow a
+ * "Show more" expander under the bubble. */
+const USER_BUBBLE_MAX_PX = 256;
+
+export default function UserBubble({
+    message,
+    enter,
+    editable = false,
+    editing = false,
+    editDisabled = false,
+    onStartEdit,
+    onRetry,
+}: {
+    message: ChatUserMessage;
+    enter: boolean;
+    /** The edit affordance (pencil) shows on hover. */
+    editable?: boolean;
+    /** The composer is editing THIS message — highlight the bubble so
+     *  the target of the edit stays visible while typing happens in
+     *  the composer below. */
+    editing?: boolean;
+    /** Mid-run the pencil renders DISABLED (revert needs an idle
+     *  session) — still hover-revealed, just inert. */
+    editDisabled?: boolean;
+    onStartEdit?: (message: ChatUserMessage) => void;
+    /** Present only on a FAILED row (sendFailed) with a live retry
+     *  handler — renders the always-visible failure notice + retry. */
+    onRetry?: () => void;
+}) {
+    const colors = useColors();
+    const t = useI18n();
+    const {copied, copy} = useCopy();
+    const files = message.files ?? [];
+    // The vision-divert note is protocol for a text-only model, not the
+    // user's words: strip it from the bubble and surface the diverted
+    // images as attachment chips instead (the note's name→path pairs
+    // feed them; editResend re-appends the note when the prompt is
+    // edited, so the model keeps its image paths).
+    const {text: displayText, diverted} = splitAttachmentNote(message.text);
+    // The attachment chips (inline files + vision-diverted images) and
+    // their preview sources resolve from the SAME memoized items, so a
+    // chip's key always matches what the expanded panel would render —
+    // and the source identities stay stable across re-renders (the
+    // preview's fetch effect keys off them; fresh objects every render
+    // would refetch on every streaming frame).
+    const chips = useMemo(
+        () => attachmentChips(message.files ?? [], splitAttachmentNote(message.text).diverted),
+        [message.files, message.text],
+    );
+    const [previewKey, setPreviewKey] = useState<string | null>(null);
+    const activeItem = previewKey == null ? null : chips.find((c) => c.key === previewKey) ?? null;
+    const active = activeItem?.source != null ? {key: activeItem.key, source: activeItem.source} : null;
+    // The LAST active pair stays renderable through the exit hold
+    // (collapsing nulls `active` mid-render; the engine still needs
+    // content to fade out — the same derived-state pattern ExitPresence
+    // itself uses).
+    const lastActiveRef = useRef<{key: string; source: AttachmentPreviewSource} | null>(null);
+    if (active != null) lastActiveRef.current = active;
+    const held = active ?? lastActiveRef.current;
+    const {expanded, toggle} = useExpansion(`user-bubble:${message.id}`, false);
+    const [clipped, setClipped] = useState(false);
+    const textRef = useRef<HTMLDivElement>(null);
+    // Does the text exceed the cap? Measured on the INNER wrapper so the
+    // bubble padding stays out of the comparison — and against the cap
+    // constant rather than clientHeight, because scrollHeight reports the
+    // full content height even while clamped, so the answer is identical
+    // collapsed or expanded (an expander must not vanish once opened). The
+    // observer's initial callback covers mount; later ones catch
+    // width-driven rewraps (window resize).
+    useEffect(() => {
+        const el = textRef.current;
+        if (!el) return;
+        const measure = () => setClipped(el.scrollHeight > USER_BUBBLE_MAX_PX);
+        measure();
+        const observer = new ResizeObserver(measure);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [message.text]);
+    const clamped = clipped && !expanded;
+    return (
+        // Top margin sets the turn apart from the tight assistant flow
+        // (the column gap is only 12px); with text, the lower spacing is
+        // carried by the quiet actions row under the bubble instead of raw
+        // margin (files-only bubbles keep the full bottom margin).
+        <div
+            className={`group/msg flex flex-col items-end mt-4 ${displayText ? "mb-1" : "mb-4"}${enter ? " lum-enter" : ""}`}
+        >
+            {/* Attachments float ABOVE the bubble, outside it — the prompt
+                text keeps a clean single-surface read and the files read as
+                accompanying material rather than bubble content. Diverted
+                images (saved to disk for a text-only model's vision tool)
+                join the row as chips with no thumbnail to show.
+                PREVIEWABLE chips are buttons: clicking one expands its
+                preview right under the row (image lightbox-style / the
+                workspace's code display), clicking it again collapses. */}
+            {(files.length > 0 || (diverted?.length ?? 0) > 0) && (
+                <AttachmentChips
+                    chips={chips}
+                    onToggle={(key) => setPreviewKey((k) => (k === key ? null : key))}
+                />
+            )}
+            {/* The expanded preview folds open/closed through the .lum-fold
+                grid-rows pattern (the app's height-animation primitive —
+                the browser interpolates the content height, no JS): the
+                fold container mounts as soon as any chip is previewable,
+                so the FIRST expansion toggles data-open after mount and
+                animates; content swaps between chips crossfade inside the
+                open fold (.lum-enter keyed per chip), and closing shrinks
+                the rows while ExitPresence holds the children (timer-
+                driven, budget-exempt — the container runs the transition;
+                see FoldRow for the anatomy). */}
+            {chips.some((c) => c.source != null) && (
+                <div className="lum-fold self-stretch" data-open={active != null}>
+                    <div>
+                        <ExitPresence present={active != null} exitMs={300} budget={false}>
+                            {() => held != null && (
+                                <div key={held.key} className="mb-2 lum-enter">
+                                    <AttachmentPreview source={held.source}/>
+                                </div>
+                            )}
+                        </ExitPresence>
+                    </div>
+                </div>
+            )}
+            {displayText && (
+                // A slash-command submission hovers to reveal the expanded
+                // template (the wrapper carries the width cap while the
+                // Hint is mounted); plain prompts render the bare bubble.
+                <Hint label={message.command ? message.text : null} className={message.command ? "max-w-[85%]" : undefined}>
+                    {/* No w-full here: a plain prompt renders the bubble bare,
+                     * where it must shrink-wrap its text (w-full would pin it
+                     * to the cap); a command bubble fills its fit-content
+                     * wrapper either way. */}
+                    <div
+                        className={`${message.command ? "" : "max-w-[85%]"} rounded-[var(--radius-lg)] px-4 py-2.5 text-sm${editing ? " ring-1 ring-[var(--lum-edit-ring)]" : ""}`}
+                        style={{
+                            background: colors.accentOverlay,
+                            ...(editing ? {"--lum-edit-ring": colors.focusRing} as CSSProperties : {}),
+                        }}
+                    >
+                        {/* The clamp + fade live on this inner wrapper, not the
+                         * bubble: a mask would dissolve the bubble's own
+                         * translucent fill and rounded corners with it.
+                         * .lum-fade-bottom with the original 24px band (see
+                         * main.css's fade-system docs). */}
+                        <div
+                            ref={textRef}
+                            className={`whitespace-pre-wrap break-words${clamped ? " overflow-hidden lum-fade-bottom lum-fade-md" : ""}`}
+                            style={clamped ? {maxHeight: USER_BUBBLE_MAX_PX} : undefined}
+                        >
+                            {message.command ? (
+                                // A slash-command submission: the server stored the
+                                // EXPANDED template (message.text), but the bubble
+                                // shows the compact invocation — chip + arguments —
+                                // like the composer's inline command mention. Hover
+                                // reveals the expanded prompt.
+                                <>
+                                    <span
+                                        className="inline-flex items-center gap-1 font-medium whitespace-nowrap"
+                                        style={{color: COMMAND_MENTION_COLOR}}
+                                    >
+                                        <Terminal size={12} className="shrink-0"/>
+                                        /{message.command.name}
+                                    </span>
+                                    {message.command.arguments && (
+                                        <span> {message.command.arguments}</span>
+                                    )}
+                                </>
+                            ) : (
+                                <UserMentionText text={displayText}/>
+                            )}
+                        </div>
+                    </div>
+                </Hint>
+            )}
+            {/* FAILED SEND: the optimistic row's POST died (network /
+                timeout — the mobile frp route's norm). Always visible
+                (not hover-gated): the user must see the message did not
+                go out and be able to retry it in place — dropping the
+                row silently reads as "my message vanished". */}
+            {message.sendFailed && (
+                <div
+                    className="flex items-center gap-1.5 mt-1 text-xs select-none"
+                    style={{color: "var(--color-danger-text)"}}
+                >
+                    <AlertCircle size={12} className="shrink-0" style={{color: "var(--color-danger)"}}/>
+                    <span>{t["Failed to send"]}</span>
+                    {onRetry && (
+                        <button
+                            type="button"
+                            onClick={onRetry}
+                            className="inline-flex items-center gap-1 h-5 px-1.5 rounded-[var(--radius-xs)] cursor-pointer lum-wash font-medium"
+                            style={{"--lum-wash": colors.hoverOverlay} as CSSProperties}
+                        >
+                            <RotateCcw size={11} className="shrink-0"/>
+                            {t["Retry"]}
+                        </button>
+                    )}
+                </div>
+            )}
+            {/* Quiet actions row under the bubble: the copy affordance sits
+                beside the clamp expander (hover-revealed like the sidebar's
+                row actions; stays lit while the ✓ lingers so the
+                confirmation isn't hidden by the pointer leaving). Copies
+                the full prompt — the divert note stripped above stays out
+                (it's protocol, not prose); for a slash-command submission
+                that's the expanded template, matching the bubble's hover
+                hint. transform-gpu for the same WebKitGTK compositing
+                reason as RunFooter. */}
+            {displayText && (
+                <div className="flex items-center gap-1 mt-1">
+                    <Hint label={copied ? t["Copied"] : t["Copy"]}>
+                        <button
+                            type="button"
+                            onClick={() => void copy(displayText)}
+                            className={`inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none lum-wash transition-opacity duration-[var(--duration-fast)] transform-gpu ${copied ? "opacity-100" : "opacity-0 group-hover/msg:opacity-50 hover:opacity-100"}`}
+                        >
+                            {copied
+                                ? <Check size={14} className="shrink-0"/>
+                                : <Copy size={14} className="shrink-0"/>}
+                        </button>
+                    </Hint>
+                    {/* Edit the last sent message: loads its text +
+                        attachments into the composer (see ChatView's
+                        edit wiring + useSessionMessages.editResend).
+                        Hover-revealed like copy — including mid-run,
+                        where it renders DISABLED (dimmer, inert; the
+                        tooltip says the AI must be stopped first): a
+                        revert needs an idle session. The inertness is
+                        an onClick guard, NOT the native disabled
+                        attribute — a disabled button swallows pointer
+                        events and would kill the tooltip. */}
+                    {editable && (
+                        <Hint label={editDisabled ? t["Stop the AI to edit"] : t["Edit"]}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (editDisabled) return;
+                                    onStartEdit?.(message);
+                                }}
+                                className={`inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] select-none transition-opacity duration-[var(--duration-fast)] transform-gpu ${
+                                    editDisabled
+                                        ? "opacity-0 group-hover/msg:opacity-25 cursor-not-allowed"
+                                        : "opacity-0 group-hover/msg:opacity-50 hover:opacity-100 cursor-pointer lum-wash"
+                                }`}
+                            >
+                                <Pencil size={14} className="shrink-0"/>
+                            </button>
+                        </Hint>
+                    )}
+                    {clipped && (
+                        <motion.button
+                            type="button"
+                            {...whileHoverTap}
+                            className="px-2 py-1 text-2xs cursor-pointer rounded-[var(--radius-sm)] lum-wash"
+                            style={{"--lum-wash": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
+                            onClick={toggle}
+                        >
+                            {expanded ? t["Show less"] : t["Show more"]}
+                        </motion.button>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+/** A user prompt's text with its `@path` file mentions rendered exactly
+ *  like the composer's inline token — icon + file name, no `@` (the
+ *  shared `.lum-file-mention` chrome; the icon URL resolves per path the
+ *  same way FileMentionNode does). The wire text keeps the `@relative`
+ *  form the server resolves; this is display-only. */
+function UserMentionText({text}: {text: string}) {
+    const segments = useMemo(() => splitUserMentions(text), [text]);
+    return (
+        <>
+            {segments.map((segment, i) => renderSegment(segment, i))}
+        </>
+    );
+}
+
+function renderSegment(segment: UserMentionSegment, i: number) {
+    if (segment.kind === "text") return segment.text;
+    return (
+        <span
+            key={i}
+            className="lum-file-mention"
+            style={{backgroundImage: `url("${fileIconUrl(segment.relative)}")`}}
+        >
+            {segment.name}
+        </span>
+    );
+}
+
+/** A user message's attachments, floated above the bubble — the prompt
+ *  text keeps a clean single-surface read and the files read as
+ *  accompanying material rather than bubble content. Chips carrying a
+ *  preview SOURCE are buttons (hover wash); the rest remain inert
+ *  spans. `diverted` items' hover hint reveals where the file landed. */
+function AttachmentChips({
+    chips,
+    onToggle,
+}: {
+    chips: AttachmentChipItem[];
+    onToggle: (key: string) => void;
+}) {
+    const colors = useColors();
+    return (
+        <div className="flex flex-wrap justify-end gap-1.5 mb-1.5 max-w-[85%]">
+            {chips.map((c) => {
+                // Same chip family as the composer's attachment chips
+                // (ui/AttachmentChip — one look wherever an attachment
+                // renders); the expanded state still reads via the
+                // preview panel opening below, not a color change.
+                const className = `${ATTACHMENT_CHIP_CLASS} lum-wash cursor-pointer`;
+                const style = {background: colors.activeOverlay};
+                return (
+                    <Hint key={c.key} label={c.path ?? null}>
+                        {c.source != null ? (
+                            <button type="button" onClick={() => onToggle(c.key)} className={className} style={style}>
+                                <AttachmentChipIcon thumb={c.isImageThumb && c.thumb ? c.thumb : null} name={c.name}/>
+                                <span className="text-xs truncate leading-normal">{c.name}</span>
+                            </button>
+                        ) : (
+                            <span className={ATTACHMENT_CHIP_CLASS} style={style}>
+                                <AttachmentChipIcon thumb={c.isImageThumb && c.thumb ? c.thumb : null} name={c.name}/>
+                                <span className="text-xs truncate leading-normal">{c.name}</span>
+                            </span>
+                        )}
+                    </Hint>
+                );
+            })}
+        </div>
+    );
+}

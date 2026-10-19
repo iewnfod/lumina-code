@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type {IntegrationInfo, OpencodeConfigEntry, OpencodeModel} from "../../opencode/types.ts";
 import {
     customProviderDefs,
+    customProviderText,
     filterIntegrations,
     freshConfigWithProvider,
     globalConfigTarget,
@@ -10,6 +11,7 @@ import {
     parseOAuthInstructions,
     providerModels,
     removeCustomProvider,
+    validateCustomProvider,
 } from "./modelConfig.ts";
 
 const def = {
@@ -224,4 +226,22 @@ test("parseOAuthInstructions passes code-less instructions through untouched", (
         parseOAuthInstructions("Authorize Example in your browser. This window will close automatically."),
         {code: null, text: "Authorize Example in your browser. This window will close automatically."},
     );
+});
+
+test("validateCustomProvider rejects missing fields, accepts a complete def", () => {
+    assert.equal(validateCustomProvider(def), null);
+    assert.equal(validateCustomProvider({...def, id: "not legal!"}), "fields");
+    assert.equal(validateCustomProvider({...def, id: ""}), "fields");
+    assert.equal(validateCustomProvider({...def, baseURL: "  "}), "fields");
+    assert.equal(validateCustomProvider({...def, npm: ""}), "fields");
+    assert.equal(validateCustomProvider({...def, models: [{id: "  ", name: ""}]}), "fields");
+});
+
+test("customProviderText builds fresh on absent config, merges otherwise", () => {
+    assert.equal(customProviderText("", def), freshConfigWithProvider(def));
+    const merged = customProviderText('{"provider":{}}', def);
+    assert.equal(merged, mergeCustomProvider('{"provider":{}}', def));
+    assert.notEqual(merged, null);
+    // JSONC text (comments) is never rewritten — the merge refuses.
+    assert.equal(customProviderText("{\"a\": 1} // c", def), mergeCustomProvider("{\"a\": 1} // c", def));
 });

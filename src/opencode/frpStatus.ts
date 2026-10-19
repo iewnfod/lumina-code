@@ -1,4 +1,5 @@
 import {useSyncExternalStore} from "react";
+import {createModuleStore} from "../lib/moduleStore.ts";
 
 /**
  * The frp direct route's LIVE connection status (Settings → Server): the
@@ -38,34 +39,20 @@ export interface FrpStatus {
     detail?: string;
 }
 
-let status: FrpStatus = {state: "off"};
-const listeners = new Set<() => void>();
-
-function emit(): void {
-    for (const listener of listeners) listener();
-}
+const store = createModuleStore<FrpStatus>({state: "off"}, (a, b) => a.state === b.state && a.detail === b.detail);
 
 /** Record a phase transition (the engine is the only writer). An absent
  * detail CLEARS a previous one — states are self-contained. */
 export function setFrpStatus(state: FrpStatusState, detail?: string): void {
-    if (status.state === state && status.detail === detail) return;
-    status = detail === undefined ? {state} : {state, detail};
-    emit();
+    store.set(detail === undefined ? {state} : {state, detail});
 }
 
 /** Snapshot read (the object identity is stable between transitions). */
 export function getFrpStatus(): FrpStatus {
-    return status;
-}
-
-function subscribeFrpStatus(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => {
-        listeners.delete(listener);
-    };
+    return store.get();
 }
 
 /** The live frp route status (reactive). */
 export function useFrpStatus(): FrpStatus {
-    return useSyncExternalStore(subscribeFrpStatus, getFrpStatus, getFrpStatus);
+    return useSyncExternalStore(store.subscribe, store.get, store.get);
 }

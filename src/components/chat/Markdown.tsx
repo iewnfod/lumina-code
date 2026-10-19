@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {openUrl} from "@tauri-apps/plugin-opener";
 import {Check, Copy} from "lucide-react";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {useCopy} from "../../hooks/useCopy.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import Hint from "../ui/Hint.tsx";
@@ -66,7 +66,7 @@ function MdPre({children}: {children?: ReactNode}) {
                 <span
                     ref={edges.ref}
                     onScroll={edges.onScroll}
-                    className={`lum-md-pre-scroll${edges.left ? " lum-fade-left" : ""}${edges.right ? " lum-fade-right" : ""}`}
+                    className={`lum-md-pre-scroll${fadeClasses(edges)}`}
                 >
                     {children}
                 </span>
@@ -99,7 +99,7 @@ function MdTable({children}: {children?: ReactNode}) {
             <div
                 ref={edges.ref}
                 onScroll={edges.onScroll}
-                className={`lum-md-table-scroll${edges.left ? " lum-fade-left" : ""}${edges.right ? " lum-fade-right" : ""}`}
+                className={`lum-md-table-scroll${fadeClasses(edges)}`}
             >
                 <table>{children}</table>
             </div>

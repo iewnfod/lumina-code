@@ -3,6 +3,7 @@ import {motion} from "framer-motion";
 import {FolderInput, Plus} from "lucide-react";
 import Icon from "../assets/icon.svg";
 import {isMacOS} from "../lib/platform.ts";
+import {useNow} from "../hooks/useNow.ts";
 import {CHROME_TITLE_BAR_HEIGHT} from "../constants.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
 import {useGlass} from "../hooks/useGlass.ts";
@@ -67,11 +68,7 @@ export default function SessionBar(props: SessionBarProps) {
 
     // Ticking "now" so relative ages stay fresh (minute resolution —
     // re-rendering every 30s is plenty and keeps the list calm).
-    const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        const timer = window.setInterval(() => setNow(Date.now()), 30_000);
-        return () => window.clearInterval(timer);
-    }, []);
+    const now = useNow(30_000);
 
     const colors = useSurfaceColors(backgroundColor);
     const {supportsGlass} = useGlass();

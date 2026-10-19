@@ -4,6 +4,7 @@ import {invoke} from "@tauri-apps/api/core";
 import {getCurrentWindow} from "@tauri-apps/api/window";
 import {info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
 import {createPersistedStore} from "../lib/persistedStore.ts";
+import {createModuleStore} from "../lib/moduleStore.ts";
 import {isLinux} from "../lib/platform.ts";
 import {
     composeWhitelist,
@@ -32,27 +33,12 @@ import {
  * our own whitelist write. Never on a timer.
  */
 
-let snapshot: BlurSnapshot | null = null;
+const store = createModuleStore<BlurSnapshot | null>(null);
 let inflight: Promise<void> | null = null;
-const listeners = new Set<() => void>();
-
-function emit(): void {
-    for (const listener of listeners) listener();
-}
-
-/** Read-side binding for the settings row (status + actions). */
-function subscribe(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-}
-
-function getSnapshot(): BlurSnapshot | null {
-    return snapshot;
-}
 
 /** The raw probe state, or null before the first probe settles. */
 export function peekBmsSnapshot(): BlurSnapshot | null {
-    return snapshot;
+    return store.get();
 }
 
 /** Run (or join) a probe and fold the result into the store. */
@@ -72,9 +58,11 @@ async function runProbe(): Promise<void> {
         // same opaque fallback as an unsupported desktop.
         return;
     }
-    const previous = snapshot ? deriveBmsStatus(snapshot).state : "unprobed";
+    const prior = store.get();
+    const previous = prior ? deriveBmsStatus(prior).state : "unprobed";
     try {
-        snapshot = await invoke<BlurSnapshot>("blur_my_shell_probe");
+        const next = await invoke<BlurSnapshot>("blur_my_shell_probe");
+        store.set(next);
     } catch (e) {
         // The command is total by design; this only fires if the IPC
         // itself broke. Keep whatever we knew (or stay unprobed) — the
@@ -82,8 +70,8 @@ async function runProbe(): Promise<void> {
         logWarn(`Blur my Shell probe failed: ${e}`).catch(() => {});
         return;
     }
-    emit();
-    const now = deriveBmsStatus(snapshot).state;
+    const settled = store.get();
+    const now = settled ? deriveBmsStatus(settled).state : "unprobed";
     if (previous !== now) {
         logInfo(`Blur my Shell: ${previous} → ${now}`).catch(() => {});
     }
@@ -98,7 +86,7 @@ async function runProbe(): Promise<void> {
  * failed (the row keeps its action).
  */
 export async function addToBmsWhitelist(): Promise<boolean> {
-    const current = snapshot;
+    const current = store.get();
     if (!current) return false;
     const next = composeWhitelist(current.whitelist, current.wmClass);
     try {
@@ -118,7 +106,7 @@ export async function addToBmsWhitelist(): Promise<boolean> {
  *  first probe settles this reads as "unsupported" — App probes before
  *  the window is shown, so real UI never observes that interim. */
 export function useBmsStatus(): BlurStatus {
-    const snap = useSyncExternalStore(subscribe, getSnapshot);
+    const snap = useSyncExternalStore(store.subscribe, store.get, store.get);
     return snap ? deriveBmsStatus(snap) : {state: "unsupported"};
 }
 

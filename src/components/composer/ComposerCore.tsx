@@ -11,7 +11,6 @@ import {
     $createTextNode,
     $getNodeByKey,
     $getRoot,
-    $isElementNode,
     $isTextNode,
     COMMAND_PRIORITY_HIGH,
     KEY_ARROW_DOWN_COMMAND,
@@ -36,6 +35,7 @@ import type {
 import {useI18n} from "../../hooks/i18n.tsx";
 import InputSuggestions, {type SuggestionItem} from "./InputSuggestions.tsx";
 import {$createFileMentionNode, $isFileMentionNode} from "./FileMentionNode.tsx";
+import {readSubmitPayload} from "./composerSerialize.ts";
 import {$createCommandMentionNode} from "./CommandMentionNode.tsx";
 import {
     $detectTrigger,
@@ -282,27 +282,7 @@ export default function ComposerCore({
     const submit = useCallback(() => {
         const live = liveRef.current;
         if (live.disabled || submitInFlightRef.current) return;
-        const payload = editor.getEditorState().read(() => {
-            let text = "";
-            const paths: string[] = [];
-            $getRoot().getChildren().forEach((block, bi) => {
-                if (bi > 0) text += "\n";
-                for (const child of $isElementNode(block) ? block.getChildren() : []) {
-                    if ($isFileMentionNode(child)) {
-                        paths.push(child.getAbsolute());
-                        // The token displays icon + bare file name; the
-                        // SENT text re-prefixes the "@" so the server
-                        // resolves the "@relative" mention form.
-                        text += `@${child.getRelative()}`;
-                        continue;
-                    }
-                    // LineBreakNodes (Shift+Enter) contribute "\n" via
-                    // getTextContent.
-                    text += child.getTextContent();
-                }
-            });
-            return {text, paths};
-        });
+        const payload = editor.getEditorState().read(readSubmitPayload);
         const trimmed = payload.text.trim();
         if (!trimmed) return;
         let command: PendingCommand | null = null;

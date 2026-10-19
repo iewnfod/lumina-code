@@ -1,10 +1,8 @@
 import {memo} from "react";
 import {BadgeCheck} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import type {WorkSubmitPayload} from "../../opencode/sessionActivity.ts";
-import {Card, CardButton} from "./RequestCardChrome.tsx";
-import Markdown from "./Markdown.tsx";
+import {GateCard} from "./GateCard.tsx";
 
 /**
  * The plan workflow's acceptance card (the second gate): the work_submit
@@ -38,46 +36,17 @@ export const WorkReviewCard = memo(function WorkReviewCard({
     onReject: () => void;
 }) {
     const t = useI18n();
-    // Conditional edge fades: same reading posture as the plan approval
-    // card — flush content, fades only while a side has hidden content.
-    const edges = useScrollEdges<HTMLDivElement>();
     return (
-        <Card>
-            <div className="flex items-center gap-2 text-sm font-medium">
-                <BadgeCheck size={15} className="shrink-0" style={{color: "var(--color-success)"}}/>
-                <span>{t["Review work"]}</span>
-            </div>
-            {interrupted && (
-                <div className="pl-6 text-xs" style={{color: "var(--color-warning)"}}>
-                    {t["Review wait interrupted"]}
-                </div>
-            )}
-            {payload ? (
-                // The report renders as MARKDOWN (the shared .lum-md
-                // typography) in a viewport-proportional scroll area —
-                // same reading posture as the plan approval card. No
-                // `live`: static content, no entrance animations.
-                <div
-                    ref={edges.ref}
-                    onScroll={edges.onScroll}
-                    className={`pl-6 max-h-[45vh] overflow-y-auto lum-fade-lg${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
-                >
-                    <Markdown>{payload.report}</Markdown>
-                </div>
-            ) : (
-                <div className="pl-6 text-xs" style={{color: "var(--color-danger-text)"}}>
-                    {t["Invalid work report"]}
-                </div>
-            )}
-            <div className="flex items-center justify-end gap-2">
-                <CardButton label={t["Reject"]} onClick={onReject}/>
-                <CardButton
-                    label={t["Approve & archive"]}
-                    primary
-                    disabled={!payload}
-                    onClick={() => payload && onApprove()}
-                />
-            </div>
-        </Card>
+        <GateCard
+            icon={BadgeCheck}
+            title={t["Review work"]}
+            interruptedWarning={t["Review wait interrupted"]}
+            invalidNotice={t["Invalid work report"]}
+            document={payload ? payload.report : null}
+            approveLabel={t["Approve & archive"]}
+            interrupted={interrupted}
+            onApprove={onApprove}
+            onReject={onReject}
+        />
     );
 });

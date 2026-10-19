@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useMemo, useState} from "react";
 import {error, info, warn} from "@tauri-apps/plugin-log";
 import {loadState, saveState} from "../lib/persist.ts";
-import {OpencodeApi} from "./api.ts";
+import {fileRefToPromptFile, OpencodeApi} from "./api.ts";
 import {appendFailedPrompt, prepareCommandSubmission} from "./useSessionMessages.ts";
 import {useCatalog} from "./catalogContext.tsx";
 import {useConnection} from "./connectionContext.tsx";
@@ -269,7 +269,7 @@ export function useSessionFlow(): {
         const deliveredText = note ? `${text}\n\n${note}` : text;
         const promptFiles = [
             ...inline.map((f) => ({uri: f.uri, name: f.name})),
-            ...fileRefs.map((r) => OpencodeApi.fileRefToPromptFile(r)),
+            ...fileRefs.map((r) => fileRefToPromptFile(r)),
         ];
         // Stamp the compact form BEFORE the request: the server enqueues
         // (and emits the confirming event) before the response arrives,
@@ -300,7 +300,7 @@ export function useSessionFlow(): {
                 text: deliveredText,
                 files: [
                     ...inline.map((f) => ({name: f.name, mime: f.mime, uri: f.uri})),
-                    ...fileRefs.map((r) => OpencodeApi.fileRefToPromptFile(r)),
+                    ...fileRefs.map((r) => fileRefToPromptFile(r)),
                 ],
                 ...(command ? {command} : {}),
             });

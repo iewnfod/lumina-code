@@ -2,7 +2,7 @@ import {memo, useEffect, useMemo, useState} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {capPreviewLines, PREVIEW_MAX_LINES, type AttachmentPreviewSource} from "./attachmentPreview.ts";
 import {fragmentHunks} from "./toolDiff.ts";
@@ -143,7 +143,7 @@ const AttachmentPreview = memo(function AttachmentPreview({source}: {source: Att
                     <div
                         ref={edges.ref}
                         onScroll={edges.onScroll}
-                        className={`max-h-[55vh] overflow-auto lum-fade-lg${edges.bottom ? " lum-fade-bottom" : ""}`}
+                        className={`max-h-[55vh] overflow-auto lum-fade-lg${fadeClasses(edges)}`}
                     >
                         <div className="px-3 py-3">
                             {hunks.length > 0

@@ -1,8 +1,7 @@
-import {useCallback, useEffect, useRef, useState} from "react";
-import type {ReactNode} from "react";
-import {getCurrentWindow} from "@tauri-apps/api/window";
-import {error} from "@tauri-apps/plugin-log";
+import {useCallback, useState} from "react";
 import TitleBar from "./components/TitleBar.tsx";
+import SessionSurface from "./components/SessionSurface.tsx";
+import StatsCardSwap from "./components/StatsCardSwap.tsx";
 import SessionBar from "./components/SessionBar.tsx";
 import SidebarResizer from "./components/SidebarResizer.tsx";
 import WelcomeScreen from "./components/WelcomeScreen.tsx";
@@ -23,16 +22,16 @@ import {useThemePreference} from "./hooks/useThemePreference.ts";
 import {useSurfaceColors} from "./hooks/surfaceColors.ts";
 import {ColorsProvider, useColors} from "./hooks/colors.tsx";
 import {useWindowOutline} from "./hooks/useWindowOutline.ts";
-import {probeBms, useBmsFocusRefresh, useCompositorBlurActive} from "./hooks/useBlurMyShell.ts";
+import {useBmsFocusRefresh, useCompositorBlurActive} from "./hooks/useBlurMyShell.ts";
+import {useWindowFirstShow} from "./hooks/useWindowFirstShow.ts";
+import {useChromeThemeSync} from "./hooks/useChromeThemeSync.ts";
 import {useNotifications} from "./hooks/useNotifications.ts";
 import {useServerFrp} from "./hooks/useServerFrp.ts";
 import {useBackLevel} from "./hooks/useBackLevel.ts";
-import {glassSurface, glassSurfaceEquivalent, windowOutline} from "./lib/glass.ts";
+import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {isColorDark, withAlpha} from "./lib/color.ts";
 import {isLinux, isCefRuntime, isMobileApp} from "./lib/platform.ts";
 import {appThemeFor, type ChromeTheme} from "./lib/theme.ts";
-import {liveSurfaceKey, nextSurfacePhase, type SurfacePhase} from "./lib/surfacePhases.ts";
-import {matchesAnimationEvent} from "./lib/exitGate.ts";
 import {useOpencode} from "./opencode/useOpencode.ts";
 import {useSessionFlow} from "./opencode/useSessionFlow.ts";
 import {useDirectoryBranch} from "./opencode/useDirectoryBranch.ts";
@@ -40,7 +39,7 @@ import {useLuminaToolsInstall} from "./opencode/useLuminaTools.ts";
 import {CatalogProvider} from "./opencode/catalogContext.tsx";
 import {ConnectionProvider, useConnection} from "./opencode/connectionContext.tsx";
 import {SessionDataProvider, useSessionData} from "./opencode/sessionDataContext.tsx";
-import {ensureSessionSeeded, useSessionSeeded} from "./opencode/useSessionMessages.ts";
+import {ensureSessionSeeded} from "./opencode/useSessionMessages.ts";
 import {prefetchSessionActivity} from "./opencode/useSessionActivity.ts";
 import type {SessionUsage} from "./opencode/types.ts";
 
@@ -63,226 +62,6 @@ import type {SessionUsage} from "./opencode/types.ts";
  * ColorsProvider (hooks/colors.tsx) plus the --lum-wash CSS vars seeded
  * on the root.
  */
-
-/** The exit key the loading/entrance phases hand off through. */
-const SURFACE_EXIT_ANIMATION = "lum-surface-exit";
-/** Fallback for a canceled exit animation (display:none, tab hidden) —
- *  matches the CSS duration of .lum-surface-exit plus slack. */
-const SURFACE_EXIT_MS = 400;
-
-/**
- * The session ↔ welcome surface choreography — SEQUENTIAL, replacing the
- * old crossfading SurfaceSwap. A switch plays in strict phases:
- *
- *   1. retarget: the leaving surface starts its exit IMMEDIATELY (the
- *      fetch for the successor starts in the same tick, in parallel);
- *   2. the exit plays to completion — the leaving surface is alone on
- *      stage, so it may travel (rise out) where the old crossfade had
- *      to stay opacity-only (two glass surfaces translating against
- *      each other smeared);
- *   3. once the exit ends: a ready successor enters right away; an
- *      unready one shows the looping loading dots until its seed
- *      lands, then enters.
- *
- * "Ready" = the successor's newest message page has landed in the store
- * (useSessionSeeded), so the entering surface's FIRST FRAME already
- * carries its content — the entrance animation starts exactly when
- * there is something to reveal, which is what makes it cover the load
- * whatever the latency (a fixed-duration animation played at click time
- * always finished before the data arrived; the content then popped in
- * bare — the bug this choreography exists to fix).
- *
- * The phase logic lives in lib/surfacePhases.ts (pure, tested); this
- * component only feeds it events: render-time retarget edges (React's
- * derived-state pattern — the re-render lands before commit, so the
- * flipped commit already paints the exit layer), the exit layer's
- * animationend (name+target matched via exitGate, with a timer
- * fallback for canceled animations), and readiness flips. The exit
- * layer renders a frozen ReactNode snapshot captured AT retarget time
- * — the element keeps the props it was built with, so the leaving
- * session's view renders untouched for the exit's duration — and it is
- * absolutely positioned (out of flow): the successor only mounts in
- * phase 3, so nothing ever overlaps.
- */
-function SessionSurface({targetKey, render}: {targetKey: string; render: (key: string) => ReactNode}) {
-    const t = useI18n();
-    const {api} = useConnection();
-    // Readiness of the TARGET surface: welcome (null session) is always
-    // ready; a session is ready once its newest page has seeded.
-    const targetSessionId = targetKey === "welcome" ? null : targetKey.replace(/^session-/, "");
-    const targetReady = useSessionSeeded(targetSessionId);
-    const readyRef = useRef(targetReady);
-    readyRef.current = targetReady;
-
-    const [phase, setPhase] = useState<SurfacePhase>(() => ({kind: "shown", key: targetKey}));
-    // The exit layer's frozen snapshot (captured during the retarget
-    // render, before prevNode is cleared for the successor).
-    const [held, setHeld] = useState<{key: string; node: ReactNode} | null>(null);
-    const prevKeyRef = useRef(targetKey);
-    const prevNodeRef = useRef<ReactNode>(null);
-    const timerRef = useRef(0);
-
-    if (prevKeyRef.current !== targetKey) {
-        const prevKey = prevKeyRef.current;
-        const prevNode = prevNodeRef.current;
-        prevKeyRef.current = targetKey;
-        prevNodeRef.current = null;
-        if (prevKey !== targetKey) {
-            // Only a shown→exiting transition mounts a new exit layer
-            // (mid-exit re-aims keep the current one playing).
-            const next = nextSurfacePhase(phase, {type: "retarget", key: targetKey, ready: targetReady});
-            setPhase(next);
-            if (phase.kind === "shown" && next.kind === "exiting" && prevNode !== null) {
-                setHeld({key: prevKey, node: prevNode});
-            }
-        }
-    }
-
-    // Warm the target's store at switch time (in parallel with the
-    // exit). For an already-seeded session this is a no-op; for the
-    // welcome surface there is nothing to warm.
-    useEffect(() => {
-        if (api && targetSessionId !== null) ensureSessionSeeded(api, targetSessionId);
-    }, [api, targetSessionId]);
-
-    // A readiness flip ends the waiting phase (idempotent otherwise).
-    useEffect(() => {
-        if (targetReady) setPhase((p) => nextSurfacePhase(p, {type: "becameReady"}));
-    }, [targetReady]);
-
-    // End-of-exit: the animationend event when it fires on the exit
-    // host itself (bubbled child events never match), with a fallback
-    // timer — canceled animations (hidden window, display:none) never
-    // send events, and the phase machine treats duplicates as no-ops.
-    // Armed per exit-layer mount; a mid-exit re-aim keeps the same
-    // layer (and timer) running.
-    const exitEnded = useCallback(() => {
-        setPhase((p) => nextSurfacePhase(p, {type: "exitEnded", ready: readyRef.current}));
-        setHeld(null);
-    }, []);
-    const exiting = phase.kind === "exiting" && held !== null;
-    useEffect(() => {
-        if (!exiting) return;
-        window.clearTimeout(timerRef.current);
-        timerRef.current = window.setTimeout(exitEnded, SURFACE_EXIT_MS);
-        return () => window.clearTimeout(timerRef.current);
-    }, [exiting, exitEnded]);
-    useEffect(() => () => window.clearTimeout(timerRef.current), []);
-
-    const liveKey = liveSurfaceKey(phase);
-    const node = liveKey !== null ? render(liveKey) : null;
-    if (liveKey !== null) prevNodeRef.current = node;
-
-    return (
-        <>
-            {/* The live slot keeps its flex geometry through every phase
-                so the stats panel beside it never shifts; BOTH the frozen
-                exit layer and the entering content are absolutely
-                positioned INSIDE it — the exit layer must never span the
-                whole row (.lum-row), or the frozen view would re-layout
-                at full width and its centered column would visibly jump
-                under the stats panel the frame the exit starts. During
-                the exit phase the slot renders ONLY the frozen layer —
-                the leaving surface is alone on stage (the dots cover
-                just the waiting phase, after the exit completes). */}
-            <div className="relative h-full min-w-0 flex-1">
-                {exiting && (
-                    <div
-                        key={`exit-${held.key}`}
-                        aria-hidden
-                        className={`absolute inset-0 overflow-hidden ${SURFACE_EXIT_ANIMATION} pointer-events-none`}
-                        onAnimationEnd={(e) => {
-                            if (matchesAnimationEvent(e, {animation: SURFACE_EXIT_ANIMATION})) {
-                                window.clearTimeout(timerRef.current);
-                                exitEnded();
-                            }
-                        }}
-                    >
-                        {held.node}
-                    </div>
-                )}
-                {liveKey !== null ? (
-                    <div key={liveKey} className="absolute inset-0 lum-enter">
-                        {node}
-                    </div>
-                ) : phase.kind === "waiting" ? (
-                    <div
-                        key="loading"
-                        role="status"
-                        aria-label={t["Loading conversation…"]}
-                        className="lum-loading absolute inset-0"
-                    >
-                        <span/>
-                        <span/>
-                        <span/>
-                    </div>
-                ) : null}
-            </div>
-        </>
-    );
-}
-
-/** The stats-card swap fade duration — matches lum-fade-exit (fast). */
-const STATS_CARD_SWAP_MS = 150;
-
-/**
- * The stats-card KEYED-SWAP layer (the surface swap's little sibling).
- * The card is keyed by DIRECTORY, and a cross-directory session switch
- * REMOUNTS it — a plain keyed unmount pops with no animation (the
- * conversation's SessionSurface swap covers only ITS own column, not
- * this flex sibling). This layer holds the PREVIOUS card mounted for a
- * short fade while the successor mounts: in float mode the two overlap
- * at the top-right and read as a crossfade; in the wide-container mode
- * the successor takes the flex slot immediately (the conversation
- * reflows at once, matching the surface swap's cadence) while the
- * ghost fades out floating over the same corner.
- *
- * The exit layer is a frozen ReactNode snapshot captured at the flip
- * (SessionSurface's pattern): the element keeps the props it was built
- * with — the OLD directory's diff and the OLD session's terminals — so
- * the leaving card renders untouched for the fade's duration instead
- * of flipping to the new session's data mid-fade. The ghost mounts
- * FRESH, so .lum-card-hold (main.css) pins it top-right out of flow
- * and suppresses the card's own entrance animation — the two fades
- * must never fight. Dropping to the welcome screen (no active session)
- * fades the last card the same way.
- */
-function StatsCardSwap({swapKey, render}: {swapKey: string | null; render: (key: string) => ReactNode}) {
-    const [held, setHeld] = useState<{key: string; node: ReactNode} | null>(null);
-    const prevKeyRef = useRef(swapKey);
-    const prevNodeRef = useRef<ReactNode>(null);
-
-    const node = swapKey !== null ? render(swapKey) : null;
-    if (prevKeyRef.current !== swapKey) {
-        const from = prevKeyRef.current;
-        const fromNode = prevNodeRef.current;
-        prevKeyRef.current = swapKey;
-        // Snapshot the leaving card BEFORE the successor's node replaces
-        // prevNodeRef below (the derived-state edge — idempotent under
-        // StrictMode's second pass, which sees no key edge).
-        if (from !== null && fromNode !== null) setHeld({key: from, node: fromNode});
-    }
-    if (swapKey !== null) prevNodeRef.current = node;
-
-    // Timer-only teardown (the wrapper's own fade): simple hold, no
-    // animationend matching — one element, no budget accounting.
-    useEffect(() => {
-        if (held === null) return;
-        const timer = window.setTimeout(() => setHeld(null), STATS_CARD_SWAP_MS);
-        return () => window.clearTimeout(timer);
-    }, [held]);
-
-    return (
-        <>
-            {node}
-            {held !== null && held.key !== swapKey && (
-                <div key={`ghost-${held.key}`} aria-hidden className="lum-card-hold lum-fade-exit">
-                    {held.node}
-                </div>
-            )}
-        </>
-    );
-}
 
 function InnerApp({isMaximized}: {isMaximized: boolean}) {
     const themePreference = useThemePreference();
@@ -312,29 +91,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     // --- OpenCode connection (the context split's base layer) ---
     const {status: connectionStatus, api, subscribe} = useOpencode();
 
-    // The window is created hidden (tauri.conf.json `visible: false`) and
-    // shown once the first paint is ready — same pattern as lumina-terminal.
-    // The Blur my Shell probe runs BEFORE the show so a BMS-enabled
-    // system paints its first visible frame already translucent (no
-    // opaque→translucent flash); the race caps the wait so a stuck
-    // gsettings can never keep the window hidden, and a failed probe
-    // degrades to the opaque fallback.
-    useEffect(() => {
-        const win = getCurrentWindow();
-        const ready = Promise.race([
-            probeBms(),
-            new Promise<void>((resolve) => {
-                setTimeout(resolve, 400);
-            }),
-        ]);
-        ready.then(() => {
-            win.show().then(() => {
-                win.setFocus().catch(() => {});
-            }).catch((e) => {
-                error(`Failed to show window: ${e}`).catch(() => {});
-            });
-        });
-    }, []);
+    useWindowFirstShow();
 
     // The user may toggle Blur my Shell (or its applications component)
     // in GNOME's UI while Lumina is unfocused — re-probe on focus regain
@@ -342,35 +99,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     // blur. No-op off Linux.
     useBmsFocusRefresh();
 
-    // Sync the HeroUI light/dark class on <html> with the resolved theme so
-    // framework controls (tooltips, …) match the chrome.
-    useEffect(() => {
-        const root = document.documentElement;
-        root.classList.toggle("dark", dark);
-        root.classList.toggle("light", !dark);
-        root.setAttribute("data-theme", dark ? "dark" : "light");
-    }, [dark]);
-
-    // MOBILE ONLY — push the resolved chrome base to the Android shell.
-    // The edge-to-edge safe-area bands are painted by the native window
-    // background, which follows the SYSTEM theme (static resource) while
-    // the app chrome follows the in-app preference — the bridge exists
-    // only in the Android webview (MainActivity's onWebViewCreate
-    // injects window.__luminaNative); desktop/CEF have no such object
-    // and the call is a no-op. The pushed value is NOT effectiveBg but
-    // its GLASS-SURFACE EQUIVALENT (lib/glass.ts): the chrome the bands
-    // sit next to (title bar / chrome glass layer) renders as the glass
-    // tint over the base, so the opaque band must match that composite,
-    // not the raw base — pushing the base read as too-dark on dark /
-    // too-light on light. The static lumina_window_bg resources mirror
-    // the same derivation. systemTheme rides the deps so a system
-    // day/night switch re-pushes even when the resolved base doesn't
-    // change — MainActivity's onConfigurationChanged resets the native
-    // background to the system color, and a manual preference override
-    // must re-win right after.
-    useEffect(() => {
-        (window as unknown as {__luminaNative?: {setChromeBackground: (colorHex: string, dark: boolean) => void}}).__luminaNative?.setChromeBackground(glassSurfaceEquivalent(effectiveBg), dark);
-    }, [effectiveBg, dark, systemTheme]);
+    useChromeThemeSync(effectiveBg, dark, systemTheme);
 
     // The chrome glass layer is derived per connection state (supportsGlass
     // flips only on platform; compositorBlur on the BMS probe), so
@@ -574,8 +303,41 @@ function AppBody({
                 "--lum-glass-border": colors.glassBorder,
             } as React.CSSProperties}
         >
-            {phoneLayout ? (
-                drawerOpen && (
+            {/* The sidebar: DOCKED (desktop + tablet mode) or the phone
+             * layout's DRAWER (TitleBar hamburger, the only session
+             * navigation on a phone). The props are identical — only the
+             * three action callbacks wrap closeDrawer in the drawer — so
+             * they are built once here. */}
+            {(() => {
+                const sidebar = (
+                    <SessionBar
+                        sessions={sessionInfos}
+                        activeId={activeId}
+                        onSelect={phoneLayout ? (id: string) => {
+                            setActiveId(id);
+                            closeDrawer();
+                        } : setActiveId}
+                        onClose={deleteSession}
+                        onNew={phoneLayout ? () => {
+                            newSession();
+                            closeDrawer();
+                        } : newSession}
+                        onImport={phoneLayout ? () => {
+                            openImportPicker();
+                            closeDrawer();
+                        } : openImportPicker}
+                        importableCount={foreignSessions.length}
+                        onSessionHover={hoverPrefetchSession}
+                        backgroundColor={effectiveBg}
+                        foregroundColor={effectiveFg}
+                        collapsed={false}
+                        brandTitle="Lumina Code"
+                        busyIds={busyIds}
+                        pendingCounts={pendingCounts}
+                    />
+                );
+                if (!phoneLayout) return sidebar;
+                return drawerOpen ? (
                     <div className="lum-m-drawer-scrim" onClick={closeDrawer}>
                         <div
                             className="lum-m-drawer"
@@ -588,52 +350,11 @@ function AppBody({
                             // the desktop composite: glass tint over effectiveBg.
                             style={{background: effectiveBg}}
                         >
-                            <SessionBar
-                                sessions={sessionInfos}
-                                activeId={activeId}
-                                onSelect={(id) => {
-                                    setActiveId(id);
-                                    closeDrawer();
-                                }}
-                                onClose={deleteSession}
-                                onNew={() => {
-                                    newSession();
-                                    closeDrawer();
-                                }}
-                                onImport={() => {
-                                    openImportPicker();
-                                    closeDrawer();
-                                }}
-                                importableCount={foreignSessions.length}
-                                onSessionHover={hoverPrefetchSession}
-                                backgroundColor={effectiveBg}
-                                foregroundColor={effectiveFg}
-                                collapsed={false}
-                                brandTitle="Lumina Code"
-                                busyIds={busyIds}
-                                pendingCounts={pendingCounts}
-                            />
+                            {sidebar}
                         </div>
                     </div>
-                )
-            ) : (
-                <SessionBar
-                    sessions={sessionInfos}
-                    activeId={activeId}
-                    onSelect={setActiveId}
-                    onClose={deleteSession}
-                    onNew={newSession}
-                    onImport={openImportPicker}
-                    importableCount={foreignSessions.length}
-                    onSessionHover={hoverPrefetchSession}
-                    backgroundColor={effectiveBg}
-                    foregroundColor={effectiveFg}
-                    collapsed={false}
-                    brandTitle="Lumina Code"
-                    busyIds={busyIds}
-                    pendingCounts={pendingCounts}
-                />
-            )}
+                ) : null;
+            })()}
             <div className="flex-1 flex flex-col min-w-0">
                 <TitleBar
                     theme={effectiveTheme}

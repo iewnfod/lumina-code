@@ -2,6 +2,7 @@ import {useSyncExternalStore} from "react";
 import {info as logInfo} from "@tauri-apps/plugin-log";
 import type {WorkspaceDiffEntry} from "../opencode/types.ts";
 import type {SessionSubagentRef} from "../opencode/sessionActivity.ts";
+import {createModuleStore} from "../lib/moduleStore.ts";
 import {createPersistedStore} from "../lib/persistedStore.ts";
 
 /**
@@ -48,25 +49,17 @@ export function setStatsPanelMode(mode: StatsPanelMode): void {
 // fresh run starts collapsed in "auto" mode). "always" mode still
 // force-expands on every card mount — a manual collapse there lasts
 // until the remount, per the mode's contract above.
-let expanded = false;
-const expandedListeners = new Set<() => void>();
-
-function subscribeExpanded(listener: () => void): () => void {
-    expandedListeners.add(listener);
-    return () => expandedListeners.delete(listener);
-}
+const expandedStore = createModuleStore<boolean>(false);
 
 /** Set the panel's manual expansion. Never throws. */
 export function setStatsExpanded(next: boolean): void {
-    if (expanded === next) return;
-    expanded = next;
-    for (const listener of expandedListeners) listener();
+    expandedStore.set(next);
 }
 
 /** The panel's manual expansion, shared across the card's remounts;
  *  consumed by SessionStatsCard. */
 export function useStatsExpanded(): [boolean, (next: boolean) => void] {
-    const value = useSyncExternalStore(subscribeExpanded, () => expanded);
+    const value = useSyncExternalStore(expandedStore.subscribe, expandedStore.get, expandedStore.get);
     return [value, setStatsExpanded];
 }
 
@@ -85,17 +78,10 @@ export type StatsDrillRequest =
     | {kind: "file"; file: WorkspaceDiffEntry}
     | {kind: "subagent"; sub: SessionSubagentRef};
 
-let drillRequest: StatsDrillRequest | null = null;
-const drillListeners = new Set<() => void>();
-
-function subscribeDrill(listener: () => void): () => void {
-    drillListeners.add(listener);
-    return () => drillListeners.delete(listener);
-}
+const drillStore = createModuleStore<StatsDrillRequest | null>(null);
 
 function publishDrill(request: StatsDrillRequest): void {
-    drillRequest = request;
-    for (const listener of drillListeners) listener();
+    drillStore.set(request);
 }
 
 /** Ask the stats panel to expand and show this file's diff (the
@@ -117,12 +103,10 @@ export function requestStatsSubagentDrill(sub: SessionSubagentRef): void {
 
 /** Clear the pending request (the card, once it has applied it). */
 export function clearStatsDrill(): void {
-    if (drillRequest === null) return;
-    drillRequest = null;
-    for (const listener of drillListeners) listener();
+    drillStore.set(null);
 }
 
 /** The pending drill request, if any; consumed by SessionStatsCard. */
 export function usePendingStatsDrill(): StatsDrillRequest | null {
-    return useSyncExternalStore(subscribeDrill, () => drillRequest);
+    return useSyncExternalStore(drillStore.subscribe, drillStore.get, drillStore.get);
 }

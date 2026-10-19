@@ -1,7 +1,7 @@
 import type {ReactNode, RefObject} from "react";
 import {ChevronRight} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
 import RollingTitle from "../ui/RollingTitle.tsx";
 import type {CSSProperties} from "react";
@@ -176,8 +176,7 @@ export function BodyBox({
                     onScroll?.();
                 }}
                 className={`${fill ? "flex-1 min-h-0" : "max-h-[55vh]"} overflow-auto lum-fade-md${
-                    edges.top ? " lum-fade-top" : ""
-                }${edges.bottom ? " lum-fade-bottom" : ""} ${className}`}
+                    fadeClasses(edges)} ${className}`}
             >
                 {children}
             </div>

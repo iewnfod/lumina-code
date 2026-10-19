@@ -1,4 +1,5 @@
 import {useSyncExternalStore} from "react";
+import {createModuleStore} from "../lib/moduleStore.ts";
 import type {OpencodeEvent} from "./eventStream.ts";
 
 /**
@@ -20,24 +21,21 @@ import type {OpencodeEvent} from "./eventStream.ts";
  */
 
 /** Sessions with a pending user-requested stop. */
-const stopping = new Set<string>();
-const listeners = new Set<() => void>();
-
-function emit(): void {
-    for (const listener of listeners) listener();
-}
+const store = createModuleStore<ReadonlySet<string>>(new Set());
 
 /** Record that the user asked to stop this session's run. */
 export function markSessionStopping(sessionId: string): void {
-    if (stopping.has(sessionId)) return;
-    stopping.add(sessionId);
-    emit();
+    store.update((prev) => (prev.has(sessionId) ? prev : new Set(prev).add(sessionId)));
 }
 
 /** Settle the stop marker (run ended, superseded, session gone). */
 export function clearSessionStopping(sessionId: string): void {
-    if (!stopping.delete(sessionId)) return;
-    emit();
+    store.update((prev) => {
+        if (!prev.has(sessionId)) return prev;
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return next;
+    });
 }
 
 /** Bus events that settle a pending stop: the run actually ended
@@ -64,21 +62,14 @@ export function applyStoppingBusEvent(event: OpencodeEvent): void {
 
 /** Snapshot read for the React binding (a boolean is reference-stable). */
 export function isSessionStopping(sessionId: string): boolean {
-    return stopping.has(sessionId);
-}
-
-export function subscribeSessionStopping(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => {
-        listeners.delete(listener);
-    };
+    return store.get().has(sessionId);
 }
 
 /** True while this session's stop is requested but not yet settled. */
 export function useSessionStopping(sessionId: string | null): boolean {
     return useSyncExternalStore(
-        subscribeSessionStopping,
-        () => sessionId !== null && stopping.has(sessionId),
+        store.subscribe,
+        () => sessionId !== null && store.get().has(sessionId),
         () => false,
     );
 }

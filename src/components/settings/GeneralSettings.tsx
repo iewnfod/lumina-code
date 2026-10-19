@@ -1,14 +1,7 @@
-import {info, warn as logWarn, error as logError} from "@tauri-apps/plugin-log";
+import {info} from "@tauri-apps/plugin-log";
 import {motion} from "framer-motion";
-import {useEffect, useState, type CSSProperties} from "react";
+import {type CSSProperties} from "react";
 import type {OpencodeApi} from "../../opencode/api.ts";
-import {globalConfigTarget} from "../../opencode/configFiles.ts";
-import {
-    luminaToolsPluginPath,
-    readLuminaToolsOptions,
-    withSystemPrompt,
-} from "../../opencode/toolPluginConfig.ts";
-import {ensureLuminaToolsPlugin} from "../../opencode/useLuminaTools.ts";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n, useLanguageChoice, setLanguage, type Language} from "../../hooks/i18n.tsx";
 import {setThemePreference, useThemePreference, type ThemePreference} from "../../hooks/useThemePreference.ts";
@@ -16,13 +9,6 @@ import {setMobileLayoutMode, useMobileLayoutMode} from "../../hooks/useLayoutMod
 import {setStatsPanelMode, useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
 import {setNotificationSettings, useNotificationSettings} from "../../hooks/useNotificationMode.ts";
 import {setWindowOutline, useWindowOutline} from "../../hooks/useWindowOutline.ts";
-import {
-    addToBmsWhitelist,
-    probeBms,
-    setCompositorBlurEnabled,
-    useBmsStatus,
-    useCompositorBlurEnabled,
-} from "../../hooks/useBlurMyShell.ts";
 import {setTypography, useTypography} from "../../hooks/useTypography.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
 import {isLinux, isMobileApp} from "../../lib/platform.ts";
@@ -37,8 +23,10 @@ import {
 import Button from "../ui/Button.tsx";
 import SettingRow from "./SettingRow.tsx";
 import Switch from "./Switch.tsx";
-import TextArea from "./TextArea.tsx";
 import TextInput from "./TextInput.tsx";
+import SectionHeader from "./SectionHeader.tsx";
+import BlurMyShellSettings from "./BlurMyShellSettings.tsx";
+import SystemPromptSection from "./SystemPromptSection.tsx";
 
 /**
  * The settings modal's General pane: language, appearance, desktop
@@ -145,188 +133,6 @@ function SizeStepper({
     );
 }
 
-/**
- * The custom system prompt section (General pane) — a paragraph the user
- * writes once and every model call reads: stored as the PLUGIN-LEVEL
- * `systemPrompt` option of our lumina-tools plugin entry in the global
- * opencode.json (the same home as the vision model, written through the
- * shared installer ensureLuminaToolsPlugin — the server hot-reloads, so
- * the next model call already carries it), and pushed by the plugin's
- * context hook AFTER everything the server itself assembled (built-in
- * prompt + AGENTS.md / instructions). Applies to every OpenCode session
- * on this machine (the plugin is global), except Lumina's restricted
- * helper agents. Empty = off.
- *
- * Unlike the pane's module-store rows, the source of truth is the SERVER
- * config: mount loads it (the pane mounts only while active, so mount is
- * the open), the Save button writes it, and both the JSONC-config and
- * read-failure states degrade to the manual-edit notice — the same
- * contract as the Model pane's config editors.
- */
-function SystemPromptSection({api}: {api: OpencodeApi | null}) {
-    const colors = useColors();
-    const t = useI18n();
-    /** The value persisted on the server (always trimmed); null while
-     * unknown (loading) or when editing is impossible (jsonc/failed) —
-     * Save stays disabled in those states. */
-    const [saved, setSaved] = useState<string | null>(null);
-    const [draft, setDraft] = useState("");
-    /** The global config can't be machine-edited (JSONC file or unparseable
-     * text) — read-only notice instead of the editor. */
-    const [locked, setLocked] = useState(false);
-    const [loadFailed, setLoadFailed] = useState(false);
-    const [busy, setBusy] = useState(false);
-    const [actionError, setActionError] = useState<string | null>(null);
-    const [savedFlash, setSavedFlash] = useState(false);
-
-    useEffect(() => {
-        if (!api) return;
-        let cancelled = false;
-        api.listConfigEntries().then((entries) => {
-            const target = globalConfigTarget(entries ?? []);
-            if (!target) {
-                if (!cancelled) setLoadFailed(true);
-                return;
-            }
-            if (target.jsonc) {
-                if (!cancelled) setLocked(true);
-                return;
-            }
-            const name = target.file.split("/").pop() ?? "opencode.json";
-            api.readTextFile(target.directory, name).then((text) => {
-                if (cancelled) return;
-                // null (absent) and "" (empty file) both mean "nothing
-                // configured yet"; a null parse means JSONC/garbage — the
-                // installer would refuse the write, so degrade to locked.
-                const options = text === null || text === "" ? {} : readLuminaToolsOptions(text, luminaToolsPluginPath(target.directory));
-                if (options === null) {
-                    setLocked(true);
-                    return;
-                }
-                setSaved(options.systemPrompt?.trim() ?? "");
-                setDraft(options.systemPrompt?.trim() ?? "");
-            }).catch((e) => {
-                if (cancelled) return;
-                setLoadFailed(true);
-                logError(`Failed to read global config for the system prompt: ${e}`).catch(() => {});
-            });
-        }).catch((e) => {
-            if (cancelled) return;
-            setLoadFailed(true);
-            logError(`Failed to discover config location for the system prompt: ${e}`).catch(() => {});
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, [api]);
-
-    // The saved flash fades on its own; unmount (pane close) cancels it.
-    useEffect(() => {
-        if (!savedFlash) return;
-        const timer = setTimeout(() => setSavedFlash(false), 2000);
-        return () => clearTimeout(timer);
-    }, [savedFlash]);
-
-    /** Save through the shared installer. The config is RE-READ fresh so
-     * the merge starts from what is actually stored (a vision-model choice
-     * saved in the Model pane meanwhile survives — the installer's options
-     * argument replaces the stored options wholesale). */
-    const save = () => {
-        if (!api || busy || saved === null) return;
-        setBusy(true);
-        api.listConfigEntries().then((entries) => {
-            const target = globalConfigTarget(entries ?? []);
-            if (!target) throw new Error("no-config-target");
-            const name = target.file.split("/").pop() ?? "opencode.json";
-            return api.readTextFile(target.directory, name).then((text) => {
-                const current = text === null || text === "" ? {} : readLuminaToolsOptions(text, luminaToolsPluginPath(target.directory));
-                if (current === null) throw new Error("invalid-config");
-                return ensureLuminaToolsPlugin(api, withSystemPrompt(current, draft));
-            });
-        }).then((result) => {
-            if (result.status === "skipped") {
-                setActionError(`${t["Save failed"]}: ${result.reason}`);
-                logWarn(`system-prompt save skipped: ${result.reason}`).catch(() => {});
-                return;
-            }
-            setSaved(draft.trim());
-            setActionError(null);
-            setSavedFlash(true);
-            info("Saved custom system prompt via the lumina-tools plugin").catch(() => {});
-        }).catch((e) => {
-            setActionError(`${t["Save failed"]}: ${e}`);
-            logError(`Failed to save custom system prompt: ${e}`).catch(() => {});
-        }).finally(() => {
-            setBusy(false);
-        });
-    };
-
-    if (locked) {
-        return (
-            <div className="flex flex-col gap-4">
-                <SectionHeader label={t["Custom system prompt"]}/>
-                <p className="text-xs leading-relaxed" style={{color: colors.inactiveText}}>
-                    {t["The config file uses JSONC (comments) and cannot be edited here. Open it to edit manually."]}
-                </p>
-            </div>
-        );
-    }
-
-    if (loadFailed) {
-        return (
-            <div className="flex flex-col gap-4">
-                <SectionHeader label={t["Custom system prompt"]}/>
-                <p className="text-xs leading-relaxed" style={{color: colors.inactiveText}}>
-                    {t["Failed to load config"]}
-                </p>
-            </div>
-        );
-    }
-
-    return (
-        <div className="flex flex-col gap-4">
-            <SectionHeader label={t["Custom system prompt"]}/>
-            <TextArea
-                value={draft}
-                placeholder={t["Additional instructions for the model…"]}
-                disabled={busy}
-                onChange={setDraft}
-            />
-            <div className="flex items-center justify-between gap-3">
-                {actionError ? (
-                    <p className="text-xs leading-relaxed min-w-0"
-                        style={{color: "var(--color-brand-cinnabar-soft)"}}>
-                        {actionError}
-                    </p>
-                ) : (
-                    <p className="text-xs leading-relaxed opacity-55">
-                        {t["Appended after OpenCode's built-in system prompt, for every session on this machine. Leave empty to disable."]}
-                    </p>
-                )}
-                <div className="flex items-center gap-2 shrink-0">
-                    {savedFlash && <span className="text-xs opacity-55">{t["Saved"]}</span>}
-                    <Button
-                        primary
-                        label={t["Save"]}
-                        disabled={busy || saved === null || draft.trim() === saved}
-                        onClick={save}
-                    />
-                </div>
-            </div>
-        </div>
-    );
-}
-
-/** A section header in the Typography group's style (also AboutSettings'
- * dependencies header) — one look for every settings section. */
-function SectionHeader({label}: {label: string}) {
-    return (
-        <div className="text-xs font-medium uppercase tracking-wide pb-1 opacity-55">
-            {label}
-        </div>
-    );
-}
-
 export default function GeneralSettings({api}: {api: OpencodeApi | null}) {
     const t = useI18n();
     // Reactive read (NOT currentLanguage-style one-shot): the choice can
@@ -340,17 +146,6 @@ export default function GeneralSettings({api}: {api: OpencodeApi | null}) {
     const panelMode = useStatsPanelMode();
     const notifications = useNotificationSettings();
     const typography = useTypography();
-    const bms = useBmsStatus();
-    const blurEnabled = useCompositorBlurEnabled();
-    const [joining, setJoining] = useState(false);
-
-    // Opening the settings pane refreshes the Blur my Shell snapshot:
-    // the user may have installed/enabled/configured the extension since
-    // our last probe (startup / focus-regain). Off-Linux the probe
-    // short-circuits to "unsupported" without spawning anything.
-    useEffect(() => {
-        if (isLinux()) probeBms();
-    }, []);
 
     // Language names stay in their own language regardless of the active
     // one (same convention as the old title-bar language menu); the
@@ -501,75 +296,7 @@ export default function GeneralSettings({api}: {api: OpencodeApi | null}) {
                         />
                     </SettingRow>
                 )}
-                {/* Linux + GNOME: Blur my Shell window blur. The extension
-                    has no API — Lumina renders translucent pixels, gets
-                    its wm_class into the extension's whitelist (the
-                    button writes it via gsettings, src-tauri/src/blur.rs)
-                    and reads the state back to decide translucency
-                    (hooks/useBlurMyShell.ts). The rows below guide
-                    through the extension's own gates; "unsupported" (no
-                    GNOME / no gsettings) hides the block entirely. */}
-                {isLinux() && bms.state === "active" && (
-                    <SettingRow
-                        label={t["Window blur"]}
-                        description={
-                            <>
-                                {t["Blur the desktop behind the window via the Blur my Shell extension"]}
-                                {bms.opacity < 255 && (
-                                    <>
-                                        {" "}
-                                        {t["Tip: set Blur my Shell's window opacity to 100% — Lumina Code draws its own translucency"]}
-                                    </>
-                                )}
-                                {bms.staticBlur && (
-                                    <>
-                                        {" "}
-                                        {t["Static (wallpaper) blur is enabled in Blur my Shell"]}
-                                    </>
-                                )}
-                            </>
-                        }
-                    >
-                        <Switch
-                            checked={blurEnabled}
-                            label={blurEnabled ? t["Enabled"] : t["Disabled"]}
-                            onChange={(next) => {
-                                info(`Compositor blur set to ${next} from settings`).catch(() => {});
-                                setCompositorBlurEnabled(next);
-                            }}
-                        />
-                    </SettingRow>
-                )}
-                {isLinux() && ["notInstalled", "extensionDisabled", "disabled", "notListed", "blacklisted"].includes(bms.state) && (
-                    <SettingRow
-                        label={t["Window blur"]}
-                        description={
-                            bms.state === "notInstalled"
-                                ? t["Install the Blur my Shell extension, then reopen settings"]
-                                : bms.state === "extensionDisabled"
-                                    ? t["Enable the Blur my Shell extension in GNOME's extension manager, then reopen settings"]
-                                    : bms.state === "disabled"
-                                        ? t["Turn on Applications blur in Blur my Shell's preferences, then reopen settings"]
-                                        : bms.state === "blacklisted"
-                                            ? t["Blur my Shell blurs all windows; remove Lumina Code from its blacklist"]
-                                            : t["Blur my Shell is running — add Lumina Code to its blur whitelist"]
-                        }
-                    >
-                        {bms.state === "notListed" && (
-                            <Button
-                                primary
-                                disabled={joining}
-                                label={joining ? t["Adding…"] : t["Add to Blur my Shell"]}
-                                onClick={() => {
-                                    setJoining(true);
-                                    addToBmsWhitelist().finally(() => {
-                                        setJoining(false);
-                                    });
-                                }}
-                            />
-                        )}
-                    </SettingRow>
-                )}
+                <BlurMyShellSettings/>
                 {/* Typography section — one control per row (family input,
                     size stepper), preview + reset at the bottom. Same
                     header style as AboutSettings' Dependencies group. */}

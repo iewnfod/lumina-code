@@ -1,8 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {appendUserMessage, applyEvent, applyOlderPage, applySeedPage, backfillSubagentLink, dropFromBoundary, needsSubagentBackfill} from "./messageStore.ts";
-import type {MessagesPage} from "./api.ts";
-import {MESSAGES_PAGE_SIZE} from "./types.ts";
+import {MESSAGES_PAGE_SIZE, type MessagesPage} from "./types.ts";
 import {recordPendingCommand, takePendingCommand} from "./pendingCommands.ts";
 import type {OpencodeEvent} from "./eventStream.ts";
 import type {ChatAssistantMessage, ChatMessage, ChatUserMessage} from "./types.ts";

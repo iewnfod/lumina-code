@@ -1,5 +1,15 @@
 import {useEffect, useRef, useState} from "react";
 
+/** Conditional `.lum-fade-*` classes for a useScrollEdges result (or any
+ *  partial edge set) — the suffix chain every fade-wearing scroller
+ *  appends to its className. Returns "" or " lum-fade-… …" (leading
+ *  space included), ready to concatenate. */
+export function fadeClasses(
+    edges: {top?: boolean; bottom?: boolean; left?: boolean; right?: boolean},
+): string {
+    return `${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}${edges.left ? " lum-fade-left" : ""}${edges.right ? " lum-fade-right" : ""}`;
+}
+
 /**
  * Scroll-edge tracking for scrollers that wear the CONDITIONAL edge fades
  * (.lum-fade-top/-bottom/-left/-right — main.css): a fade shows on a side

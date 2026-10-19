@@ -1,10 +1,10 @@
 import {MESSAGES_PAGE_SIZE} from "./types.ts";
 import type {
-    ChatMessage,
     ComposerFileRef,
     FormAnswer,
     FormRequest,
     IntegrationInfo,
+    MessagesPage,
     OAuthAttempt,
     OAuthAttemptStatus,
     OpencodeAgent,
@@ -17,25 +17,8 @@ import type {
     OpencodeServerInfo,
     PermissionDecision,
     PermissionRequest,
+    SessionInboxItem,
     SessionModelRef,
-    ShellInfo,
-    ShellOutput,
-    UserMessageFile,
-    WorkspaceDiffEntry,
-} from "./types.ts";
-export type {Session} from "@opencode-ai/sdk/v2/client";
-export type {
-    ChatMessage,
-    IntegrationInfo,
-    OAuthAttempt,
-    OAuthAttemptStatus,
-    OpencodeAgent,
-    OpencodeCommand,
-    OpencodeConfigEntry,
-    OpencodeModel,
-    OpencodeProject,
-    OpencodeProvider,
-    OpencodeSession,
     ShellInfo,
     ShellOutput,
     WorkspaceDiffEntry,
@@ -49,32 +32,11 @@ export type {
  *  uplink). */
 const UPLOAD_TIMEOUT_MS = 120_000;
 
-/** Raw shape of `GET /api/session/{id}/message` — NOT envelope-unwrapped
- *  (the `data` here is the payload itself; unwrapping would lose `cursor`).
- *  The server nulls (not omits) spent cursor fields on the wire. */
-export interface MessagesPage {
-    data?: ChatMessage[];
-    cursor?: {previous?: string | null; next?: string | null};
-}
-
-/** One PENDING row of `GET /api/session/{id}/inbox` (server v2.0.11): a
- * prompt parked as `steer` or `queue` that no step boundary has promoted
- * into the live turn yet. `type` is "user" | "synthetic" | "compaction" |
- * "move"; `delivery` is "steer" | "queue". Rows are PERSISTED (the
- * `session_pending` sqlite table, ordered by `enqueued_seq` — the wire
- * list arrives in send order), which is what makes the queue visible to
- * every client of the server (desktop windows + the mobile app): the
- * queued-prompt store is a mirror of these rows, see promptQueue.ts.
- * `payload` (user rows: text + files) was curl-verified live — the POST
- * response carries the SAME row shape (including `id` + `delivery`), so
- * the optimistic queue row can adopt the server id straight from it. */
-export interface SessionInboxItem {
-    id: string;
-    sessionID?: string;
-    type: string;
-    delivery: string;
-    time?: {created?: number};
-    payload?: {text?: string; files?: UserMessageFile[]};
+/** A composer file reference as it rides the prompt's `files[]` —
+ *  `file://` URLs point the server at the real file on disk. */
+export function fileRefToPromptFile(ref: ComposerFileRef): {uri: string; name: string} {
+    const base = ref.path.split("/").pop() ?? ref.path;
+    return {uri: `file://${ref.path}`, name: base};
 }
 
 /**
@@ -143,12 +105,7 @@ export class OpencodeApi {
                     ...init?.headers,
                 },
             });
-            if (!res.ok) {
-                const detail = await res.text().catch(() => "");
-                const err = new Error(`${res.status} ${res.statusText}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
-                (err as Error & {status?: number}).status = res.status;
-                throw err;
-            }
+            if (!res.ok) await this.httpError(res);
             if (res.status === 204) return undefined as T;
             return (await res.json()) as T;
         } catch (e) {
@@ -173,13 +130,59 @@ export class OpencodeApi {
                 ...init?.headers,
             },
         });
-        if (!res.ok) {
-            const detail = await res.text().catch(() => "");
-            const err = new Error(`${res.status} ${res.statusText}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
-            (err as Error & {status?: number}).status = res.status;
-            throw err;
-        }
+        if (!res.ok) await this.httpError(res);
         return res.text();
+    }
+
+    /** Raw-bytes twin of {@link requestRawText}: same fs transport, but
+     *  the body resolves to a Blob instead of text. Thrown errors carry
+     *  the HTTP `status` like its siblings. NOTE: unlike requestRaw this
+     *  has NO timeout parameter — reads over the frp route currently
+     *  run unbounded (matches the pre-existing behavior; adding a
+     *  deadline would be a behavior change, deliberately not done in
+     *  the api consolidation refactor). */
+    private async requestRawBlob(path: string, init?: RequestInit): Promise<Blob> {
+        const res = await fetch(this.baseUrl + path, {
+            ...init,
+            headers: {
+                Authorization: this.authorization,
+                ...init?.headers,
+            },
+        });
+        if (!res.ok) await this.httpError(res);
+        return res.blob();
+    }
+
+    /** The one non-2xx error constructor (shared by every transport
+     *  method): a readable message carrying the HTTP `status` property —
+     *  consumers branch on it (404 = absent, 409 = busy, 503 = no VCS).
+     *  The body's first 200 chars ride along when parseable. */
+    private async httpError(res: Response): Promise<never> {
+        const detail = await res.text().catch(() => "");
+        const err = new Error(`${res.status} ${res.statusText}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+        (err as Error & {status?: number}).status = res.status;
+        throw err;
+    }
+
+    /** `location[directory]=…` query string (the BRACKET form — v2.0.x
+     *  silently ignores a flat `directory` param on every location-scoped
+     *  route), optionally seeded with extra params. Returns "" | "?…"
+     *  ready to append to the path. */
+    private locationQuery(directory?: string | null, extra?: Record<string, string>): string {
+        const params = new URLSearchParams(extra);
+        if (directory) params.set("location[directory]", directory);
+        const query = params.toString();
+        return query ? `?${query}` : "";
+    }
+
+    /** GET a `{location, data}`-shaped response — a second envelope
+     *  style the server uses alongside `{"data": …}` (see the class
+     *  header); `request` would mis-parse it, so pick `.data` explicitly
+     *  and fall back when it is missing. Empty-but-required replies stay
+     *  hand-rolled at their call sites (each throws its own message). */
+    private async requestLocationData<T>(path: string, fallback: T, init?: RequestInit): Promise<T> {
+        const r = await this.requestRaw<{data?: T}>(path, init);
+        return r?.data ?? fallback;
     }
 
     listSessions(): Promise<OpencodeSession[]> {
@@ -408,13 +411,11 @@ export class OpencodeApi {
         directory: string | null,
         opts?: {context?: number},
     ): Promise<WorkspaceDiffEntry[]> {
-        const params = new URLSearchParams();
-        params.set("mode", "working");
-        if (directory) params.set("location[directory]", directory);
-        params.set("context", String(opts?.context ?? 3));
-        return this.request<WorkspaceDiffEntry[]>(
-            `/api/vcs/diff?${params.toString()}`,
-        );
+        const query = this.locationQuery(directory, {
+            mode: "working",
+            context: String(opts?.context ?? 3),
+        });
+        return this.request<WorkspaceDiffEntry[]>(`/api/vcs/diff${query}`);
     }
 
     /** Per-TURN file diff of a session (`GET /api/session/{id}/diff?from=…`,
@@ -436,11 +437,12 @@ export class OpencodeApi {
         from: string,
         opts?: {context?: number},
     ): Promise<WorkspaceDiffEntry[]> {
-        const params = new URLSearchParams();
-        params.set("from", from);
-        params.set("context", String(opts?.context ?? 3));
+        const query = this.locationQuery(null, {
+            from,
+            context: String(opts?.context ?? 3),
+        });
         return this.request<WorkspaceDiffEntry[]>(
-            `/api/session/${encodeURIComponent(sessionId)}/diff?${params.toString()}`,
+            `/api/session/${encodeURIComponent(sessionId)}/diff${query}`,
         );
     }
 
@@ -473,10 +475,7 @@ export class OpencodeApi {
      *  initializes — re-check an empty first answer once (callers own the
      *  retry policy, DIFF_WARMUP_RETRY_MS style). */
     listBranches(directory: string | null): Promise<string[]> {
-        const params = new URLSearchParams();
-        if (directory) params.set("location[directory]", directory);
-        const query = params.toString();
-        return this.request<string[]>(`/api/vcs/branch${query ? `?${query}` : ""}`);
+        return this.request<string[]>(`/api/vcs/branch${this.locationQuery(directory)}`);
     }
 
     /** Worktree entries of a project (`GET /api/worktree?projectID=`),
@@ -521,20 +520,13 @@ export class OpencodeApi {
      * still retains them). Filter by `metadata.sessionID` for one
      * session's terminals. */
     listShells(directory?: string | null): Promise<ShellInfo[]> {
-        const params = new URLSearchParams();
-        if (directory) params.set("location[directory]", directory);
-        const query = params.toString();
-        return this.requestRaw<{data?: ShellInfo[]}>(`/api/shell${query ? `?${query}` : ""}`)
-            .then((r) => r?.data ?? []);
+        return this.requestLocationData(`/api/shell${this.locationQuery(directory)}`, [] as ShellInfo[]);
     }
 
     /** One shell's current state (running or retained-exited). */
     getShell(shellId: string, directory?: string | null): Promise<ShellInfo> {
-        const params = new URLSearchParams();
-        if (directory) params.set("location[directory]", directory);
-        const query = params.toString();
         return this.requestRaw<{data?: ShellInfo}>(
-            `/api/shell/${encodeURIComponent(shellId)}${query ? `?${query}` : ""}`,
+            `/api/shell/${encodeURIComponent(shellId)}${this.locationQuery(directory)}`,
         ).then((r) => {
             if (!r?.data) throw new Error(`shell ${shellId} came back empty`);
             return r.data;
@@ -546,11 +538,8 @@ export class OpencodeApi {
      * completion notification message and `shell.exited` bus event still
      * fire, so message-derived state stays truthful. */
     removeShell(shellId: string, directory?: string | null): Promise<void> {
-        const params = new URLSearchParams();
-        if (directory) params.set("location[directory]", directory);
-        const query = params.toString();
         return this.request<void>(
-            `/api/shell/${encodeURIComponent(shellId)}${query ? `?${query}` : ""}`,
+            `/api/shell/${encodeURIComponent(shellId)}${this.locationQuery(directory)}`,
             {method: "DELETE"},
         );
     }
@@ -561,14 +550,13 @@ export class OpencodeApi {
         shellId: string,
         opts?: {cursor?: number; limit?: number; directory?: string | null},
     ): Promise<ShellOutput> {
-        const params = new URLSearchParams();
-        if (opts?.cursor !== undefined) params.set("cursor", String(opts.cursor));
-        if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
-        if (opts?.directory) params.set("location[directory]", opts.directory);
-        const query = params.toString();
-        return this.requestRaw<{data?: ShellOutput}>(
-            `/api/shell/${encodeURIComponent(shellId)}/output${query ? `?${query}` : ""}`,
-        ).then((r) => r?.data ?? {output: "", cursor: 0, size: 0, truncated: false});
+        const extra: Record<string, string> = {};
+        if (opts?.cursor !== undefined) extra.cursor = String(opts.cursor);
+        if (opts?.limit !== undefined) extra.limit = String(opts.limit);
+        return this.requestLocationData<ShellOutput>(
+            `/api/shell/${encodeURIComponent(shellId)}/output${this.locationQuery(opts?.directory, extra)}`,
+            {output: "", cursor: 0, size: 0, truncated: false},
+        );
     }
 
     /** Spawn a shell command (POST /api/shell — server v2.0.11
@@ -631,9 +619,7 @@ export class OpencodeApi {
      *  same form {@link findFiles} uses. Without it the server answers for
      *  its default location (the server process's own cwd). */
     listCommands(directory?: string | null): Promise<OpencodeCommand[]> {
-        if (!directory) return this.request<OpencodeCommand[]>("/api/command");
-        const params = new URLSearchParams({"location[directory]": directory});
-        return this.request<OpencodeCommand[]>(`/api/command?${params.toString()}`);
+        return this.request<OpencodeCommand[]>(`/api/command${this.locationQuery(directory)}`);
     }
 
     /** Server-side fuzzy file finder — ranked by the server (respects
@@ -644,10 +630,9 @@ export class OpencodeApi {
      *  where `data[].path` is RELATIVE to that location — we return both
      *  forms (short display path + absolute for the file:// URI). */
     findFiles(query: string, directory?: string | null): Promise<{absolute: string; relative: string}[]> {
-        const params = new URLSearchParams({query, type: "file"});
-        if (directory) params.set("location[directory]", directory);
+        const search = this.locationQuery(directory, {query, type: "file"});
         return this.requestRaw<{location?: {directory?: string}; data?: {path: string; type?: string}[]}>(
-            `/api/fs/find?${params.toString()}`,
+            `/api/fs/find${search}`,
         ).then((r) => {
             const base = (directory ?? r?.location?.directory ?? "").replace(/\/+$/, "");
             return (r?.data ?? [])
@@ -671,13 +656,6 @@ export class OpencodeApi {
             method: "POST",
             body: JSON.stringify({name: command, text: args}),
         });
-    }
-
-    /** A composer file reference as it rides the prompt's `files[]` —
-     *  `file://` URLs point the server at the real file on disk. */
-    static fileRefToPromptFile(ref: ComposerFileRef): {uri: string; name: string} {
-        const base = ref.path.split("/").pop() ?? ref.path;
-        return {uri: `file://${ref.path}`, name: base};
     }
 
     /** The server's current default model. */
@@ -733,8 +711,7 @@ export class OpencodeApi {
      *  body is `{location, data}` where `data` is the list (NOT envelope-
      *  wrapped; picking `.data` explicitly keeps that unambiguous). */
     listPermissionRequests(): Promise<PermissionRequest[]> {
-        return this.requestRaw<{data?: PermissionRequest[]}>("/api/permission/request")
-            .then((r) => r?.data ?? []);
+        return this.requestLocationData("/api/permission/request", [] as PermissionRequest[]);
     }
 
     /** Answer a permission request: allow once / always allow / reject. */
@@ -748,8 +725,7 @@ export class OpencodeApi {
     /** Pending forms (questions) across ALL sessions — same seed role and
      *  same `{location, data}` shape as {@link listPermissionRequests}. */
     listForms(): Promise<FormRequest[]> {
-        return this.requestRaw<{data?: FormRequest[]}>("/api/form")
-            .then((r) => r?.data ?? []);
+        return this.requestLocationData("/api/form", [] as FormRequest[]);
     }
 
     /** Answer a form: one value per field key. */
@@ -773,8 +749,7 @@ export class OpencodeApi {
     /** Every authenticatable provider with its auth methods and current
      *  connections. Response is `{location, data}` (NOT envelope-wrapped). */
     listIntegrations(): Promise<IntegrationInfo[]> {
-        return this.requestRaw<{data?: IntegrationInfo[]}>("/api/integration")
-            .then((r) => r?.data ?? []);
+        return this.requestLocationData("/api/integration", [] as IntegrationInfo[]);
     }
 
     /** Store an API-key credential for an integration — the new credential
@@ -809,9 +784,10 @@ export class OpencodeApi {
 
     /** Poll an OAuth attempt: "pending" → "complete" | "failed" | "expired". */
     getIntegrationOAuthStatus(integrationId: string, attemptId: string): Promise<OAuthAttemptStatus> {
-        return this.requestRaw<{data?: OAuthAttemptStatus}>(
+        return this.requestLocationData<OAuthAttemptStatus>(
             `/api/integration/${encodeURIComponent(integrationId)}/connect/oauth/${encodeURIComponent(attemptId)}`,
-        ).then((r) => r?.data ?? {status: "pending"});
+            {status: "pending"},
+        );
     }
 
     /** Abort a pending OAuth attempt (204). */
@@ -860,34 +836,22 @@ export class OpencodeApi {
      *  clobber a config we failed to read. v2.0.11 quirk: a directory
      *  that doesn't exist yet yields 500, NOT 404 (first-save flows must
      *  catch and treat as absent themselves — see ToolsTab). */
-    async readTextFile(directory: string, name: string): Promise<string | null> {
-        const params = new URLSearchParams({"location[directory]": directory});
+    /** Shared 404→null tolerance of the fs/read pair: absent files read
+     *  as null; every other failure rethrows. Callers MUST NOT treat a
+     *  failed read as "absent" — rewriting on that assumption would
+     *  clobber a config we failed to read. */
+    private async readOrNull<T>(run: () => Promise<T>): Promise<T | null> {
         try {
-            return await this.requestRawText(`/api/fs/read/${encodeURIComponent(name)}?${params.toString()}`);
+            return await run();
         } catch (e) {
             if ((e as {status?: number}).status === 404) return null;
             throw e;
         }
     }
 
-    /** Raw-bytes variant of {@link requestRawText}: same fs transport,
-     *  but the body resolves to a Blob instead of text. Thrown errors
-     *  carry the HTTP `status` like its siblings. */
-    private async requestRawBlob(path: string, init?: RequestInit): Promise<Blob> {
-        const res = await fetch(this.baseUrl + path, {
-            ...init,
-            headers: {
-                Authorization: this.authorization,
-                ...init?.headers,
-            },
-        });
-        if (!res.ok) {
-            const detail = await res.text().catch(() => "");
-            const err = new Error(`${res.status} ${res.statusText}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
-            (err as Error & {status?: number}).status = res.status;
-            throw err;
-        }
-        return res.blob();
+    async readTextFile(directory: string, name: string): Promise<string | null> {
+        const path = `/api/fs/read/${encodeURIComponent(name)}${this.locationQuery(directory)}`;
+        return this.readOrNull(() => this.requestRawText(path));
     }
 
     /** Binary twin of {@link readTextFile} (same location-confined
@@ -897,13 +861,8 @@ export class OpencodeApi {
      * answers with the file's bytes (200: Blob | File), not a JSON
      * envelope. */
     async readFileBlob(directory: string, name: string): Promise<Blob | null> {
-        const params = new URLSearchParams({"location[directory]": directory});
-        try {
-            return await this.requestRawBlob(`/api/fs/read/${encodeURIComponent(name)}?${params.toString()}`);
-        } catch (e) {
-            if ((e as {status?: number}).status === 404) return null;
-            throw e;
-        }
+        const path = `/api/fs/read/${encodeURIComponent(name)}${this.locationQuery(directory)}`;
+        return this.readOrNull(() => this.requestRawBlob(path));
     }
 
     /** Write text to an ABSOLUTE path (experimental fs/write is not

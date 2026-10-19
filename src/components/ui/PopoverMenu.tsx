@@ -1,9 +1,10 @@
-import {useEffect, useLayoutEffect, useRef, useState, type ReactNode} from "react";
+import {useLayoutEffect, useRef, useState, type ReactNode} from "react";
 import {Check} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import {useBackLevel} from "../../hooks/useBackLevel.ts";
 import {isMobileApp} from "../../lib/platform.ts";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {useOutsideDismiss} from "../../hooks/useOutsideDismiss.ts";
 import ExitPresence from "./ExitPresence.tsx";
 
 /** Viewport breathing room (px) for auto-aligned panels. */
@@ -97,23 +98,9 @@ export default function PopoverMenu({
         return () => window.removeEventListener("resize", measure);
     }, [open, align]);
 
-    useEffect(() => {
-        if (!open) return;
-        const onPointerDown = (e: PointerEvent) => {
-            if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-                setOpen(false);
-            }
-        };
-        const onKeyDown = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setOpen(false);
-        };
-        document.addEventListener("pointerdown", onPointerDown, true);
-        document.addEventListener("keydown", onKeyDown, true);
-        return () => {
-            document.removeEventListener("pointerdown", onPointerDown, true);
-            document.removeEventListener("keydown", onKeyDown, true);
-        };
-    }, [open]);
+    // Click-away + Escape dismissal (capture phase — a click that opens
+    // another surface closes this one first).
+    useOutsideDismiss(rootRef, open, () => setOpen(false));
 
     const toggle = () => {
         if (!disabled) setOpen((v) => !v);
@@ -167,7 +154,7 @@ export default function PopoverMenu({
                         <div
                             ref={edges.ref}
                             onScroll={edges.onScroll}
-                            className={`min-h-0 overflow-y-auto lum-fade-md${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
+                            className={`min-h-0 overflow-y-auto lum-fade-md${fadeClasses(edges)}`}
                         >
                             {children(() => setOpen(false))}
                         </div>

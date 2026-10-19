@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useRef, useState, useSyncExternalStore} from "react";
 import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
-import {OpencodeApi, type SessionInboxItem} from "./api.ts";
+import {fileRefToPromptFile, OpencodeApi} from "./api.ts";
+import {createKeyedStore} from "../lib/moduleStore.ts";
 import {appendUserMessage, applyEvent, applyOlderPage, applySeedPage, backfillSubagentLink, dropFromBoundary, needsSubagentBackfill} from "./messageStore.ts";
 import {dropPendingCommands, recordPendingCommand} from "./pendingCommands.ts";
 import {
@@ -19,6 +20,7 @@ import {
 import {clearSessionStopping, isSessionStopping, markSessionStopping} from "./sessionStopping.ts";
 import {attachmentNoteLine, splitAttachmentNote} from "./visionAttachments.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
+import {nextLocalId} from "./chatMessages.ts";
 import type {
     ChatMessage,
     ChatUserMessage,
@@ -26,6 +28,7 @@ import type {
     ComposerFileRef,
     EventMap,
     PendingCommand,
+    SessionInboxItem,
     UserMessageFile,
 } from "./types.ts";
 
@@ -60,16 +63,14 @@ interface SessionEntry {
 
 /** Per-session store; survives session switches and webview reloads of
  *  the conversation view. Entries drop on `session.deleted`. */
-const entries = new Map<string, SessionEntry>();
+const entries = createKeyedStore<string, SessionEntry>(() => ({messages: [], cursor: null, seeded: false, seq: 0}));
+// The subscription carries the SESSION ID (subscribers filter for their
+// own session — a payload shape createListeners does not model), so the
+// broadcast stays hand-rolled on purpose.
 const listeners = new Set<(sessionId: string) => void>();
 
 function entryOf(sessionId: string): SessionEntry {
-    let entry = entries.get(sessionId);
-    if (!entry) {
-        entry = {messages: [], cursor: null, seeded: false, seq: 0};
-        entries.set(sessionId, entry);
-    }
-    return entry;
+    return entries.entryOf(sessionId);
 }
 
 function notify(sessionId: string) {
@@ -79,7 +80,7 @@ function notify(sessionId: string) {
 /** Append an optimistic user bubble to a session's store entry and
  *  notify — shared by send() and the edit-resend flow. */
 function appendOptimisticBubble(sessionId: string, optimistic: ChatUserMessage): void {
-    const entry = entries.get(sessionId);
+    const entry = entries.peek(sessionId);
     if (!entry) return;
     entry.messages = [...entry.messages, optimistic];
     notify(sessionId);
@@ -90,7 +91,7 @@ function appendOptimisticBubble(sessionId: string, optimistic: ChatUserMessage):
  * dropping it outright reads as "my message vanished", the worst failure
  * mode on a flaky mobile link. */
 function markOptimisticFailed(sessionId: string, id: string): void {
-    const current = entries.get(sessionId);
+    const current = entries.peek(sessionId);
     if (!current) return;
     let touched = false;
     current.messages = current.messages.map((m) => {
@@ -99,6 +100,26 @@ function markOptimisticFailed(sessionId: string, id: string): void {
         return {...m, sendFailed: true};
     });
     if (touched) notify(sessionId);
+}
+
+/** Composer staging → the wire's UserMessageFile[] (attachments inline +
+ *  file refs as file:// URIs) — the same conversion the direct send and
+ *  the queue path both need for their optimistic rows. */
+function composerWireFiles(files?: ComposerAttachment[], fileRefs?: ComposerFileRef[]): UserMessageFile[] {
+    return [
+        ...(files ?? []).map((f) => ({name: f.name, mime: f.mime, uri: f.uri})),
+        ...(fileRefs ?? []).map((r) => fileRefToPromptFile(r)),
+    ];
+}
+
+/** The stopping fence shared by every send-shaped action: true while this
+ *  session's stop is unwinding — the caller drops the action (stop means
+ *  stop; a POST landing in the window would be swept or RESTART the run
+ *  as a successor execution, v2.0.11 — see send's full note). */
+function stopInFlight(sid: string, what: string): boolean {
+    if (!isSessionStopping(sid)) return false;
+    logInfo(`${what} suppressed: session stop is in flight`).catch(() => {});
+    return true;
 }
 
 /** Append a FAILED prompt row straight into a session's store — the
@@ -111,7 +132,7 @@ export function appendFailedPrompt(
     message: {text: string; files: UserMessageFile[]; command?: PendingCommand},
 ): void {
     const entry = entryOf(sessionId);
-    const localId = `local-${Date.now()}`;
+    const localId = nextLocalId();
     entry.messages = [...entry.messages, {
         id: localId,
         type: "user",
@@ -129,7 +150,7 @@ export function appendFailedPrompt(
  * normal send (whose own optimistic bubble takes over). Also the
  * failure path for optimistic rows that must NOT linger. */
 export function dropOptimisticBubble(sessionId: string, id: string): void {
-    const current = entries.get(sessionId);
+    const current = entries.peek(sessionId);
     if (!current) return;
     current.messages = current.messages.filter((m) => m.id !== id);
     notify(sessionId);
@@ -238,7 +259,7 @@ function ensureBus(subscribe: (handler: OpencodeEventHandler) => () => void) {
             if (entries.delete(sid)) notify(sid);
             return;
         }
-        const entry = entries.get(sid);
+        const entry = entries.peek(sid);
         if (!entry) return; // never opened here — nothing to keep live
         // A queued prompt's DELIVERY: the row leaves the queue (the
         // promptQueue fold in useSessions handles that side) and its
@@ -296,11 +317,20 @@ export function subscribeSessionMessages(listener: (sessionId: string) => void):
 
 /** A tracked session's current messages (undefined = never opened here). */
 export function peekSessionMessages(sessionId: string): readonly ChatMessage[] | undefined {
-    return entries.get(sessionId)?.messages;
+    return entries.peek(sessionId)?.messages;
 }
 
 /** Stable empty snapshot for sessions with no store entry. */
 const EMPTY_MESSAGES: readonly ChatMessage[] = [];
+
+/** Shared subscribe for the read-only hooks: hear EVERY session's
+ *  notifications when watching all of them (null), only this session's
+ *  otherwise — the filter both snapshot hooks hand-rolled before. */
+function subscribeSessionListener(sessionId: string | null, notify: () => void): () => void {
+    return subscribeSessionMessages((sid) => {
+        if (sessionId === null || sid === sessionId) notify();
+    });
+}
 
 /** Read-only live snapshot of a tracked session's messages — the store
  *  watched from OUTSIDE ChatView (the workspace stats card, which survives
@@ -309,13 +339,7 @@ const EMPTY_MESSAGES: readonly ChatMessage[] = [];
  *  re-subscribes and re-checks the snapshot when the session id changes,
  *  so there is no stale frame; seeding/actions stay ChatView's job. */
 export function useSessionMessagesSnapshot(sessionId: string | null): readonly ChatMessage[] {
-    const subscribe = useCallback(
-        (notify: () => void) =>
-            subscribeSessionMessages((sid) => {
-                if (sessionId === null || sid === sessionId) notify();
-            }),
-        [sessionId],
-    );
+    const subscribe = useCallback((notify: () => void) => subscribeSessionListener(sessionId, notify), [sessionId]);
     const getSnapshot = useCallback(
         () => (sessionId !== null ? peekSessionMessages(sessionId) ?? EMPTY_MESSAGES : EMPTY_MESSAGES),
         [sessionId],
@@ -330,15 +354,9 @@ export function useSessionMessagesSnapshot(sessionId: string | null): readonly C
  *  without a server round-trip. Booleans are stable snapshot values,
  *  so useSyncExternalStore re-renders only on the flip itself. */
 export function useSessionSeeded(sessionId: string | null): boolean {
-    const subscribe = useCallback(
-        (notify: () => void) =>
-            subscribeSessionMessages((sid) => {
-                if (sessionId === null || sid === sessionId) notify();
-            }),
-        [sessionId],
-    );
+    const subscribe = useCallback((notify: () => void) => subscribeSessionListener(sessionId, notify), [sessionId]);
     const getSnapshot = useCallback(
-        () => (sessionId !== null ? entries.get(sessionId)?.seeded === true : true),
+        () => (sessionId !== null ? entries.peek(sessionId)?.seeded === true : true),
         [sessionId],
     );
     return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
@@ -399,7 +417,7 @@ export function useSessionMessages(
     // included — in the very commit that mounts the view, which is what
     // lets the stats card know its activity is ready at mount too.
     const [messages, setMessages] = useState<ChatMessage[]>(
-        () => (sessionId !== null ? entries.get(sessionId)?.messages ?? [] : []),
+        () => (sessionId !== null ? entries.peek(sessionId)?.messages ?? [] : []),
     );
     const [hasMore, setHasMore] = useState(false);
     const [loadingOlder, setLoadingOlder] = useState(false);
@@ -408,7 +426,7 @@ export function useSessionMessages(
     // size themselves around the content (the stats card's subagent
     // drill) wait on this instead of measuring an empty list.
     const [seeding, setSeeding] = useState(() => {
-        const entry = sessionId !== null ? entries.get(sessionId) : undefined;
+        const entry = sessionId !== null ? entries.peek(sessionId) : undefined;
         return entry ? !entry.seeded : true;
     });
 
@@ -427,7 +445,7 @@ export function useSessionMessages(
         requestAnimationFrame(() => {
             flushScheduled.current = false;
             const sid = sessionRef.current;
-            const entry = sid !== null ? entries.get(sid) : undefined;
+            const entry = sid !== null ? entries.peek(sid) : undefined;
             if (!entry) {
                 setMessages([]);
                 setHasMore(false);
@@ -488,7 +506,7 @@ export function useSessionMessages(
     const loadOlder = useCallback(() => {
         const a = apiRef.current;
         const sid = sessionRef.current;
-        const entry = sid !== null ? entries.get(sid) : undefined;
+        const entry = sid !== null ? entries.peek(sid) : undefined;
         if (!a || !sid || !entry || entry.cursor === null) return;
         setLoadingOlder(true);
         a.listMessagesPage(sid, entry.cursor).then((page) => {
@@ -526,32 +544,26 @@ export function useSessionMessages(
         // click can still be in flight when the user presses stop.
         // Suppressed means dropped (stop means stop — same doctrine as
         // handleInterrupt clearing the local queue).
-        if (isSessionStopping(sid)) {
-            logInfo("Send suppressed: session stop is in flight").catch(() => {});
-            return;
-        }
+        if (stopInFlight(sid, "Send")) return;
         const promptFiles = [
             ...(files ?? []).map((f) => ({uri: f.uri, name: f.name})),
-            ...(fileRefs ?? []).map((r) => OpencodeApi.fileRefToPromptFile(r)),
+            ...(fileRefs ?? []).map((r) => fileRefToPromptFile(r)),
         ];
         // Optimistic user bubble; the prompt response + inbox.enqueued event
         // confirm it with the real id (applyEvent adopts it in messageStore).
         // A command submission carries its compact form so the transcript
         // renders `/name args`, not the expanded template the event brings.
-        const localId = `local-${Date.now()}`;
+        const localId = nextLocalId();
         const optimistic: ChatUserMessage = {
             id: localId,
             type: "user",
             text: trimmed,
             // Stable row key across the id swap (see ChatUserMessage.localKey).
             localKey: localId,
-            files: [
-                ...(files ?? []).map((f) => ({name: f.name, mime: f.mime, uri: f.uri})),
-                // File refs keep their `file://` URI so a failed send's
-                // RETRY can rebuild identical prompt files (and the chip
-                // preview resolves like an adopted server message's).
-                ...(fileRefs ?? []).map((r) => OpencodeApi.fileRefToPromptFile(r)),
-            ],
+            // File refs keep their `file://` URI so a failed send's
+            // RETRY can rebuild identical prompt files (and the chip
+            // preview resolves like an adopted server message's).
+            files: composerWireFiles(files, fileRefs),
             ...(command ? {command} : {}),
         };
         appendOptimisticBubble(sid, optimistic);
@@ -609,10 +621,7 @@ export function useSessionMessages(
         // Same interrupt fence as send(): a revert+resend racing an
         // in-flight stop would re-admit work the user just aborted.
         // False keeps the composer in edit mode (buffer preserved).
-        if (isSessionStopping(sid)) {
-            logInfo("Edit-resend suppressed: session stop is in flight").catch(() => {});
-            return false;
-        }
+        if (stopInFlight(sid, "Edit-resend")) return false;
         try {
             await a.stageSessionRevert(sid, message.id);
             try {
@@ -629,7 +638,7 @@ export function useSessionMessages(
             logError(`Failed to revert session for edit: ${e}`).catch(() => {});
             return false;
         }
-        const entry = entries.get(sid);
+        const entry = entries.peek(sid);
         if (entry) {
             const kept = dropFromBoundary(entry.messages, message.id);
             if (kept !== entry.messages) {
@@ -656,7 +665,7 @@ export function useSessionMessages(
                 uri: typeof f.uri === "string" ? f.uri : `data:${f.mime};base64,${f.data}`,
                 name: f.name ?? "file",
             }));
-        const localId = `local-${Date.now()}`;
+        const localId = nextLocalId();
         appendOptimisticBubble(sid, {
             id: localId,
             type: "user",
@@ -753,10 +762,7 @@ export function useSessionMessages(
         // Same interrupt fence as send(): a queue POST landing inside the
         // stop window would be swept (its row cancelled) or restart the
         // aborted work as a successor execution.
-        if (isSessionStopping(sid)) {
-            logInfo("Queue POST suppressed: session stop is in flight").catch(() => {});
-            return;
-        }
+        if (stopInFlight(sid, "Queue POST")) return;
         const optimistic = appendOptimisticQueued(sid, {text, files, command});
         const undoPending = command ? recordPendingCommand(sid, command) : null;
         try {
@@ -787,11 +793,7 @@ export function useSessionMessages(
         fileRefs?: ComposerFileRef[],
         command?: PendingCommand | null,
     ) => {
-        const wireFiles: UserMessageFile[] = [
-            ...(files ?? []).map((f) => ({name: f.name, mime: f.mime, uri: f.uri})),
-            ...(fileRefs ?? []).map((r) => OpencodeApi.fileRefToPromptFile(r)),
-        ];
-        await postQueuedRow(text.trim(), wireFiles, command ?? null);
+        await postQueuedRow(text.trim(), composerWireFiles(files, fileRefs), command ?? null);
     }, [postQueuedRow]);
 
     /** Retry a `failed` queue row (drop it, re-POST the same content). */

@@ -5,6 +5,7 @@ import Icon from "../../assets/icon.svg";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import pkg from "../../../package.json";
+import SectionHeader from "./SectionHeader.tsx";
 
 /** Core runtime dependencies listed on the About pane, in display
  * order. Version strings come from package.json as written (caret
@@ -83,9 +84,7 @@ export default function AboutSettings() {
             {/* Dependencies — fine print as a two-column grid (mono,
              * tabular versions) instead of a hairline-per-row list. */}
             <div className="flex flex-col gap-4">
-                <div className="text-xs font-medium uppercase tracking-wide pb-1 opacity-55">
-                    {t["Dependencies"]}
-                </div>
+                <SectionHeader label={t["Dependencies"]}/>
                 <div className="grid grid-cols-2 gap-x-8 gap-y-3">
                     {CORE_DEPS.map((name) => (
                         <div key={name} className="flex items-baseline justify-between gap-3 text-xs">

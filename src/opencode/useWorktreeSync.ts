@@ -1,5 +1,6 @@
 import {useEffect, useSyncExternalStore} from "react";
 import {debug as logDebug, error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
+import {createKeyedStore} from "../lib/moduleStore.ts";
 import type {OpencodeApi} from "./api.ts";
 import {useConnection} from "./connectionContext.tsx";
 import {worktreeBindingOf} from "./worktreeSessions.ts";
@@ -38,20 +39,12 @@ interface InternalEntry extends WorktreeSyncEntry {
     seq: number;
 }
 
-const entries = new Map<string, InternalEntry>();
-const listeners = new Set<() => void>();
-
-function emit(): void {
-    for (const listener of listeners) listener();
-}
+const entries = createKeyedStore<string, InternalEntry>(
+    () => ({status: "loading", snapshot: null, syncing: false, lastOutcome: null, seq: 0}),
+);
 
 function entryOf(directory: string): InternalEntry {
-    let entry = entries.get(directory);
-    if (!entry) {
-        entry = {status: "loading", snapshot: null, syncing: false, lastOutcome: null, seq: 0};
-        entries.set(directory, entry);
-    }
-    return entry;
+    return entries.entryOf(directory);
 }
 
 function targetOf(directory: string): WorktreeSyncTarget | null {
@@ -74,12 +67,12 @@ export function refreshWorktreeSync(api: OpencodeApi | null, directory: string |
     if (!target) return;
     if (entry.status !== "loading") {
         entry.status = "loading";
-        emit();
+        entries.notify();
     }
     probeWorktreeDrift(api, target, (message) => {
         logDebug(`worktree drift: ${message}`).catch(() => {});
     }).then((probe) => {
-        if (entries.get(directory)?.seq !== seq) return;
+        if (entries.peek(directory)?.seq !== seq) return;
         if (probe.kind === "ok") {
             entry.status = "ready";
             entry.snapshot = probe.snapshot;
@@ -88,13 +81,13 @@ export function refreshWorktreeSync(api: OpencodeApi | null, directory: string |
             entry.status = "error";
             entry.snapshot = null;
         }
-        emit();
+        entries.notify();
     }).catch((e) => {
-        if (entries.get(directory)?.seq !== seq) return;
+        if (entries.peek(directory)?.seq !== seq) return;
         logWarn(`Worktree drift probe threw for ${directory}: ${e}`).catch(() => {});
         entry.status = "error";
         entry.snapshot = null;
-        emit();
+        entries.notify();
     });
 }
 
@@ -102,7 +95,7 @@ export function refreshWorktreeSync(api: OpencodeApi | null, directory: string |
 export function ensureWorktreeSync(api: OpencodeApi | null, directory: string | null): void {
     if (!api || !directory) return;
     if (!worktreeBindingOf(directory)) return;
-    if (entries.has(directory)) return;
+    if (entries.peek(directory) !== undefined) return;
     refreshWorktreeSync(api, directory);
 }
 
@@ -121,7 +114,7 @@ export async function syncWorktreeNow(
     if (entry.syncing) return null;
 
     entry.syncing = true;
-    emit();
+    entries.notify();
     const outcome = await syncWorktreeToBranch(api, target, (message) => {
         logDebug(`worktree sync: ${message}`).catch(() => {});
     });
@@ -139,16 +132,9 @@ export async function syncWorktreeNow(
                 (outcome.kind === "synced" ? ` (${outcome.commits} commits, ${outcome.files} files)` : ""),
         ).catch(() => {});
     }
-    emit();
+    entries.notify();
     refreshWorktreeSync(api, directory);
     return outcome;
-}
-
-function subscribe(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => {
-        listeners.delete(listener);
-    };
 }
 
 const NO_ENTRY: WorktreeSyncEntry = {
@@ -164,12 +150,12 @@ const NO_ENTRY: WorktreeSyncEntry = {
 export function useWorktreeSyncOf(directory: string | null): WorktreeSyncEntry {
     const {api} = useConnection();
     useSyncExternalStore(
-        subscribe,
-        () => (directory !== null ? entries.get(directory) ?? null : null),
+        entries.subscribe,
+        () => (directory !== null ? entries.peek(directory) ?? null : null),
         () => null,
     );
     useEffect(() => {
         ensureWorktreeSync(api, directory);
     }, [api, directory]);
-    return (directory !== null ? entries.get(directory) : null) ?? NO_ENTRY;
+    return (directory !== null ? entries.peek(directory) : null) ?? NO_ENTRY;
 }

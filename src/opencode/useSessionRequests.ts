@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
 import {debug as logDebug, error as logError} from "@tauri-apps/plugin-log";
+import {createModuleStore} from "../lib/moduleStore.ts";
 import type {OpencodeApi} from "./api.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {ChatMessage, EventMap, FormAnswer, FormRequest, PermissionDecision, PermissionRequest} from "./types.ts";
@@ -45,8 +46,7 @@ interface PendingFlags {
     work: boolean;
 }
 const NO_FLAGS: PendingFlags = {plan: false, work: false};
-let pendingFlagsSnapshot: ReadonlyMap<string, PendingFlags> = new Map();
-const pendingFlagsListeners = new Set<() => void>();
+const pendingFlagsStore = createModuleStore<ReadonlyMap<string, PendingFlags>>(new Map());
 let pendingFlagsWired = false;
 
 /** Recompute one session's gate states from its message store entry
@@ -64,29 +64,27 @@ function recomputePendingFlags(sessionId: string): void {
         plan: planApprovalPending(messages as ChatMessage[]) !== null,
         work: workApprovalPending(messages as ChatMessage[]) !== null,
     };
-    const prev = pendingFlagsSnapshot.get(sessionId) ?? NO_FLAGS;
+    const prev = pendingFlagsStore.get().get(sessionId) ?? NO_FLAGS;
     if (flags.plan === prev.plan && flags.work === prev.work) return;
-    const next = new Map(pendingFlagsSnapshot);
+    const next = new Map(pendingFlagsStore.get());
     if (flags.plan || flags.work) next.set(sessionId, flags);
     else next.delete(sessionId);
-    pendingFlagsSnapshot = next;
-    for (const listener of pendingFlagsListeners) listener();
+    pendingFlagsStore.set(next);
 }
 
 /** Drop a deleted session's entry (its message store entry goes with it). */
 function dropPendingFlags(sessionId: string): void {
-    if (!pendingFlagsSnapshot.has(sessionId)) return;
-    const next = new Map(pendingFlagsSnapshot);
+    if (!pendingFlagsStore.get().has(sessionId)) return;
+    const next = new Map(pendingFlagsStore.get());
     next.delete(sessionId);
-    pendingFlagsSnapshot = next;
-    for (const listener of pendingFlagsListeners) listener();
+    pendingFlagsStore.set(next);
 }
 
 /** Read-only peek at ONE session's gate flags (the desktop-notification
  * composer asks WHICH attention kind just appeared; pendingCounts only
  * carries counts). Same shape the badge pipeline folds. */
 export function peekGateFlags(sessionId: string): {plan: boolean; work: boolean} {
-    return pendingFlagsSnapshot.get(sessionId) ?? NO_FLAGS;
+    return pendingFlagsStore.get().get(sessionId) ?? NO_FLAGS;
 }
 
 /** Install the message-store watcher once per app run. */
@@ -244,16 +242,10 @@ export function useSessionRequests(
 
     // The transcript-derived gates (module store above) join the count —
     // same sidebar badge as questions.
-    const subscribePendingFlags = useCallback((notify: () => void) => {
-        pendingFlagsListeners.add(notify);
-        return () => {
-            pendingFlagsListeners.delete(notify);
-        };
-    }, []);
     const pendingFlags = useSyncExternalStore(
-        subscribePendingFlags,
-        () => pendingFlagsSnapshot,
-        () => pendingFlagsSnapshot,
+        pendingFlagsStore.subscribe,
+        pendingFlagsStore.get,
+        pendingFlagsStore.get,
     );
     useEffect(() => {
         ensurePendingFlagsWiring();

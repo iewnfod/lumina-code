@@ -8,7 +8,7 @@ import type {AssistantToolPart} from "../../opencode/types.ts";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n, type TranslationKey} from "../../hooks/i18n.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
 import {errorText, inputFilePath, inputObject, inputStr, metaFor, toolOutputIsMarkdown, ERROR_TEXT} from "./toolMeta.ts";
@@ -78,7 +78,7 @@ function ToolBodyBox({color, scrollRef, onScroll, wrap = true, mono = true, chil
                     scrollRef && (edges.top || edges.bottom) ? " pb-6" : " pb-2"
                 } lum-fade-md${
                     wrap ? " whitespace-pre-wrap break-words" : ""
-                }${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
+                }${fadeClasses(edges)}`}
             >
                 {children}
             </div>

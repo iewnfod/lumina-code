@@ -11,7 +11,7 @@ import {
     queuedRowToPromptFiles,
     type QueuedPrompt,
 } from "./promptQueue.ts";
-import type {SessionInboxItem} from "./api.ts";
+import type {SessionInboxItem} from "./types.ts";
 
 function row(overrides: Partial<QueuedPrompt> & {id: string}): QueuedPrompt {
     return {

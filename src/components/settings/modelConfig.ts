@@ -195,3 +195,33 @@ export function parseOAuthInstructions(instructions: string): ParsedOAuthInstruc
     if (!m) return {code: null, text: trimmed};
     return {code: m[2], text: m[1].replace(/[,;:]$/, "").trim()};
 }
+
+/** Default package for custom providers — any OpenAI-compatible API. */
+export const DEFAULT_NPM = "@ai-sdk/openai-compatible";
+
+/** Provider IDs the config accepts (keys of the `provider` object). */
+export const PROVIDER_ID_RE = /^[A-Za-z0-9._-]+$/;
+
+/** Which field of a custom provider def failed validation (the save path
+ * maps each to its user-facing message). */
+export type CustomProviderInvalid = "fields" | null;
+
+/** Validate an add/edit form draft before it is written to the config:
+ * a provider needs a config-legal id, a base URL, a package and at
+ *  least one non-empty model id. Pure. */
+export function validateCustomProvider(def: CustomProviderDef): CustomProviderInvalid {
+    if (
+        !PROVIDER_ID_RE.test(def.id) || def.baseURL.trim() === "" ||
+        def.npm.trim() === "" || def.models.filter((m) => m.id.trim() !== "").length === 0
+    ) {
+        return "fields";
+    }
+    return null;
+}
+
+/** The config text a save writes: a fresh document when the file was
+ * absent (""), a merge into the current text otherwise. Null = the
+ * current text is JSONC (comments) the merge must not touch. */
+export function customProviderText(rawConfig: string, def: CustomProviderDef): string | null {
+    return rawConfig === "" ? freshConfigWithProvider(def) : mergeCustomProvider(rawConfig, def);
+}

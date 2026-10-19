@@ -14,7 +14,6 @@ import type {
     SessionUsage,
 } from "../../opencode/types.ts";
 import type {ContextUsage} from "../chat/usageStats.ts";
-import {fileIconUrl} from "../../lib/fileIcons.ts";
 import {compressImageFile} from "../../lib/imageCompress.ts";
 import {isMobileApp} from "../../lib/platform.ts";
 import {splitAttachmentNote} from "../../opencode/visionAttachments.ts";
@@ -26,6 +25,7 @@ import {saveDraftAttachments, saveDraftEditorState, takeInitialDraft} from "./co
 import {FileMentionNode} from "./FileMentionNode.tsx";
 import {CommandMentionNode} from "./CommandMentionNode.tsx";
 import Hint from "../ui/Hint.tsx";
+import {AttachmentChipIcon, ATTACHMENT_CHIP_CLASS} from "../ui/AttachmentChip.tsx";
 
 /**
  * The prompt composer shell: staged attachments (chips above the editor),
@@ -372,14 +372,10 @@ const ChatInput = memo(function ChatInput({
                     {attachments.map((a) => (
                         <span
                             key={a.id}
-                            className="inline-flex items-center gap-1.5 h-7 pl-1.5 pr-1 rounded-[var(--radius-sm)] max-w-64"
+                            className={ATTACHMENT_CHIP_CLASS}
                             style={{background: colors.activeOverlay}}
                         >
-                            {a.mime.startsWith("image/") ? (
-                                <img src={a.uri} alt="" className="w-5 h-5 rounded-[var(--radius-xs)] object-cover shrink-0"/>
-                            ) : (
-                                <img src={fileIconUrl(a.name)} alt="" className="w-4 h-4 shrink-0"/>
-                            )}
+                            <AttachmentChipIcon thumb={a.mime.startsWith("image/") ? a.uri : null} name={a.name}/>
                             <span className="text-xs truncate">{a.name}</span>
                             <Hint label={t["Remove attachment"]}>
                                 <button

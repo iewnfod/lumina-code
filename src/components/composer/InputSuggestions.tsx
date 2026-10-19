@@ -1,7 +1,7 @@
 import {useEffect} from "react";
 import {Terminal} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import type {OpencodeCommand} from "../../opencode/types.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
 import {folderLabel} from "../../lib/path.ts";
@@ -61,7 +61,7 @@ export default function InputSuggestions({
             <div
                 ref={edges.ref}
                 onScroll={edges.onScroll}
-                className={`max-h-64 overflow-y-auto py-1 lum-fade-md${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
+                className={`max-h-64 overflow-y-auto py-1 lum-fade-md${fadeClasses(edges)}`}
             >
                 {items.length === 0 ? (
                     <div className="px-3 py-2 text-xs opacity-50">{emptyLabel}</div>
