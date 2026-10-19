@@ -14,7 +14,7 @@ export function jsonError(message: string, status: number): Response {
  * errors are logged (server-side) and reported as 500 without detail. */
 export function errorResponse(e: unknown): Response {
   if (e instanceof AuthError) return jsonError(e.message, e.status);
-  console.error("[lumina-server] unhandled route error:", e);
+  console.error("[lumina-code-server] unhandled route error:", e);
   return jsonError("internal error", 500);
 }
 

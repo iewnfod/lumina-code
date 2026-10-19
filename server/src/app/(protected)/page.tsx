@@ -69,7 +69,7 @@ export default async function DashboardPage() {
       <table className="table facts">
         <tbody>
           <tr>
-            <th>lumina-server</th>
+            <th>lumina-code-server</th>
             <td>v{SERVER_VERSION}</td>
           </tr>
           <tr>

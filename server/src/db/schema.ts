@@ -1,5 +1,5 @@
 /**
- * lumina-server's entire database schema.
+ * lumina-code-server's entire database schema.
  *
  * Plain DDL executed with CREATE TABLE IF NOT EXISTS at startup — no
  * migration tool. The server owns its SQLite file exclusively; when the

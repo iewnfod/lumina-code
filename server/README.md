@@ -1,4 +1,4 @@
-# lumina-server
+# lumina-code-server
 
 Lumina Code 的自部署配套服务器：一个 Next.js 单体应用 = **用户系统 +
 Web 管理界面 + 远程访问凭证交换**，SQLite 单文件存储；与 frps 容器
@@ -37,7 +37,7 @@ docker compose up -d
 配置对齐 `server/deploy/frps.toml` 与 `LUMINA_FRPS_TOKEN`）：
 
 ```bash
-docker run -d --name lumina-server -p 14600:3000 \
+docker run -d --name lumina-code-server -p 14600:3000 \
   -v $PWD/data:/data iewnfod/lumina-code-server:latest
 ```
 
@@ -106,7 +106,7 @@ SSE 流式）。服务器只做凭证交换：
 
 ```nginx
 location / {
-    proxy_pass http://127.0.0.1:14600;                   # lumina-server 本体
+    proxy_pass http://127.0.0.1:14600;                   # lumina-code-server 本体
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 }
 

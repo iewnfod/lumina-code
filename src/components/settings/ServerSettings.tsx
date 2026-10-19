@@ -21,7 +21,7 @@ import TextInput from "./TextInput.tsx";
 
 /**
  * The settings modal's Server pane — DUAL-PURPOSE by platform. Desktop:
- * sign in to a self-hosted lumina-server, toggle remote access (the
+ * sign in to a self-hosted lumina-code-server, toggle remote access (the
  * frp direct route exposing this machine's opencode to mobile
  * clients), sign out. Mobile: the app's ACCOUNT page — the logged-in
  * server address + sign out (clearing the mobile connection remounts
@@ -52,7 +52,7 @@ function MobileServerPage() {
         try {
             await new LuminaServerApi(connection.url, connection.token).logout();
         } catch (e) {
-            logError(`lumina-server logout failed (clearing anyway): ${e}`).catch(() => {});
+            logError(`lumina-code-server logout failed (clearing anyway): ${e}`).catch(() => {});
         }
         clearMobileConnection();
     };
@@ -116,10 +116,10 @@ export default function ServerSettings() {
             setUrl("");
             setUsername("");
             setPassword("");
-            logInfo(`Signed in to lumina-server at ${normalized}`).catch(() => {});
+            logInfo(`Signed in to lumina-code-server at ${normalized}`).catch(() => {});
         } catch (e) {
             setErrorText(String(e));
-            logError(`lumina-server sign-in failed: ${e}`).catch(() => {});
+            logError(`lumina-code-server sign-in failed: ${e}`).catch(() => {});
         } finally {
             setBusy(false);
         }
@@ -133,7 +133,7 @@ export default function ServerSettings() {
         try {
             await new LuminaServerApi(connection.url, connection.token).logout();
         } catch (e) {
-            logError(`lumina-server logout failed (clearing anyway): ${e}`).catch(() => {});
+            logError(`lumina-code-server logout failed (clearing anyway): ${e}`).catch(() => {});
         }
         clearServerConnection();
         setBusy(false);
@@ -230,7 +230,7 @@ export default function ServerSettings() {
     return (
         <div className="flex flex-col gap-4 p-4 overflow-y-auto">
             <p className="text-xs opacity-55 -mt-2">
-                {t["Sign in to your self-hosted lumina-server to enable remote access from your mobile devices."]}
+                {t["Sign in to your self-hosted lumina-code-server to enable remote access from your mobile devices."]}
             </p>
             <div className="flex flex-col gap-2 max-w-[340px]">
                 <div className="text-sm">{t["Server address"]}</div>

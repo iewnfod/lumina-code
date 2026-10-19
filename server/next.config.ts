@@ -1,7 +1,7 @@
 import type {NextConfig} from "next";
 
 /**
- * lumina-server: a small self-hostable companion server for Lumina Code.
+ * lumina-code-server: a small self-hostable companion server for Lumina Code.
  *
  * One Next.js app serves BOTH the REST API used by the desktop/mobile
  * clients (`/api/auth/*`, `/api/sync/*`) and the minimal web management

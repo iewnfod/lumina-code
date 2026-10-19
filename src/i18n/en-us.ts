@@ -300,7 +300,7 @@ const enUs = {
     "Adds a vision tool that text-only models can call to see images": "Adds a vision tool that text-only models can call to see images",
     "No vision-capable models found": "No vision-capable models found",
     "Custom tools are stored in the global OpenCode config": "Custom tools are stored in the global OpenCode config",
-    // --- Server (self-hosted lumina-server) ---
+    // --- Server (self-hosted lumina-code-server) ---
     "Server": "Server",
     "Remote access": "Remote access",
     "Expose this machine's OpenCode directly to your signed-in mobile clients through the server.":
@@ -312,8 +312,8 @@ const enUs = {
     "Route ID": "Route ID",
     "Server address": "Server address",
     "Server address must start with http:// or https://": "Server address must start with http:// or https://",
-    "Sign in to your self-hosted lumina-server to enable remote access from your mobile devices.":
-        "Sign in to your self-hosted lumina-server to enable remote access from your mobile devices.",
+    "Sign in to your self-hosted lumina-code-server to enable remote access from your mobile devices.":
+        "Sign in to your self-hosted lumina-code-server to enable remote access from your mobile devices.",
     "Username": "Username",
     "Password": "Password",
     "Sign in": "Sign in",

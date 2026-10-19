@@ -3,7 +3,7 @@
 // a stable per-platform name (`frpc` / `frpc.exe`), referenced by the
 // `resources` maps in tauri.linux/macos/windows.conf.json — the same
 // resource-sidecar doctrine as fetch-opencode.mjs (private dir, never on the
-// user's PATH). frps is NOT shipped: it runs on the lumina-server host as a
+// user's PATH). frps is NOT shipped: it runs on the lumina-code-server host as a
 // container (server/deploy/frps.toml + docker-compose.yml), pinned there by
 // the compose image tag.
 //

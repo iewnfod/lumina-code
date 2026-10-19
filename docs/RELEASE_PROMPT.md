@@ -21,7 +21,7 @@ Linux 用户会在 release 资产里看到两套包：
 自 0.6.0 起还须包含（Android 首次入流水线时提一句即可）：
 
 - **Android APK（`Lumina.Code_*_android-arm64.apk`，arm64-only）**：移动
-  客户端直接安装包，需自部署 lumina-server 配合使用（见 mobile/README.md）；
+  客户端直接安装包，需自部署 lumina-code-server 配合使用（见 mobile/README.md）；
   签名密钥随发布流水线管理，覆盖升级需先卸载旧的手工签名调试版。
 
 ## 步骤

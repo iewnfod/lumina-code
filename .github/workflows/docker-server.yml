@@ -1,4 +1,4 @@
-name: Docker - lumina-server
+name: Docker - lumina-code-server
 
 # Builds the self-hosted companion server's image and pushes it to
 # Docker Hub (docker.io/iewnfod/lumina-code-server). Three lanes, one job:
@@ -7,8 +7,10 @@ name: Docker - lumina-server
 #     tag — the merge was already gated by ci-server.yml's test+build.
 #   • published GitHub Releases (v* tags) → :<version> + :latest. The
 #     version IS the release tag (v0.5.0 → 0.5.0): the repo ships one
-#     version across all surfaces, even though server/package.json
-#     carries its own 0.x line (that one tracks server-only breakage).
+#     version across all surfaces — server/package.json is bumped in
+#     lockstep by scripts/bump-version.sh (the Docker tag still derives
+#     from the release tag; the package version only keeps the repo's
+#     one-version invariant).
 #   • any OTHER ref (workflow_dispatch from a feature branch) →
 #     :branch-<name> (slashes sanitized, e.g. feat/mobile →
 #     :branch-feat-mobile) — a test-deployable image that can never

@@ -95,10 +95,13 @@ Mirrors lumina-terminal's pipeline (keep the two in sync when fixing one):
   (Fedora COPR) from the `.aur/PKGBUILD` / `.copr/lumina-code.spec`
   templates. One-time repo secrets: `AUR_SSH_PRIVATE_KEY`, `COPR_CONFIG`
   (plus a manually created COPR project `iewnfod/lumina-code`).
-- **docker-server.yml** — builds the lumina-server image and pushes it
+- **docker-server.yml** — builds the lumina-code-server image and pushes it
   to Docker Hub (`docker.io/iewnfod/lumina-code-server`, multi-arch
   amd64+arm64 via QEMU — better-sqlite3 ships prebuilt musl bindings,
-  the cross-build never compiles). Two lanes: master pushes touching
+  the cross-build never compiles). The server rides the repo's ONE
+  version line: `scripts/bump-version.sh` bumps `server/package.json`
+  in lockstep with the app (twelve files total; the image tag itself
+  still derives from the release tag). Two lanes: master pushes touching
   the image's inputs (server/, the workspace manifests, the workflow
   file) → `:edge`; published Releases → `:<version>` + `:latest`
   (version = the release tag, sans v). Deliberately NOT on the
@@ -2641,7 +2644,7 @@ src/
     │                      #   (Snowflake etc.) show as a plain caption.
     ├── ServerSettings.tsx # The Server pane — DUAL-PURPOSE by platform.
     │                      #   Desktop: sign in to a self-hosted
-    │                      #   lumina-server (url + credentials → the
+    │                      #   lumina-code-server (url + credentials → the
     │                      #   serverConnection store, picked up live by
     │                      #   useServerFrp), the remote-access Switch
     │                      #   + its LIVE frp connection status row
@@ -2695,7 +2698,7 @@ src-tauri/src/
 │                  #   for Wayland fractional scaling), invoke_handler, and the Exit
 │                  #   hook that kills the owned server (opencode::shutdown).
 ├── system.rs      # is_wayland command (XDG_SESSION_TYPE, WAYLAND_DISPLAY fallback)
-├── lumina_http.rs # lumina_request: the lumina-server HTTP transport (the Rust
+├── lumina_http.rs # lumina_request: the lumina-code-server HTTP transport (the Rust
 │                  #   half of opencode/serverConnection.ts's LuminaServerApi).
 │                  #   WHY requests to the self-hosted server must NOT ride
 │                  #   the webview's fetch (live-observed 2026-10-18, phone
@@ -3069,7 +3072,7 @@ desktop layout still connects to the DESKTOP's opencode remotely.
   ohos — this branch's lib.rs must cfg the plugin out if that port
   resumes).
 
-### lumina-server (`server/`) — the self-hosted companion server
+### lumina-code-server (`server/`) — the self-hosted companion server
 
 A pnpm WORKSPACE MEMBER (`pnpm-workspace.yaml` lists `server/`; the
 desktop app stays the root package) — a single Next.js App Router

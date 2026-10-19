@@ -293,7 +293,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Adds a vision tool that text-only models can call to see images": "提供识图工具：纯文字模型可以调用它查看图片",
     "No vision-capable models found": "没有支持图片输入的模型",
     "Custom tools are stored in the global OpenCode config": "自定义工具保存在 OpenCode 全局配置中",
-    // --- Server（自部署 lumina-server） ---
+    // --- Server（自部署 lumina-code-server） ---
     "Server": "服务器",
     "Remote access": "远程访问",
     "Expose this machine's OpenCode directly to your signed-in mobile clients through the server.":
@@ -305,8 +305,8 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Route ID": "路由 ID",
     "Server address": "服务器地址",
     "Server address must start with http:// or https://": "服务器地址必须以 http:// 或 https:// 开头",
-    "Sign in to your self-hosted lumina-server to enable remote access from your mobile devices.":
-        "登录自部署的 lumina-server，为移动设备开启远程访问。",
+    "Sign in to your self-hosted lumina-code-server to enable remote access from your mobile devices.":
+        "登录自部署的 lumina-code-server，为移动设备开启远程访问。",
     "Username": "用户名",
     "Password": "密码",
     "Sign in": "登录",

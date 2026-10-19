@@ -5,7 +5,7 @@ import {normalizeServerUrl} from "../opencode/serverConnection.ts";
 
 /**
  * The MOBILE app's server connection (its whole account identity): the
- * lumina-server address + the device token from login. Same persisted
+ * lumina-code-server address + the device token from login. Same persisted
  * store machinery as the desktop's preferences — on HarmonyOS the
  * storage is the kv shim (mobile.html hydrate gate), on browser dev the
  * native localStorage. No `enabled` toggle here: connected IS the app's

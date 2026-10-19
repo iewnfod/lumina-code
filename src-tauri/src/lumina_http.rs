@@ -1,9 +1,9 @@
-//! lumina-server HTTP transport — the Rust half of
+//! lumina-code-server HTTP transport — the Rust half of
 //! `opencode/serverConnection.ts`'s LuminaServerApi.
 //!
 //! WHY this exists (live-observed 2026-10-18, on a phone-hotspot network
 //! with a local proxy): the desktop's requests to the self-hosted
-//! lumina-server used to go through the WEBVIEW's fetch — and the
+//! lumina-code-server used to go through the WEBVIEW's fetch — and the
 //! WebKitGTK network stack (libsoup/GnuTLS under tauri/wry) failed to
 //! complete those requests on EVERY path (system proxy, direct, clean
 //! env) with an opaque `TypeError: Load failed`, while curl (OpenSSL),

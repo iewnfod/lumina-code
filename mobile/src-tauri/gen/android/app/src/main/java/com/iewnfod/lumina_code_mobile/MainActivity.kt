@@ -123,7 +123,7 @@ class MainActivity : TauriActivity() {
   override fun onWebViewCreate(webView: WebView) {
     webView.addJavascriptInterface(object {
       // The device's model name (e.g. "Pixel 9") — the mobile login's
-      // token label on lumina-server (src/opencode/serverConnection.ts
+      // token label on lumina-code-server (src/opencode/serverConnection.ts
       // deviceLoginLabel). A plain synchronous return; gethostname on
       // Android only ever answers "localhost", so the model IS the
       // device name here.

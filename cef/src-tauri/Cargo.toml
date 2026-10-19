@@ -37,7 +37,7 @@ tauri-plugin-notification = "3.0.0-alpha.1"
 # other plugins).
 tauri-plugin-store = "3.0.0-alpha.3"
 log = "0.4"
-# The lumina-server HTTP transport (lumina_http.rs, single-sourced from the
+# The lumina-code-server HTTP transport (lumina_http.rs, single-sourced from the
 # webkit shell — see its header there).
 reqwest = { version = "0.12", default-features = true }
 serde = { version = "1", features = ["derive"] }

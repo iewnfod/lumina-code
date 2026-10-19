@@ -1,7 +1,7 @@
-# frps 配置 —— lumina-server 远程访问（frp 直连）的服务端半边。
+# frps 配置 —— lumina-code-server 远程访问（frp 直连）的服务端半边。
 #
 # docker-compose.yml 把这个文件挂载进 fatedier/frps 容器。
-# 部署时只需要改 auth.token（与 compose 里 lumina-server 的
+# 部署时只需要改 auth.token（与 compose 里 lumina-code-server 的
 # LUMINA_FRPS_TOKEN 保持一致），生成方式：
 #
 #   openssl rand -hex 16

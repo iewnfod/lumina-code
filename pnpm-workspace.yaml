@@ -1,4 +1,4 @@
-# The lumina-server Next.js app is a workspace member so the whole repo
+# The lumina-code-server Next.js app is a workspace member so the whole repo
 # shares one lockfile (the desktop app stays the root package; the CEF
 # shell keeps its own isolated package because its CLI pin is
 # major-version-incompatible with the root's).

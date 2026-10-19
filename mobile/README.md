@@ -1,14 +1,14 @@
 # Lumina Code Mobile
 
-Lumina Code 的移动客户端（v2 —— **桌面树接管 + lumina-server 隧道**）：手机上跑
-的就是桌面 App 的完整 UI 树，opencode API 流量经自部署的 lumina-server 隧道
+Lumina Code 的移动客户端（v2 —— **桌面树接管 + lumina-code-server 隧道**）：手机上跑
+的就是桌面 App 的完整 UI 树，opencode API 流量经自部署的 lumina-code-server 隧道
 到达桌面端。手机只需可达 server（公网/内网均可），获得 100% 功能——实时 SSE
 流式输出、全功能 composer、模型切换、设置。
 
 ```
 手机 App（桌面 UI 树）
   ↕ HTTPS（Bearer = lumina 设备 token）
-lumina-server  /api/tunnel/opencode/**（透传代理 + SSE fan-out）
+lumina-code-server  /api/tunnel/opencode/**（透传代理 + SSE fan-out）
   ↕ 长轮询指令 / POST 响应 / POST 事件
 桌面 App（useServerTunnel → 127.0.0.1 本地 opencode，注入本地密码）
 ```
@@ -107,8 +107,8 @@ i686-linux-android x86_64-linux-android`；环境变量 `ANDROID_HOME=$HOME/Andr
 ### E2E 冒烟（无需跑桌面 App）
 
 ```bash
-# 1. 起 lumina-server + sidecar
-LUMINA_DATA_DIR=/tmp/e2e pnpm --filter lumina-server dev
+# 1. 起 lumina-code-server + sidecar
+LUMINA_DATA_DIR=/tmp/e2e pnpm --filter lumina-code-server dev
 OPENCODE_SERVER_PASSWORD=pw ./src-tauri/binaries/opencode serve --port 4312 \
   --hostname 127.0.0.1 --cors 'http://localhost:1421'
 # 2. 注册账号拿 token（POST /api/auth/register）

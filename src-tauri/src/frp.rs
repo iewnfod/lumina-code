@@ -1,6 +1,6 @@
 //! The frpc sidecar lifecycle — remote access (the tunnel's replacement).
 //!
-//! While a lumina-server connection is configured AND remote access is
+//! While a lumina-code-server connection is configured AND remote access is
 //! enabled, the frontend hands us the frps coordinates (from the server's
 //! /api/frp/config) plus the account's route id and the LOCAL opencode
 //! port; we write a throwaway frpc config into the app data dir and keep

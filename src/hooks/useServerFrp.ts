@@ -15,7 +15,7 @@ import {isMobileApp} from "../lib/platform.ts";
  * The remote-access engine (mounted ONCE in AppBody): the frp direct
  * route's desktop half, replacing the old tunnel loops.
  *
- * While a lumina-server connection is configured AND remote access is
+ * While a lumina-code-server connection is configured AND remote access is
  * enabled, it (re)registers the LOCAL opencode password with the
  * server (minting/persisting the route id) and supervises the frpc
  * sidecar via the Rust frp_start/frp_stop commands. Mobile clients

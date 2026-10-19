@@ -8,9 +8,14 @@
 # cef/package.json + cef/src-tauri/{...} counterparts, and
 # mobile/src-tauri/{Cargo.toml, tauri.conf.json} — the mobile app shares the
 # repo-root package.json (its frontend is the second vite entry), so it has
-# NO package.json of its own: a trio, not a quartet. Each Cargo.lock is
+# NO package.json of its own: a trio, not a quartet. The companion server
+# (server/, the lumina-code-server workspace member) rides the same version:
+# its package.json is a TWELFTH file with no Cargo/tauri counterparts — the
+# Docker image tag still derives from the release tag, the package version
+# only keeps the repo's one-version invariant. Each Cargo.lock is
 # synced by running `cargo metadata` against its own manifest (a plain edit
-# never touches the lock); `pnpm test` gates the bump on a green test suite.
+# never touches the lock); `pnpm test && pnpm server:test` gate the bump on
+# a green test suite (frontend AND server).
 #
 # Ported from lumina-terminal/scripts/bump-version.sh — keep the two in sync.
 # Differences from the sibling: tauri.conf.json uses 2-space indentation here
@@ -42,6 +47,7 @@ CEF_CARGO_LOCK="cef/src-tauri/Cargo.lock"
 MOBILE_CARGO_TOML="mobile/src-tauri/Cargo.toml"
 MOBILE_TAURI_CONF="mobile/src-tauri/tauri.conf.json"
 MOBILE_CARGO_LOCK="mobile/src-tauri/Cargo.lock"
+SERVER_PKG_JSON="server/package.json"
 CARGO_PKG_NAME="lumina-code"
 CARGO_PKG_NAME_CEF="lumina-code-cef"
 CARGO_PKG_NAME_MOBILE="lumina-code-mobile"
@@ -59,6 +65,7 @@ CEF_CARGO_LOCK="$root/$CEF_CARGO_LOCK"
 MOBILE_CARGO_TOML="$root/$MOBILE_CARGO_TOML"
 MOBILE_TAURI_CONF="$root/$MOBILE_TAURI_CONF"
 MOBILE_CARGO_LOCK="$root/$MOBILE_CARGO_LOCK"
+SERVER_PKG_JSON="$root/$SERVER_PKG_JSON"
 
 # ---- color helpers (tty only) ----------------------------------------------
 if [[ -t 1 ]]; then
@@ -135,15 +142,15 @@ ${BOLD}Usage:${C_RESET} bump-version.sh <new-version>
 
 Bump the version in ${BOLD}package.json${C_RESET}, ${BOLD}src-tauri/Cargo.toml${C_RESET},
 ${BOLD}src-tauri/tauri.conf.json${C_RESET}, the CEF shell's ${BOLD}cef/${C_RESET}
-counterparts, and the mobile app's ${BOLD}mobile/src-tauri/${C_RESET} trio in
-one shot (all three build units release from one tag — they must stay
-in sync).
+counterparts, the mobile app's ${BOLD}mobile/src-tauri/${C_RESET} trio, and the
+companion server's ${BOLD}server/package.json${C_RESET} in one shot (all
+build units release from one tag — they must stay in sync).
 
 Examples:
   ./scripts/bump-version.sh 0.1.1
   ./scripts/bump-version.sh 1.0.0-rc1
   ./scripts/bump-version.sh --show     # print current version
-  ./scripts/bump-version.sh --check    # verify all eleven files agree
+  ./scripts/bump-version.sh --check    # verify all twelve files agree
 EOF
 }
 
@@ -162,11 +169,12 @@ case "${1:-}" in
 		v_mobile_cargo="$(read_cargo_version "$MOBILE_CARGO_TOML")"
 		v_mobile_tauri="$(read_tauri_version "$MOBILE_TAURI_CONF")"
 		v_mobile_lock="$(read_lock_version "$MOBILE_CARGO_LOCK" "$CARGO_PKG_NAME_MOBILE")"
+		v_server_pkg="$(read_pkg_version "$SERVER_PKG_JSON")"
 		if [[ "$v_lock" != "$cur" || "$v_cef_pkg" != "$cur" || "$v_cef_cargo" != "$cur" \
 			|| "$v_cef_tauri" != "$cur" || "$v_cef_lock" != "$cur" \
 			|| "$v_mobile_cargo" != "$cur" || "$v_mobile_tauri" != "$cur" \
-			|| "$v_mobile_lock" != "$cur" ]]; then
-			die "Version files disagree (all eleven must match):
+			|| "$v_mobile_lock" != "$cur" || "$v_server_pkg" != "$cur" ]]; then
+			die "Version files disagree (all twelve must match):
   package.json                    : $(read_pkg_version "$PKG_JSON")
   src-tauri/Cargo.toml            : $(read_cargo_version "$CARGO_TOML")
   src-tauri/tauri.conf.json       : $(read_tauri_version "$TAURI_CONF")
@@ -178,10 +186,11 @@ case "${1:-}" in
   mobile/src-tauri/Cargo.toml     : ${v_mobile_cargo:-not found}
   mobile/src-tauri/tauri.conf.json: ${v_mobile_tauri:-not found}
   mobile/src-tauri/Cargo.lock     : ${v_mobile_lock:-not found}
+  server/package.json             : ${v_server_pkg:-not found}
 Re-run the bump with '$cur' (or the next version) — it aligns all three
 build units and cargo metadata re-syncs the locks."
 		fi
-		ok "All eleven files agree: $cur"; exit 0;;
+		ok "All twelve files agree: $cur"; exit 0;;
 esac
 
 new="$1"
@@ -197,15 +206,18 @@ v_cef_lock="$(read_lock_version "$CEF_CARGO_LOCK" "$CARGO_PKG_NAME_CEF")"
 v_mobile_cargo="$(read_cargo_version "$MOBILE_CARGO_TOML")"
 v_mobile_tauri="$(read_tauri_version "$MOBILE_TAURI_CONF")"
 v_mobile_lock="$(read_lock_version "$MOBILE_CARGO_LOCK" "$CARGO_PKG_NAME_MOBILE")"
+v_server_pkg="$(read_pkg_version "$SERVER_PKG_JSON")"
 
 # Union-aware early exit: "nothing to do" only when EVERY file — all three
-# build units' manifests AND all three locks — already sits at the target.
-# The CEF or mobile unit (or a lock) lagging behind the main one (e.g. after
-# a bump made before this script knew about cef/ or mobile/) is drift this
-# very run repairs, not a reason to refuse.
+# build units' manifests, all three locks, AND the companion server's
+# package.json — already sits at the target. The CEF or mobile unit (or a
+# lock) lagging behind the main one (e.g. after a bump made before this
+# script knew about cef/ or mobile/) is drift this very run repairs, not a
+# reason to refuse.
 if [[ "$new" == "$cur" && "$v_cef_pkg" == "$new" && "$v_cef_cargo" == "$new" && "$v_cef_tauri" == "$new" \
 	&& "$v_lock" == "$new" && "$v_cef_lock" == "$new" \
-	&& "$v_mobile_cargo" == "$new" && "$v_mobile_tauri" == "$new" && "$v_mobile_lock" == "$new" ]]; then
+	&& "$v_mobile_cargo" == "$new" && "$v_mobile_tauri" == "$new" && "$v_mobile_lock" == "$new" \
+	&& "$v_server_pkg" == "$new" ]]; then
 	die "Version is already $cur everywhere — nothing to do."
 fi
 if [[ "$new" == "$cur" ]]; then
@@ -222,14 +234,17 @@ set_cargo_version "$CEF_CARGO_TOML"  "$new"
 set_json_version  "$CEF_TAURI_CONF"  "$new"
 set_cargo_version "$MOBILE_CARGO_TOML" "$new"
 set_json_version  "$MOBILE_TAURI_CONF" "$new"
+set_json_version  "$SERVER_PKG_JSON"   "$new"
 
-# Re-read to confirm all eight manifest files now report the new value.
+# Re-read to confirm all nine manifest files now report the new value.
 v_pkg="$(read_pkg_version "$PKG_JSON")"; v_cargo="$(read_cargo_version "$CARGO_TOML")"; v_tauri="$(read_tauri_version "$TAURI_CONF")"
 v_cef_pkg="$(read_pkg_version "$CEF_PKG_JSON")"; v_cef_cargo="$(read_cargo_version "$CEF_CARGO_TOML")"; v_cef_tauri="$(read_tauri_version "$CEF_TAURI_CONF")"
 v_mobile_cargo="$(read_cargo_version "$MOBILE_CARGO_TOML")"; v_mobile_tauri="$(read_tauri_version "$MOBILE_TAURI_CONF")"
+v_server_pkg="$(read_pkg_version "$SERVER_PKG_JSON")"
 [[ "$v_pkg" == "$new" && "$v_cargo" == "$new" && "$v_tauri" == "$new" \
 	&& "$v_cef_pkg" == "$new" && "$v_cef_cargo" == "$new" && "$v_cef_tauri" == "$new" \
-	&& "$v_mobile_cargo" == "$new" && "$v_mobile_tauri" == "$new" ]] \
+	&& "$v_mobile_cargo" == "$new" && "$v_mobile_tauri" == "$new" \
+	&& "$v_server_pkg" == "$new" ]] \
 	|| die "Verification failed — please check the files manually:
   package.json                    : $v_pkg
   src-tauri/Cargo.toml            : $v_cargo
@@ -238,7 +253,8 @@ v_mobile_cargo="$(read_cargo_version "$MOBILE_CARGO_TOML")"; v_mobile_tauri="$(r
   cef/src-tauri/Cargo.toml        : $v_cef_cargo
   cef/src-tauri/tauri.conf.json   : $v_cef_tauri
   mobile/src-tauri/Cargo.toml     : $v_mobile_cargo
-  mobile/src-tauri/tauri.conf.json: $v_mobile_tauri"
+  mobile/src-tauri/tauri.conf.json: $v_mobile_tauri
+  server/package.json             : $v_server_pkg"
 
 # Re-resolve each lock WITHOUT building (the crates' cargo build needs the
 # frontend dist + sidecar; plain metadata resolves the graph — updating the
@@ -271,9 +287,11 @@ sync_lock "src-tauri/Cargo.lock"     "$root/src-tauri/Cargo.toml"     "$CARGO_LO
 sync_lock "cef/src-tauri/Cargo.lock" "$root/cef/src-tauri/Cargo.toml" "$CEF_CARGO_LOCK" "$CARGO_PKG_NAME_CEF"
 sync_lock "mobile/src-tauri/Cargo.lock" "$root/mobile/src-tauri/Cargo.toml" "$MOBILE_CARGO_LOCK" "$CARGO_PKG_NAME_MOBILE"
 
-# Frontend gate: this repo's test suite is pure-frontend (node --test).
-log "Running pnpm test (gates the bump)..."
+# Test gates: the repo's pure-frontend suite (node --test) AND the
+# companion server's vitest — the server's version rides this bump too.
+log "Running pnpm test + pnpm server:test (gates the bump)..."
 ( cd "$root" && pnpm test ) || die "pnpm test failed — the bump is not ready to release."
+( cd "$root" && pnpm server:test ) || die "pnpm server:test failed — the bump is not ready to release."
 
 ok "Updated version to ${BOLD}$new${C_RESET} in:"
 echo "  package.json"
@@ -287,10 +305,12 @@ echo "  cef/src-tauri/Cargo.lock (via cargo metadata)"
 echo "  mobile/src-tauri/Cargo.toml"
 echo "  mobile/src-tauri/tauri.conf.json"
 echo "  mobile/src-tauri/Cargo.lock (via cargo metadata)"
+echo "  server/package.json"
 echo
 log "Next: commit, tag, and publish a release (the Release workflow attaches assets on publish):"
 printf "  git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json src-tauri/Cargo.lock \\\\\n"
 printf "      cef/package.json cef/src-tauri/Cargo.toml cef/src-tauri/tauri.conf.json cef/src-tauri/Cargo.lock \\\\\n"
-printf "      mobile/src-tauri/Cargo.toml mobile/src-tauri/tauri.conf.json mobile/src-tauri/Cargo.lock\n"
+printf "      mobile/src-tauri/Cargo.toml mobile/src-tauri/tauri.conf.json mobile/src-tauri/Cargo.lock \\\\\n"
+printf "      server/package.json\n"
 printf "  git commit -m \"update: v%s\"\n  git tag v%s\n  git push origin master v%s\n" "$new" "$new" "$new"
 printf "  gh release create v%s --title \"Lumina Code v%s\" --notes-file <notes>\n" "$new" "$new"

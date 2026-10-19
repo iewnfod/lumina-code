@@ -77,7 +77,7 @@ export default function SettingsModal({
     const tabs: {id: SettingsTab; icon: typeof SettingsIcon; label: string}[] = [
         {id: "general", icon: SettingsIcon, label: t["General"]},
         {id: "model", icon: Cpu, label: t["Model settings"]},
-        // The Server pane is DUAL-PURPOSE: the desktop's own lumina-server
+        // The Server pane is DUAL-PURPOSE: the desktop's own lumina-code-server
         // link (remote access) on desktop, the MOBILE app's account page
         // (server address + sign out — see ServerSettings' mobile branch)
         // on mobile.

@@ -6,7 +6,7 @@ import {isMobileApp} from "../lib/platform.ts";
 import {createPersistedStore} from "../lib/persistedStore.ts";
 
 /**
- * The desktop's self-hosted lumina-server connection (Settings → Server):
+ * The desktop's self-hosted lumina-code-server connection (Settings → Server):
  * the credential store + the small typed REST client for its API.
  *
  * The server is the CREDENTIAL EXCHANGE for remote access (frp direct
@@ -128,7 +128,7 @@ export function clearServerConnection(): void {
 }
 
 /**
- * Extract the error message a lumina-server reply carries
+ * Extract the error message a lumina-code-server reply carries
  * (`{error: "…"}`), falling back to a status line. Pure.
  */
 function serverErrorMessage(status: number, body: string): string {
@@ -208,7 +208,7 @@ const MEANINGLESS_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "android-bui
 let deviceLoginLabelCache: string | null = null;
 
 /**
- * THIS device's label for a lumina-server login token: the client kind
+ * THIS device's label for a lumina-code-server login token: the client kind
  * (desktop/mobile) plus the device name when one can be read — mobile
  * asks the Android bridge (Build.MODEL via MainActivity's
  * __luminaNative), everything else probes the OS hostname
@@ -249,7 +249,7 @@ export async function deviceLoginLabel(): Promise<string> {
     return deviceLoginLabelCache;
 }
 
-/** Typed client for lumina-server's REST API. Errors carry the HTTP
+/** Typed client for lumina-code-server's REST API. Errors carry the HTTP
  * `status` on the thrown Error, like OpencodeApi.
  */
 export class LuminaServerApi {

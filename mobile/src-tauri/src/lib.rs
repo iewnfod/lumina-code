@@ -1,7 +1,7 @@
 //! Lumina Code mobile — the thin remote client shell.
 //!
 //! Deliberately minimal: the mobile app talks to a self-hosted
-//! lumina-server over HTTPS (no local OpenCode, no sidecar — the agent
+//! lumina-code-server over HTTPS (no local OpenCode, no sidecar — the agent
 //! runs on the desktop). The Rust side provides exactly two things:
 //!
 //! - the log plugin (one Stdout target — the plugin itself routes it to

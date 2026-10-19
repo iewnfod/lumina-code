@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1
 
-# lumina-server — self-hosted companion server for Lumina Code.
+# lumina-code-server — self-hosted companion server for Lumina Code.
 #
 # Build from the REPO ROOT so the workspace lockfile installs exactly
 # what CI checked:
-#   docker build -f server/Dockerfile -t lumina-server .
+#   docker build -f server/Dockerfile -t lumina-code-server .
 #
 # One container, one SQLite file. Put LUMINA_DATA_DIR on a volume.
 
@@ -13,14 +13,14 @@ WORKDIR /repo
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY server/package.json server/
 # pnpm via corepack (bundled with node:22). Filtered install: resolve
-# against the workspace lockfile, fetch only lumina-server's deps.
-RUN corepack enable pnpm && pnpm install --filter lumina-server --frozen-lockfile
+# against the workspace lockfile, fetch only lumina-code-server's deps.
+RUN corepack enable pnpm && pnpm install --filter lumina-code-server --frozen-lockfile
 
 FROM node:22-alpine AS build
 WORKDIR /repo
 COPY --from=deps /repo .
 COPY server server
-RUN corepack enable pnpm && pnpm --filter lumina-server run build
+RUN corepack enable pnpm && pnpm --filter lumina-code-server run build
 
 FROM node:22-alpine AS run
 WORKDIR /app
