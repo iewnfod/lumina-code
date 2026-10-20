@@ -1,6 +1,6 @@
 [package]
 name = "lumina-code-mobile"
-version = "0.6.1"
+version = "0.6.2"
 description = "Lumina Code mobile client (remote companion for lumina-code-server)"
 authors = ["iewnfod"]
 edition = "2021"
