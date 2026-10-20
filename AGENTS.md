@@ -546,7 +546,36 @@ src/
 │   │                      #   optimistic rows, refusal reasons
 │   │                      #   (jsonc / no-document / read / merge /
 │   │                      #   write) surfaced per row and every error
-│   │                      #   logged.
+│   │                      #   logged. Also exposes the global config
+│   │                      #   directory (the log reader's shell cwd).
+│   ├── mcpLogs.ts       # ONE MCP server's log, read out of the
+│   │                      #   machine-wide opencode main log
+│   │                      #   (<XDG_DATA_HOME || ~/.local/share>/
+│   │                      #   opencode/log/opencode.log — the ONLY
+│   │                      #   data source; verified on v2.0.11 AND
+│   │                      #   v2.1-dev: no per-MCP log API/event, the
+│   │                      #   MCP protocol's logging notifications are
+│   │                      #   never captured). The file is 50MB→25MB
+│   │                      #   compacted and fs/read has no ranges, so
+│   │                      #   the read rides the SHELL API (the
+│   │                      #   worktreeSync.ts precedent): server-side
+│   │                      #   `grep -F -s 'server=<name>' | tail -n
+│   │                      #   200`, ~200 newest lines back. SHELL
+│   │                      #   DIALECT SAFETY (live-observed: this dev
+│   │                      #   machine's login shell is fish, which
+│   │                      #   rejects POSIX VAR=value and ${VAR:-x}) —
+│   │                      #   every command sticks to the fish/POSIX/
+│   │                      #   PowerShell common subset (quoted
+│   │                      #   commands, `;`, `|`, bare $VAR), so the
+│   │                      #   data-dir resolution is its own two-line
+│   │                      #   probe (echo $XDG_DATA_HOME; echo $HOME)
+│   │                      #   and the grep takes an ABSOLUTE path with
+│   │                      #   zero expansion; grep exit 1 ("no match")
+│   │                      #   is the empty state, exit 2+/spawn-fail
+│   │                      #   falls back to the PowerShell pipeline.
+│   │                      #   Probe cached per modal session
+│   │                      #   (ExtensionsModal's dataDirRef). Pure
+│   │                      #   halves node-testable (mcpLogs.test.ts).
 │   ├── visionAttachments.ts # The vision tool's sending half (pure planning +
 │   │                      #   one api-bound writer): when the model a prompt is
 │   │                      #   bound for lacks image input (catalog
@@ -1844,7 +1873,12 @@ src/
     │                      #   built-in notice (disabling it kills Plan
     │                      #   Mode) but stays toggleable; a plugin that
     │                      #   failed before exporting an id renders
-    │                      #   display-only.
+    │                      #   display-only. Each MCP row also carries a
+    │                      #   LOG button expanding a per-server log
+    │                      #   panel under the row (Reveal unfurl; mono
+    │                      #   line list with local-time + level colors,
+    │                      #   Refresh re-pull, one panel at a time —
+    │                      #   data via opencode/mcpLogs.ts).
     ├── SidebarResizer.tsx # The drag seam between the sidebar and the
     │                      #   conversation area: an invisible OVERLAY sash
     │                      #   (VS Code style) absolutely positioned over the

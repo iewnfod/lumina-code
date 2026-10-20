@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useRef, useState} from "react";
 import {warn as logWarn} from "@tauri-apps/plugin-log";
 import type {OpencodeApi} from "./api.ts";
+import {globalConfigTarget} from "./configFiles.ts";
 import {useConnection} from "./connectionContext.tsx";
 import {
     disabledPluginIds,
@@ -56,6 +57,10 @@ export interface ExtensionsState {
     /** Connection type per MCP server name (display label — the status
      *  endpoint carries no type; derived from the config documents). */
     mcpTypes: ReadonlyMap<string, "local" | "remote">;
+    /** The global config directory (an always-existing cwd for shell
+     *  probes — the log reader needs one), or null before the first
+     *  load / when there is no config location. */
+    configDirectory: string | null;
     /** Toggle requests in flight (id or server name) — disables the row. */
     pending: ReadonlySet<string>;
     /** The last toggle failure, keyed by row (id / server name). */
@@ -104,6 +109,7 @@ export function useExtensions(open: boolean): ExtensionsState {
     const [mcpServers, setMcpServers] = useState<McpServerInfo[]>([]);
     const [mcpTypes, setMcpTypes] = useState<ReadonlyMap<string, "local" | "remote">>(new Map());
     const [entries, setEntries] = useState<OpencodeConfigEntry[]>([]);
+    const [configDirectory, setConfigDirectory] = useState<string | null>(null);
     const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
     const [errors, setErrors] = useState<ReadonlyMap<string, ToggleError>>(new Map());
     // Reload debouncer — config.updated / plugin.updated arrive in one
@@ -128,6 +134,7 @@ export function useExtensions(open: boolean): ExtensionsState {
                 setPlugins(pluginRows(pluginList, disabledPluginIds(entryList)));
                 setMcpServers(mcpList);
                 setMcpTypes(mcpServerTypes(entryList));
+                setConfigDirectory(globalConfigTarget(entryList)?.directory ?? null);
             })
             .catch((e) => {
                 logWarn(`Failed to load plugins/MCP state: ${e}`).catch(() => {});
@@ -252,5 +259,5 @@ export function useExtensions(open: boolean): ExtensionsState {
         [entries, runToggle],
     );
 
-    return {loading, plugins, mcpServers, mcpTypes, pending, errors, reload, togglePlugin, toggleMcp};
+    return {loading, plugins, mcpServers, mcpTypes, configDirectory, pending, errors, reload, togglePlugin, toggleMcp};
 }

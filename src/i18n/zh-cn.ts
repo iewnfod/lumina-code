@@ -25,6 +25,11 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Config read failed": "配置读取失败",
     "Config write failed": "配置写入失败",
     "Toggles rewrite the OpenCode config and hot-reload the server": "开关会改写 OpenCode 配置并热重载服务器",
+    "Logs": "日志",
+    "No logs yet": "暂无日志",
+    "Failed to load logs": "日志加载失败",
+    "Refresh": "刷新",
+    "Last 200 lines": "最近 200 条",
     "Import All": "全部导入",
     "No sessions to import": "没有可导入的会话",
     "Sessions created outside Lumina Code (the TUI, CLI or another instance) appear here.":

@@ -23,6 +23,11 @@ const enUs = {
     "Config read failed": "Config read failed",
     "Config write failed": "Config write failed",
     "Toggles rewrite the OpenCode config and hot-reload the server": "Toggles rewrite the OpenCode config and hot-reload the server",
+    "Logs": "Logs",
+    "No logs yet": "No logs yet",
+    "Failed to load logs": "Failed to load logs",
+    "Refresh": "Refresh",
+    "Last 200 lines": "Last 200 lines",
     "Import All": "Import All",
     "No sessions to import": "No sessions to import",
     "Sessions created outside Lumina Code (the TUI, CLI or another instance) appear here.":
