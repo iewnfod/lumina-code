@@ -169,6 +169,42 @@ export type OpencodeConfigEntry =
     | {type: "document"; path: string; info?: unknown}
     | {type: "directory"; path: string};
 
+/** `GET /api/plugin` data entry — one LOADED plugin (server v2.0.11,
+ *  curl-verified). `opencode.*` ids with source.type "builtin" are the
+ *  server's own machinery (never user-toggleable); "local" is a plugin
+ *  auto-discovered from a config root's `plugins/` directory (path points
+ *  at its entry file), "package" one declared by a config document
+ *  (npm name or local path in `target`). A plugin that FAILED to load
+ *  carries state.status "failed" and may have NO id at all (the module
+ *  never exported one) — such rows are display-only (the remove
+ *  directive matches by id). A plugin disabled via a `plugins` remove
+ *  directive simply does not appear here (see pluginsMcp.ts). */
+export interface OpencodePluginInfo {
+    /** The plugin's own declared id (its default export); absent when
+     *  the module failed before exporting. */
+    id?: string;
+    source:
+        | {type: "builtin"}
+        | {type: "local"; path?: string}
+        | {type: "package"; target?: string; version?: string; outdated?: boolean; updating?: boolean};
+    state: {status: "active" | "failed"; error?: string; ref?: string};
+}
+
+/** `GET /api/mcp` data entry — one MCP server from the effective config
+ *  (server v2.0.11; DISABLED servers are listed too, as status
+ *  "disabled" — curl-verified). The config-level toggle is
+ *  `mcp.servers.<name>.disabled` (legacy shape: `mcp.<name>.enabled`),
+ *  hot-reloaded on write. */
+export interface McpServerInfo {
+    name: string;
+    status: {
+        status: "connected" | "pending" | "disabled" | "failed" | "needs_auth";
+        error?: string;
+    };
+    /** Remote servers registered as OAuth integrations. */
+    integrationID?: string;
+}
+
 /** An attachment staged in the composer (data-URI form). */
 export interface ComposerAttachment {
     id: string;
@@ -569,6 +605,13 @@ export interface EventMap {
     /** A config document changed and was hot-reloaded (providers, models,
      *  agents…). Payload is EMPTY — re-fetch whatever reads config. */
     "config.updated": Record<string, never>;
+    /** The plugin registry changed (server v2.0.11; fires after a config
+     *  write reloads plugins). Payload is EMPTY — re-fetch /api/plugin. */
+    "plugin.updated": Record<string, never>;
+    /** One MCP server's status flipped (connected/pending/disabled/
+     *  failed/needs_auth — including via a config write's hot reload).
+     * `server` is the config name; re-fetch or patch /api/mcp. */
+    "mcp.status.changed": {server: string};
     /** A shell command spawned (GLOBAL event — no sessionID envelope;
      * `info.metadata.sessionID` ties it to its session). */
     "shell.created": {info: ShellInfo};

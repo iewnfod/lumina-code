@@ -514,6 +514,39 @@ src/
 │   │                      #   permission check on v2.0.11 (see the
 │   │                      #   plugin source's Route A poll gate).
 │   │                      #   node-testable.
+│   ├── pluginsMcp.ts    # Pure read/merge logic for the Plugins & MCP
+│   │                      #   manager (useExtensions.ts +
+│   │                      #   components/ExtensionsModal.tsx). All
+│   │                      #   verified live + against source on v2.0.11:
+│   │                      #   the MCP toggle is `mcp.servers.<name>
+│   │                      #   .disabled` (legacy `mcp.<name>.enabled`)
+│   │                      #   in the DECLARING document; the plugin
+│   │                      #   toggle is a `"-<pluginId>"` REMOVE
+│   │                      #   directive in the `plugins` array (matches
+│   │                      #   the plugin's DECLARED id, never its
+│   │                      #   package path; directives apply across
+│   │                      #   documents in priority order, later wins —
+│   │                      #   so a directive lands in the highest
+│   │                      #   document that DECLARES the plugin, else
+│   │                      #   the global one for auto-discovered
+│   │                      #   locals). A disabled plugin is INVISIBLE to
+│   │                      #   GET /api/plugin — the disabled rows come
+│   │                      #   from the directives (disabledPluginIds).
+│   │                      #   mcpServerTypes derives local/remote labels
+│   │                      #   (the status endpoint carries no type).
+│   │                      #   Both writes HOT-RELOAD. node-testable
+│   │                      #   (pluginsMcp.test.ts).
+│   ├── useExtensions.ts # The manager's STATEFUL half (mounted in
+│   │                      #   ExtensionsModal): loads /api/plugin +
+│   │                      #   /api/mcp + /api/config, refreshes on
+│   │                      #   plugin.updated / mcp.status.changed /
+│   │                      #   config.updated (one debounced re-pull per
+│   │                      #   burst), and performs the toggles — read
+│   │                      #   raw document → merge → fs/write, with
+│   │                      #   optimistic rows, refusal reasons
+│   │                      #   (jsonc / no-document / read / merge /
+│   │                      #   write) surfaced per row and every error
+│   │                      #   logged.
 │   ├── visionAttachments.ts # The vision tool's sending half (pure planning +
 │   │                      #   one api-bound writer): when the model a prompt is
 │   │                      #   bound for lacks image input (catalog
@@ -1766,7 +1799,9 @@ src/
     │                      #   IMPORT entry (FolderInput icon; the trailing
     │                      #   count badge = importable foreign sessions,
     │                      #   AppBody feeds onImport/importableCount and
-    │                      #   mounts ImportSessionsModal); groups render
+    │                      #   mounts ImportSessionsModal) plus the
+    │                      #   PLUGINS & MCP entry above it (Puzzle icon,
+    │                      #   onExtensions → ExtensionsModal); groups render
     │                      #   through SessionFolder, keyed by PROJECT
     │                      #   directory (groupByDirectory + the worktree
     │                      #   bindings — branch sessions merge into the
@@ -1793,6 +1828,23 @@ src/
     │                      #   "Other Sessions"); the whole row is the
     │                      #   action; "Import All" when >1; busy foreign
     │                      #   sessions wear the pulse dot.
+    ├── ExtensionsModal.tsx # The Plugins & MCP manager (the sidebar's
+    │                      #   bottom-left entry, above Import): every
+    │                      #   user-manageable extension the server
+    │                      #   loaded — plugins (non-builtin rows from
+    │                      #   GET /api/plugin plus REMOVE-DIRECTIVE
+    │                      #   rows the runtime list cannot see) and MCP
+    │                      #   servers — each with an enable/disable
+    │                      #   Switch. Toggles are config rewrites the
+    │                      #   server HOT-RELOADS (opencode/
+    │                      #   pluginsMcp.ts); data + actions live in
+    │                      #   opencode/useExtensions.ts, App owns only
+    │                      #   the open flag (the ImportSessionsModal
+    │                      #   ownership shape). lumina-tools carries a
+    │                      #   built-in notice (disabling it kills Plan
+    │                      #   Mode) but stays toggleable; a plugin that
+    │                      #   failed before exporting an id renders
+    │                      #   display-only.
     ├── SidebarResizer.tsx # The drag seam between the sidebar and the
     │                      #   conversation area: an invisible OVERLAY sash
     │                      #   (VS Code style) absolutely positioned over the

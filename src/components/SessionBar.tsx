@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useState} from "react";
 import {motion} from "framer-motion";
-import {FolderInput, Plus} from "lucide-react";
+import {FolderInput, Puzzle, Plus} from "lucide-react";
 import Icon from "../assets/icon.svg";
 import {isMacOS} from "../lib/platform.ts";
 import {useNow} from "../hooks/useNow.ts";
@@ -45,6 +45,9 @@ interface SessionBarProps {
     /** Open the import picker (external OpenCode sessions → sidebar).
      *  Absent renders no entry (the lumina-terminal port surface). */
     onImport?: () => void;
+    /** Open the Plugins & MCP management modal (bottom-left entry).
+     *  Absent renders no entry. */
+    onExtensions?: () => void;
     /** How many external sessions the picker would offer (0/undefined
      *  hides the count, not the entry). */
     importableCount?: number;
@@ -63,7 +66,7 @@ interface SessionBarProps {
 }
 
 export default function SessionBar(props: SessionBarProps) {
-    const {sessions, activeId, onSelect, onClose, onNew, onImport, importableCount, onSessionHover, backgroundColor, foregroundColor, collapsed, brandTitle, busyIds, pendingCounts} = props;
+    const {sessions, activeId, onSelect, onClose, onNew, onImport, onExtensions, importableCount, onSessionHover, backgroundColor, foregroundColor, collapsed, brandTitle, busyIds, pendingCounts} = props;
     const t = useI18n();
 
     // Ticking "now" so relative ages stay fresh (minute resolution —
@@ -210,11 +213,30 @@ export default function SessionBar(props: SessionBarProps) {
                 })}
             </div>
 
-            {/* Bottom actions. Import sits ABOVE the new-session row — a
-                secondary action leading external OpenCode sessions
-                (TUI/CLI/other instances) into the sidebar via the picker
-                modal; the trailing count (import candidates in the shared
-                storage) surfaces multi-instance activity at a glance. */}
+            {/* Bottom actions. The extensions manager sits ABOVE import —
+                the Plugins & MCP modal (every loaded plugin and MCP
+                server, enable/disable toggles); then import leads
+                external OpenCode sessions (TUI/CLI/other instances) into
+                the sidebar via the picker modal; the trailing count
+                (import candidates in the shared storage) surfaces
+                multi-instance activity at a glance. */}
+            {onExtensions && (
+                <div className="shrink-0 px-1.5 pt-0.5">
+                    <motion.button
+                        type="button"
+                        {...whileHoverTap}
+                        className="w-full flex flex-row items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)] cursor-pointer hover:bg-[var(--lum-new-session-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
+                        style={{
+                            "--lum-new-session-hover": colors.hoverOverlay,
+                            color: colors.inactiveText,
+                        } as CSSProperties}
+                        onClick={onExtensions}
+                    >
+                        <Puzzle size={14}/>
+                        <span className="text-sm truncate leading-tight">{t["Plugins & MCP Servers"]}</span>
+                    </motion.button>
+                </div>
+            )}
             {onImport && (
                 <div className="shrink-0 px-1.5 pt-0.5">
                     <motion.button

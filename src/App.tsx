@@ -10,6 +10,7 @@ import ChatView from "./components/chat/ChatView.tsx";
 import WorkspaceStatsCard from "./components/stats/WorkspaceStatsCard.tsx";
 import SettingsModal, {type SettingsTab} from "./components/settings/SettingsModal.tsx";
 import ImportSessionsModal from "./components/ImportSessionsModal.tsx";
+import ExtensionsModal from "./components/ExtensionsModal.tsx";
 import MaskedSurface from "./components/ui/MaskedSurface.tsx";
 import {useMaximized} from "./hooks/maximized.ts";
 import {usePaddingOffset} from "./hooks/paddingOffset.ts";
@@ -255,6 +256,13 @@ function AppBody({
     const openImportPicker = useCallback(() => setImportOpen(true), []);
     const closeImportPicker = useCallback(() => setImportOpen(false), []);
 
+    // The Plugins & MCP manager (the sidebar's bottom-left entry): same
+    // ownership shape — the modal's useExtensions owns its data, App
+    // owns only the open flag.
+    const [extensionsOpen, setExtensionsOpen] = useState(false);
+    const openExtensions = useCallback(() => setExtensionsOpen(true), []);
+    const closeExtensions = useCallback(() => setExtensionsOpen(false), []);
+
     const sessionInfos = sessions.map((s) => ({
         id: s.id,
         name: s.title?.trim() || t["Untitled"],
@@ -326,6 +334,10 @@ function AppBody({
                             openImportPicker();
                             closeDrawer();
                         } : openImportPicker}
+                        onExtensions={phoneLayout ? () => {
+                            openExtensions();
+                            closeDrawer();
+                        } : openExtensions}
                         importableCount={foreignSessions.length}
                         onSessionHover={hoverPrefetchSession}
                         backgroundColor={effectiveBg}
@@ -531,6 +543,13 @@ function AppBody({
             <ImportSessionsModal
                 open={importOpen}
                 onClose={closeImportPicker}
+            />
+            {/* The Plugins & MCP manager (the sidebar's bottom-left
+             * entry) — every loaded plugin and MCP server with
+             * enable/disable toggles (hot-reloaded config rewrites). */}
+            <ExtensionsModal
+                open={extensionsOpen}
+                onClose={closeExtensions}
             />
             {/* Linux window outline: some desktop environments draw no
                 compositor shadow, so the borderless window's edge is
