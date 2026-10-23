@@ -5,11 +5,15 @@
 packages:
   - "server"
 
-# better-sqlite3 ships a native addon whose install script compiles/downloads
-# a prebuilt binding — pnpm v10+ blocks dependency scripts by default, so it
-# is explicitly allowlisted here (the only native dep in the workspace).
+# pnpm v10+ blocks dependency scripts by default; these are explicitly
+# decided (allowBuilds) so pnpm stops re-writing a pending placeholder that
+# fails its run-time deps check. better-sqlite3 compiles/downloads a native
+# addon; esbuild installs its platform binary (feeds
+# scripts/build-plugin-vendor.mjs).
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+
 onlyBuiltDependencies:
   - better-sqlite3
-
-allowBuilds:
-  better-sqlite3: set this to true or false
+  - esbuild

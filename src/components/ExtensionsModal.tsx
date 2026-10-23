@@ -204,6 +204,8 @@ function PluginRow({
             ? row.state.error
         : row.id === "lumina-tools"
             ? t["Lumina built-in — Plan Mode breaks if disabled"]
+        : row.id === "office-tools"
+            ? t["Lumina built-in — Office document tools break if disabled"]
         : sourceLabel != null && sourceLabel !== displayName
             ? sourceLabel
         : undefined;

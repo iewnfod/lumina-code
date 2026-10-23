@@ -2,7 +2,7 @@ import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {AlertCircle} from "lucide-react";
 import type {ChatAssistantMessage} from "../../opencode/types.ts";
-import Markdown from "./Markdown.tsx";
+import Markdown, {MarkdownWorkspaceContext} from "./Markdown.tsx";
 import ToolCard from "./ToolCard.tsx";
 import SubagentCard, {isSubagentTool} from "./SubagentCard.tsx";
 import ThinkingBlock from "./ThinkingBlock.tsx";
@@ -47,7 +47,13 @@ export default function AssistantBlock({
                 if (segment.kind === "text") {
                     return (
                         <div key={i} className={`min-w-0${enter ? " lum-enter" : ""}`}>
-                            <Markdown live={streaming}>{segment.part.text}</Markdown>
+                            {/* The workspace context turns office-document
+                             * links ([名.docx](./名.docx)) into clickable
+                             * chips that drill the stats panel's preview
+                             * (Markdown.tsx's MdLink). */}
+                            <MarkdownWorkspaceContext.Provider value={directory ?? null}>
+                                <Markdown live={streaming}>{segment.part.text}</Markdown>
+                            </MarkdownWorkspaceContext.Provider>
                         </div>
                     );
                 }

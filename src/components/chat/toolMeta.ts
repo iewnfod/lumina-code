@@ -5,6 +5,7 @@ import {
     ClipboardList,
     FilePen,
     FilePlus,
+    FileText,
     FolderOpen,
     FolderSearch,
     Globe,
@@ -85,6 +86,12 @@ export const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon;
     task_complete: {title: "Task complete", icon: SquareCheck},
     plan_amend: {title: "Plan amend", icon: ListChecks},
     work_submit: {title: "Work submission", icon: BadgeCheck},
+    // The office-tools plugin (see src/plugins/officeTools.js):
+    // deterministic Word/PPT production and content extraction. Its
+    // read_document OUTPUT is plain markdown text by construction —
+    // rendered through the Markdown component like vision's answer.
+    write_document: {title: "Write document", icon: FilePlus},
+    read_document: {title: "Read document", icon: FileText, markdown: true},
 };
 
 /** Display title for a tool name (used by ActivityGroup's summary too).

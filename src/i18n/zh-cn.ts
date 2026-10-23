@@ -322,6 +322,13 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Adds a vision tool that text-only models can call to see images": "提供识图工具：纯文字模型可以调用它查看图片",
     "No vision-capable models found": "没有支持图片输入的模型",
     "Custom tools are stored in the global OpenCode config": "自定义工具保存在 OpenCode 全局配置中",
+    // --- Office tools（office-tools 插件 + 文档预览） ---
+    "Write document": "生成文档",
+    "Read document": "读取文档",
+    "Lumina built-in — Office document tools break if disabled": "Lumina 内置功能 — 禁用后 Office 文档工具不可用",
+    "Open in system app": "用系统应用打开",
+    "No in-app preview — this document was not generated here": "暂无应用内预览 — 该文档不是在此应用中生成的",
+    "This document was modified outside the app — preview may be outdated": "文档已在应用外被修改，预览内容可能过期",
     // --- Server（自部署 lumina-code-server） ---
     "Server": "服务器",
     "Remote access": "远程访问",

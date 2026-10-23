@@ -465,6 +465,33 @@ body {
     white-space: nowrap;
 }
 
+/*
+ * The BUTTON form of .lum-file-mention — an office-document link in
+ * assistant markdown ([文档.docx](./文档.docx), rendered by Markdown.tsx's
+ * MdLink): same chrome as the user bubble's @-file tokens, plus the
+ * affordances a button owes (hand cursor, hover wash reading the
+ * provider-seeded --lum-wash var, focus ring for keyboard users). The
+ * background-image (file-type icon) comes from MdLink's inline style.
+ */
+button.lum-md-doc {
+    border: none;
+    background-color: transparent;
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+    cursor: pointer;
+    border-radius: var(--radius-xs);
+}
+
+button.lum-md-doc:hover {
+    background-color: var(--lum-wash);
+}
+
+button.lum-md-doc:focus-visible {
+    outline: 2px solid var(--lum-wash);
+    outline-offset: 1px;
+}
+
 
 /*
  * Markdown inside chat messages. Scoped under .lum-md (components/chat/

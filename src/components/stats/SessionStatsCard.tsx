@@ -11,6 +11,7 @@ import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import type {SessionShellRef, SessionSubagentRef, SessionTodos} from "../../opencode/sessionActivity.ts";
 import {driftNeedsSync} from "../../opencode/worktreeSync.ts";
 import type {DocRow} from "../../opencode/workspaceDocuments.ts";
+import {displayPath} from "../../lib/path.ts";
 import type {AppMode} from "../../opencode/appMode.ts";
 import ExitPresence, {Reveal} from "../ui/ExitPresence.tsx";
 import IconButton from "../ui/IconButton.tsx";
@@ -19,6 +20,7 @@ import {BranchSyncSection} from "./BranchSyncSection.tsx";
 import type {BranchSyncProps} from "./BranchSyncSection.tsx";
 import {ChangesSection, DiffCountsBadge, FileDiffBody, FileTitle} from "./ChangesSection.tsx";
 import {DocumentsSection} from "./DocumentsSection.tsx";
+import DocumentPreviewBody from "./DocumentPreviewBody.tsx";
 import {ShellStateChip, TerminalsSection, TerminalBody} from "./TerminalsSection.tsx";
 import {SubagentsSection, SubagentBody, SubagentStateChip, SubagentTitle} from "./SubagentsSection.tsx";
 import {FinishedTotal} from "./statsChrome.tsx";
@@ -28,6 +30,7 @@ import {TodoSection} from "./TodoSection.tsx";
 type StatsView =
     | {kind: "overview"}
     | {kind: "file"; file: WorkspaceDiffEntry}
+    | {kind: "document"; doc: DocRow}
     | {kind: "terminal"; shell: SessionShellRef & {running: boolean}}
     | {kind: "subagent"; sub: SessionSubagentRef & {running: boolean}};
 
@@ -199,6 +202,9 @@ const SessionStatsCard = memo(function SessionStatsCard({
         if (drillRequest.kind === "file") {
             refreshRef.current();
             setView({kind: "file", file: drillRequest.file});
+        } else if (drillRequest.kind === "document") {
+            refreshRef.current(); // the scan row carries the real size
+            setView({kind: "document", doc: drillRequest.doc});
         } else {
             setView({
                 kind: "subagent",
@@ -242,10 +248,16 @@ const SessionStatsCard = memo(function SessionStatsCard({
 
     // Drill views resolve their entry LIVE (by id/path) so state updates
     // flow in — a terminal that exits while open must stop pulsing and
-    // polling, a refreshed diff must re-render the open file view.
+    // polling, a refreshed diff must re-render the open file view, a
+    // re-scanned document's fresh byte count must reach the staleness
+    // check.
     const liveFile =
         view.kind === "file"
             ? diff?.find((e) => e.file === view.file.file) ?? view.file
+            : null;
+    const liveDoc =
+        view.kind === "document"
+            ? documents?.rows?.find((r) => r.path === view.doc.path) ?? view.doc
             : null;
     const liveShell =
         view.kind === "terminal"
@@ -462,6 +474,13 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         )}
                         {view.kind === "file" && liveFile ? (
                             <FileTitle entry={liveFile} directory={directory} className="flex-1"/>
+                        ) : view.kind === "document" && liveDoc ? (
+                            // The document's workspace-relative name — the
+                            // same display FileTitle gives diff rows.
+                            <div className="flex-1 min-w-0 text-xs font-medium truncate pl-1"
+                                title={liveDoc.path}>
+                                {displayPath(liveDoc.path, directory)}
+                            </div>
                         ) : view.kind === "terminal" ? (
                             // Not the raw command — commands are long; the
                             // full command gets its own block above the
@@ -556,6 +575,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
                                                 rows={documents.rows}
                                                 loading={documents.loading}
                                                 directory={directory}
+                                                onOpenDocument={(row) => setView({kind: "document", doc: row})}
                                             />
                                         ) : (
                                             <ChangesSection
@@ -589,6 +609,9 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         )}
                         {view.kind === "file" && liveFile && (
                             <FileDiffBody entry={liveFile}/>
+                        )}
+                        {view.kind === "document" && liveDoc && (
+                            <DocumentPreviewBody row={liveDoc} directory={directory}/>
                         )}
                         {view.kind === "terminal" && liveShell && (
                             <TerminalBody

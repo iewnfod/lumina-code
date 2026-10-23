@@ -6,6 +6,7 @@ import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
+import {isOfficeDocument} from "../../opencode/docstruct.ts";
 import {humanSize, type DocRow} from "../../opencode/workspaceDocuments.ts";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
 import IconButton from "../ui/IconButton.tsx";
@@ -16,16 +17,19 @@ import {statsRowClass, StatsSection} from "./statsChrome.tsx";
  * The DAILY side of the workspace panel (opencode/appMode.ts): the
  * workspace's DOCUMENT inventory with its rolling change chips — what
  * ChangesSection is for a git repo, for a folder where line counts are
- * meaningless. A click opens the document in the system's default
- * application (Word/WPS for docx — the only sane viewer for office
- * files); the row-end button reveals it in the file manager. Rows
- * unfurl in as they are born (ExitList `enter`) and the 新增/变更
- * chips settle back to a plain inventory on the next scan.
+ * meaningless. Clicking an OFFICE row DRILLS the panel into its preview
+ * (DocumentPreviewBody — the office-tools sidecar rendered back; the
+ * same overview→detail model as the file/terminal/subagent rows);
+ * every other file still opens in the system's default application.
+ * The row-end button reveals it in the file manager. Rows unfurl in as
+ * they are born (ExitList `enter`) and the 新增/变更 chips settle back
+ * to a plain inventory on the next scan.
  */
 export const DocumentsSection = memo(function DocumentsSection({
     rows,
     loading,
     directory,
+    onOpenDocument,
 }: {
     /** The scan's rows (null before the first successful scan). */
     rows: DocRow[] | null;
@@ -33,6 +37,9 @@ export const DocumentsSection = memo(function DocumentsSection({
     /** The workspace directory — displayPath renders files relative
      *  to it. */
     directory: string | null;
+    /** Drill into an office document's preview (the panel's own
+     *  navigation — setView {kind: "document"}). */
+    onOpenDocument: (row: DocRow) => void;
 }) {
     const t = useI18n();
     const colors = useColors();
@@ -73,11 +80,16 @@ export const DocumentsSection = memo(function DocumentsSection({
                         {(row) => (
                             <div
                                 className={statsRowClass}
-                                // The row itself opens the document — the
-                                // primary action (a div, not a button:
-                                // the row-end reveal is a nested button,
-                                // illegal inside a button).
+                                // Office files drill into the panel's
+                                // preview; everything else opens in the
+                                // system's default application (a div, not
+                                // a button: the row-end reveal is a nested
+                                // button, illegal inside a button).
                                 onClick={() => {
+                                    if (isOfficeDocument(row.path)) {
+                                        onOpenDocument(row);
+                                        return;
+                                    }
                                     openPath(row.path).catch((e) => {
                                         warn(`Failed to open ${row.path}: ${e}`).catch(() => {});
                                     });

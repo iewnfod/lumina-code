@@ -16,6 +16,7 @@ import {
     readLuminaToolsOptions,
     type LuminaToolsOptions,
 } from "./toolPluginConfig.ts";
+import {serializeConfigWrite} from "./pluginConfigShared.ts";
 
 /**
  * Lumina Code's custom-tools plugin (src/plugins/luminaTools.js), kept
@@ -33,6 +34,17 @@ import {
  * without a restart.
  */
 export async function ensureLuminaToolsPlugin(
+    api: OpencodeApi,
+    options?: LuminaToolsOptions,
+): Promise<LuminaToolsEnsureResult> {
+    // The whole read→merge→write rides the config WRITE LOCK — the
+    // office-tools installer (and any settings save) does the same dance
+    // on this file, and interleaved batches would clobber each other's
+    // plugin entries.
+    return serializeConfigWrite(() => ensureLuminaToolsPluginLocked(api, options));
+}
+
+async function ensureLuminaToolsPluginLocked(
     api: OpencodeApi,
     options?: LuminaToolsOptions,
 ): Promise<LuminaToolsEnsureResult> {

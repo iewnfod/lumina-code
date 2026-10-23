@@ -1,4 +1,4 @@
-import {memo, type ReactNode} from "react";
+import {memo, createContext, useContext, type ReactNode} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {openUrl} from "@tauri-apps/plugin-opener";
@@ -6,6 +6,9 @@ import {Check, Copy} from "lucide-react";
 import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {useCopy} from "../../hooks/useCopy.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {isOfficeDocument} from "../../opencode/docstruct.ts";
+import {requestStatsDocumentDrill} from "../../hooks/useStatsPanelMode.ts";
+import {fileIconUrl} from "../../lib/fileIcons.ts";
 import Hint from "../ui/Hint.tsx";
 import {splitMarkdownBlocks} from "./markdownBlocks.ts";
 import {mdCodeText} from "./mdCodeText.ts";
@@ -107,10 +110,59 @@ function MdTable({children}: {children?: ReactNode}) {
     );
 }
 
-// Module scope — stable component identities across renders (see the
-// PERFORMANCE note in the header comment).
-const mdComponents = {
-    a: ({href, children}: {href?: string; children?: ReactNode}) => (
+/**
+ * The workspace directory OFFICE-DOCUMENT LINKS in assistant text
+ * resolve against (AssistantBlock provides the session's directory;
+ * every other Markdown consumer — gate cards, tool outputs, todo
+ * documents, subagent reports — stays un-provided and keeps the plain
+ * link behavior). A context rather than a prop so the module-scoped
+ * component map (the streaming-performance invariant above) keeps its
+ * stable identities — memoized blocks re-render on a context CHANGE
+ * only, which is exactly a directory switch.
+ */
+export const MarkdownWorkspaceContext = createContext<string | null>(null);
+
+/** Decode a link's href defensively: markdown sources usually keep
+ * non-ASCII verbatim, but a %-encoded path (spaces, brackets) must not
+ * defeat the office-extension check or the drill path. */
+function decodeHref(href: string): string {
+    try {
+        return decodeURIComponent(href);
+    } catch {
+        return href; // a lone '%' survivor — take it verbatim
+    }
+}
+
+/** One markdown link. An OFFICE-document href (absolute, or relative to
+ * the provided workspace) renders as the `.lum-file-mention` chip — the
+ * @-file token's look — and clicking drills the workspace-activity
+ * panel into the document's preview (requestStatsDocumentDrill; the
+ * row's real byte count arrives with the panel's refresh). Everything
+ * else stays the system-browser link. */
+function MdLink({href, children}: {href?: string; children?: ReactNode}) {
+    const workspace = useContext(MarkdownWorkspaceContext);
+    const decoded = typeof href === "string" ? decodeHref(href) : "";
+    const absolute =
+        decoded.startsWith("/") ? decoded
+        : workspace && decoded !== "" && !/^[a-z][a-z0-9+.-]*:/i.test(decoded)
+            ? `${workspace.replace(/\/+$/, "")}/${decoded.replace(/^\.?\//, "")}`
+            : null;
+    if (absolute !== null && isOfficeDocument(absolute)) {
+        return (
+            <button
+                type="button"
+                // Exempt from the stats panel's outside-click collapse —
+                // this click AIMS the panel, same as the turn-edit rows.
+                data-lum-stats-drill
+                className="lum-file-mention lum-md-doc"
+                style={{backgroundImage: `url("${fileIconUrl(absolute)}")`}}
+                onClick={() => requestStatsDocumentDrill({path: absolute, size: 0, change: null})}
+            >
+                {children}
+            </button>
+        );
+    }
+    return (
         <a
             href={href}
             target="_blank"
@@ -122,7 +174,13 @@ const mdComponents = {
         >
             {children}
         </a>
-    ),
+    );
+}
+
+// Module scope — stable component identities across renders (see the
+// PERFORMANCE note in the header comment).
+const mdComponents = {
+    a: MdLink,
     table: MdTable,
     pre: MdPre,
 };

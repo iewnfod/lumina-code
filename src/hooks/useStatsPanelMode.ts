@@ -2,6 +2,7 @@ import {useSyncExternalStore} from "react";
 import {info as logInfo} from "@tauri-apps/plugin-log";
 import type {WorkspaceDiffEntry} from "../opencode/types.ts";
 import type {SessionSubagentRef} from "../opencode/sessionActivity.ts";
+import type {DocRow} from "../opencode/workspaceDocuments.ts";
 import {createModuleStore} from "../lib/moduleStore.ts";
 import {createPersistedStore} from "../lib/persistedStore.ts";
 
@@ -76,6 +77,7 @@ export function useStatsExpanded(): [boolean, (next: boolean) => void] {
 // the next one replaces it.
 export type StatsDrillRequest =
     | {kind: "file"; file: WorkspaceDiffEntry}
+    | {kind: "document"; doc: DocRow}
     | {kind: "subagent"; sub: SessionSubagentRef};
 
 const drillStore = createModuleStore<StatsDrillRequest | null>(null);
@@ -90,6 +92,15 @@ function publishDrill(request: StatsDrillRequest): void {
  *  no longer lists the file). */
 export function requestStatsFileDrill(file: WorkspaceDiffEntry): void {
     publishDrill({kind: "file", file});
+}
+
+/** Ask the stats panel to expand and show an office document's
+ *  structure preview (DocumentPreviewBody). The row may be constructed
+ *  with size 0 by a caller that has not scanned (an unknown size reads
+ *  as fresh — the card's live resolution swaps in the scanned row with
+ *  the real byte count for the staleness check). */
+export function requestStatsDocumentDrill(doc: DocRow): void {
+    publishDrill({kind: "document", doc});
 }
 
 /** Ask the stats panel to expand and show this subagent child's live

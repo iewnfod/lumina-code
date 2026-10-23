@@ -38,6 +38,7 @@ import {sessionMode} from "./opencode/appMode.ts";
 import {useSessionFlow} from "./opencode/useSessionFlow.ts";
 import {useDirectoryBranch} from "./opencode/useDirectoryBranch.ts";
 import {useLuminaToolsInstall} from "./opencode/useLuminaTools.ts";
+import {useOfficeToolsInstall} from "./opencode/useOfficeTools.ts";
 import {CatalogProvider} from "./opencode/catalogContext.tsx";
 import {ConnectionProvider, useConnection} from "./opencode/connectionContext.tsx";
 import {SessionDataProvider, useSessionData} from "./opencode/sessionDataContext.tsx";
@@ -198,6 +199,11 @@ function AppBody({
     // into Plan Mode — must exist from the first prompt on). No-op once
     // current; failures only log.
     useLuminaToolsInstall();
+
+    // The office-tools plugin (write_document / read_document) rides the
+    // same connect-time install discipline; its config writes share the
+    // lock with the installer above.
+    useOfficeToolsInstall();
 
     // Desktop notifications (Settings → General → Notifications): watches
     // run ends and user-attention events across every root session, gated

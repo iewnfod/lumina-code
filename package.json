@@ -22,7 +22,8 @@
     "fetch:frp": "node scripts/fetch-frp.mjs",
     "fetch:frp:cef": "LUMINA_BINARIES_DIR=cef/src-tauri/binaries node scripts/fetch-frp.mjs",
     "gen:icons": "node scripts/gen-file-icons.mjs",
-    "gen:app-icon": "cd mobile && npx tauri icon src-tauri/icons/icon.png && git checkout -- src-tauri/icons && rm -rf src-tauri/icons/64x64.png src-tauri/icons/Square*.png src-tauri/icons/StoreLogo.png src-tauri/icons/icon.icns src-tauri/icons/icon.ico src-tauri/icons/ios"
+    "gen:app-icon": "cd mobile && npx tauri icon src-tauri/icons/icon.png && git checkout -- src-tauri/icons && rm -rf src-tauri/icons/64x64.png src-tauri/icons/Square*.png src-tauri/icons/StoreLogo.png src-tauri/icons/icon.icns src-tauri/icons/icon.ico src-tauri/icons/ios",
+    "gen:office-vendor": "node scripts/build-plugin-vendor.mjs"
   },
   "dependencies": {
     "@git-diff-view/react": "^0.1.7",
@@ -53,7 +54,10 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
+    "docx": "^9.13.0",
+    "esbuild": "^0.28.2",
     "material-icon-theme": "^5.38.1",
+    "pptxgenjs": "^4.0.1",
     "typescript": "~6.0.3",
     "vite": "^8.0.16"
   }

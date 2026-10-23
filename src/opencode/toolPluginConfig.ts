@@ -1,3 +1,5 @@
+import {findOwnEntry, parseRoot, pluginsSection, upsertPluginEntry} from "./pluginConfigShared.ts";
+
 /**
  * Pure helpers for Lumina Code's custom-tools plugin (src/plugins/luminaTools.js,
  * written to `<global config>/plugins/lumina-tools/index.js` and
@@ -9,7 +11,10 @@
  *
  * Same rules as modelConfig.ts: only plain-JSON configs are rewritten
  * (JSONC returns null), and every unrelated field — including other
- * `plugins` entries — is preserved verbatim. node-testable.
+ * `plugins` entries — is preserved verbatim. The plugins-array mechanics
+ * live in pluginConfigShared.ts (shared with officePluginConfig.ts);
+ * this module owns the lumina-specific options + helper agents.
+ * node-testable.
  */
 
 /** Directory name of the plugin under the global config's `plugins/`. */
@@ -48,43 +53,6 @@ export function luminaToolsPluginPath(configDirectory: string): string {
     return `${configDirectory.replace(/\/+$/, "")}/${LUMINA_TOOLS_PLUGIN_DIR}`;
 }
 
-/** Parse the raw config text into its root object; null when it isn't
- * plain JSON (JSONC with comments, garbage…). */
-function parseRoot(raw: string): Record<string, unknown> | null {
-    try {
-        const parsed: unknown = JSON.parse(raw);
-        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-        return parsed as Record<string, unknown>;
-    } catch {
-        return null;
-    }
-}
-
-/** The plugins array as a mutable list, or null when the section exists
- * but isn't an array (a malformed config we must not clobber). Entries
- * may be plain strings (bare package refs) — valid config we simply
- * never match or touch. */
-function pluginsSection(root: Record<string, unknown>): unknown[] | null {
-    const section = root["plugins"];
-    if (section === undefined) return [];
-    return Array.isArray(section) ? section : null;
-}
-
-/** Lumina Code's own entry, matched by the absolute plugin path it was
- * written to (the `package` field). */
-function findOwnEntry(
-    plugins: unknown[],
-    pluginPath: string,
-): Record<string, unknown> | undefined {
-    return plugins.find(
-        (e) =>
-            e !== null &&
-            typeof e === "object" &&
-            !Array.isArray(e) &&
-            (e as Record<string, unknown>)["package"] === pluginPath,
-    ) as Record<string, unknown> | undefined;
-}
-
 /** Read our entry's options out of the raw config text ({} when the
  * entry is absent; null when the text isn't plain JSON). */
 export function readLuminaToolsOptions(raw: string, pluginPath: string): LuminaToolsOptions | null {
@@ -114,16 +82,13 @@ export function mergeLuminaToolsPlugin(
     pluginPath: string,
     options: LuminaToolsOptions,
 ): string | null {
-    const root = parseRoot(raw);
+    // The entry is ALWAYS written — the plan_mode tool ships always-on
+    // (it needs no options), so an empty options object still loads the
+    // plugin; vision registers only when its model is configured.
+    const withEntry = upsertPluginEntry(raw, pluginPath, options);
+    if (withEntry === null) return null;
+    const root = parseRoot(withEntry);
     if (!root) return null;
-    let plugins = pluginsSection(root);
-    if (!plugins) return null;
-    const own = findOwnEntry(plugins, pluginPath);
-    const entry = {package: pluginPath, options};
-    if (own) plugins[plugins.indexOf(own)] = entry;
-    else plugins = [...plugins, entry];
-    if (plugins.length > 0) root["plugins"] = plugins;
-    else delete root["plugins"];
 
     const agentsError = mergeLuminaAgents(root, options);
     if (agentsError) return null;

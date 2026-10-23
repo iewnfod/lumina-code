@@ -39,6 +39,7 @@ or ask the user to enter the plan mode for you.
 | Unit tests (pure frontend logic) | `pnpm test` (`node --test "src/**/*.test.ts" "src/**/*.test.js"`) |
 | Point dev at a different server binary | `OPENCODE_BIN=/path/to/opencode pnpm tauri dev` |
 | Regenerate Material file-type icons (after bumping `material-icon-theme`) | `pnpm gen:icons` (output is committed) |
+| Rebuild the office-tools plugin's vendored engines (after bumping `docx`/`pptxgenjs`) | `pnpm gen:office-vendor` (esbuild bundles into `src/plugins/officeToolsVendor/`, committed — CI never runs it) |
 
 - `pnpm fetch:opencode` is a **prerequisite** for `tauri dev`/`tauri build`:
   the `resources` maps in `tauri.linux/macos/windows.conf.json` reference
@@ -198,7 +199,7 @@ src/
 │                          #   strings) + zh-cn.ts (partial OK; per-lookup fallback)
 │
 ├── plugins/               # Plugin SOURCES shipped with the app (plain JS, no
-│   └── luminaTools.js     #   imports — a bare default export loads on server
+│   ├── luminaTools.js     #   imports — a bare default export loads on server
 │                          #   v2.0.11). The custom-tools host: Lumina Code
 │                          #   ensures this file lives under the global config's
 │                          #   `plugins/lumina-tools/` and is referenced from
@@ -390,6 +391,63 @@ src/
 │                          #   assembled (built-in prompt + AGENTS.md /
 │                          #   instructions), skipped for lumina-*
 │                          #   helper agents.
+│   ├── officeTools.js     #   The OFFICE-TOOLS plugin host — a SEPARATE
+│                          #   plugin from lumina-tools on purpose (that
+│                          #   one is the OpenCode system-enhancement
+│                          #   layer; this one is a domain capability:
+│                          #   Word/PPT documents). Same plugin shape
+│                          #   (bare default export with id, dynamic
+│                          #   node:* imports, named exports for node
+│                          #   tests — officeTools.test.js drives the
+│                          #   builders end-to-end through the SAME
+│                          #   vendor bundles). TWO TOOLS, both native
+│                          #   (codemode: false): write_document — the
+│                          #   official way to produce office
+│                          #   deliverables: the model passes a
+│                          #   STRUCTURED block list (docx:
+│                          #   heading/paragraph/list/table/image; pptx:
+│                          #   slides with layout title|titleContent|
+│                          #   twoContent|blank + bullets/image/notes)
+│                          #   and the plugin renders deterministically
+│                          #   through the vendored npm engines (docx +
+│                          #   pptxgenjs, esbuild-bundled to single-file
+│                          #   ESM under officeToolsVendor/, installed
+│                          #   beside the plugin as vendor/*.mjs) — never
+│                          #   AI-written scripts; every write ALSO drops
+│                          #   a structure SIDECAR at
+│                          #   .lumina/docstruct/<name>.json ({version,
+│                          #   source, file, format, size, generatedAt,
+│                          #   blocks|slides} — the app's in-app preview
+│                          #   reads it; the TS mirror is
+│                          #   opencode/docstruct.ts) — and read_document
+│                          #   — content extraction to markdown (sidecar
+│                          #   fast path, else a hand-rolled zip reader
+│                          #   over node:zlib + conservative OOXML
+│                          #   regexes with a degraded raw-text fallback;
+│                          #   reads may point outside the workspace,
+│                          #   writes are confined to it —
+│                          #   resolveDocumentPath's confine flag).
+│                          #   SPIKE-VERIFIED 2026-10-23 on the bundled
+│                          #   v2.0.11 sidecar: the Bun-compiled server
+│                          #   resolves the plugin's DYNAMIC RELATIVE
+│                          #   vendor imports (await import("./vendor/
+│                          #   docx.mjs")) against the installed plugin
+│                          #   directory, and both engines generate valid
+│                          #   documents (incl. CJK) from inside setup();
+│                          #   write_document registers ONLY when the
+│                          #   engines load, read_document always.
+│                          #   Images: content-sniffed kind + PNG/JPEG
+│                          #   header dimensions (imageDimensions),
+│                          #   width-capped at 560px (imageBox); the
+│                          #   docx default font pair is Calibri +
+│                          #   Microsoft YaHei (Word/WPS both ship it).
+│   └── officeToolsVendor/ #   GENERATED by scripts/build-plugin-vendor.mjs
+│                          #   (pnpm gen:office-vendor; committed — the
+│                          #   gen:icons doctrine; CI never rebuilds).
+│                          #   docx.mjs (456 KB) + pptxgenjs.mjs (392 KB),
+│                          #   both esbuild ESM with node:* externals so
+│                          #   the server runtime provides the builtins.
+│                          #   devDps: docx, pptxgenjs, esbuild (MIT).
 │
 ├── opencode/              # THE domain layer — everything talking to the server
 │   ├── api.ts             # OpencodeApi: hand-rolled typed REST client (fetch +
@@ -555,6 +613,54 @@ src/
 │   │                      #   permission check on v2.0.11 (see the
 │   │                      #   plugin source's Route A poll gate).
 │   │                      #   node-testable.
+│   ├── pluginConfigShared.ts # The plugins-array mechanics shared by every
+│   │                      #   Lumina plugin installer (extracted when
+│   │                      #   officePluginConfig needed the same moves):
+│   │                      #   parseRoot/pluginsSection/findOwnEntry/
+│   │                      #   upsertPluginEntry (foreign entries
+│   │                      #   preserved verbatim; options embedded only
+│   │                      #   when given) PLUS the config WRITE LOCK
+│   │                      #   (serializeConfigWrite — a promise chain
+│   │                      #   serializing every read→merge→write batch:
+│   │                      #   the lumina-tools and office-tools
+│   │                      #   connect-time installers race on the same
+│   │                      #   file, and interleaved batches would
+│   │                      #   clobber each other's entries). Consumed
+│   │                      #   by toolPluginConfig + useLuminaTools +
+│   │                      #   officePluginConfig + useOfficeTools.
+│   │                      #   node-testable (through its consumers +
+│   │                      #   officePluginConfig.test.ts's lock cases).
+│   ├── officePluginConfig.ts # Pure office-tools config logic (the simple
+│   │                      #   twin of toolPluginConfig — the plugin reads
+│   │                      #   no options and defines no helper agents):
+│   │                      #   entry upsert/read-back/entry-present over
+│   │                      #   the shared mechanics. node-testable
+│   │                      #   (officePluginConfig.test.ts, incl. the
+│   │                      #   dual-installer coexistence shape).
+│   ├── useOfficeTools.ts  # The office-tools plugin's install half (the
+│   │                      #   useLuminaTools pattern): ensureOfficeTools
+│   │                      #   Plugin writes index.js + vendor/docx.mjs +
+│   │                      #   vendor/pptxgenjs.mjs (each diff-gated
+│   │                      #   against the committed sources pulled in
+│   │                      #   via ?raw) plus the config entry, the whole
+│   │                      #   batch under the shared write lock;
+│   │                      #   useOfficeToolsInstall (AppBody, beside
+│   │                      #   useLuminaToolsInstall) keeps all current
+│   │                      #   so write_document/read_document exist from
+│   │                      #   the first prompt on. Failures degrade to
+│   │                      #   "tool absent" (logged).
+│   ├── docstruct.ts       # The frontend half of the office-tools SIDECAR
+│   │                      #   contract (see the plugin source — this TS
+│   │                      #   module is its mirror): block/slide types,
+│   │                      #   lenient parseDocstruct (unknown version /
+│   │                      #   foreign source / missing arrays → null =
+│   │                      #   "no preview"; unknown block TYPES kept —
+│   │                      #   the renderer skips them, forward-compatible
+│   │                      #   with a newer plugin), isOfficeDocument,
+│   │                      #   docstructSidecarPath (the same join the
+│   │                      #   plugin performs) and docstructStale (byte-
+│   │                      #   count mismatch = edited in Word since).
+│   │                      #   node-testable (docstruct.test.ts).
 │   ├── pluginsMcp.ts    # Pure read/merge logic for the Plugins & MCP
 │   │                      #   manager (useExtensions.ts +
 │   │                      #   components/ExtensionsModal.tsx). All
@@ -2442,6 +2548,27 @@ src/
     │   │                  #   surface + reveal ladder in main.css):
     │   │                  #   mdCodeText.ts (pure, node-testable)
     │   │                  #   extracts the raw text lazily at click.
+    │   │                  #   OFFICE-DOCUMENT LINKS: MdLink (the `a`
+    │   │                  #   override, module-scoped for identity
+    │   │                  #   stability) reads MarkdownWorkspaceContext —
+    │   │                  #   provided ONLY by AssistantBlock with the
+    │   │                  #   session directory (a context so the
+    │   │                  #   memoized blocks keep stable identities;
+    │   │                  #   every other Markdown consumer — gate cards,
+    │   │                  #   tool outputs, todos, subagent reports —
+    │   │                  #   stays un-provided, plain links) — and an
+    │   │                  #   href resolving to a .docx/.pptx (absolute,
+    │   │                  #   or relative to that directory; %-decoding
+    │   │                  #   tolerated; scheme URLs excluded) renders as
+    │   │                  #   the @-file chip look (.lum-file-mention +
+    │   │                  #   button.lum-md-doc in main.css) whose click
+    │   │                  #   drills the workspace panel into the
+    │   │                  #   document's preview
+    │   │                  #   (requestStatsDocumentDrill with size 0 =
+    │   │                  #   unknown-fresh; the panel's refresh swaps in
+    │   │                  #   the scanned row). The write_document tool
+    │   │                  #   RESULT instructs the model to emit these
+    │   │                  #   [名.docx](./名.docx) links.
     │   ├── markdownBlocks.ts # Pure markdown chunker: cuts at blank-line
     │   │                  #   boundaries outside fenced code, conservatively
     │   │                  #   (loose lists / indented continuations / ref-defs
@@ -2676,19 +2803,49 @@ src/
     │   │                  #   workspaceDocuments.ts's data): the folder's
     │   │                  #   document inventory — icon + relative path +
     │   │                  #   新增/变更 chip + humanSize per row. A row
-    │   │                  #   CLICK opens the document in the system's
-    │   │                  #   default application (openPath — Word/WPS for
-    │   │                  #   docx; needs opener:allow-open-path, added to
-    │   │                  #   all three shells' capabilities) and the
-    │   │                  #   row-end button reveals it in the file manager
-    │   │                  #   (revealItemInDir, opener:default). Rows are
-    │   │                  #   DIVS (the nested reveal button would be
-    │   │                  #   illegal inside a button) wearing statsRowClass;
-    │   │                  #   same ExitList `enter` choreography as the
-    │   │                  #   changes rows. SessionStatsCard renders this
-    │   │                  #   INSTEAD of ChangesSection for daily sessions
-    │   │                  #   (activity.mode / documents — WorkspaceStatsCard
-    │   │                  #   picks the scope).
+    │   │                  #   CLICK on an OFFICE file DRILLS the panel
+    │   │                  #   into its preview (DocumentPreviewBody —
+    │   │                  #   setView {kind:"document"}, the same
+    │   │                  #   overview→detail model as the file/terminal/
+    │   │                  #   subagent rows; requestStatsDocumentDrill is
+    │   │                  #   the transcript-side twin); every other file
+    │   │                  #   opens in the system's default application
+    │   │                  #   (openPath — needs opener:allow-open-path,
+    │   │                  #   in all three shells' capabilities). The
+    │   │                  #   row-end button reveals it in the file
+    │   │                  #   manager (revealItemInDir, opener:default).
+    │   │                  #   Rows are DIVS (the nested reveal button
+    │   │                  #   would be illegal inside a button) wearing
+    │   │                  #   statsRowClass; same ExitList `enter`
+    │   │                  #   choreography as the changes rows.
+    │   │                  #   SessionStatsCard renders this INSTEAD of
+    │   │                  #   ChangesSection for daily sessions
+    │   │                  #   (activity.mode / documents —
+    │   │                  #   WorkspaceStatsCard picks the scope).
+    │   ├── DocumentPreviewBody.tsx # The DAILY side's document-preview
+    │   │                  #   DRILL BODY (the office-tools plugin's
+    │   │                  #   structure sidecar rendered back —
+    │   │                  #   opencode/docstruct.ts's contract): a docx
+    │   │                  #   renders as a WHITE paper column (headings/
+    │   │                  #   paragraphs/lists/tables/embedded images —
+    │   │                  #   dark-on-white regardless of theme, a
+    │   │                  #   document IS paper), a pptx as one 16:9 card
+    │   │                  #   per slide (title/bullets/image/notes footer
+    │   │                  #   + page chip). Fidelity is "what the
+    │   │                  #   document says", not how Word paginates —
+    │   │                  #   the action row's system-app buttons cover
+    │   │                  #   the real look. No sidecar (user's own/
+    │   │                  #   foreign documents) → a notice + the
+    │   │                  #   system-app button; a size mismatch (edited
+    │   │                  #   in Word since generation) → the staleness
+    │   │                  #   banner, still rendered. Images load as
+    │   │                  #   blob URLs through readFileBlob (the
+    │   │                  #   AttachmentPreview lifecycle — revoked on
+    │   │                  #   swap/unmount); unknown block types render
+    │   │                  #   as nothing (forward-compatible with a
+    │   │                  #   newer plugin). The row resolves LIVE at
+    │   │                  #   the card (a re-scan's byte count flows
+    │   │                  #   into the staleness check).
     │   ├── TerminalsSection.tsx # Background-shell rows (ExitList with
     │   │                  #   `enter`: a shell moved off the foreground
     │   │                  #   unfurls in at the bottom of the list —

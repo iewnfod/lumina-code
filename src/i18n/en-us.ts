@@ -329,6 +329,13 @@ const enUs = {
     "Adds a vision tool that text-only models can call to see images": "Adds a vision tool that text-only models can call to see images",
     "No vision-capable models found": "No vision-capable models found",
     "Custom tools are stored in the global OpenCode config": "Custom tools are stored in the global OpenCode config",
+    // --- Office tools (office-tools plugin + document preview) ---
+    "Write document": "Write document",
+    "Read document": "Read document",
+    "Lumina built-in — Office document tools break if disabled": "Lumina built-in — Office document tools break if disabled",
+    "Open in system app": "Open in system app",
+    "No in-app preview — this document was not generated here": "No in-app preview — this document was not generated here",
+    "This document was modified outside the app — preview may be outdated": "This document was modified outside the app — preview may be outdated",
     // --- Server (self-hosted lumina-code-server) ---
     "Server": "Server",
     "Remote access": "Remote access",
