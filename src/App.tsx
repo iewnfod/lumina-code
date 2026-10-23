@@ -8,9 +8,8 @@ import WelcomeScreen from "./components/WelcomeScreen.tsx";
 import BootScreen from "./components/BootScreen.tsx";
 import ChatView from "./components/chat/ChatView.tsx";
 import WorkspaceStatsCard from "./components/stats/WorkspaceStatsCard.tsx";
-import SettingsModal, {type SettingsTab} from "./components/settings/SettingsModal.tsx";
+import SettingsPage, {type SettingsTab} from "./components/settings/SettingsPage.tsx";
 import ImportSessionsModal from "./components/ImportSessionsModal.tsx";
-import ExtensionsModal from "./components/ExtensionsModal.tsx";
 import MaskedSurface from "./components/ui/MaskedSurface.tsx";
 import {useMaximized} from "./hooks/maximized.ts";
 import {usePaddingOffset} from "./hooks/paddingOffset.ts";
@@ -219,11 +218,14 @@ function AppBody({
     // src-tauri/src/frp.rs). No-op on mobile.
     useServerFrp();
 
-    // The settings modal: the title-bar gear opens it, and the model
-    // picker's "Configure models…" deep-links to its Model tab. App owns
-    // open + tab so entry points can preselect the pane. A NULL tab is
-    // the mobile root (the settings CATEGORY LIST — the second-level
-    // page navigation); the desktop modal reads it as "general".
+    // The settings PAGE (the sidebar's bottom-left gear toggles it, and
+    // the model picker's "Configure models…" deep-links to its Model
+    // tab): a full-area surface OVER the conversation canvas — the
+    // conversation stays mounted underneath, its transcripts and
+    // streamed deltas untouched. App owns open + tab so entry points
+    // can preselect the pane. A NULL tab is the mobile root (the
+    // settings CATEGORY LIST — the second-level page navigation); the
+    // desktop page reads it as "general".
     const [settings, setSettings] = useState<{open: boolean; tab: SettingsTab | null}>({open: false, tab: null});
     const openSettings = useCallback((tab: SettingsTab | null = null) => {
         setSettings({open: true, tab});
@@ -250,6 +252,23 @@ function AppBody({
     const closeSettings = useCallback(() => {
         setSettings((prev) => ({...prev, open: false}));
     }, []);
+    // The sidebar gear's toggle: opening RESUMES the last-viewed pane
+    // (the tab survives a close; only a deep-link overrides it).
+    const toggleSettings = useCallback(() => {
+        setSettings((prev) => (prev.open ? {...prev, open: false} : {open: true, tab: prev.tab}));
+    }, []);
+    // Sidebar navigation LEAVES the settings surface: clicking a session
+    // (or new-session) is an explicit intent to view the conversation —
+    // the settings page is a PEER surface of the session/welcome swap,
+    // and the gear row is what swaps back to it.
+    const selectSession = useCallback((id: string) => {
+        setActiveId(id);
+        closeSettings();
+    }, [setActiveId, closeSettings]);
+    const startNewSession = useCallback(() => {
+        newSession();
+        closeSettings();
+    }, [newSession, closeSettings]);
     const changeSettingsTab = useCallback((tab: SettingsTab | null) => {
         setSettings((prev) => (prev.tab === tab ? prev : {...prev, tab}));
     }, []);
@@ -259,17 +278,11 @@ function AppBody({
     // The session-import picker (the sidebar's Import row): external
     // OpenCode sessions (TUI/CLI/other instances) joining the whitelist.
     // The modal consumes the session-data context itself; App owns only
-    // the open flag, like the settings modal.
+    // the open flag, like the settings modal. (The Plugins & MCP manager
+    // moved INTO the settings page — the extensions tab.)
     const [importOpen, setImportOpen] = useState(false);
     const openImportPicker = useCallback(() => setImportOpen(true), []);
     const closeImportPicker = useCallback(() => setImportOpen(false), []);
-
-    // The Plugins & MCP manager (the sidebar's bottom-left entry): same
-    // ownership shape — the modal's useExtensions owns its data, App
-    // owns only the open flag.
-    const [extensionsOpen, setExtensionsOpen] = useState(false);
-    const openExtensions = useCallback(() => setExtensionsOpen(true), []);
-    const closeExtensions = useCallback(() => setExtensionsOpen(false), []);
 
     const sessionInfos = sessions.map((s) => ({
         id: s.id,
@@ -295,6 +308,15 @@ function AppBody({
         : connectionStatus.state === "error"
             ? connectionStatus.message
             : null;
+
+    // While the settings page is the live surface, the chrome reads like
+    // the WELCOME screen: no selected session in the sidebar, no session
+    // title or branch chip in the title bar — the settings page is a peer
+    // surface, never a second tab coexisting with the session. The real
+    // activeId is untouched underneath (closing the settings surface
+    // returns to it); only the PRESENTATION is blanked.
+    const surfaceSession = settings.open ? null : activeSession;
+    const surfaceActiveId = settings.open ? null : activeId;
 
     return (
         <div
@@ -329,24 +351,25 @@ function AppBody({
                 const sidebar = (
                     <SessionBar
                         sessions={sessionInfos}
-                        activeId={activeId}
+                        activeId={surfaceActiveId}
                         onSelect={phoneLayout ? (id: string) => {
-                            setActiveId(id);
+                            selectSession(id);
                             closeDrawer();
-                        } : setActiveId}
+                        } : selectSession}
                         onClose={deleteSession}
                         onNew={phoneLayout ? () => {
-                            newSession();
+                            startNewSession();
                             closeDrawer();
-                        } : newSession}
+                        } : startNewSession}
                         onImport={phoneLayout ? () => {
                             openImportPicker();
                             closeDrawer();
                         } : openImportPicker}
-                        onExtensions={phoneLayout ? () => {
-                            openExtensions();
+                        onSettings={phoneLayout ? () => {
+                            toggleSettings();
                             closeDrawer();
-                        } : openExtensions}
+                        } : toggleSettings}
+                        settingsOpen={settings.open}
                         importableCount={foreignSessions.length}
                         onSessionHover={hoverPrefetchSession}
                         backgroundColor={effectiveBg}
@@ -379,16 +402,17 @@ function AppBody({
             <div className="flex-1 flex flex-col min-w-0">
                 <TitleBar
                     theme={effectiveTheme}
-                    title={activeSession ? activeSession.title?.trim() || t["Untitled"] : null}
-                    branch={shownBranch}
-                    onOpenSettings={() => openSettings()}
+                    title={surfaceSession ? surfaceSession.title?.trim() || t["Untitled"] : null}
+                    branch={settings.open ? null : shownBranch}
                     isMaximized={isMaximized}
                     onMenu={phoneLayout ? () => setDrawerOpen(true) : undefined}
                     // MOBILE delete entry: only while a session is open
                     // (TitleBar renders the ⋯ menu only when this is
                     // passed — desktop never does, its sidebar row X
-                    // stays).
-                    onDeleteSession={mobile && activeId ? () => deleteSession(activeId) : undefined}
+                    // stays). Hidden on the settings surface too: there
+                    // is no "current session" while settings is live
+                    // (the welcome-screen reading).
+                    onDeleteSession={mobile && activeId && !settings.open ? () => deleteSession(activeId) : undefined}
                 />
                 <div className="flex-1 relative overflow-hidden">
                     {/* Chrome glass layer filling the content area. The
@@ -437,17 +461,31 @@ function AppBody({
                                 the panel layer itself — the surface swap
                                 covers the transition. */}
                             <div className="lum-row relative flex h-full w-full">
-                                {/* Session ↔ welcome-screen swap THROUGH
+                                {/* Session ↔ welcome ↔ settings swap THROUGH
                                     SessionSurface: SEQUENTIAL phases —
                                     exit plays out, a loading loop covers
                                     the successor's fetch, and the
                                     entrance starts only once the
                                     successor's first frame is
-                                    renderable (see SessionSurface). */}
+                                    renderable (see SessionSurface). The
+                                    settings PAGE is a PEER surface of
+                                    the other two (the sidebar gear swaps
+                                    to it like a session switch — the
+                                    leaving surface unloads completely);
+                                    it is always-ready, so it enters
+                                    right after the exit with no loading
+                                    phase. */}
                                 <SessionSurface
-                                    targetKey={activeSession ? `session-${activeSession.id}` : "welcome"}
+                                    targetKey={settings.open ? "settings" : activeSession ? `session-${activeSession.id}` : "welcome"}
                                     render={(key) =>
-                                        key === "welcome" ? (
+                                        key === "settings" ? (
+                                            <SettingsPage
+                                                tab={settings.tab}
+                                                onTabChange={changeSettingsTab}
+                                                onClose={closeSettings}
+                                                api={api}
+                                            />
+                                        ) : key === "welcome" ? (
                                             <WelcomeScreen
                                                 foregroundColor={effectiveFg}
                                                 subtitle={placeholderSubtitle ?? undefined}
@@ -515,7 +553,7 @@ function AppBody({
                                     container-query tiers decide exactly like
                                     a desktop window. */}
                                 <StatsCardSwap
-                                    swapKey={activeSession ? (activeDirectory ?? "") : null}
+                                    swapKey={settings.open || !activeSession ? null : (activeDirectory ?? "")}
                                     render={(dir) => (
                                         <WorkspaceStatsCard
                                             key={dir}
@@ -543,26 +581,10 @@ function AppBody({
                 sidebar and the seam (pointer-capture drag) works on
                 touch. */}
             {!phoneLayout && <SidebarResizer collapsed={false}/>}
-            {/* The settings modal (title-bar gear; the model picker
-                deep-links to its Model tab). */}
-            <SettingsModal
-                open={settings.open}
-                tab={settings.tab}
-                onTabChange={changeSettingsTab}
-                onClose={closeSettings}
-                api={api}
-            />
             {/* The session-import picker (the sidebar's Import row). */}
             <ImportSessionsModal
                 open={importOpen}
                 onClose={closeImportPicker}
-            />
-            {/* The Plugins & MCP manager (the sidebar's bottom-left
-             * entry) — every loaded plugin and MCP server with
-             * enable/disable toggles (hot-reloaded config rewrites). */}
-            <ExtensionsModal
-                open={extensionsOpen}
-                onClose={closeExtensions}
             />
             {/* Linux window outline: some desktop environments draw no
                 compositor shadow, so the borderless window's edge is

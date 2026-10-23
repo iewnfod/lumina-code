@@ -1,4 +1,4 @@
-import {Ellipsis, GitBranch, Menu, Settings, Trash2} from "lucide-react";
+import {Ellipsis, GitBranch, Menu, Trash2} from "lucide-react";
 import type {ChromeTheme} from "../lib/theme.ts";
 import {isMacOS, isMobileApp} from "../lib/platform.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
@@ -24,7 +24,6 @@ export default function TitleBar({
     theme,
     title,
     branch,
-    onOpenSettings,
     isMaximized,
     onMenu,
     onDeleteSession,
@@ -36,8 +35,6 @@ export default function TitleBar({
      *  Managed-worktree sessions show their pinned branch; detached
      *  main-repo HEADs show the abbreviated sha (useDirectoryBranch). */
     branch?: string | null,
-    /** Opens the settings modal (General / Model / About tabs). */
-    onOpenSettings: () => void,
     isMaximized: boolean,
     /** The MOBILE drawer toggle (hamburger in the bar's left side);
      *  absent on the desktop, where the sidebar is always docked. */
@@ -81,16 +78,6 @@ export default function TitleBar({
                 {branch && (
                     <TitleBranchChip branch={branch} fg={fg}/>
                 )}
-                <IconButton
-                    size={28}
-                    hoverOverlay={hoverOverlay}
-                    activeOverlay={activeOverlay}
-                    style={{color: fg, marginRight: 8}}
-                    onClick={() => { info("Settings opened from title bar"); onOpenSettings(); }}
-                    aria-label={t["Settings"]}
-                >
-                    <Settings size={18} />
-                </IconButton>
             </div>
         );
     }
@@ -176,16 +163,6 @@ export default function TitleBar({
                         )}
                     </PopoverMenu>
                 )}
-                <IconButton
-                    size={size}
-                    hoverOverlay={hoverOverlay}
-                    activeOverlay={activeOverlay}
-                    style={{color: fg, borderRadius: 0}}
-                    onClick={() => { info("Settings opened from title bar"); onOpenSettings(); }}
-                    aria-label={t["Settings"]}
-                >
-                    <Settings size={18} />
-                </IconButton>
                 {!isMobileApp() && (
                     <WindowControl size={size} isMaximized={isMaximized} hoverOverlay={hoverOverlay} activeOverlay={activeOverlay} closeHover={closeHover} fg={fg} />
                 )}
@@ -194,10 +171,10 @@ export default function TitleBar({
     );
 }
 
-/** The bar's quiet branch readout (right cluster, before the settings
- *  button): icon + name, non-interactive display — switching branches is
- *  not a title-bar action (branch-bound sessions are chosen per session
- *  in the composer's project picker). */
+/** The bar's quiet branch readout (right cluster): icon + name,
+ *  non-interactive display — switching branches is not a title-bar
+ *  action (branch-bound sessions are chosen per session in the
+ *  composer's project picker). */
 function TitleBranchChip({branch, fg}: {branch: string; fg: string}) {
     return (
         <span

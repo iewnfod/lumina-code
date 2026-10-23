@@ -139,8 +139,8 @@ src/
 ├── App.tsx                # Layout shell only: chrome (glass frame, sidebar,
 │                          #   title bar) + OpenCode wiring via hooks
 │                          #   (useOpencode, useSessionFlow) and the
-│                          #   session ↔ welcome-screen swap (SessionSurface,
-│                          #   also defined here). Split in two since the
+│                          #   session ↔ welcome ↔ settings surface swap
+│                          #   (SessionSurface, also defined here). Split in two since the
 │                          #   context refactor: InnerApp is the
 │                          #   connection/theme shell (useOpencode + palette
 │                          #   + the three providers below), AppBody
@@ -684,7 +684,7 @@ src/
 │   │                      #   node-testable (docstruct.test.ts).
 │   ├── pluginsMcp.ts    # Pure read/merge logic for the Plugins & MCP
 │   │                      #   manager (useExtensions.ts +
-│   │                      #   components/ExtensionsModal.tsx). All
+│   │                      #   settings/ExtensionsSettings.tsx). All
 │   │                      #   verified live + against source on v2.0.11:
 │   │                      #   the MCP toggle is `mcp.servers.<name>
 │   │                      #   .disabled` (legacy `mcp.<name>.enabled`)
@@ -705,7 +705,7 @@ src/
 │   │                      #   Both writes HOT-RELOAD. node-testable
 │   │                      #   (pluginsMcp.test.ts).
 │   ├── useExtensions.ts # The manager's STATEFUL half (mounted in
-│   │                      #   ExtensionsModal): loads /api/plugin +
+│   │                      #   ExtensionsSettings): loads /api/plugin +
 │   │                      #   /api/mcp + /api/config, refreshes on
 │   │                      #   plugin.updated / mcp.status.changed /
 │   │                      #   config.updated (one debounced re-pull per
@@ -742,7 +742,7 @@ src/
 │   │                      #   is the empty state, exit 2+/spawn-fail
 │   │                      #   falls back to the PowerShell pipeline.
 │   │                      #   Probe cached per modal session
-│   │                      #   (ExtensionsModal's dataDirRef). Pure
+│   │                      #   (ExtensionsSettings's dataDirRef). Pure
 │   │                      #   halves node-testable (mcpLogs.test.ts).
 │   ├── visionAttachments.ts # The vision tool's sending half (pure planning +
 │   │                      #   one api-bound writer): when the model a prompt is
@@ -1931,8 +1931,9 @@ src/
 │   │                      #   UI's own close both land in the same
 │   │                      #   onClose, idempotently. Inert on desktop
 │   │                      #   (isMobileApp-gated). Wired into Modal
-│   │                      #   (every modal), SettingsModal's pushed
-│   │                      #   pane, App's drawer, PopoverMenu (every
+│   │                      #   (every modal), SettingsPage (its own
+│   │                      #   close + the pushed pane), App's drawer,
+│   │                      #   PopoverMenu (every
 │   │                      #   picker/menu) and the stats overlay's
 │   │                      #   expanded state.
 │   ├── useLayoutMode.ts  # The mobile app's LAYOUT mode (tablet mode):
@@ -2059,13 +2060,20 @@ src/
     │                      #   machine renders the plain single daily page),
     │                      #   folder collapse/expand state,
     │                      #   relative-age ticker,
-    │                      #   bottom action rows — new-session plus the
-    │                      #   IMPORT entry (FolderInput icon; the trailing
-    │                      #   count badge = importable foreign sessions,
+    │                      #   bottom action rows — SETTINGS leads the
+    │                      #   group (the row the old Plugins & MCP
+    │                      #   entry occupied; onSettings/settingsOpen
+    │                      #   → App's toggleSettings — the accent-lit
+    │                      #   toggle that swaps in the SettingsPage
+    │                      #   SURFACE, the VS Code shape; the old
+    │                      #   title-bar gear is gone; the Plugins & MCP
+    │                      #   entry MOVED INTO the settings page — the
+    │                      #   extensions tab), then the IMPORT entry
+    │                      #   (FolderInput icon; the trailing count
+    │                      #   badge = importable foreign sessions,
     │                      #   AppBody feeds onImport/importableCount and
-    │                      #   mounts ImportSessionsModal) plus the
-    │                      #   PLUGINS & MCP entry above it (Puzzle icon,
-    │                      #   onExtensions → ExtensionsModal); groups render
+    │                      #   mounts ImportSessionsModal), then
+    │                      #   new-session; groups render
     │                      #   through SessionFolder, keyed by PROJECT
     │                      #   directory (groupByDirectory + the worktree
     │                      #   bindings — branch sessions merge into the
@@ -2092,28 +2100,6 @@ src/
     │                      #   "Other Sessions"); the whole row is the
     │                      #   action; "Import All" when >1; busy foreign
     │                      #   sessions wear the pulse dot.
-    ├── ExtensionsModal.tsx # The Plugins & MCP manager (the sidebar's
-    │                      #   bottom-left entry, above Import): every
-    │                      #   user-manageable extension the server
-    │                      #   loaded — plugins (non-builtin rows from
-    │                      #   GET /api/plugin plus REMOVE-DIRECTIVE
-    │                      #   rows the runtime list cannot see) and MCP
-    │                      #   servers — each with an enable/disable
-    │                      #   Switch. Toggles are config rewrites the
-    │                      #   server HOT-RELOADS (opencode/
-    │                      #   pluginsMcp.ts); data + actions live in
-    │                      #   opencode/useExtensions.ts, App owns only
-    │                      #   the open flag (the ImportSessionsModal
-    │                      #   ownership shape). lumina-tools carries a
-    │                      #   built-in notice (disabling it kills Plan
-    │                      #   Mode) but stays toggleable; a plugin that
-    │                      #   failed before exporting an id renders
-    │                      #   display-only. Each MCP row also carries a
-    │                      #   LOG button expanding a per-server log
-    │                      #   panel under the row (Reveal unfurl; mono
-    │                      #   line list with local-time + level colors,
-    │                      #   Refresh re-pull, one panel at a time —
-    │                      #   data via opencode/mcpLogs.ts).
     ├── SidebarResizer.tsx # The drag seam between the sidebar and the
     │                      #   conversation area: an invisible OVERLAY sash
     │                      #   (VS Code style) absolutely positioned over the
@@ -2154,12 +2140,15 @@ src/
     │                      #   second block); an unbound worktree dir falls
     │                      #   back to grouping under itself.
     │                      #   node-testable.
-    ├── SessionSurface.tsx  # The session ↔ welcome SEQUENTIAL surface swap
-    │                      #   (extracted from App.tsx; the phase logic in
+    ├── SessionSurface.tsx  # The session ↔ welcome ↔ settings
+    │                      #   SEQUENTIAL surface swap (extracted from
+    │                      #   App.tsx; the phase logic in
     │                      #   lib/surfacePhases.ts: the exit plays out
     │                      #   alone, a not-yet-seeded successor shows the
     │                      #   loading dots, the entrance starts only when
-    │                      #   the first frame is renderable).
+    │                      #   the first frame is renderable. The settings
+    │                      #   PAGE is the third peer surface — always
+    │                      #   ready, so it enters right after the exit).
     ├── StatsCardSwap.tsx  # The stats card's DIRECTORY-keyed swap fade
     │                      #   (extracted from App.tsx): a cross-directory
     │                      #   switch holds the previous card as a frozen
@@ -3101,28 +3090,69 @@ src/
                           #   changeDirectory — the one place the siblings
                           #   meet).
 
-    └── settings/           # The settings modal (title-bar gear; layout
-                           #   follows lumina-terminal's settings pages)
-    ├── SettingsModal.tsx # Modal shell; TWO LAYOUTS. Desktop: left tab
-    │                      #   rail (General / Model / About) over
-    │                      #   ui/Modal; ONE pane mounts at a time
-    │                      #   (mount doubles as the pane's open →
-    │                      #   ModelSettings loads/resets on mount).
-    │                      #   Mobile: TWO-LEVEL page navigation — a
-    │                      #   full-width CATEGORY LIST (the tab rows
-    │                      #   as h-11 chevron rows) pushes the pane
-    │                      #   as a sliding page (.lum-m-page-in from
-    │                      #   the right, an absolute overlay over the
-    │                      #   always-mounted list; back = Modal's
-    │                      #   onBack arrow popping it out through the
-    │                      #   exit engine, the frozen-pane ghost kept
-    │                      #   by a lastPaneRef). App owns {open, tab}
-    │                      #   so entry points deep-link a tab; NULL
-    │                      #   tab = the mobile root list (desktop
-    │                      #   reads null as "general"), so list rows
-    │                      #   and the desktop rail share one
-    │                      #   onTabChange and openSettings("model")
-    │                      #   lands directly on the second level.
+    └── settings/           # The settings PAGE (the sidebar's bottom-left
+                           #   gear; layout follows lumina-terminal's
+                           #   settings pages)
+    ├── SettingsPage.tsx  # A PEER SURFACE of the session and welcome
+    │                      #   screens: App's SessionSurface swaps to the
+    │                      #   "settings" key like a session switch — the
+    │                      #   leaving surface (conversation AND stats
+    │                      #   panel) UNLOADS completely through the same
+    │                      #   sequential exit/entrance choreography, and
+    │                      #   transcripts/composer drafts survive in the
+    │                      #   module stores exactly like a session
+    │                      #   switch (always-ready: no seed, so it enters
+    │                      #   right after the exit with no loading
+    │                      #   phase). NO close button by design —
+    │                      #   navigation is the sidebar gear row (toggle),
+    │                      #   a sidebar session click (App's
+    │                      #   selectSession/startNewSession leave the
+    │                      #   surface), Escape, or the mobile back
+    │                      #   gesture (both back levels declared in
+    │                      #   order: page close first, the pushed pane's
+    │                      #   pop second = stack top). While it is the
+    │                      #   live surface the chrome reads like the
+    │                      #   WELCOME screen (App's surfaceSession/
+    │                      #   surfaceActiveId): no selected session row,
+    │                      #   no session title/branch chip, no mobile ⋯
+    │                      #   delete entry — never a second tab
+    │                      #   coexisting with the session (the real
+    │                      #   activeId survives underneath; closing
+    │                      #   returns to it). It mounts only
+    │                      #   while it is the live surface, so "open" is
+    │                      #   implicit — App owns only the tab. TWO
+    │                      #   LAYOUTS. Desktop: the HeroUI Tabs
+    │                      #   component in its VERTICAL form (the mode
+    │                      #   switcher's Tabs, SessionBar) wrapped in
+    │                      #   Tabs.ListContainer — the component's OWN
+    │                      #   container chrome (bg-default pill, the
+    │                      #   theme radius 2.5×--radius = 20px,
+    │                      #   ScrollShadow overflow), no hand-rolled
+    │                      #   radius/background; the .lum-settings-tabs
+    │                      #   scope only scrubs heroui's blue focus
+    │                      #   ring (main.css) — as a w-56 rail (General /
+    │                      #   Model / Usage / Server / Extensions /
+    │                      #   About), NO header
+    │                      #   (tab-like: the rail starts at the top); ONE
+    │                      #   pane mounts at a time (mount doubles as the
+    │                      #   pane's open → ModelSettings loads/resets on
+    │                      #   mount), the pane column width-capped +
+    │                      #   centered (max-w-[52rem] — a SettingRow's
+    │                      #   label/control must not drift to a full-area
+    │                      #   window's opposite ends). Mobile: TWO-LEVEL
+    │                      #   page navigation — a full-width CATEGORY LIST
+    │                      #   (the tab rows as h-11 chevron rows) pushes
+    │                      #   the pane as a sliding page (.lum-m-page-in
+    │                      #   from the right, an absolute overlay over the
+    │                      #   always-mounted list; the pushed page carries
+    │                      #   the page's ONE header — a back row — popping
+    │                      #   it out through the exit engine, the
+    │                      #   frozen-pane ghost kept by a lastPaneRef). A
+    │                      #   NULL tab is the mobile root list (desktop
+    │                      #   reads null as "general"), so list rows and
+    │                      #   the desktop rail share one onTabChange and
+    │                      #   openSettings("model") lands directly on the
+    │                      #   second level.
     ├── GeneralSettings.tsx # Language + appearance rows, the
     │                      #   SLIMMED: the system-prompt editor
     │                      #   (SystemPromptSection.tsx) and the Blur my
@@ -3250,6 +3280,27 @@ src/
     │                      #   palette (SVG attributes can't resolve
     │                      #   var()) live in usageOverview.ts,
     │                      #   node-testable (usageOverview.test.ts).
+    ├── ExtensionsSettings.tsx # The Plugins & MCP pane (formerly the
+    │                      #   sidebar-entry ExtensionsModal): every
+    │                      #   user-manageable extension the server
+    │                      #   loaded — plugins (non-builtin rows from
+    │                      #   GET /api/plugin plus REMOVE-DIRECTIVE
+    │                      #   rows the runtime list cannot see) and MCP
+    │                      #   servers — each with an enable/disable
+    │                      #   Switch. Toggles are config rewrites the
+    │                      #   server HOT-RELOADS (opencode/
+    │                      #   pluginsMcp.ts); data + actions live in
+    │                      #   opencode/useExtensions.ts. lumina-tools
+    │                      #   carries a built-in notice (disabling it
+    │                      #   kills Plan Mode) but stays toggleable; a
+    │                      #   plugin that failed before exporting an id
+    │                      #   renders display-only. Each MCP row also
+    │                      #   carries a LOG button expanding a
+    │                      #   per-server log panel under the row
+    │                      #   (Reveal unfurl; mono line list with
+    │                      #   local-time + level colors, Refresh
+    │                      #   re-pull, one panel at a time — data via
+    │                      #   opencode/mcpLogs.ts).
     ├── ServerSettings.tsx # The Server pane — DUAL-PURPOSE by platform.
     │                      #   Desktop: sign in to a self-hosted
     │                      #   lumina-code-server (url + credentials → the
@@ -3569,8 +3620,8 @@ out — see ServerSettings' mobile branch), TitleBar's window controls
 hidden. mobile.css carries the
 narrow-layout adaptations + the login card — html/body get NO colors
 (splash-era inline colors poison the app tree's inherited text) — plus
-the settings modal's second-level PAGE animations (.lum-m-page-in/-out,
-the push/pop over the category list; see SettingsModal).
+the settings page's second-level PAGE animations (.lum-m-page-in/-out,
+the push/pop over the category list; see SettingsPage).
 TABLET MODE splits that flag's two jobs (hooks/useLayoutMode.ts): the
 LAYOUT half of those decisions (drawer, resize seam, settings
 navigation, modal shape, welcome cluster, mobile.css's phone

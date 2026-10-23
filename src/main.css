@@ -1292,19 +1292,50 @@ button.lum-md-doc:focus-visible {
 
 /*
  * =====================================================================
- * Sidebar mode switcher (components/SessionBar.tsx).
+ * HeroUI Tabs focus-ring scrub (components/SessionBar.tsx's mode
+ * switcher, components/settings/SettingsPage.tsx's vertical rail,
+ * settings/UsageSettings.tsx's range switch and settings/
+ * ModelSettings.tsx's sub-tab row).
  *
- * The 日常/开发 tabs are the ONLY HeroUI Tabs in the app, and heroui's
- * global stylesheet paints a 2px var(--focus) (blue) ring on every
- * .tabs__tab:focus-visible / [data-focus-visible=true] — a foreign blue
- * circle on the chrome glass. Drop it (the sliding indicator already
- * shows selection); the scope class lives on the switcher's wrapper so
+ * These are the app's HeroUI Tabs, and heroui's global stylesheet
+ * paints a 2px var(--focus) (blue) ring on every .tabs__tab:focus-
+ * visible / [data-focus-visible=true] — a foreign blue circle on the
+ * chrome glass. Drop it (the sliding indicator already shows
+ * selection); the scope classes live on each switcher's wrapper so
  * any future Tabs stay on HeroUI's default.
  * =====================================================================
  */
 .lum-mode-tabs .tabs__tab:focus-visible,
-.lum-mode-tabs .tabs__tab[data-focus-visible="true"] {
+.lum-mode-tabs .tabs__tab[data-focus-visible="true"],
+.lum-settings-tabs .tabs__tab:focus-visible,
+.lum-settings-tabs .tabs__tab[data-focus-visible="true"],
+.lum-usage-tabs .tabs__tab:focus-visible,
+.lum-usage-tabs .tabs__tab[data-focus-visible="true"],
+.lum-model-tabs .tabs__tab:focus-visible,
+.lum-model-tabs .tabs__tab[data-focus-visible="true"] {
     box-shadow: none;
+}
+
+/* The HORIZONTAL segmented tabs' labels must never wrap (a squeezed
+ * flex row folds CJK labels first — CJK min-content is a single
+ * character): force the single line; the surrounding row's other end
+ * takes the squeeze instead. */
+.lum-usage-tabs .tabs__tab,
+.lum-model-tabs .tabs__tab {
+    white-space: nowrap;
+}
+
+/* The settings rail's tabs: a FLEXIBLE height (min-h-9 — labels WRAP
+ * to a second line rather than truncating, long English titles like
+ * "Plugins & MCP Servers" stay readable) one size up from heroui's
+ * fixed h-8 rows; the indicator measures the real height per tab.
+ * Scoped here rather than classNames on each Tab — heroui's cx is
+ * plain concatenation (no tailwind-merge), so utility classes would
+ * fight .tabs__tab's own in stylesheet order; the scope selector
+ * always wins. */
+.lum-settings-tabs .tabs__tab {
+    height: auto;
+    min-height: 2.25rem;
 }
 
 /*

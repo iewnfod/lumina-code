@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useMemo, useState} from "react";
 import {motion} from "framer-motion";
+import {Tab, Tabs} from "@heroui/react";
 import {ArrowLeft, Search} from "lucide-react";
 import {openPath} from "@tauri-apps/plugin-opener";
 import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
@@ -42,7 +43,7 @@ import {AccentBadge} from "./modelSettingsChrome.tsx";
  * makes the server emit `credential.updated` / `config.updated`, which
  * bumps useModelCatalog's revision.
  *
- * The pane mounts only while active (SettingsModal renders one pane at a
+ * The pane mounts only while active (SettingsPage renders one pane at a
  * time), so mount IS the open — data loads and draft state resets here.
  * The sub-views live in their own files: ToolsTab (custom tools),
  * ProviderDetail (one provider's auth surface), CustomProviderForm; the
@@ -168,29 +169,33 @@ export default function ModelSettings({
                     <span className="truncate text-sm font-semibold leading-normal">{selected.name}</span>
                 </div>
             ) : (
-                <div className="flex items-center gap-1 px-4 pt-3 shrink-0">
-                {(["providers", "custom", "tools"] as const).map((key) => (
-                    <motion.button
-                        key={key}
-                        type="button"
-                        onClick={() => {
-                            setTab(key);
-                            setActionError(null);
+                <div className="px-4 pt-3 shrink-0">
+                    {/* The sub-tab row (Providers / Custom / Tools) — the
+                     * HeroUI Tabs in its horizontal segmented form (the
+                     * Usage pane's range switch twin: sliding indicator,
+                     * neutral-fill pill, focus ring scrubbed by
+                     * .lum-model-tabs in main.css). */}
+                    <Tabs
+                        aria-label={t["Model settings"]}
+                        className="shrink-0"
+                        selectedKey={tab}
+                        onSelectionChange={(key) => {
+                            if (key === "providers" || key === "custom" || key === "tools") {
+                                setTab(key);
+                                setActionError(null);
+                            }
                         }}
-                        {...whileHoverTap}
-                        className={`h-7 px-3 rounded-[var(--radius-sm)] text-xs font-medium cursor-pointer transition-colors duration-[var(--duration-fast)] ${
-                            tab === key ? "" : "hover:bg-[var(--lum-tab-hover)]"
-                        }`}
-                        style={
-                            tab === key
-                                // Same lavender accent as the sidebar's selected session.
-                                ? {background: colors.accentOverlay}
-                                : {"--lum-tab-hover": colors.hoverOverlay, color: colors.inactiveText} as React.CSSProperties
-                        }
                     >
-                        {key === "providers" ? t["Providers"] : key === "custom" ? t["Custom"] : t["Tools"]}
-                    </motion.button>
-                ))}
+                        <Tabs.List
+                            aria-label={t["Model settings"]}
+                            className="lum-model-tabs rounded-full"
+                            style={{background: "var(--lum-neutral-fill)"}}
+                        >
+                            <Tab id="providers">{t["Providers"]}<Tabs.Indicator/></Tab>
+                            <Tab id="custom">{t["Custom"]}<Tabs.Indicator/></Tab>
+                            <Tab id="tools">{t["Tools"]}<Tabs.Indicator/></Tab>
+                        </Tabs.List>
+                    </Tabs>
                 </div>
             )}
 

@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useState} from "react";
 import {motion} from "framer-motion";
-import {FolderInput, Puzzle, Plus} from "lucide-react";
+import {FolderInput, Plus, Settings} from "lucide-react";
 import {Tab, Tabs} from "@heroui/react";
 import Icon from "../assets/icon.svg";
 import {isMacOS} from "../lib/platform.ts";
@@ -48,9 +48,14 @@ interface SessionBarProps {
     /** Open the import picker (external OpenCode sessions → sidebar).
      *  Absent renders no entry (the lumina-terminal port surface). */
     onImport?: () => void;
-    /** Open the Plugins & MCP management modal (bottom-left entry).
-     *  Absent renders no entry. */
-    onExtensions?: () => void;
+    /** Toggle the settings PAGE (the bottom-left gear, the VS Code
+     *  shape — the settings surface is a full-area page over the
+     *  conversation canvas, no longer a modal). Absent renders no
+     *  entry. */
+    onSettings?: () => void;
+    /** Whether the settings page is open — drives the gear row's
+     *  persistent active highlight. */
+    settingsOpen?: boolean;
     /** How many external sessions the picker would offer (0/undefined
      *  hides the count, not the entry). */
     importableCount?: number;
@@ -69,7 +74,7 @@ interface SessionBarProps {
 }
 
 export default function SessionBar(props: SessionBarProps) {
-    const {sessions, activeId, onSelect, onClose, onNew, onImport, onExtensions, importableCount, onSessionHover, backgroundColor, foregroundColor, collapsed, brandTitle, busyIds, pendingCounts} = props;
+    const {sessions, activeId, onSelect, onClose, onNew, onImport, onSettings, settingsOpen, importableCount, onSessionHover, backgroundColor, foregroundColor, collapsed, brandTitle, busyIds, pendingCounts} = props;
     const t = useI18n();
 
     // Ticking "now" so relative ages stay fresh (minute resolution —
@@ -314,30 +319,44 @@ export default function SessionBar(props: SessionBarProps) {
                 </div>
             </div>
 
-            {/* Bottom actions. The extensions manager sits ABOVE import —
-                the Plugins & MCP modal (every loaded plugin and MCP
-                server, enable/disable toggles); then import leads
-                external OpenCode sessions (TUI/CLI/other instances) into
-                the sidebar via the picker modal; the trailing count
-                (import candidates in the shared storage) surfaces
-                multi-instance activity at a glance. */}
-            {onExtensions && (
+            {/* Bottom actions. Settings leads the group (the row the
+             * old Plugins & MCP entry used to occupy): toggles the
+             * full-area settings PAGE over the conversation canvas, the
+             * accent highlight staying lit while the page is open so
+             * the toggle reads at a glance. The Plugins & MCP entry
+             * MOVED INTO the settings page (the extensions tab) — no
+             * sidebar row anymore. */}
+            {onSettings && (
                 <div className="shrink-0 px-1.5 pt-0.5">
                     <motion.button
                         type="button"
                         {...whileHoverTap}
-                        className="w-full flex flex-row items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)] cursor-pointer hover:bg-[var(--lum-new-session-hover)] transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)]"
-                        style={{
-                            "--lum-new-session-hover": colors.hoverOverlay,
-                            color: colors.inactiveText,
-                        } as CSSProperties}
-                        onClick={onExtensions}
+                        className={`w-full flex flex-row items-center gap-2 px-3 py-2 rounded-[var(--radius-sm)] cursor-pointer transition-colors duration-[var(--duration-base)] ease-[var(--ease-glass)] ${
+                            settingsOpen ? "" : "hover:bg-[var(--lum-new-session-hover)]"
+                        }`}
+                        style={
+                            settingsOpen
+                                ? {
+                                    background: colors.accentOverlay,
+                                    color: colors.textPrimary,
+                                } as CSSProperties
+                                : {
+                                    "--lum-new-session-hover": colors.hoverOverlay,
+                                    color: colors.inactiveText,
+                                } as CSSProperties
+                        }
+                        onClick={onSettings}
                     >
-                        <Puzzle size={14}/>
-                        <span className="text-sm truncate leading-tight">{t["Plugins & MCP Servers"]}</span>
+                        <Settings size={14}/>
+                        <span className="text-sm truncate leading-tight">{t["Settings"]}</span>
                     </motion.button>
                 </div>
             )}
+
+            {/* Import leads external OpenCode sessions (TUI/CLI/other
+                instances) into the sidebar via the picker modal; the
+                trailing count (import candidates in the shared storage)
+                surfaces multi-instance activity at a glance. */}
             {onImport && (
                 <div className="shrink-0 px-1.5 pt-0.5">
                     <motion.button

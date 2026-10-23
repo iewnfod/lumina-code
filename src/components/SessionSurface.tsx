@@ -13,8 +13,9 @@ const SURFACE_EXIT_ANIMATION = "lum-surface-exit";
 const SURFACE_EXIT_MS = 400;
 
 /**
- * The session ↔ welcome surface choreography — SEQUENTIAL, replacing the
- * old crossfading SurfaceSwap. A switch plays in strict phases:
+ * The session ↔ welcome ↔ settings surface choreography — SEQUENTIAL,
+ * replacing the old crossfading SurfaceSwap. A switch plays in strict
+ * phases:
  *
  *   1. retarget: the leaving surface starts its exit IMMEDIATELY (the
  *      fetch for the successor starts in the same tick, in parallel);
@@ -49,9 +50,13 @@ const SURFACE_EXIT_MS = 400;
 export default function SessionSurface({targetKey, render}: {targetKey: string; render: (key: string) => ReactNode}) {
     const t = useI18n();
     const {api} = useConnection();
-    // Readiness of the TARGET surface: welcome (null session) is always
-    // ready; a session is ready once its newest page has seeded.
-    const targetSessionId = targetKey === "welcome" ? null : targetKey.replace(/^session-/, "");
+    // Readiness of the TARGET surface: welcome (null session) and the
+    // settings PAGE are always ready (no store to seed — the page
+    // mounts from App state alone); a session is ready once its newest
+    // page has seeded.
+    const targetSessionId = targetKey === "welcome" || targetKey === "settings"
+        ? null
+        : targetKey.replace(/^session-/, "");
     const targetReady = useSessionSeeded(targetSessionId);
     const readyRef = useRef(targetReady);
     readyRef.current = targetReady;

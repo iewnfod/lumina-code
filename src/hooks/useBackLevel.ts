@@ -18,7 +18,7 @@ import {backStackDrop, backStackPush} from "../lib/backStack.ts";
  * the UI's close affordances use — no separate code path.
  */
 export function useBackLevel(active: boolean, onClose: () => void): void {
-    // Refresh the closer every render (the SettingsModal lastPaneRef
+    // Refresh the closer every render (the SettingsPage lastPaneRef
     // pattern): the history entry outlives re-renders, the latest
     // callback must be the one a late popstate invokes.
     const closeRef = useRef(onClose);

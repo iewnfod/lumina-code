@@ -1,4 +1,5 @@
 import {useCallback, useEffect, useMemo, useState} from "react";
+import {Tab, Tabs} from "@heroui/react";
 import {error as logError, info as logInfo} from "@tauri-apps/plugin-log";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {SessionStatsInfo} from "../../opencode/types.ts";
@@ -118,28 +119,39 @@ export default function UsageSettings({api}: {api: OpencodeApi | null}) {
 
     return (
         <div className="flex-1 min-h-0 overflow-y-auto px-8 py-8 lum-fade-top lum-fade-bottom lum-fade-md">
-            {/* Range switch + summary line. */}
+            {/* Range switch + summary line. The range control is the
+             * HeroUI Tabs in its horizontal segmented form (the sidebar
+             * mode switcher's twin — sliding indicator, focus ring
+             * scrubbed by .lum-usage-tabs in main.css). */}
             <div className="flex items-center justify-between gap-4 pb-6">
-                <div className="flex gap-1 p-0.5 rounded-[var(--radius-sm)]" style={{background: colors.recessedBg}}>
-                    {RANGES.map((n) => (
-                        <button
-                            key={n}
-                            type="button"
-                            {...whileHoverTap}
-                            onClick={() => setDays(n)}
-                            className="h-7 px-3 rounded-[var(--radius-xs)] text-xs font-medium cursor-pointer transition-colors duration-[var(--duration-fast)]"
-                            style={days === n ? {background: colors.activeOverlay, color: colors.textPrimary} : {color: colors.inactiveText}}
-                        >
-                            {n === 7 ? t["Last 7 days"] : t["Last 30 days"]}
-                        </button>
-                    ))}
-                </div>
+                <Tabs
+                    aria-label={t["Daily usage"]}
+                    className="shrink-0"
+                    selectedKey={String(days)}
+                    onSelectionChange={(key) => {
+                        const n = Number(key);
+                        if (n === 7 || n === 30) setDays(n);
+                    }}
+                >
+                    <Tabs.List
+                        aria-label={t["Daily usage"]}
+                        className="lum-usage-tabs rounded-full"
+                        style={{background: "var(--lum-neutral-fill)"}}
+                    >
+                        {RANGES.map((n) => (
+                            <Tab key={n} id={String(n)}>
+                                {n === 7 ? t["Last 7 days"] : t["Last 30 days"]}
+                                <Tabs.Indicator/>
+                            </Tab>
+                        ))}
+                    </Tabs.List>
+                </Tabs>
                 {loading ? (
                     <span className="lum-loading"><span/><span/><span/></span>
                 ) : failed ? (
                     <span className="text-xs" style={{color: "var(--color-danger)"}}>{t["Failed to load usage"]}</span>
                 ) : (
-                    <div className="flex items-baseline gap-3 text-xs tabular-nums" style={{color: colors.inactiveText}}>
+                    <div className="flex items-baseline gap-3 text-xs tabular-nums min-w-0" style={{color: colors.inactiveText}}>
                         <span>
                             <span style={{color: colors.textPrimary, fontWeight: 600}}>{totalTokens_ ?? formatTokens(totalFromSeries)}</span>{" "}{t["Total tokens"]}
                         </span>

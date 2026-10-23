@@ -2,7 +2,7 @@ import type {OpencodeConfigEntry} from "./types.ts";
 
 /**
  * Pure read/merge logic for the Plugins & MCP management surface
- * (components/ExtensionsModal.tsx + opencode/useExtensions.ts).
+ * (settings/ExtensionsSettings.tsx + opencode/useExtensions.ts).
  *
  * Everything here was verified against server v2.0.11 (live probes +
  * source): both feature toggles are plain config edits that the server

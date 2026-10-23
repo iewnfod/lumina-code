@@ -16,8 +16,8 @@ import type {McpServerInfo, OpencodeConfigEntry, OpencodePluginInfo} from "./typ
 /**
  * The Plugins & MCP management surface's stateful half (the pure
  * read/merge logic lives in pluginsMcp.ts; the UI in
- * components/ExtensionsModal.tsx). Mounted inside the modal — it loads
- * on open, refreshes on the three bus signals (plugin.updated,
+ * settings/ExtensionsSettings.tsx). Mounted inside the settings pane —
+ * it loads on mount, refreshes on the three bus signals (plugin.updated,
  * mcp.status.changed, config.updated — a toggle's write hot-reloads the
  * server, which fires these back) and performs the toggles.
  *

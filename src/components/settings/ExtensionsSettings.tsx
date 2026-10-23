@@ -1,26 +1,27 @@
 import {Puzzle, ScrollText, Server as ServerIcon} from "lucide-react";
 import {useCallback, useEffect, useRef, useState} from "react";
-import Modal from "./ui/Modal.tsx";
-import Switch from "./settings/Switch.tsx";
-import SectionHeader from "./settings/SectionHeader.tsx";
-import {Reveal} from "./ui/ExitPresence.tsx";
-import {useI18n} from "../hooks/i18n.tsx";
-import {useColors} from "../hooks/colors.tsx";
-import {useScrollEdges} from "../hooks/useScrollEdges.ts";
-import {folderLabel} from "../lib/path.ts";
-import {useConnection} from "../opencode/connectionContext.tsx";
-import {fetchMcpLogs, mcpLogFile, resolveOpencodeDataDir, type McpLogLine} from "../opencode/mcpLogs.ts";
-import {useExtensions, type ManagedPluginRow, type ToggleError} from "../opencode/useExtensions.ts";
-import type {McpServerInfo} from "../opencode/types.ts";
+import Switch from "./Switch.tsx";
+import SectionHeader from "./SectionHeader.tsx";
+import {Reveal} from "../ui/ExitPresence.tsx";
+import {useI18n} from "../../hooks/i18n.tsx";
+import {useColors} from "../../hooks/colors.tsx";
+import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {folderLabel} from "../../lib/path.ts";
+import {useConnection} from "../../opencode/connectionContext.tsx";
+import {fetchMcpLogs, mcpLogFile, resolveOpencodeDataDir, type McpLogLine} from "../../opencode/mcpLogs.ts";
+import {useExtensions, type ManagedPluginRow, type ToggleError} from "../../opencode/useExtensions.ts";
+import type {McpServerInfo} from "../../opencode/types.ts";
 
 /**
- * The Plugins & MCP management modal (sidebar bottom-left entry): one
- * list of every user-manageable extension the server loaded — plugins
- * (non-builtin, plus rows for remove-directive-disabled ones the
- * runtime list cannot see) and MCP servers — each with a live enable/
- * disable switch. Toggles are config rewrites the server hot-reloads
- * (see opencode/pluginsMcp.ts); the rows refresh from the
- * plugin.updated / mcp.status.changed / config.updated bus signals.
+ * The Plugins & MCP pane of the settings PAGE (formerly its own
+ * sidebar-entry modal): one list of every user-manageable extension
+ * the server loaded — plugins (non-builtin, plus rows for
+ * remove-directive-disabled ones the runtime list cannot see) and MCP
+ * servers — each with a live enable/disable switch. Toggles are config
+ * rewrites the server hot-reloads (see opencode/pluginsMcp.ts); the
+ * rows refresh from the plugin.updated / mcp.status.changed /
+ * config.updated bus signals. Mounts only while the pane is active —
+ * the old modal's open flag semantics, unchanged.
  */
 
 /** Status dot + label shared by both sections. */
@@ -306,13 +307,13 @@ function McpRow({
     );
 }
 
-export default function ExtensionsModal({open, onClose}: {open: boolean; onClose: () => void}) {
+export default function ExtensionsSettings() {
     const t = useI18n();
     const colors = useColors();
-    const {loading, plugins, mcpServers, mcpTypes, configDirectory, pending, errors, togglePlugin, toggleMcp} = useExtensions(open);
+    const {loading, plugins, mcpServers, mcpTypes, configDirectory, pending, errors, togglePlugin, toggleMcp} = useExtensions(true);
     const edges = useScrollEdges<HTMLDivElement>();
     // The expanded log panel's server (one at a time) + the shared
-    // data-dir probe cache (resolved once per modal session). The
+    // data-dir probe cache (resolved once per pane session). The
     // shell probe's cwd is the global config directory (always
     // existing; "/" would not on Windows).
     const [logServer, setLogServer] = useState<string | null>(null);
@@ -320,76 +321,74 @@ export default function ExtensionsModal({open, onClose}: {open: boolean; onClose
     const probeCwd = configDirectory ?? "/";
 
     return (
-        <Modal open={open} onClose={onClose} title={t["Plugins & MCP Servers"]} width={640}>
-            <div className="flex-1 min-h-0 flex flex-col p-3">
-                <div
-                    ref={edges.ref}
-                    onScroll={edges.onScroll}
-                    className={`flex-1 min-h-0 overflow-y-auto lum-fade-md flex flex-col gap-1${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
-                >
-                    <SectionHeader label={t["Plugins"]}/>
-                    {loading && plugins.length === 0 && mcpServers.length === 0 ? (
-                        <p className="text-xs opacity-55 px-2.5 py-2">{t["Loading..."]}</p>
-                    ) : plugins.length === 0 ? (
-                        <p className="text-xs opacity-55 px-2.5 py-2">{t["No plugins installed"]}</p>
-                    ) : (
-                        plugins.map((row) => {
-                            // Same narrowing discipline as PluginRow's
-                            // fallbackName — the source union needs the
-                            // type check before .path/.target.
-                            const src = row.source;
-                            const sourcePath = src?.type === "local" ? src.path : undefined;
-                            const sourceTarget = src?.type === "package" ? src.target : undefined;
-                            return (
-                                <PluginRow
-                                    key={row.id ?? sourcePath ?? sourceTarget ?? `${row.state?.status}:${row.state?.error ?? ""}`}
-                                    row={row}
-                                    busy={row.id != null && pending.has(row.id)}
-                                    error={row.id != null ? errors.get(row.id) : undefined}
-                                    onToggle={togglePlugin}
-                                />
-                            );
-                        })
-                    )}
+        <div className="flex-1 min-h-0 flex flex-col p-3">
+            <div
+                ref={edges.ref}
+                onScroll={edges.onScroll}
+                className={`flex-1 min-h-0 overflow-y-auto lum-fade-md flex flex-col gap-1${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
+            >
+                <SectionHeader label={t["Plugins"]}/>
+                {loading && plugins.length === 0 && mcpServers.length === 0 ? (
+                    <p className="text-xs opacity-55 px-2.5 py-2">{t["Loading..."]}</p>
+                ) : plugins.length === 0 ? (
+                    <p className="text-xs opacity-55 px-2.5 py-2">{t["No plugins installed"]}</p>
+                ) : (
+                    plugins.map((row) => {
+                        // Same narrowing discipline as PluginRow's
+                        // fallbackName — the source union needs the
+                        // type check before .path/.target.
+                        const src = row.source;
+                        const sourcePath = src?.type === "local" ? src.path : undefined;
+                        const sourceTarget = src?.type === "package" ? src.target : undefined;
+                        return (
+                            <PluginRow
+                                key={row.id ?? sourcePath ?? sourceTarget ?? `${row.state?.status}:${row.state?.error ?? ""}`}
+                                row={row}
+                                busy={row.id != null && pending.has(row.id)}
+                                error={row.id != null ? errors.get(row.id) : undefined}
+                                onToggle={togglePlugin}
+                            />
+                        );
+                    })
+                )}
 
-                    {/* Hairline divider between the two sections (the
-                     * settings rail's separator style). */}
-                    <div className="mt-3 pt-3" style={{borderTop: `1px solid ${colors.glassBorder}`}}>
-                        <SectionHeader label={t["MCP Servers"]}/>
-                    </div>
-                    {mcpServers.length === 0 ? (
-                        <p className="text-xs opacity-55 px-2.5 py-2">{t["No MCP servers configured"]}</p>
-                    ) : (
-                        mcpServers.map((server) => (
-                            <div key={server.name} className="flex flex-col">
-                                <McpRow
-                                    server={server}
-                                    type={mcpTypes.get(server.name)}
-                                    busy={pending.has(server.name)}
-                                    error={errors.get(server.name)}
-                                    logsOpen={logServer === server.name}
-                                    onToggleLogs={() =>
-                                        setLogServer((prev) => (prev === server.name ? null : server.name))
-                                    }
-                                    onToggle={toggleMcp}
-                                />
-                                {/* The log panel unfurls under its row
-                                 * (Reveal's fold-body doctrine — the
-                                 * container animates, the held content
-                                 * just exists through the collapse). */}
-                                <Reveal present={logServer === server.name}>
-                                    {logServer === server.name ? (
-                                        <McpLogPanel server={server.name} cwd={probeCwd} dataDirRef={dataDirRef}/>
-                                    ) : null}
-                                </Reveal>
-                            </div>
-                        ))
-                    )}
+                {/* Hairline divider between the two sections (the
+                 * settings rail's separator style). */}
+                <div className="mt-3 pt-3" style={{borderTop: `1px solid ${colors.glassBorder}`}}>
+                    <SectionHeader label={t["MCP Servers"]}/>
                 </div>
-                <p className="text-2xs opacity-40 px-1 pt-2 shrink-0" style={{color: colors.inactiveText}}>
-                    {t["Toggles rewrite the OpenCode config and hot-reload the server"]}
-                </p>
+                {mcpServers.length === 0 ? (
+                    <p className="text-xs opacity-55 px-2.5 py-2">{t["No MCP servers configured"]}</p>
+                ) : (
+                    mcpServers.map((server) => (
+                        <div key={server.name} className="flex flex-col">
+                            <McpRow
+                                server={server}
+                                type={mcpTypes.get(server.name)}
+                                busy={pending.has(server.name)}
+                                error={errors.get(server.name)}
+                                logsOpen={logServer === server.name}
+                                onToggleLogs={() =>
+                                    setLogServer((prev) => (prev === server.name ? null : server.name))
+                                }
+                                onToggle={toggleMcp}
+                            />
+                            {/* The log panel unfurls under its row
+                             * (Reveal's fold-body doctrine — the
+                             * container animates, the held content
+                             * just exists through the collapse). */}
+                            <Reveal present={logServer === server.name}>
+                                {logServer === server.name ? (
+                                    <McpLogPanel server={server.name} cwd={probeCwd} dataDirRef={dataDirRef}/>
+                                ) : null}
+                            </Reveal>
+                        </div>
+                    ))
+                )}
             </div>
-        </Modal>
+            <p className="text-2xs opacity-40 px-1 pt-2 shrink-0" style={{color: colors.inactiveText}}>
+                {t["Toggles rewrite the OpenCode config and hot-reload the server"]}
+            </p>
+        </div>
     );
 }
