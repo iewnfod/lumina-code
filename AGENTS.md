@@ -2811,12 +2811,15 @@ src/
     │   │                  #   workspaceDocuments.ts's data): the folder's
     │   │                  #   document inventory — icon + relative path +
     │   │                  #   新增/变更 chip + humanSize per row. A row
-    │   │                  #   CLICK on an OFFICE file DRILLS the panel
-    │   │                  #   into its preview (DocumentPreviewBody —
-    │   │                  #   setView {kind:"document"}, the same
+    │   │                  #   CLICK on an OFFICE file or IMAGE DRILLS the
+    │   │                  #   panel into its preview (DocumentPreviewBody
+    │   │                  #   — setView {kind:"document"}, the same
     │   │                  #   overview→detail model as the file/terminal/
     │   │                  #   subagent rows; requestStatsDocumentDrill is
-    │   │                  #   the transcript-side twin); every other file
+    │   │                  #   the transcript-side twin; images preview
+    │   │                  #   their own pixels, isImagePath —
+    │   │                  #   attachmentPreview.ts's extension rule);
+    │   │                  #   every other file
     │   │                  #   opens in the system's default application
     │   │                  #   (openPath — needs opener:allow-open-path,
     │   │                  #   in all three shells' capabilities). The
@@ -2833,7 +2836,13 @@ src/
     │   ├── DocumentPreviewBody.tsx # The DAILY side's document-preview
     │   │                  #   DRILL BODY (the office-tools plugin's
     │   │                  #   structure sidecar rendered back —
-    │   │                  #   opencode/docstruct.ts's contract): a docx
+    │   │                  #   opencode/docstruct.ts's contract) for
+    │   │                  #   office rows, and a PIXEL preview for image
+    │   │                  #   rows (isImagePath — the file's own bytes
+    │   │                  #   via readFileBlob → blob URL, no sidecar;
+    │   │                  #   subfolder-safe read target via
+    │   │                  #   splitFilePath, size-keyed reload when the
+    │   │                  #   AI rewrites the image): a docx
     │   │                  #   renders as a THEME-COLORED document flow
     │   │                  #   (headings/paragraphs/lists/tables/embedded
     │   │                  #   images — a CONTENT preview: docx pagination

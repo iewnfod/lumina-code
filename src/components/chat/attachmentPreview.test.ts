@@ -6,6 +6,7 @@ import {
     dataUriText,
     divertedPreviewSource,
     inlineFilePreviewSource,
+    isImagePath,
     PREVIEW_MAX_LINES,
     previewKind,
     splitFilePath,
@@ -36,6 +37,14 @@ test("previewKind: mime wins, extension is the fallback", () => {
     assert.equal(previewKind("archive.tar", ""), null);
     assert.equal(previewKind(".gitignore", ""), null);
     assert.equal(previewKind(undefined, undefined), null);
+});
+
+test("isImagePath: extension rule over bare paths (no mime)", () => {
+    assert.equal(isImagePath("/home/u/pics/截图.png"), true);
+    assert.equal(isImagePath("/w/sub dir/shot.JPEG"), true);
+    assert.equal(isImagePath("/w/report.docx"), false);
+    assert.equal(isImagePath("/w/noext"), false);
+    assert.equal(isImagePath("/w/.hidden"), false);
 });
 
 test("splitFilePath: file:// URIs and absolute paths → flat read target", () => {

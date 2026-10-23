@@ -6,6 +6,7 @@ import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {displayPath} from "../../lib/path.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
+import {isImagePath} from "../chat/attachmentPreview.ts";
 import {isOfficeDocument} from "../../opencode/docstruct.ts";
 import {humanSize, type DocRow} from "../../opencode/workspaceDocuments.ts";
 import {MONO_STYLE} from "../chat/RequestCardChrome.tsx";
@@ -20,7 +21,9 @@ import {statsRowClass, StatsSection} from "./statsChrome.tsx";
  * meaningless. Clicking an OFFICE row DRILLS the panel into its preview
  * (DocumentPreviewBody — the office-tools sidecar rendered back; the
  * same overview→detail model as the file/terminal/subagent rows);
- * every other file still opens in the system's default application.
+ * an IMAGE row drills too (its own pixels render — no sidecar
+ * involved); every other file still opens in the system's default
+ * application.
  * The row-end button reveals it in the file manager. Rows unfurl in as
  * they are born (ExitList `enter`) and the 新增/变更 chips settle back
  * to a plain inventory on the next scan.
@@ -81,12 +84,14 @@ export const DocumentsSection = memo(function DocumentsSection({
                             <div
                                 className={statsRowClass}
                                 // Office files drill into the panel's
-                                // preview; everything else opens in the
-                                // system's default application (a div, not
-                                // a button: the row-end reveal is a nested
-                                // button, illegal inside a button).
+                                // sidecar preview, images into a pixel
+                                // preview (same drill view); everything
+                                // else opens in the system's default
+                                // application (a div, not a button: the
+                                // row-end reveal is a nested button,
+                                // illegal inside a button).
                                 onClick={() => {
-                                    if (isOfficeDocument(row.path)) {
+                                    if (isOfficeDocument(row.path) || isImagePath(row.path)) {
                                         onOpenDocument(row);
                                         return;
                                     }

@@ -328,6 +328,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Lumina built-in — Office document tools break if disabled": "Lumina 内置功能 — 禁用后 Office 文档工具不可用",
     "Open in system app": "用系统应用打开",
     "No in-app preview — this document was not generated here": "暂无应用内预览 — 该文档不是在此应用中生成的",
+    "Failed to load this image": "图片加载失败",
     "This document was modified outside the app — preview may be outdated": "文档已在应用外被修改，预览内容可能过期",
     // --- Server（自部署 lumina-code-server） ---
     "Server": "服务器",

@@ -12,15 +12,14 @@ import {
     type DocstructBlock,
 } from "../../opencode/docstruct.ts";
 import type {DocRow} from "../../opencode/workspaceDocuments.ts";
-import {splitFilePath} from "../chat/attachmentPreview.ts";
+import {isImagePath, splitFilePath} from "../chat/attachmentPreview.ts";
 import {BodyBox} from "./statsChrome.tsx";
 
 /**
- * The DAILY side's document-preview DRILL BODY (the office-tools plugin's
- * structure sidecar rendered back): clicking an office row in
- * DocumentsSection aims the workspace-activity panel here — the same
- * drill model as FileDiffBody / TerminalBody / SubagentBody (overview →
- * detail, back button in the panel header).
+ * The DAILY side's document-preview DRILL BODY: clicking an OFFICE or
+ * IMAGE row in DocumentsSection aims the workspace-activity panel here
+ * — the same drill model as FileDiffBody / TerminalBody / SubagentBody
+ * (overview → detail, back button in the panel header).
  *
  * Rendering is the SIDECAR's structure, not the file's layout: a docx
  * renders as a theme-colored document flow (headings/paragraphs/lists/
@@ -31,8 +30,16 @@ import {BodyBox} from "./statsChrome.tsx";
  * Fidelity is "what the document says", not "how Word paginates it" —
  * the panel header's system-app buttons (beside the collapse button)
  * cover the real look. Documents without a sidecar (user's own,
- * foreign) say so and offer the system app instead; a size mismatch (edited in Word since generation) shows
- * a staleness banner but still renders.
+ * foreign) say so and offer the system app instead; a size mismatch
+ * (edited in Word since generation) shows a staleness banner but still
+ * renders.
+ *
+ * IMAGE rows skip the sidecar entirely — the pixels ARE the preview:
+ * the file's own bytes load through readFileBlob into a blob URL (the
+ * AttachmentPreview lifecycle — revoked on swap/unmount) and render at
+ * the panel's width, scrolling when tall. The row's path may sit in a
+ * SUBFOLDER of the workspace, so the read target splits from the full
+ * path (splitFilePath), never assuming the workspace root.
  */
 
 /** Resolve one sidecar image path (absolute or workspace-relative) into
@@ -58,7 +65,9 @@ export function sidecarImagePaths(doc: Docstruct): string[] {
 type LoadState =
     | {phase: "loading"}
     | {phase: "no-sidecar"}
-    | {phase: "ready"; doc: Docstruct};
+    | {phase: "ready"; doc: Docstruct}
+    | {phase: "image"; url: string}
+    | {phase: "image-failed"};
 
 const DocumentPreviewBody = memo(function DocumentPreviewBody({
     row,
@@ -75,14 +84,44 @@ const DocumentPreviewBody = memo(function DocumentPreviewBody({
     const {api} = useConnection();
     const [state, setState] = useState<LoadState>({phase: "loading"});
     const fileName = row.path.split("/").pop() ?? row.path;
+    // An image row previews its own pixels; everything else loads the
+    // office-tools sidecar.
+    const isImage = isImagePath(row.path);
 
-    // (Re)load the sidecar for the row being shown.
+    // (Re)load the preview for the row being shown: an image reads its
+    // own bytes (no sidecar — the pixels ARE the preview), everything
+    // else loads the office-tools structure sidecar.
     useEffect(() => {
         let cancelled = false;
+        let createdUrl: string | null = null;
         setState({phase: "loading"});
         (async () => {
             if (!api || !directory) {
-                if (!cancelled) setState({phase: "no-sidecar"});
+                if (!cancelled) setState(isImage ? {phase: "image-failed"} : {phase: "no-sidecar"});
+                return;
+            }
+            if (isImage) {
+                // The row's path is absolute and may sit in a SUBFOLDER
+                // of the workspace — split it, never assume the root.
+                const target = splitFilePath(row.path);
+                if (!target) {
+                    if (!cancelled) setState({phase: "image-failed"});
+                    return;
+                }
+                try {
+                    const blob = await api.readFileBlob(target.directory, target.name);
+                    if (blob == null) throw new Error("file not found");
+                    const url = URL.createObjectURL(blob);
+                    if (cancelled) {
+                        URL.revokeObjectURL(url);
+                        return;
+                    }
+                    createdUrl = url;
+                    setState({phase: "image", url});
+                } catch (e) {
+                    warn(`Image preview read failed for ${row.path}: ${e}`).catch(() => {});
+                    if (!cancelled) setState({phase: "image-failed"});
+                }
                 return;
             }
             try {
@@ -104,8 +143,9 @@ const DocumentPreviewBody = memo(function DocumentPreviewBody({
         })();
         return () => {
             cancelled = true;
+            if (createdUrl) URL.revokeObjectURL(createdUrl);
         };
-    }, [api, directory, fileName]);
+    }, [api, directory, fileName, isImage, row.path, row.size]);
 
     const doc = state.phase === "ready" ? state.doc : null;
 
@@ -178,9 +218,13 @@ const DocumentPreviewBody = memo(function DocumentPreviewBody({
                             <span className="lum-loading"><span/><span/><span/></span>
                         </div>
                     )}
-                    {state.phase === "no-sidecar" && (
+                    {(state.phase === "no-sidecar" || state.phase === "image-failed") && (
                         <div className="flex flex-col items-center gap-3 py-8 px-4 text-center">
-                            <p className="text-xs opacity-50 select-none">{t["No in-app preview — this document was not generated here"]}</p>
+                            <p className="text-xs opacity-50 select-none">
+                                {state.phase === "image-failed"
+                                    ? t["Failed to load this image"]
+                                    : t["No in-app preview — this document was not generated here"]}
+                            </p>
                             <button
                                 type="button"
                                 className="text-xs px-3 py-1.5 rounded-[var(--radius-sm)] lum-wash"
@@ -189,6 +233,17 @@ const DocumentPreviewBody = memo(function DocumentPreviewBody({
                             >
                                 {t["Open in system app"]}
                             </button>
+                        </div>
+                    )}
+                    {state.phase === "image" && (
+                        // The pixels ARE the preview: panel-width render,
+                        // the BodyBox scroller handles tall images.
+                        <div className="flex justify-center py-2">
+                            <img
+                                src={state.url}
+                                alt={fileName}
+                                className="max-w-full rounded-[var(--radius-xs)]"
+                            />
                         </div>
                     )}
                     {doc && (
