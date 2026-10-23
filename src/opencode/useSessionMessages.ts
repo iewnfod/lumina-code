@@ -12,6 +12,7 @@ import {
     getQueuedPrompts,
     inboxRowToQueued,
     markQueuedFailed,
+    markSweepCancels,
     planQueueRewrite,
     type QueuedPrompt,
     queuedRowToPromptFiles,
@@ -156,6 +157,55 @@ export function dropOptimisticBubble(sessionId: string, id: string): void {
     notify(sessionId);
 }
 
+// --- The "stop and send" optimistic bubble -------------------------------------
+// ⚡ must feel INSTANT: the click flies the message into the transcript as a
+// local bubble (the queue row is dropped locally in the same breath), the
+// stopping run unwinds underneath it, and the flush effect's IMMEDIATE POST
+// adopts the bubble through messageStore's normal enqueued path (text
+// match). One bubble per session — the batch's LEADING row only (later ⚡
+// rows re-park in the fresh run as queue rows).
+
+/** session → the leading expedited row's pending bubble id. */
+const expediteBubbles = new Map<string, string>();
+
+/** Stamp the ⚡ optimistic bubble for the batch's leading row (the click
+ *  handler calls this the moment ⚡ is pressed — the message must be in
+ *  the transcript before the stop even starts unwinding). */
+export function appendExpeditedBubble(sessionId: string, row: QueuedPrompt): void {
+    if (expediteBubbles.has(sessionId)) return; // a leader is already in flight
+    const entry = entryOf(sessionId);
+    const localId = nextLocalId();
+    entry.messages = appendUserMessage(entry.messages, {
+        id: localId,
+        type: "user",
+        text: row.text,
+        localKey: localId,
+        files: row.files,
+        ...(row.command ? {command: row.command} : {}),
+    });
+    expediteBubbles.set(sessionId, localId);
+    notify(sessionId);
+}
+
+/** Settle the ⚡ bubble once the flush effect's outcome is known:
+ *  - "sent": the immediate POST landed — the enqueued frame adopts the
+ *    bubble (id swap in messageStore); only the bookkeeping clears.
+ *  - "failed": the POST died — mark the bubble sendFailed (transcript
+ *    retry affordance). Returns false when NO bubble was pending (the
+ *    caller may fall back to appendFailedPrompt).
+ *  - "abandoned": the batch evaporated (pruned empty — e.g. the row was
+ *    naturally drained before the stop) — drop the bubble; the real
+ *    message arrives through the delivered/seed path or the prompt is
+ *    gone with the batch. */
+export function settleExpeditedBubble(sessionId: string, outcome: "sent" | "failed" | "abandoned"): boolean {
+    const bubbleId = expediteBubbles.get(sessionId);
+    if (bubbleId === undefined) return false;
+    expediteBubbles.delete(sessionId);
+    if (outcome === "failed") markOptimisticFailed(sessionId, bubbleId);
+    else if (outcome === "abandoned") dropOptimisticBubble(sessionId, bubbleId);
+    return true;
+}
+
 /** Pull the newest server page and merge it into a session's store —
  * shared by the mount seed and the model-switch refresh. `entry.seq`
  * supersedes overlapping requests, so only the latest one applies. Also
@@ -247,15 +297,20 @@ export function reseedAllSessions(api: OpencodeApi | null): void {
 /** The single bus handler, installed once per app run (`subscribe` is
  *  stable). Applies events to EVERY tracked session — including ones
  *  backgrounded behind another tab, whose deltas would otherwise be lost
- *  for good. */
+ *  for good. The api handle is refreshed on every ensureBus call (an api
+ *  identity change is a reconnect — the handler must seed through the
+ *  CURRENT client, never a dead one). */
 let busUnsubscribe: (() => void) | null = null;
-function ensureBus(subscribe: (handler: OpencodeEventHandler) => () => void) {
+let busApi: OpencodeApi | null = null;
+function ensureBus(subscribe: (handler: OpencodeEventHandler) => () => void, api: OpencodeApi | null) {
+    busApi = api;
     if (busUnsubscribe) return;
     busUnsubscribe = subscribe((event) => {
         const sid = (event.data as {sessionID?: string} | null)?.sessionID;
         if (!sid) return;
         if (event.type === "session.deleted") {
             dropPendingCommands(sid);
+            expediteBubbles.delete(sid);
             if (entries.delete(sid)) notify(sid);
             return;
         }
@@ -284,6 +339,20 @@ function ensureBus(subscribe: (handler: OpencodeEventHandler) => () => void) {
                     entry.messages = next;
                     notify(sid);
                 }
+            } else if (busApi) {
+                // The row is gone from the queue — either the queue fold
+                // (useSessions' global handler) already processed THIS
+                // frame (handlers run in registration order over
+                // useOpencode's Set, and a session created mid-app — the
+                // welcome-screen first send — mounts ChatView AFTER the
+                // sessions hook subscribed), or this client never held
+                // the row at all (another client composed it). No content
+                // rides the frame, so the row's text is unrecoverable
+                // here — but the server has ALREADY persisted the
+                // promoted message (delivery consumes the row inside the
+                // same transaction), so pull the newest page and let
+                // applySeedPage merge it in.
+                requestSeed(busApi, sid);
             }
             return;
         }
@@ -459,8 +528,8 @@ export function useSessionMessages(
     }
 
     useEffect(() => {
-        ensureBus(subscribe);
-    }, [subscribe]);
+        ensureBus(subscribe, api);
+    }, [subscribe, api]);
 
     // Render the active session's entry and follow its changes. A
     // returning session paints from the store immediately — its in-flight
@@ -731,6 +800,14 @@ export function useSessionMessages(
         // next stop to retry.
         try {
             const pending = await a.listSessionInbox(sid);
+            // Declare the cancels to the "stop and send" snapshot BEFORE
+            // the DELETE loop: this sweep is exactly what the expedited
+            // batch is waiting to survive (its rows re-POST once the run
+            // settles), and without the declaration the `cancelled` frames
+            // this loop triggers would prune the snapshot empty — the
+            // batch then delivered nothing and the prompts vanished (the
+            // ⚡ button's own stop ate its send). No-op without a snapshot.
+            if (pending.length > 0) markSweepCancels(sid, pending.map((r) => r.id));
             for (const row of pending) {
                 await a.cancelSessionInbox(sid, row.id);
             }
@@ -750,22 +827,44 @@ export function useSessionMessages(
      *  replaces the text-matching sending row in place). A dead POST
      *  keeps the row as `failed` (retry affordance). Shared by
      *  sendQueued / retryQueued / the expedited re-POST batch / the
-     *  reorder rewrite — order is the POST order (enqueued_seq). */
+     *  reorder rewrite — order is the POST order (enqueued_seq).
+     *
+     *  `immediate` (the "stop and send" batch's FIRST row): a plain
+     *  deliver POST instead — the session is confirmed idle when the
+     *  flush effect runs, so the run starts at once and the message
+     *  enters the transcript through the normal enqueued path (no queue
+     *  row, no park-then-drain round trip: a `queue` POST here made the
+     *  row visibly re-park above the composer while the server's
+     *  idle-drain kicked in, the "message bounced back into the queue"
+     *  artefact). A dead POST falls back to the transcript's failed
+     *  bubble (appendFailedPrompt — retryable, same as send()). */
     const postQueuedRow = useCallback(async (
         text: string,
         files: UserMessageFile[],
         command: PendingCommand | null,
+        immediate?: boolean,
     ) => {
         const a = apiRef.current;
         const sid = sessionRef.current;
         if (!a || !sid || !text.trim()) return;
-        // Same interrupt fence as send(): a queue POST landing inside the
+        // Same interrupt fence as send(): a POST landing inside the
         // stop window would be swept (its row cancelled) or restart the
-        // aborted work as a successor execution.
-        if (stopInFlight(sid, "Queue POST")) return;
-        const optimistic = appendOptimisticQueued(sid, {text, files, command});
+        // aborted work as a successor execution. In immediate mode the ⚡
+        // bubble is already in the transcript — settle it as failed
+        // (retryable) rather than letting it hang.
+        if (stopInFlight(sid, immediate ? "Deliver POST" : "Queue POST")) {
+            if (immediate) settleExpeditedBubble(sid, "failed");
+            return;
+        }
+        const optimistic = immediate ? null : appendOptimisticQueued(sid, {text, files, command});
         const undoPending = command ? recordPendingCommand(sid, command) : null;
         try {
+            if (optimistic === null) {
+                // immediate mode: plain deliver POST, no queue row — the
+                // enqueued frame appends the transcript message directly.
+                await a.sendPrompt(sid, text, queuedRowToPromptFiles({files}));
+                return;
+            }
             const response = await a.sendPrompt(sid, text, queuedRowToPromptFiles(optimistic), "queue");
             const row = response as SessionInboxItem | null | undefined;
             if (typeof row?.id === "string") {
@@ -777,8 +876,9 @@ export function useSessionMessages(
             // logged there, never silently duplicated.
         } catch (e) {
             undoPending?.();
-            markQueuedFailed(sid, optimistic.id);
-            logError(`Failed to queue prompt: ${e}`).catch(() => {});
+            if (optimistic) markQueuedFailed(sid, optimistic.id);
+            else if (!settleExpeditedBubble(sid, "failed")) appendFailedPrompt(sid, {text, files, ...(command ? {command} : {})});
+            logError(`Failed to ${immediate ? "deliver" : "queue"} prompt: ${e}`).catch(() => {});
         }
     }, []);
 
@@ -830,8 +930,15 @@ export function useSessionMessages(
      * the first POST executes immediately (idle drain), the others park
      * in the fresh run and chain on its end. */
     const deliverQueuedRows = useCallback(async (rows: readonly QueuedPrompt[]) => {
-        for (const row of rows) {
-            await postQueuedRow(row.text, row.files, row.command);
+        const sid = sessionRef.current;
+        for (const [i, row] of rows.entries()) {
+            // First row: plain deliver POST (the session is confirmed idle
+            // here — the run starts at once and the message enters the
+            // transcript directly, adopting the ⚡ optimistic bubble through
+            // the enqueued frame's text match). The rest park in the fresh
+            // run and chain on its natural end.
+            await postQueuedRow(row.text, row.files, row.command, i === 0);
+            if (i === 0 && sid !== null) settleExpeditedBubble(sid, "sent");
         }
     }, [postQueuedRow]);
 

@@ -67,8 +67,14 @@ export interface QueuedPrompt {
 const queues = new Map<string, QueuedPrompt[]>();
 /** "Stop and send" snapshots: the queue's content at expedite time (the
  * sweep deletes the server rows right after) + the expedited ids in
- * click order. Cleared when the flush effect takes the batch. */
-const snapshots = new Map<string, {rows: QueuedPrompt[]; expedited: string[]}>();
+ * click order. `sweepCancels` holds the ids the interrupt sweep is ABOUT
+ * to cancel on this session (markSweepCancels): their `cancelled` frames
+ * are the stop-and-send's own doing, so the snapshot must SURVIVE them
+ * (the flush effect re-POSTs exactly these rows) — every other
+ * cancelled/delivered frame still prunes, so a row the user deleted (or
+ * one that got promoted) after expedite is never resurrected. Cleared
+ * when the flush effect takes the batch. */
+const snapshots = new Map<string, {rows: QueuedPrompt[]; expedited: string[]; sweepCancels: Set<string>}>();
 const bus = createListeners();
 
 /** Stable empty snapshot for the React binding (never changes identity). */
@@ -102,7 +108,7 @@ export function inboxRowToQueued(row: SessionInboxItem, command: PendingCommand 
 /** Wire row files → the prompt POST's `files` array (uri form; bare base64
  * `data` + `mime` re-wraps as a data: URI — same normalization as
  * composerAttachments' filesFromMessage, kept in step with it). */
-export function queuedRowToPromptFiles(row: QueuedPrompt): {uri: string; name: string}[] {
+export function queuedRowToPromptFiles(row: Pick<QueuedPrompt, "files">): {uri: string; name: string}[] {
     return row.files
         .map((f) => ({
             name: f.name ?? "file",
@@ -332,24 +338,35 @@ export function dropQueuedRow(sessionId: string, id: string): void {
  * the first expedite (the interrupt sweep is about to cancel the server
  * rows) and records the id in click order. The row stays visible until
  * the flush effect takes the batch. */
-export function expediteQueuedRow(sessionId: string, id: string): void {
+/** Expedite one row for "stop and send": snapshots the queue's content on
+ *  the first expedite (the interrupt sweep is about to cancel the server
+ *  rows) and records the id in click order. Returns whether THIS row
+ *  LEADS the batch (it was the first expedite — the flush effect's
+ *  immediate POST row, and the one the ⚡ optimistic bubble in
+ *  useSessionMessages was stamped for). The row stays visible until the
+ *  flush effect takes the batch (or the caller drops it locally to swap
+ *  it for the transcript bubble). */
+export function expediteQueuedRow(sessionId: string, id: string): boolean {
     const current = queueOf(sessionId);
     if (!current.some((q) => q.id === id)) {
         const snap = snapshots.get(sessionId);
-        if (!snap || !snap.rows.some((q) => q.id === id)) return;
-        if (snap.expedited.includes(id)) return;
+        if (!snap || !snap.rows.some((q) => q.id === id)) return false;
+        if (snap.expedited.includes(id)) return false;
+        const leading = snap.expedited.length === 0;
         snap.expedited.push(id);
         emit();
-        return;
+        return leading;
     }
     let snap = snapshots.get(sessionId);
     if (!snap) {
-        snap = {rows: current.map((r) => ({...r, files: [...r.files]})), expedited: []};
+        snap = {rows: current.map((r) => ({...r, files: [...r.files]})), expedited: [], sweepCancels: new Set()};
         snapshots.set(sessionId, snap);
     }
-    if (snap.expedited.includes(id)) return;
+    if (snap.expedited.includes(id)) return false;
+    const leading = snap.expedited.length === 0;
     snap.expedited.push(id);
     emit();
+    return leading;
 }
 
 /** Pop the "stop and send" re-POST batch (expedited first in click order,
@@ -358,12 +375,30 @@ export function expediteQueuedRow(sessionId: string, id: string): void {
  * the mirror (their re-POSTs create fresh server rows). */
 export function takeExpeditedBatch(sessionId: string): QueuedPrompt[] {
     const snap = snapshots.get(sessionId);
-    if (!snap || snap.expedited.length === 0) return [];
+    if (!snap) return [];
+    if (snap.expedited.length === 0) {
+        // A pruned-empty snapshot is dead weight (and a later expedite
+        // reusing its emptied `rows` would resurrect nothing) — drop it.
+        snapshots.delete(sessionId);
+        return [];
+    }
     snapshots.delete(sessionId);
     const batch = mergeExpeditedSnapshot(snap.rows, snap.expedited, queueOf(sessionId));
     const ids = new Set(batch.map((r) => r.id));
     setRows(sessionId, queueOf(sessionId).filter((r) => !ids.has(r.id)));
     return batch;
+}
+
+/** Tell the expedite snapshot which inbox rows THIS CLIENT's interrupt
+ * sweep is about to cancel (useSessionMessages' interrupt, before the
+ * DELETE loop): those `cancelled` frames are the "stop and send" itself
+ * — the snapshot exists precisely to re-POST them once the interrupted
+ * run settles, so the fold must NOT prune them out of the batch. No-op
+ * without a snapshot (a plain stop has no batch to protect). */
+export function markSweepCancels(sessionId: string, ids: string[]): void {
+    const snap = snapshots.get(sessionId);
+    if (!snap) return;
+    for (const id of ids) snap.sweepCancels.add(id);
 }
 
 /** Fold one bus frame into the store — wired once in useSessions' global
@@ -397,6 +432,13 @@ export function applyQueueBusEvent(event: OpencodeEvent): void {
     if (snap && (event.type === "session.inbox.cancelled" || event.type === "session.inbox.delivered")) {
         const id = (data as {inboxID?: string} | null | undefined)?.inboxID;
         if (typeof id === "string") {
+            // The stop-and-send sweep's own cancel (markSweepCancels): the
+            // batch exists to re-POST exactly this row — skip the prune. A
+            // delivery after expedite still prunes unconditionally (the row
+            // already ran; re-POSTing it would duplicate the prompt), and
+            // so does any cancel the sweep did NOT declare (another
+            // client's delete must not be resurrected).
+            if (event.type === "session.inbox.cancelled" && snap.sweepCancels.delete(id)) return;
             snap.rows = snap.rows.filter((r) => r.id !== id);
             snap.expedited = snap.expedited.filter((x) => x !== id);
         }

@@ -2,13 +2,19 @@ import assert from "node:assert/strict";
 import {test} from "node:test";
 import type {OpencodeEvent} from "./eventStream.ts";
 import {
+    appendQueuedRow,
+    applyQueueBusEvent,
+    expediteQueuedRow,
     foldQueuedRows,
+    getQueuedPrompts,
     inboxRowToQueued,
+    markSweepCancels,
     mergeExpeditedSnapshot,
     mergeSeedRows,
     planQueueRewrite,
     queuedRowToDraft,
     queuedRowToPromptFiles,
+    takeExpeditedBatch,
     type QueuedPrompt,
 } from "./promptQueue.ts";
 import type {SessionInboxItem} from "./types.ts";
@@ -244,4 +250,54 @@ test("mergeExpeditedSnapshot drops an expedited row deleted after the snapshot",
         out.map((r) => r.id),
         ["b"],
     );
+});
+
+// --- "stop and send": the expedite snapshot vs the sweep's own cancels ---------
+// The regression suite for the ⚡ flow: the interrupt sweep cancels the
+// server rows and their `cancelled` frames arrive AFTER the expedite
+// snapshot exists — without markSweepCancels the frames pruned the
+// snapshot empty and takeExpeditedBatch delivered NOTHING (the stop ate
+// its own send: prompts vanished, the AI never saw them).
+
+test("the sweep's declared cancels keep the expedite batch intact", () => {
+    const sid = "ses_sweep_survive";
+    appendQueuedRow(sid, row({id: "msg_a"}));
+    appendQueuedRow(sid, row({id: "msg_b"}));
+    expediteQueuedRow(sid, "msg_a");
+    // The sweep declares its cancels BEFORE the DELETE loop, then the
+    // frames land (queue rows collapse away in the UI).
+    markSweepCancels(sid, ["msg_a", "msg_b"]);
+    applyQueueBusEvent(ev("session.inbox.cancelled", {sessionID: sid, inboxID: "msg_a"}));
+    applyQueueBusEvent(ev("session.inbox.cancelled", {sessionID: sid, inboxID: "msg_b"}));
+    assert.equal(getQueuedPrompts(sid).length, 0);
+    // ...but the batch still re-POSTs everything, expedited first.
+    const batch = takeExpeditedBatch(sid);
+    assert.deepEqual(
+        batch.map((r) => r.id),
+        ["msg_a", "msg_b"],
+    );
+    assert.equal(takeExpeditedBatch(sid).length, 0);
+});
+
+test("an undeclared cancel (another client's delete) still prunes the batch", () => {
+    const sid = "ses_sweep_foreign_delete";
+    appendQueuedRow(sid, row({id: "msg_c"}));
+    appendQueuedRow(sid, row({id: "msg_d"}));
+    expediteQueuedRow(sid, "msg_c");
+    applyQueueBusEvent(ev("session.inbox.cancelled", {sessionID: sid, inboxID: "msg_d"}));
+    assert.deepEqual(
+        takeExpeditedBatch(sid).map((r) => r.id),
+        ["msg_c"],
+    );
+});
+
+test("a delivery after expedite still prunes the batch (no duplicate re-POST)", () => {
+    const sid = "ses_sweep_delivered_prune";
+    appendQueuedRow(sid, row({id: "msg_e"}));
+    expediteQueuedRow(sid, "msg_e");
+    // Even a sweep-declared id: delivery means the row already RAN —
+    // re-POSTing it would duplicate the prompt.
+    markSweepCancels(sid, ["msg_e"]);
+    applyQueueBusEvent(ev("session.inbox.delivered", {sessionID: sid, inboxID: "msg_e"}));
+    assert.equal(takeExpeditedBatch(sid).length, 0);
 });

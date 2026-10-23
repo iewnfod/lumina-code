@@ -1,4 +1,5 @@
 import {memo, useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {info as logInfo} from "@tauri-apps/plugin-log";
 import {useTranscriptScroll} from "../../hooks/useTranscriptScroll.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
@@ -6,6 +7,7 @@ import {useConnection} from "../../opencode/connectionContext.tsx";
 import {usePendingRequests, useSessionData, useSessionTranscript} from "../../opencode/sessionDataContext.tsx";
 import {useSessionStopping} from "../../opencode/sessionStopping.ts";
 import {
+    dropQueuedRow,
     expediteQueuedRow,
     queuedRowToDraft,
     takeExpeditedBatch,
@@ -20,7 +22,7 @@ import type {
     SessionModelRef,
     SessionUsage,
 } from "../../opencode/types.ts";
-import {dropOptimisticBubble} from "../../opencode/useSessionMessages.ts";
+import {appendExpeditedBubble, dropOptimisticBubble, settleExpeditedBubble} from "../../opencode/useSessionMessages.ts";
 import {filesFromMessage} from "../composer/composerAttachments.ts";
 import {lastContextMessage, type ContextUsage} from "./usageStats.ts";
 import TranscriptList from "./TranscriptList.tsx";
@@ -286,8 +288,15 @@ const ChatView = memo(function ChatView({
         }
         if (flushedIdleRef.current) return;
         const batch = takeExpeditedBatch(sessionId);
-        if (batch.length === 0) return;
+        if (batch.length === 0) {
+            // The batch evaporated (pruned empty — the row was naturally
+            // drained before the stop, or the snapshot was never taken):
+            // the ⚡ bubble must not linger beside the real message.
+            settleExpeditedBubble(sessionId, "abandoned");
+            return;
+        }
         flushedIdleRef.current = true;
+        logInfo(`Stop-and-send flush: ${batch.length} row(s) [${batch.map((r) => r.id).join(", ")}]`).catch(() => {});
         void deliverQueuedRows(batch);
     }, [busy, sessionId, deliverQueuedRows]);
     // "Stop and send" pulls one row out of the queue's waiting line:
@@ -300,7 +309,18 @@ const ChatView = memo(function ChatView({
     const handleSendQueuedNow = useCallback(
         (id: string) => {
             if (busy) {
-                expediteQueuedRow(sessionId, id);
+                const row = queued.find((q) => q.id === id);
+                const leading = expediteQueuedRow(sessionId, id);
+                // INSTANT feel: the leading row's message flies into the
+                // transcript the moment ⚡ is pressed (optimistic bubble —
+                // the flush effect's immediate POST adopts it), and the
+                // queue row leaves in the same breath (the sweep owns the
+                // server-side cancel). Later ⚡ rows re-park as queue rows
+                // in the fresh run instead.
+                if (row && leading) {
+                    appendExpeditedBubble(sessionId, row);
+                    dropQueuedRow(sessionId, id);
+                }
                 void interrupt();
                 return;
             }

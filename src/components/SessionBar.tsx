@@ -253,7 +253,7 @@ export default function SessionBar(props: SessionBarProps) {
                 half is worse than none), and while the probe is still
                 pending there is simply nothing to switch yet. */}
             {switcher && (
-                <div className="shrink-0 px-3 pb-1" data-tauri-drag-region>
+                <div className="lum-mode-tabs shrink-0 px-3 pb-1" data-tauri-drag-region>
                     <Tabs
                         aria-label={t["Mode"]}
                         selectedKey={mode}

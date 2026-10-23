@@ -1292,6 +1292,23 @@ button.lum-md-doc:focus-visible {
 
 /*
  * =====================================================================
+ * Sidebar mode switcher (components/SessionBar.tsx).
+ *
+ * The 日常/开发 tabs are the ONLY HeroUI Tabs in the app, and heroui's
+ * global stylesheet paints a 2px var(--focus) (blue) ring on every
+ * .tabs__tab:focus-visible / [data-focus-visible=true] — a foreign blue
+ * circle on the chrome glass. Drop it (the sliding indicator already
+ * shows selection); the scope class lives on the switcher's wrapper so
+ * any future Tabs stay on HeroUI's default.
+ * =====================================================================
+ */
+.lum-mode-tabs .tabs__tab:focus-visible,
+.lum-mode-tabs .tabs__tab[data-focus-visible="true"] {
+    box-shadow: none;
+}
+
+/*
+ * =====================================================================
  * Sidebar resize seam (components/SidebarResizer.tsx).
  *
  * An invisible OVERLAY sash straddling the sidebar/conversation boundary:
