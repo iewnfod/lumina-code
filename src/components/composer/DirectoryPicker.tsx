@@ -16,9 +16,14 @@ import {useI18n} from "../../hooks/i18n.tsx";
 /**
  * Project-directory picker for the not-yet-started session: quick picks
  * from the server's known projects, plus the native folder picker
- * (Tauri dialog plugin). Choosing `null` keeps the server's default (home).
- * The BRANCH binding is its own sibling button (BranchPicker) — a branch
- * is a first-class choice, not a sub-item of the folder menu.
+ * (Tauri dialog plugin). DEV ONLY — the daily mode owns one fixed
+ * workspace and never shows this picker; there is deliberately NO
+ * "default directory" item either (dev sessions must name a real
+ * project, so the unset state shows the plain "Project" label and the
+ * send button stays blocked until a choice is made — useSessionFlow's
+ * sendBlocked). The BRANCH binding is its own sibling button
+ * (BranchPicker) — a branch is a first-class choice, not a sub-item of
+ * the folder menu.
  */
 export default function DirectoryPicker({
     directory,
@@ -121,15 +126,6 @@ export default function DirectoryPicker({
         >
             {(close) => (
                 <div className="w-64">
-                    <MenuItem
-                        selected={directory === null}
-                        onClick={() => {
-                            onChange(null);
-                            close();
-                        }}
-                    >
-                        {t["Default project directory"]}
-                    </MenuItem>
                     {projects.length > 0 && <MenuLabel>{t["Recent Projects"]}</MenuLabel>}
                     {projects.map((p) => (
                         <div key={p.id}>

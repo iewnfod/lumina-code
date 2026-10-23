@@ -481,6 +481,47 @@ src/
 │   │                      #   lives, derived from GET /api/config (pure; shared
 │   │                      #   by the settings config editor and the attachment
 │   │                      #   divert). node-testable via its consumers.
+│   ├── appMode.ts         # THE DAILY/DEV MODE SPLIT. A persistedStore
+│   │                      #   ("lumina-code:app-mode", the useThemePreference
+│   │                      #   pattern) remembering which half of the app the
+│   │                      #   user is in — default "daily" (the product's
+│   │                      #   non-developer stance), the last choice kept
+│   │                      #   across restarts. THE GIT GATE: dev's features
+│   │                      #   all assume a git machine (branch pickers,
+│   │                      #   worktrees, diffs), so a machine WITHOUT git
+│   │                      #   gets NO dev mode at all — probeGitAvailability
+│   │                      #   runs `git --version` through the server's
+│   │                      #   shell API once per connection (spawnShell, the
+│   │                      #   worktreeSync precedent; the command is legal
+│   │                      #   in every login-shell dialect incl. PowerShell),
+│   │                      #   records the verdict in a module store, and
+│   │                      #   useAppMode() FORCES "daily" on a CONFIRMED
+│   │                      #   absence (an UNKNOWN probe keeps the stored
+│   │                      #   choice — a flaked probe must not yank a
+│   │                      #   restored dev session to the welcome screen;
+│   │                      #   the switcher renders only on confirmed true).
+│   │                      #   SESSION-SIDE: modeMetadata is the creation-time
+│   │                      #   stamp (beside CLIENT_SOURCE, create-only
+│   │                      #   metadata) and sessionMode derives it back —
+│   │                      #   unstamped sessions (pre-mode builds, TUI/CLI
+│   │                      #   strangers, imports) read as "dev".
+│   │                      #   node-testable (storage-stub + query re-import).
+│   ├── defaultWorkspace.ts # THE DAILY WORKSPACE: ~/Documents/LuminaWorkspace
+│   │                      #   — the mode's fixed working directory (a
+│   │                      #   non-developer never picks folders).
+│   │                      #   defaultWorkspacePath (pure join, trailing-slash
+│   │                      #   tolerant), resolveDefaultWorkspace (GET
+│   │                      #   /api/location = the spawned server's cwd =
+│   │                      #   $HOME), ensureDefaultWorkspace — the first send
+│   │                      #   materializes the folder by seeding README.md +
+│   │                      #   AGENTS.md through experimental/fs/write
+│   │                      #   (creates parents); each file is written ONLY on
+│   │                      #   a 404 read (never overwrites; a FAILED read is
+│   │                      #   not "absent" — the readOrNull contract), and the
+│   │                      #   AGENTS.md IS the daily mode's behavioral half:
+│   │                      #   the server reads it for every session in the
+│   │                      #   directory, no app-level mode system needed.
+│   │                      #   node-testable (fake api).
 │   ├── useLuminaTools.ts  # The custom-tools plugin's install half:
 │   │                      #   ensureLuminaToolsPlugin(api, options?) writes the
 │   │                      #   plugin file + the config entry (diff-gated — the
@@ -1001,7 +1042,9 @@ src/
 │   │                      #   Mode via the plan_mode tool); busy set seeded from
 │   │                      #   GET /api/session/active (a stale busy id blocks the
 │   │                      #   composer forever — the seed must not resurrect ids watched
-│   │                      #   end); create/remove/patch (optimistic model/agent)
+│   │                      #   end); create/remove/patch (optimistic model/agent; create also
+│   │                      #   stamps metadata.mode beside CLIENT_SOURCE — which sidebar half
+│   │                      #   the session belongs to, derived back by appMode.sessionMode)
 │   │                      #   also grant/revoke the whitelist membership —
 │   │                      #   and create STAMPS {source: CLIENT_SOURCE},
 │   │                      #   the cross-instance marker whose stamped
@@ -1136,7 +1179,11 @@ src/
 │   │                      #   restart starts fresh), changeModel/changeAgent/
 │   │                      #   changeStagedBranch/changeDirectory/newSession/
 │   │                      #   deleteSession, sendFirst (create-then-deliver with
-│   │                      #   the slash-command fallback; a branch-bound send
+│   │                      #   the slash-command fallback; MODE-SPLIT directory rules — daily
+│   │                      #   resolves + ensures the fixed LuminaWorkspace (opencode/
+│   │                      #   defaultWorkspace.ts) and stamps its sessions, dev REQUIRES a
+│   │                      #   staged project (no default — sendBlocked refuses a bare send)
+│   │                      #   and creates the linked worktree for a staged branch; a branch-bound send
 │   │                      #   FIRST creates the linked worktree via
 │   │   │                  #   resolveBranchDirectory — POST /api/worktree with
 │   │                      #   projectID from worktreeSessions, recorded in the
@@ -1276,6 +1323,32 @@ src/
 │   │                      #   in App) warms the scopes ahead of the click.
 │   │                      #   Derived arrays are identity-stable across
 │   │                      #   streamed frames.
+│   ├── workspaceDocuments.ts # THE DAILY SIDE of the workspace panel —
+│   │                      #   what useSessionActivity's git diff is for dev,
+│   │                      #   done for a plain folder of DOCUMENTS where
+│   │                      #   line counts are meaningless. Scanning rides
+│   │                      #   the SHELL API (fs routes can't list
+│   │                      #   directories): one POSIX pass (`find <dir>
+│   │                      #   -type f -not -path '*/.*' -exec wc -c {} +`
+│   │                      #   — find hands paths to wc as argv, so spaces
+│   │                      #   and CJK survive; legal in fish/POSIX alike)
+│   │                      #   falling back to a PowerShell pipeline on
+│   │                      #   failure (the mcpLogs dialect ladder). The
+│   │                      #   ROLLING BASELINE: each scan diffs against the
+│   │                      #   previous one — files that appeared or changed
+│   │                      #   SIZE wear 新增/变更 chips (a docx is rewritten
+│   │                      #   wholesale by python-docx, so a size delta IS
+│   │                      #   the change signal), settling to a plain
+│   │                      #   inventory on the next scan; deletes just drop
+│   │                      #   off. Stateful half = the directory-keyed
+│   │                      #   module store + useWorkspaceDocuments (the
+│   │                      #   useWorkspaceDiff pattern; mounted via
+│   │                      #   sessionDataContext's useWorkspaceDocumentsOf,
+│   │                      #   refreshed on run-end bus events debounced +
+│   │                      #   busy→idle). Pure halves (parseSizeLines —
+│   │                      #   wc's total rows dropped, CRLF tolerated, cap
+│   │                      #   MAX_DOC_ROWS; diffDocs; sortDocRows;
+│   │                      #   humanSize) node-testable.
 │   ├── useModelCatalog.ts # Providers/agents/models + server default, fetched per
 │                          #   connection AND re-fetched whenever the bus reports
 │                          #   credential.updated / config.updated (connecting a key
@@ -1822,8 +1895,17 @@ src/
     │                      #   menu panel needs the whole bar hoisted above
     │                      #   the content sibling or it paints UNDER the
     │                      #   conversation (live-observed on Android).
-    ├── SessionBar.tsx     # Left glass sidebar shell: brand row, folder
-    │                      #   collapse/expand state, relative-age ticker,
+    ├── SessionBar.tsx     # Left glass sidebar shell: brand row, THE MODE
+    │                      #   SWITCHER (HeroUI Tabs — 日常/开发, rendered
+    │                      #   ONLY once git availability is CONFIRMED;
+    │                      #   opencode/appMode.ts), the TWO-PAGE session
+    │                      #   slider (both halves stay MOUNTED inside a
+    │                      #   w-[200%] strip that translates between them —
+    │                      #   collapsed folders, scroll positions and show-
+    │                      #   more states survive a switch; a git-less
+    │                      #   machine renders the plain single daily page),
+    │                      #   folder collapse/expand state,
+    │                      #   relative-age ticker,
     │                      #   bottom action rows — new-session plus the
     │                      #   IMPORT entry (FolderInput icon; the trailing
     │                      #   count badge = importable foreign sessions,
@@ -1901,7 +1983,11 @@ src/
     │                      #   pending badge, age and close button share one
     │                      #   cross-fade slot; deleted rows collapse in place
     │                      #   via ExitList, budget-limited), "Show more/less"
-    │                      #   expander. MOBILE rows carry NO delete X and no
+    │                      #   expander. `plain` strips the folder chrome
+    │                      #   (header + collapse) — the DAILY sidebar half's
+    │                      #   flat list (one workspace, no directory header;
+    │                      #   SessionBar's renderGroups(list, plain)).
+    │                      #   MOBILE rows carry NO delete X and no
     │                      #   hover fade (synthetic hover on touch would
     │                      #   reveal the X mid-tap — deleting on an open
     │                      #   tap); deleting goes through the title-bar ⋯
@@ -2586,6 +2672,23 @@ src/
     │   │                  #   a file the AI newly touches unfurls in, a
     │   │                  #   reverted/checked-out file collapses away;
     │   │                  #   mere re-counts/re-orders render instantly.
+    │   ├── DocumentsSection.tsx # THE DAILY workspace section (opencode/
+    │   │                  #   workspaceDocuments.ts's data): the folder's
+    │   │                  #   document inventory — icon + relative path +
+    │   │                  #   新增/变更 chip + humanSize per row. A row
+    │   │                  #   CLICK opens the document in the system's
+    │   │                  #   default application (openPath — Word/WPS for
+    │   │                  #   docx; needs opener:allow-open-path, added to
+    │   │                  #   all three shells' capabilities) and the
+    │   │                  #   row-end button reveals it in the file manager
+    │   │                  #   (revealItemInDir, opener:default). Rows are
+    │   │                  #   DIVS (the nested reveal button would be
+    │   │                  #   illegal inside a button) wearing statsRowClass;
+    │   │                  #   same ExitList `enter` choreography as the
+    │   │                  #   changes rows. SessionStatsCard renders this
+    │   │                  #   INSTEAD of ChangesSection for daily sessions
+    │   │                  #   (activity.mode / documents — WorkspaceStatsCard
+    │   │                  #   picks the scope).
     │   ├── TerminalsSection.tsx # Background-shell rows (ExitList with
     │   │                  #   `enter`: a shell moved off the foreground
     │   │                  #   unfurls in at the bottom of the list —
@@ -2739,9 +2842,18 @@ src/
         ├── FileMentionNode.tsx / CommandMentionNode.tsx # Lexical token TextNodes
         ├── ToolbarButton.tsx # The composer's compact toolbar control
         ├── DirectoryPicker.tsx # Working-directory chooser (dialog + GET /api/project);
-        │                      #   the BRANCH binding is its own sibling
-        │                      #   button (BranchPicker) — the two stay
-        │                      #   independent picks on the toolbar.
+        │                      #   DEV ONLY (ComposerSettingsControls hides
+        │                      #   it in daily mode — the workspace is fixed)
+        │                      #   and with NO "default directory" item: dev
+        │                      #   sessions must name a real project, the
+        │                      #   unset state blocks sending
+        │                      #   (useSessionFlow's sendBlocked) until a
+        │                      #   choice is made, and an unstaged welcome
+        │                      #   composer preselects the most recent dev
+        │                      #   session's project. The BRANCH binding is
+        │                      #   its own sibling button (BranchPicker) —
+        │                      #   the two stay independent picks on the
+        │                      #   toolbar.
         └── BranchPicker.tsx   # The pre-session BRANCH button (the project
                           #   picker's sibling): the plain LOCAL branch
                           #   list; picking a branch → sendFirst pins the

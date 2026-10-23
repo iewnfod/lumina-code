@@ -1,5 +1,5 @@
 import {memo, useCallback, useEffect, useLayoutEffect, useRef, useState} from "react";
-import {Bot, ChevronLeft, ChevronUp, Diff, GitBranch, ListChecks, Square, SquareTerminal} from "lucide-react";
+import {Bot, ChevronLeft, ChevronUp, Diff, FileText, GitBranch, ListChecks, Square, SquareTerminal} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {useBackLevel} from "../../hooks/useBackLevel.ts";
@@ -10,12 +10,15 @@ import {useStatsExpanded, useStatsPanelMode, usePendingStatsDrill, clearStatsDri
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import type {SessionShellRef, SessionSubagentRef, SessionTodos} from "../../opencode/sessionActivity.ts";
 import {driftNeedsSync} from "../../opencode/worktreeSync.ts";
+import type {DocRow} from "../../opencode/workspaceDocuments.ts";
+import type {AppMode} from "../../opencode/appMode.ts";
 import ExitPresence, {Reveal} from "../ui/ExitPresence.tsx";
 import IconButton from "../ui/IconButton.tsx";
 import Hint from "../ui/Hint.tsx";
 import {BranchSyncSection} from "./BranchSyncSection.tsx";
 import type {BranchSyncProps} from "./BranchSyncSection.tsx";
 import {ChangesSection, DiffCountsBadge, FileDiffBody, FileTitle} from "./ChangesSection.tsx";
+import {DocumentsSection} from "./DocumentsSection.tsx";
 import {ShellStateChip, TerminalsSection, TerminalBody} from "./TerminalsSection.tsx";
 import {SubagentsSection, SubagentBody, SubagentStateChip, SubagentTitle} from "./SubagentsSection.tsx";
 import {FinishedTotal} from "./statsChrome.tsx";
@@ -57,13 +60,20 @@ const SessionStatsCard = memo(function SessionStatsCard({
      *  switches, so this prop CHANGES without a remount. */
     sessionId: string;
     activity: {
+        /** The active session's mode (appMode.ts): picks which workspace
+         *  scope the card renders — the git diff (dev) or the document
+         *  inventory (daily) below. */
+        mode: AppMode;
         diff: WorkspaceDiffEntry[] | null;
         diffLoading: boolean;
         diffTotals: {added: number; removed: number; files: number};
+        /** The DAILY scope (null in dev): the workspace's documents. */
+        documents: {rows: DocRow[] | null; loading: boolean} | null;
         shells: (SessionShellRef & {running: boolean})[];
         subagents: (SessionSubagentRef & {running: boolean})[];
         /** The plan-workflow todo list (null when the session has no plan). */
         todos: SessionTodos | null;
+        /** Refresh the live workspace scope (diff — or documents, per mode). */
         refreshDiff: () => void;
         /** Manual stop for one of the session's running shells. */
         stopShell: (shellId: string) => void;
@@ -106,9 +116,12 @@ const SessionStatsCard = memo(function SessionStatsCard({
     const wtRefreshRef = useRef<(() => void) | undefined>(undefined);
     wtRefreshRef.current = worktree?.refresh;
 
-    const {diff, diffLoading, diffTotals, shells, subagents, todos, stopShell} = activity;
+    const {mode, diff, diffLoading, diffTotals, documents, shells, subagents, todos, stopShell} = activity;
     const runningShells = shells.filter((s) => s.running).length;
     const runningSubagents = subagents.filter((s) => s.running).length;
+    // The live workspace scope's "has data" read: the diff (dev) or the
+    // document scan (daily — null until its first scan lands).
+    const workspaceLoaded = mode === "daily" ? (documents?.rows ?? null) !== null : diff !== null;
 
     // The plan's progress read: completed tasks + whether anything is
     // live (an execution in flight, or a submission still awaiting its
@@ -130,21 +143,23 @@ const SessionStatsCard = memo(function SessionStatsCard({
         Boolean(worktree) && (wtSyncing || wtNeedsSync || worktree?.entry.lastOutcome != null);
 
     // The card exists from the moment a session is entered and its first
-    // diff pull has landed — even at zero changes (entering a session
-    // must already SHOW the workspace being tracked, not wait for the
-    // first message to edit something). While the diff is still loading
-    // the card doesn't exist visually (no flash of an empty shell).
+    // workspace pull has landed — even at zero changes (entering a
+    // session must already SHOW the workspace being tracked, not wait
+    // for the first message to edit something). While it is still
+    // loading the card doesn't exist visually (no flash of an empty
+    // shell).
     const visible =
-        diff !== null ||
+        workspaceLoaded ||
         shells.length > 0 ||
         subagents.length > 0 ||
         (todos?.items.length ?? 0) > 0;
-    // Empty sections don't render in the expanded panel either. Changes
-    // renders once its diff has loaded (the panel then shows the explicit
-    // "No changes yet" state) and is exempt while the diff LOADS on a
-    // card already open for terminals/subagents, so the file list
+    // Empty sections don't render in the expanded panel either. The
+    // workspace section renders once its scope has loaded (the panel
+    // then shows the explicit empty state) and is exempt while it LOADS
+    // on a card already open for terminals/subagents, so the list
     // doesn't pop in unannounced.
-    const showChanges = diff !== null || (diffLoading && (shells.length > 0 || subagents.length > 0));
+    const workspaceLoading = mode === "daily" ? (documents?.loading ?? false) : diffLoading;
+    const showWorkspaceSection = workspaceLoaded || (workspaceLoading && (shells.length > 0 || subagents.length > 0));
 
     const expand = useCallback(() => {
         setExpanded(true);
@@ -340,23 +355,51 @@ const SessionStatsCard = memo(function SessionStatsCard({
                             </span>
                         ) : null}
                     </Reveal>
-                    <Reveal as="span" present={diff !== null}>
-                        {diff !== null ? (
-                            <span className="flex items-center justify-between gap-2">
-                                <Diff size={13} className="shrink-0 opacity-70"/>
-                                {diffTotals.files > 0 ? (
-                                    <DiffCountsBadge added={diffTotals.added} removed={diffTotals.removed}/>
-                                ) : (
-                                    // Clean working copy — the row still shows so
-                                    // the card says "tracked, nothing changed"
-                                    // instead of vanishing.
-                                    <span className="text-2xs opacity-40 select-none">
-                                        {t["No changes yet"]}
-                                    </span>
-                                )}
-                            </span>
-                        ) : null}
-                    </Reveal>
+                    {mode === "daily" ? (
+                        <Reveal as="span" present={workspaceLoaded}>
+                            {workspaceLoaded && documents ? (
+                                // The daily pill row: what the document
+                                // inventory last learned. New/changed docs
+                                // are the attention signal; a quiet folder
+                                // still says "tracked".
+                                <span className="flex items-center justify-between gap-2">
+                                    <FileText size={13} className="shrink-0 opacity-70"/>
+                                    {documents.rows!.some((r) => r.change !== null) ? (
+                                        <span className="text-2xs select-none" style={{color: "var(--color-diff-add)"}}>
+                                            {documents.rows!.filter((r) => r.change !== null).length}{" "}
+                                            {t["Updated"]}
+                                        </span>
+                                    ) : documents.rows!.length > 0 ? (
+                                        <span className="text-2xs opacity-60 select-none tabular-nums">
+                                            {documents.rows!.length} {t["Files"]}
+                                        </span>
+                                    ) : (
+                                        <span className="text-2xs opacity-40 select-none">
+                                            {t["No documents yet"]}
+                                        </span>
+                                    )}
+                                </span>
+                            ) : null}
+                        </Reveal>
+                    ) : (
+                        <Reveal as="span" present={diff !== null}>
+                            {diff !== null ? (
+                                <span className="flex items-center justify-between gap-2">
+                                    <Diff size={13} className="shrink-0 opacity-70"/>
+                                    {diffTotals.files > 0 ? (
+                                        <DiffCountsBadge added={diffTotals.added} removed={diffTotals.removed}/>
+                                    ) : (
+                                        // Clean working copy — the row still shows so
+                                        // the card says "tracked, nothing changed"
+                                        // instead of vanishing.
+                                        <span className="text-2xs opacity-40 select-none">
+                                            {t["No changes yet"]}
+                                        </span>
+                                    )}
+                                </span>
+                            ) : null}
+                        </Reveal>
+                    )}
                     <Reveal as="span" present={shells.length > 0}>
                         {shells.length > 0 ? (
                             <span className="flex items-center justify-between gap-2">
@@ -506,15 +549,23 @@ const SessionStatsCard = memo(function SessionStatsCard({
                                 <Reveal present={showWorktreeSection}>
                                     {worktree ? <BranchSyncSection {...worktree}/> : null}
                                 </Reveal>
-                                <Reveal present={showChanges}>
-                                    {showChanges ? (
-                                        <ChangesSection
-                                            diff={diff}
-                                            loading={diffLoading}
-                                            totals={diffTotals}
-                                            directory={directory}
-                                            onOpenFile={(file) => setView({kind: "file", file})}
-                                        />
+                                <Reveal present={showWorkspaceSection}>
+                                    {showWorkspaceSection ? (
+                                        mode === "daily" && documents ? (
+                                            <DocumentsSection
+                                                rows={documents.rows}
+                                                loading={documents.loading}
+                                                directory={directory}
+                                            />
+                                        ) : (
+                                            <ChangesSection
+                                                diff={diff}
+                                                loading={diffLoading}
+                                                totals={diffTotals}
+                                                directory={directory}
+                                                onOpenFile={(file) => setView({kind: "file", file})}
+                                            />
+                                        )
                                     ) : null}
                                 </Reveal>
                                 <Reveal present={shells.length > 0}>

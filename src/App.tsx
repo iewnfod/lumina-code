@@ -34,6 +34,7 @@ import {isColorDark, withAlpha} from "./lib/color.ts";
 import {isLinux, isCefRuntime, isMobileApp} from "./lib/platform.ts";
 import {appThemeFor, type ChromeTheme} from "./lib/theme.ts";
 import {useOpencode} from "./opencode/useOpencode.ts";
+import {sessionMode} from "./opencode/appMode.ts";
 import {useSessionFlow} from "./opencode/useSessionFlow.ts";
 import {useDirectoryBranch} from "./opencode/useDirectoryBranch.ts";
 import {useLuminaToolsInstall} from "./opencode/useLuminaTools.ts";
@@ -169,6 +170,7 @@ function AppBody({
         changeDirectory,
         sendFirst,
         deleteSession,
+        sendBlocked,
     } = useSessionFlow();
     const busy = activeId !== null && busyIds.has(activeId);
     // The active session's working directory — scopes the stats card's
@@ -268,6 +270,7 @@ function AppBody({
         name: s.title?.trim() || t["Untitled"],
         directory: s.directory ?? s.location?.directory,
         updatedAt: s.time?.updated,
+        mode: sessionMode(s),
     }));
 
     // Sidebar hover prefetch: warm a session's activity stats AND its
@@ -444,6 +447,7 @@ function AppBody({
                                                 subtitle={placeholderSubtitle ?? undefined}
                                                 disabled={!connected}
                                                 onSend={(text, files, fileRefs, command) => void sendFirst(text, files, fileRefs, command)}
+                                                sendBlocked={sendBlocked}
                                                 agent={effectiveAgent}
                                                 model={effectiveModel}
                                                 onAgentChange={changeAgent}
@@ -511,6 +515,9 @@ function AppBody({
                                             key={dir}
                                             sessionId={activeSession!.id}
                                             directory={activeDirectory}
+                                            // The ACTIVE session's mode picks the card's
+                                            // workspace scope (git diff vs documents).
+                                            mode={sessionMode(activeSession!)}
                                             busyIds={busyIds}
                                             agent={effectiveAgent}
                                         />

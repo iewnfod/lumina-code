@@ -22,6 +22,11 @@ export const MAX_VISIBLE_SESSIONS = 5;
  * folders are collapsed and how far each is expanded; this component
  * renders the state it's handed.
  *
+ * `plain` strips the folder chrome (header + collapse) for the DAILY
+ * half: it owns exactly ONE workspace, so a directory header naming it
+ * is noise — the rows render flat, always expanded, keeping the busy
+ * dots, badges, ages and the show more/less expander.
+ *
  * Motion is CSS: the folder body folds through .lum-fold (grid rows —
  * the browser animates the real height), the chevron rotates via a
  * transition, rows appear with .lum-enter and unmount without exit
@@ -45,6 +50,7 @@ export default function SessionFolder({
     onNewInFolder,
     onShowMore,
     onShowLess,
+    plain = false,
 }: {
     /** The group's PROJECT directory — branch-worktree sessions arrive
      * merged into their main repo's folder ("" = the no-directory
@@ -72,6 +78,9 @@ export default function SessionFolder({
     onShowMore: (directory: string, visibleCount: number) => void;
     /** Collapse back to the initial cap ("Show less"). */
     onShowLess: (directory: string) => void;
+    /** Flat mode (the DAILY half): no header, no collapse — rows only.
+     *  The `directory` prop then only keys the show more/less state. */
+    plain?: boolean;
 }) {
     const colors = useColors();
     const t = useI18n();
@@ -91,11 +100,12 @@ export default function SessionFolder({
 
     return (
         <div>
-            <div
-                className="group/folder w-full flex items-center gap-1 px-3 pt-2.5 pb-1 text-2xs font-medium uppercase tracking-wider cursor-pointer transition-opacity duration-[var(--duration-fast)] ease-[var(--ease-glass)] hover:opacity-70"
-                style={{color: colors.inactiveText}}
-                onClick={() => onToggleFolder(directory)}
-            >
+            {!plain && (
+                <div
+                    className="group/folder w-full flex items-center gap-1 px-3 pt-2.5 pb-1 text-2xs font-medium uppercase tracking-wider cursor-pointer transition-opacity duration-[var(--duration-fast)] ease-[var(--ease-glass)] hover:opacity-70"
+                    style={{color: colors.inactiveText}}
+                    onClick={() => onToggleFolder(directory)}
+                >
                 {/* The header shows the project directory's last segment
                   * (branch sessions share this folder; their branch is
                   * the row chip below) — the hint carries the full path. */}
@@ -123,6 +133,7 @@ export default function SessionFolder({
                     <ChevronRight size={12} />
                 </span>
             </div>
+            )}
             {/* The folder body folds via .lum-fold (grid rows) and its
                 rows mount only while open (held through the collapse
                 transition — the exit engine): collapsed folders keep NO
@@ -130,14 +141,16 @@ export default function SessionFolder({
                 ExitList: a deleted row (user close, helper-session
                 sweep) collapses in place, budget-limited so bulk sweeps
                 don't stack twenty animations at once. */}
-            <div className="lum-fold -mx-1.5" data-open={!collapsed}>
+            <div className="lum-fold -mx-1.5" data-open={plain || !collapsed}>
                 {/* Breathing room inside the animated clip: horizontal
                     padding (with the matching negative margin above) keeps
                     row hover washes from being cut off at the sides, bottom
                     padding gives entering rows' rise room — all on an inner
-                    layer so collapsing to 0fr clips it away too. */}
-                <div className="px-1.5 pt-0.5 pb-2">
-                    <ExitPresence present={!collapsed} exitMs={300} budget={false}>
+                    layer so collapsing to 0fr clips it away too. PLAIN mode
+                    has no header above, so the top padding stands in for
+                    the header's breathing room. */}
+                <div className={plain ? "px-1.5 pt-2 pb-2" : "px-1.5 pt-0.5 pb-2"}>
+                    <ExitPresence present={plain || !collapsed} exitMs={300} budget={false}>
                         {() => (<>
                     <ExitList
                         items={visibleSessions}

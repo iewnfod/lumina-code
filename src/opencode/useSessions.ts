@@ -4,6 +4,7 @@ import type {OpencodeApi} from "./api.ts";
 import {applyStoppingBusEvent} from "./sessionStopping.ts";
 import {applyQueueBusEvent} from "./promptQueue.ts";
 import {applyTurnEditsBusEvent} from "./turnEdits.ts";
+import type {AppMode} from "./appMode.ts";
 import {
     adoptSessions,
     autoRegisterClientSessions,
@@ -65,8 +66,10 @@ export function useSessions(
     loaded: boolean;
     /** Sessions with an execution in flight (live-updated). */
     busyIds: ReadonlySet<string>;
-    /** Create a session (optionally in a specific working directory); returns it (null on failure). */
-    create: (directory?: string) => Promise<OpencodeSession | null>;
+    /** Create a session (optionally in a specific working directory;
+     *  `mode` stamps which sidebar half it belongs to — see appMode.ts);
+     *  returns it (null on failure). */
+    create: (directory?: string, mode?: AppMode) => Promise<OpencodeSession | null>;
     /** Delete a session on the server (removes it everywhere). */
     remove: (id: string) => Promise<void>;
     /** Optimistically patch a session's local fields (model/agent after a
@@ -388,17 +391,20 @@ export function useSessions(
         });
     }, [subscribe, deleteToolSession]);
 
-    const create = useCallback(async (directory?: string) => {
+    const create = useCallback(async (directory?: string, mode?: AppMode) => {
         const a = apiRef.current;
         if (!a) return null;
         try {
             // EVERY Lumina Code client stamps its creations — the marker
             // is the cross-instance auto-whitelist channel (another
             // desktop window / the mobile app registers stamped sessions
-            // on its next list; see sessionRegistry.CLIENT_SOURCE).
+            // on its next list; see sessionRegistry.CLIENT_SOURCE). The
+            // MODE stamp rides along: which sidebar half (daily/dev)
+            // the session belongs to — metadata is create-only on this
+            // server generation, so the mode is fixed at birth.
             const created = await a.createSession({
                 ...(directory ? {directory} : {}),
-                metadata: {source: CLIENT_SOURCE},
+                metadata: {source: CLIENT_SOURCE, ...(mode ? {mode} : {})},
             });
             // Whitelist membership is granted HERE — the single creation
             // choke-point (sendFirst is the only caller). Registered

@@ -12,6 +12,7 @@ import {usePhoneLayout} from "../hooks/useLayoutMode.ts";
 import {folderLabel} from "../lib/path.ts";
 import {groupByDirectory, relativeAge, type SessionInfo} from "./sessionGrouping.ts";
 import {useSessionData} from "../opencode/sessionDataContext.tsx";
+import {sessionMode} from "../opencode/appMode.ts";
 import {useWorktreeDirs} from "../opencode/worktreeSessions.ts";
 
 /**
@@ -59,6 +60,9 @@ export default function ImportSessionsModal({
         name: s.title?.trim() || t["Untitled"],
         directory: s.directory ?? s.location?.directory,
         updatedAt: s.time?.updated,
+        // Foreign sessions carry no mode stamp — they import as dev
+        // (appMode.sessionMode's default for unstamped sessions).
+        mode: sessionMode(s),
     }));
     const groups = groupByDirectory(infos, worktreeDirs);
 

@@ -4,6 +4,7 @@ import {useSessions} from "./useSessions.ts";
 import {useSessionRequests} from "./useSessionRequests.ts";
 import {useSessionMessages, useSessionSeeded} from "./useSessionMessages.ts";
 import {useSessionActivity, useWorkspaceDiff} from "./useSessionActivity.ts";
+import {useWorkspaceDocuments} from "./workspaceDocuments.ts";
 import type {FormAnswer, FormRequest, OpencodeSession, PermissionDecision, PermissionRequest} from "./types.ts";
 
 /**
@@ -142,6 +143,13 @@ export function usePendingRequests(sessionId: string | null): {
 export function useWorkspaceDiffOf(directory: string | null) {
     const {api, subscribe} = useConnection();
     return useWorkspaceDiff(api, subscribe, directory);
+}
+
+/** The daily twin of {@link useWorkspaceDiffOf}: the directory's
+ *  document inventory (opencode/workspaceDocuments.ts). */
+export function useWorkspaceDocumentsOf(directory: string | null) {
+    const {api, subscribe} = useConnection();
+    return useWorkspaceDocuments(api, subscribe, directory);
 }
 
 export function useSessionActivityOf(

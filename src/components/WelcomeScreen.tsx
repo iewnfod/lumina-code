@@ -21,6 +21,7 @@ export default function WelcomeScreen({
     subtitle,
     disabled,
     onSend,
+    sendBlocked = false,
     agent,
     model,
     onAgentChange,
@@ -37,6 +38,9 @@ export default function WelcomeScreen({
     /** No connection yet. */
     disabled: boolean;
     onSend: (text: string, files: ComposerAttachment[], fileRefs: ComposerFileRef[], command: PendingCommand | null) => void;
+    /** DEV's no-default-directory rule (useSessionFlow): the send stays
+     *  refused until a project directory is staged. */
+    sendBlocked?: boolean;
     agent: string;
     model: SessionModelRef | null;
     onAgentChange: (agent: string) => void;
@@ -80,6 +84,7 @@ export default function WelcomeScreen({
                     <ChatInput
                         disabled={disabled}
                         busy={false}
+                        sendBlocked={sendBlocked}
                         draftKey={WELCOME_DRAFT_KEY}
                         onSend={onSend}
                         onInterrupt={() => {}}

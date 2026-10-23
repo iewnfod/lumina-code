@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useState} from "react";
 import {motion} from "framer-motion";
 import {FolderInput, Puzzle, Plus} from "lucide-react";
+import {Tab, Tabs} from "@heroui/react";
 import Icon from "../assets/icon.svg";
 import {isMacOS} from "../lib/platform.ts";
 import {useNow} from "../hooks/useNow.ts";
@@ -11,9 +12,11 @@ import {useCompositorBlurActive} from "../hooks/useBlurMyShell.ts";
 import {glassSurface} from "../lib/glass.ts";
 import {whileHoverTap} from "../lib/motion.ts";
 import {useI18n} from "../hooks/i18n.tsx";
-import {useScrollEdges} from "../hooks/useScrollEdges.ts";
+import {useScrollEdges, type ScrollEdges} from "../hooks/useScrollEdges.ts";
 import {useSidebarResizing, useSidebarWidth} from "../hooks/useSidebarWidth.ts";
 import {groupByDirectory, projectDirOf, type SessionInfo} from "./sessionGrouping.ts";
+import {setAppMode, useAppMode, useGitAvailable, useGitProbe} from "../opencode/appMode.ts";
+import {useConnection} from "../opencode/connectionContext.tsx";
 import {useWorktreeDirs} from "../opencode/worktreeSessions.ts";
 import SessionFolder, {MAX_VISIBLE_SESSIONS} from "./SessionFolder.tsx";
 import type {CSSProperties} from "react";
@@ -76,6 +79,17 @@ export default function SessionBar(props: SessionBarProps) {
     const colors = useSurfaceColors(backgroundColor);
     const {supportsGlass} = useGlass();
     const compositorBlur = useCompositorBlurActive();
+    // The DAILY/DEV split (opencode/appMode.ts): the HeroUI tabs row is
+    // the mode switcher, shown ONLY once git availability is CONFIRMED
+    // — a git-less machine gets the plain daily sidebar, no dev half to
+    // enter (its features all assume git). useGitProbe fires the
+    // once-per-connection probe that flips useGitAvailable to a verdict.
+    const mode = useAppMode();
+    const switcher = useGitAvailable() === true;
+    const {api} = useConnection();
+    useGitProbe(api);
+    const dailySessions = sessions.filter((s) => s.mode === "daily");
+    const devSessions = sessions.filter((s) => s.mode === "dev");
     // The expanded width comes from the sidebar-width module store (the
     // resize seam in App sets it per pointermove — this subscription keeps
     // the per-move re-renders inside the sidebar, AppBody never re-renders).
@@ -84,10 +98,12 @@ export default function SessionBar(props: SessionBarProps) {
     // 400ms spring per pointermove would lag the pointer (rubber-banding).
     // The transition stays for the collapse/expand animation otherwise.
     const resizingSidebar = useSidebarResizing();
-    // Conditional edge fades for the session list: content sits flush at
-    // the top (px-1.5 only), so the fades must appear only while a side
-    // actually has hidden content — a short list renders fade-free.
-    const listEdges = useScrollEdges<HTMLDivElement>();
+    // Conditional edge fades for the session list — ONE TRACKER PER
+    // PAGE now (each half scrolls on its own while the slider slides):
+    // content sits flush at the top (px-1.5 only), so the fades must
+    // appear only while a side actually has hidden content.
+    const dailyEdges = useScrollEdges<HTMLDivElement>();
+    const devEdges = useScrollEdges<HTMLDivElement>();
     // Branch-worktree bindings feed the PROJECT grouping (a worktree
     // session merges into its main repo's folder) — subscribing here
     // also re-groups live the moment sendFirst records a new binding.
@@ -122,6 +138,66 @@ export default function SessionBar(props: SessionBarProps) {
     const showLess = useCallback((directory: string) => {
         setExtraDirs((prev) => new Map(prev).set(directory, 0));
     }, []);
+
+    /** One half's folder list — the DAILY half renders FLAT (one
+     *  pseudo-folder without directory chrome: the mode owns exactly
+     *  one workspace, a header naming it is noise), the dev half groups
+     *  by project as before. The show more/less state stays keyed by
+     *  directory, and the halves' keys never collide ("" only ever
+     *  belongs to the flat daily list; a dev no-directory bucket would
+     *  group under "" too, but the halves never share the page). */
+    const renderGroups = (list: SessionInfo[], plain: boolean) => {
+        const groups: [string, SessionInfo[]][] = plain
+            ? [["", list]]
+            : groupByDirectory(list, worktreeDirs);
+        return groups.map(([directory, groupSessions]) => {
+            const collapsedFolder = collapsedDirs.has(directory);
+            const activeIndex = activeId === null ? -1 : groupSessions.findIndex((s) => s.id === activeId);
+            // Cap each folder at its 5 most-recent sessions; each
+            // "Show more" reveals another 5. The active session always
+            // stays visible even beyond the current cap.
+            const visibleCount = Math.min(
+                groupSessions.length,
+                Math.max(MAX_VISIBLE_SESSIONS + (extraDirs.get(directory) ?? 0), activeIndex + 1),
+            );
+            return (
+                <SessionFolder
+                    key={directory}
+                    directory={directory}
+                    sessions={groupSessions}
+                    visibleSessions={groupSessions.slice(0, visibleCount)}
+                    activeId={activeId}
+                    busyIds={busyIds}
+                    pendingCounts={pendingCounts}
+                    collapsed={collapsedFolder}
+                    now={now}
+                    foregroundColor={foregroundColor}
+                    onSelect={onSelect}
+                    onClose={onClose}
+                    onSessionHover={onSessionHover}
+                    onToggleFolder={toggleFolder}
+                    onNewInFolder={onNew}
+                    onShowMore={showMore}
+                    onShowLess={showLess}
+                    plain={plain}
+                />
+            );
+        });
+    };
+
+    /** One scrolling half-page of the slider. */
+    const page = (list: SessionInfo[], edges: ScrollEdges<HTMLDivElement>, plain: boolean) => (
+        <div
+            ref={edges.ref}
+            onScroll={edges.onScroll}
+            className={`h-full overflow-y-auto overflow-x-hidden px-1.5 lum-fade-md ${isMacOS() ? "pt-1.5" : ""}${
+                edges.top ? " lum-fade-top" : ""
+            }${edges.bottom ? " lum-fade-bottom" : ""}`}
+            data-tauri-drag-region
+        >
+            {renderGroups(list, plain)}
+        </div>
+    );
 
     // The sidebar wears the glass material over the content canvas. On
     // platforms where backdrop-filter is unreliable (Linux/Wayland), this
@@ -171,46 +247,64 @@ export default function SessionBar(props: SessionBarProps) {
                 </div>
             </div>
 
-            <div
-                ref={listEdges.ref}
-                onScroll={listEdges.onScroll}
-                className={`flex-1 overflow-y-auto overflow-x-hidden px-1.5 lum-fade-md ${isMacOS() ? "pt-1.5" : ""}${
-                    listEdges.top ? " lum-fade-top" : ""
-                }${listEdges.bottom ? " lum-fade-bottom" : ""}`}
-                data-tauri-drag-region
-            >
-                {groupByDirectory(sessions, worktreeDirs).map(([directory, groupSessions]) => {
-                    const collapsedFolder = collapsedDirs.has(directory);
-                    const activeIndex = activeId === null ? -1 : groupSessions.findIndex((s) => s.id === activeId);
-                    // Cap each folder at its 5 most-recent sessions; each
-                    // "Show more" reveals another 5. The active session always
-                    // stays visible even beyond the current cap.
-                    const visibleCount = Math.min(
-                        groupSessions.length,
-                        Math.max(MAX_VISIBLE_SESSIONS + (extraDirs.get(directory) ?? 0), activeIndex + 1),
-                    );
-                    return (
-                        <SessionFolder
-                            key={directory}
-                            directory={directory}
-                            sessions={groupSessions}
-                            visibleSessions={groupSessions.slice(0, visibleCount)}
-                            activeId={activeId}
-                            busyIds={busyIds}
-                            pendingCounts={pendingCounts}
-                            collapsed={collapsedFolder}
-                            now={now}
-                            foregroundColor={foregroundColor}
-                            onSelect={onSelect}
-                            onClose={onClose}
-                            onSessionHover={onSessionHover}
-                            onToggleFolder={toggleFolder}
-                            onNewInFolder={onNew}
-                            onShowMore={showMore}
-                            onShowLess={showLess}
-                        />
-                    );
-                })}
+            {/* The mode switcher — HeroUI tabs with the sliding selection
+                indicator. Hidden until git availability is CONFIRMED: a
+                git-less machine is daily-only by design (a crippled dev
+                half is worse than none), and while the probe is still
+                pending there is simply nothing to switch yet. */}
+            {switcher && (
+                <div className="shrink-0 px-3 pb-1" data-tauri-drag-region>
+                    <Tabs
+                        aria-label={t["Mode"]}
+                        selectedKey={mode}
+                        onSelectionChange={(key) => {
+                            if (key === "daily" || key === "dev") setAppMode(key);
+                        }}
+                    >
+                        <Tabs.List aria-label={t["Mode"]}>
+                            {/* The indicator lives INSIDE each Tab (the
+                                react-aria pattern: it renders within the
+                                SELECTED tab and animates across via the
+                                SharedElement transition — as a TabList
+                                sibling it renders outside the transition
+                                scope and crashes). */}
+                            <Tab id="daily">
+                                {t["Daily"]}
+                                <Tabs.Indicator/>
+                            </Tab>
+                            <Tab id="dev">
+                                {t["Development"]}
+                                <Tabs.Indicator/>
+                            </Tab>
+                        </Tabs.List>
+                    </Tabs>
+                </div>
+            )}
+
+            {/* The session list: a TWO-PAGE HORIZONTAL SLIDER when the
+                switcher exists (both halves stay MOUNTED — collapsed
+                folders, scroll positions and "show more" states survive
+                a switch; only the strip translates, CSS owns the motion
+                per §3.7), or a plain single scrolling page on a
+                git-less machine. */}
+            <div className="flex-1 min-h-0 overflow-hidden" data-tauri-drag-region>
+                <div
+                    className={
+                        switcher
+                            ? "flex h-full w-[200%] transition-transform duration-[var(--duration-slow)] ease-[var(--ease-glass)]"
+                            : "h-full"
+                    }
+                    style={switcher
+                        ? {transform: mode === "daily" ? "translateX(0)" : "translateX(-50%)"}
+                        : undefined}
+                >
+                    <div className={switcher ? "w-1/2 h-full min-w-0" : "h-full"}>
+                        {page(dailySessions, dailyEdges, true)}
+                    </div>
+                    {switcher && (
+                        <div className="w-1/2 h-full min-w-0">{page(devSessions, devEdges, false)}</div>
+                    )}
+                </div>
             </div>
 
             {/* Bottom actions. The extensions manager sits ABOVE import —

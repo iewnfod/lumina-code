@@ -32,10 +32,20 @@ export function fadeClasses(
  * output) use useFollowBottom instead — it folds the vertical edge flags
  * into its follow logic so one hook serves both jobs.
  */
-export function useScrollEdges<T extends HTMLElement>() {
+/** The hook's result shape (named for consumers that pass it around,
+ *  e.g. SessionBar's half-page renderer). */
+export interface ScrollEdges<T extends HTMLElement> {
+    ref: {current: T | null};
+    onScroll: () => void;
+    top: boolean;
+    bottom: boolean;
+    left: boolean;
+    right: boolean;
+}
+
+export function useScrollEdges<T extends HTMLElement>(): ScrollEdges<T> {
     const ref = useRef<T>(null);
     const [edges, setEdges] = useState({top: false, bottom: false, left: false, right: false});
-
     const measure = () => {
         const el = ref.current;
         if (!el) return;

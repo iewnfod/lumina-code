@@ -52,6 +52,7 @@ const ChatInput = memo(function ChatInput({
     busy,
     onSend,
     onInterrupt,
+    sendBlocked = false,
     agent,
     model,
     onAgentChange,
@@ -80,6 +81,10 @@ const ChatInput = memo(function ChatInput({
     busy: boolean;
     onSend: (text: string, files: ComposerAttachment[], fileRefs: ComposerFileRef[], command: PendingCommand | null) => void;
     onInterrupt: () => void;
+    /** DEV's no-default-directory rule (see ComposerToolbar): also
+     *  intercepts the Enter-key submit path so a raced send keeps the
+     *  buffer (ComposerCore retains it on a false return). */
+    sendBlocked?: boolean;
     /** Effective selections (session-bound once a session exists). */
     agent: string;
     model: SessionModelRef | null;
@@ -300,11 +305,13 @@ const ChatInput = memo(function ChatInput({
                     return ok;
                 });
             }
+            if (sendBlocked) return false; // dev + no project staged: the
+            // buffer stays (the disabled button's hint says why)
             onSend(text, attachments, fileRefs, command);
             setAttachments([]);
             return true;
         },
-        [editMessage, onSubmitEdit, onSend, attachments],
+        [editMessage, onSubmitEdit, onSend, sendBlocked, attachments],
     );
 
     const initialConfig = {
@@ -419,6 +426,7 @@ const ChatInput = memo(function ChatInput({
                 disabled={disabled}
                 busy={busy}
                 canSend={canSend}
+                sendBlocked={sendBlocked}
                 onAttach={() => fileInputRef.current?.click()}
                 onSend={() => composerApiRef.current?.submit()}
                 onInterrupt={onInterrupt}

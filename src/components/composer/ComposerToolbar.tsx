@@ -1,5 +1,6 @@
 import {ArrowUp, Blocks, Brain, Cpu, Paperclip, Settings2, Square} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
+import {useAppMode} from "../../opencode/appMode.ts";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import type {
@@ -62,6 +63,7 @@ export default function ComposerToolbar({
     disabled,
     busy,
     canSend,
+    sendBlocked = false,
     onAttach,
     onSend,
     onInterrupt,
@@ -84,6 +86,10 @@ export default function ComposerToolbar({
     busy: boolean;
     /** The editor holds non-empty content (send enabled). */
     canSend: boolean;
+    /** DEV's no-default-directory rule: the welcome composer has no
+     *  project staged yet — the send button shows the "choose a project
+     *  directory" hint instead of sending. */
+    sendBlocked?: boolean;
     onAttach: () => void;
     onSend: () => void;
     onInterrupt: () => void;
@@ -142,8 +148,9 @@ export default function ComposerToolbar({
     {/* One send/stop slot: text ready → SEND (mid-run it QUEUES —
      * promptQueue.ts — instead of steering the turn; the title
      * says so), no text while running → STOP, idle and empty →
-     * send stays disabled. */}
-    const sendSlot = !disabled && canSend ? (
+     * send stays disabled. A BLOCKED send (dev without a project)
+     * renders the disabled button with the choose-a-directory hint. */}
+    const sendSlot = !disabled && canSend && !sendBlocked ? (
         <ToolbarButton
             icon={<ArrowUp size={14}/>}
             title={busy ? t["Queue message"] : t["Send"]}
@@ -158,7 +165,7 @@ export default function ComposerToolbar({
     ) : (
         <ToolbarButton
             icon={<ArrowUp size={14}/>}
-            title={t["Send"]}
+            title={sendBlocked ? t["Choose a project directory first"] : t["Send"]}
             disabled
             onClick={onSend}
         />
@@ -240,6 +247,10 @@ export function ComposerSettingsControls({
     const t = useI18n();
     const {agents} = useCatalog();
     const agentName = agentLabel(agent, agents.find((a) => a.id === agent)?.name, t);
+    // The directory/branch pickers are DEV's: the daily mode owns one
+    // fixed workspace (defaultWorkspace.ts) and hides both — git-flavored
+    // controls are exactly the clutter a non-developer should never see.
+    const mode = useAppMode();
 
     return (
         <>
@@ -273,14 +284,14 @@ export function ComposerSettingsControls({
                     </div>
                 )}
             </PopoverMenu>
-            {!conversationStarted && (
+            {mode === "dev" && !conversationStarted && (
                 <DirectoryPicker
                     directory={directory}
                     onChange={onDirectoryChange}
                     align={align}
                 />
             )}
-            {!conversationStarted && (
+            {mode === "dev" && !conversationStarted && (
                 <BranchPicker
                     directory={directory}
                     branch={stagedBranch}

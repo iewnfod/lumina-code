@@ -5,6 +5,7 @@
  */
 
 import {type WorktreeDirs} from "../opencode/worktreeSessions.ts";
+import type {AppMode} from "../opencode/appMode.ts";
 
 export interface SessionInfo {
     id: string;
@@ -14,6 +15,9 @@ export interface SessionInfo {
     directory?: string;
     /** Last update time (epoch ms) — rendered as a relative age. */
     updatedAt?: number;
+    /** Which sidebar half the session belongs to (appMode.ts): the
+     *  creation-time metadata stamp, derived by the App mapping. */
+    mode: AppMode;
 }
 
 /** Compact relative age: "now", "5m", "3h", "2d" — locale-neutral units. */

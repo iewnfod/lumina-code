@@ -4,7 +4,7 @@ import {groupByDirectory, projectDirOf, relativeAge, type SessionInfo} from "./s
 import type {WorktreeDirs} from "../opencode/worktreeSessions.ts";
 
 function session(id: string, directory?: string, updatedAt?: number): SessionInfo {
-    return {id, name: id, directory, updatedAt};
+    return {id, name: id, directory, updatedAt, mode: "dev"};
 }
 
 test("relativeAge buckets minute/hour/day", () => {

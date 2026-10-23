@@ -1,7 +1,9 @@
-import {useCallback, useEffect, useMemo, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {error, info, warn} from "@tauri-apps/plugin-log";
 import {loadState, saveState} from "../lib/persist.ts";
 import {fileRefToPromptFile, OpencodeApi} from "./api.ts";
+import {sessionMode, useAppMode} from "./appMode.ts";
+import {ensureDefaultWorkspace, resolveDefaultWorkspace} from "./defaultWorkspace.ts";
 import {appendFailedPrompt, prepareCommandSubmission} from "./useSessionMessages.ts";
 import {useCatalog} from "./catalogContext.tsx";
 import {useConnection} from "./connectionContext.tsx";
@@ -97,6 +99,9 @@ export function useSessionFlow(): {
         command: PendingCommand | null,
     ) => Promise<void>;
     deleteSession: (id: string) => void;
+    /** DEV + welcome screen + no project staged: the composer's send
+     *  is refused until a directory is picked (dev has no default). */
+    sendBlocked: boolean;
 } {
     const {api} = useConnection();
     const {models, agents, defaultModel} = useCatalog();
@@ -108,6 +113,10 @@ export function useSessionFlow(): {
         removeSession: remove,
         patchSession: patch,
     } = useSessionData();
+    // The DAILY/DEV split (opencode/appMode.ts): sendFirst's directory
+    // rules and the mode stamp follow the EFFECTIVE mode (a confirmed
+    // git-less machine forces "daily" — see the gate there).
+    const mode = useAppMode();
 
     // Cross-restart restore, read synchronously so the first paint already
     // targets the previous session / composer choices.
@@ -125,6 +134,39 @@ export function useSessionFlow(): {
     // welcome screen starts a fresh choice (the same reasoning as the
     // in-progress draft staying in memory).
     const [pendingBranch, setPendingBranch] = useState<string | null>(null);
+
+    // --- Mode-switch choreography (appMode.ts) ---
+    // Switching halves (or being forced off dev by a confirmed git-less
+    // machine) invalidates the open session when it belongs to the
+    // OTHER half — the new mode's sidebar could never navigate back to
+    // it. Back to the welcome screen with the staging cleared: the
+    // previous session's directory belongs to the old mode too (a
+    // daily workspace must not leak into dev's picker), so unlike
+    // newSession() nothing is re-seeded here.
+    const prevModeRef = useRef(mode);
+    useEffect(() => {
+        if (prevModeRef.current === mode) return;
+        prevModeRef.current = mode;
+        setPendingBranch(null);
+        setPendingDirectory(null);
+        if (activeId !== null && activeSession && sessionMode(activeSession) !== mode) {
+            setActiveId(null);
+        }
+    }, [mode, activeId, activeSession]);
+    // Dev has no "default directory" anymore: an unstaged welcome
+    // composer preselects the most recent DEV session's project (a
+    // daily session's workspace is not a code project to suggest). No
+    // dev session yet (a brand-new install) keeps null — the send
+    // button stays blocked with the "choose a project directory" hint
+    // until the user picks one.
+    useEffect(() => {
+        if (mode !== "dev" || activeId !== null || pendingDirectory !== null) return;
+        const recent = sessions.find((s) =>
+            sessionMode(s) === "dev" && !!(s.directory ?? s.location?.directory)
+        );
+        const dir = recent?.directory ?? recent?.location?.directory;
+        if (dir) setPendingDirectory(mainDirFor(dir));
+    }, [mode, activeId, pendingDirectory, sessions]);
 
     // Preselect the server's default model when it survived the catalog
     // filter; otherwise the first (newest-first) own model. None until the
@@ -245,10 +287,27 @@ export function useSessionFlow(): {
         command: PendingCommand | null = null,
     ) => {
         if (!api) return;
-        const directory = pendingBranch && pendingDirectory
-            ? await resolveBranchDirectory(api, pendingDirectory, pendingBranch)
-            : pendingDirectory ?? undefined;
-        const created = await create(directory);
+        // The mode decides the directory contract: DAILY always lands
+        // in the fixed workspace (materialized + seeded on first use —
+        // defaultWorkspace.ts), DEV requires an explicit project (the
+        // "default directory" escape hatch is gone; the UI disables
+        // sending until one is picked, so a bare dev send here is a
+        // raced button — refuse it rather than fall back to home).
+        let directory: string | undefined;
+        if (mode === "daily") {
+            const workspace = await resolveDefaultWorkspace(api);
+            if (workspace) await ensureDefaultWorkspace(api, workspace); // best-effort, never throws
+            directory = workspace ?? undefined;
+        } else {
+            if (!pendingDirectory) {
+                warn("dev-mode send without a staged project directory; refusing").catch(() => {});
+                return;
+            }
+            directory = pendingBranch
+                ? await resolveBranchDirectory(api, pendingDirectory, pendingBranch)
+                : pendingDirectory;
+        }
+        const created = await create(directory, mode);
         if (!created) return;
         if (pendingModel) {
             await api.switchModel(created.id, pendingModel).catch((e) => {
@@ -305,12 +364,18 @@ export function useSessionFlow(): {
                 ...(command ? {command} : {}),
             });
         });
-    }, [api, create, models, pendingAgent, pendingBranch, pendingDirectory, pendingModel]);
+    }, [api, create, mode, models, pendingAgent, pendingBranch, pendingDirectory, pendingModel]);
 
     const deleteSession = useCallback((id: string) => {
         void remove(id);
         setActiveId((cur) => (cur === id ? null : cur));
     }, [remove]);
+
+    // DEV's "no default directory" rule, as a single derived flag the
+    // composer chain renders from (the button's disabled hint and the
+    // Enter-key intercept). Only the welcome screen can be blocked — an
+    // open session already carries its directory.
+    const sendBlocked = mode === "dev" && activeId === null && pendingDirectory === null;
 
     // Drop a restored session id the server no longer lists (deleted while we
     // were away), once the first session list has actually landed.
@@ -349,5 +414,6 @@ export function useSessionFlow(): {
         changeDirectory,
         sendFirst,
         deleteSession,
+        sendBlocked,
     };
 }
