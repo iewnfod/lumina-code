@@ -9,7 +9,6 @@ import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {whileHoverTap} from "../../lib/motion.ts";
 import {formatCost, formatTokens} from "../chat/usageStats.ts";
 import {UsageDonut, UsageLegend, UsageLines, type HoverKey} from "./UsageCharts.tsx";
-import SectionHeader from "./SectionHeader.tsx";
 import {
     buildUsageSeries,
     dayWindows,
@@ -36,7 +35,7 @@ export default function UsageSettings({api}: {api: OpencodeApi | null}) {
     const colors = useColors();
     const t = useI18n();
     const {models} = useCatalog();
-    const [days, setDays] = useState<(typeof RANGES)[number]>(30);
+    const [days, setDays] = useState<(typeof RANGES)[number]>(7);
     // Bumped by the retry button — remounts the load below.
     const [attempt, setAttempt] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -102,7 +101,7 @@ export default function UsageSettings({api}: {api: OpencodeApi | null}) {
     const slices = useMemo(() => pieSlices(displaySeries), [displaySeries]);
     const rowColors = useMemo(() => displaySeries.map((_, i) => seriesColor(i)), [displaySeries]);
     const lines = useMemo(
-        () => displaySeries.map((r, i) => ({key: r.key, color: seriesColor(i), perDay: r.perDay})),
+        () => displaySeries.map((r, i) => ({key: r.key, label: r.label, color: seriesColor(i), perDay: r.perDay})),
         [displaySeries],
     );
     const labels = useMemo(() => dayWindows(days, new Date()).map((w) => w.label), [days]);
@@ -186,7 +185,7 @@ export default function UsageSettings({api}: {api: OpencodeApi | null}) {
             ) : (
                 <>
                     {/* Model share — donut + legend, one hover channel. */}
-                    <div className="flex items-center gap-6 pb-8">
+                    <div className="flex items-center gap-8 pb-10">
                         <UsageDonut
                             slices={slices}
                             colors={rowColors}
@@ -197,8 +196,9 @@ export default function UsageSettings({api}: {api: OpencodeApi | null}) {
                         <UsageLegend rows={displaySeries} colors={rowColors} hovered={hovered} onHover={onHover}/>
                     </div>
 
-                    {/* Daily trend. */}
-                    <SectionHeader label={t["Daily usage"]}/>
+                    {/* Daily trend — no section header: the chart follows
+                     * the donut block directly (the pane's own hierarchy
+                     * reads fine without the caption). */}
                     <UsageLines labels={labels} series={lines} ticks={ticks} hovered={hovered} onHover={onHover}/>
                 </>
             )}

@@ -34,6 +34,64 @@ export function seriesColor(rank: number): string {
     return MODEL_CHART_COLORS[rank % MODEL_CHART_COLORS.length];
 }
 
+/** A smooth path through the points — MONOTONE CUBIC interpolation
+ *  (Fritsch–Carlson): tangents are clamped per segment so the curve can
+ *  never overshoot past its endpoints' values — non-negative usage data
+ *  stays non-negative (the plain Catmull-Rom form used to dip below
+ *  zero around sharp peaks), and every data point is an exact anchor.
+ *  This is d3's curveMonotoneX algorithm; x spacing comes from the
+ *  caller (the daily trend's slots are uniform). */
+export function smoothPath(points: [number, number][]): string {
+    const n = points.length;
+    if (n === 0) return "";
+    const r = (v: number) => Math.round(v * 100) / 100;
+    if (n === 1) return `M ${r(points[0][0])} ${r(points[0][1])}`;
+    // Secant slopes per segment.
+    const delta: number[] = [];
+    for (let i = 0; i < n - 1; i++) {
+        const dx = points[i + 1][0] - points[i][0] || 1e-9;
+        delta.push((points[i + 1][1] - points[i][1]) / dx);
+    }
+    // Initial tangents: one-sided at the ends, the secant average inside
+    // — EXCEPT at local extrema (adjacent secants of opposite sign),
+    // where the tangent is ZEROED: the curve flattens into the peak or
+    // valley instead of carrying momentum THROUGH it (the missing half
+    // of Fritsch–Carlson — without it an asymmetric valley such as
+    // 50 → 0 → 80 kept an uphill tangent at the 0 and dipped below it).
+    const m: number[] = new Array(n);
+    m[0] = delta[0];
+    m[n - 1] = delta[n - 2];
+    for (let i = 1; i < n - 1; i++) {
+        m[i] = delta[i - 1] * delta[i] <= 0 ? 0 : (delta[i - 1] + delta[i]) / 2;
+    }
+    // Fritsch–Carlson clamp: flat secants keep flat tangents; a tangent
+    // pair that would overshoot the segment's endpoints is scaled back.
+    for (let i = 0; i < n - 1; i++) {
+        if (delta[i] === 0) {
+            m[i] = 0;
+            m[i + 1] = 0;
+        } else {
+            const a = m[i] / delta[i];
+            const b = m[i + 1] / delta[i];
+            const s = a * a + b * b;
+            if (s > 9) {
+                const t = 3 / Math.sqrt(s);
+                m[i] = t * a * delta[i];
+                m[i + 1] = t * b * delta[i];
+            }
+        }
+    }
+    // Hermite per segment → cubic bezier.
+    let d = `M ${r(points[0][0])} ${r(points[0][1])}`;
+    for (let i = 0; i < n - 1; i++) {
+        const [x1, y1] = points[i];
+        const [x2, y2] = points[i + 1];
+        const dx = (x2 - x1) / 3;
+        d += ` C ${r(x1 + dx)} ${r(y1 + m[i] * dx)}, ${r(x2 - dx)} ${r(y2 - m[i + 1] * dx)}, ${r(x2)} ${r(y2)}`;
+    }
+    return d;
+}
+
 /** One display row of the usage charts — a model's aggregate over the
  *  selected window, with the per-day breakdown filled in when the row
  *  comes from {@link buildUsageSeries} (the pie's plain aggregate rows

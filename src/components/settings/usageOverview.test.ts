@@ -8,6 +8,7 @@ import {
     niceTicks,
     pieSlices,
     seriesColor,
+    smoothPath,
     xLabelIndices,
 } from "./usageOverview.ts";
 
@@ -15,8 +16,53 @@ import {
  * Pure-logic tests for the Usage pane's shaping layer: variant
  * collapsing into per-model rows, the local-midnight day windows that
  * drive the per-model matrix queries, matrix folding (aligned +
- * null-tolerant), donut geometry, and tidy axis ticks.
+ * null-tolerant), donut geometry, tidy axis ticks, and the daily
+ * trend's smooth (Catmull-Rom) path generator.
  */
+
+test("smoothPath: empty and single-point degenerate cases", () => {
+    assert.equal(smoothPath([]), "");
+    assert.equal(smoothPath([[5, 7]]), "M 5 7");
+});
+
+test("smoothPath: passes through every point exactly (bezier anchors)", () => {
+    const pts: [number, number][] = [[0, 0], [10, 30], [40, 10], [80, 50]];
+    const d = smoothPath(pts);
+    // One M + one C per segment; each C's endpoint is the NEXT point.
+    const segments = d.split(" C ");
+    assert.equal(segments.length, pts.length);
+    assert.match(segments[0], /^M 0 0$/);
+    for (let i = 1; i < pts.length; i++) {
+        const anchor = segments[i].split(", ").pop()!.trim();
+        assert.equal(anchor, `${pts[i][0]} ${pts[i][1]}`);
+    }
+});
+
+test("smoothPath: monotone — flat segments keep flat tangents (no dip below zero)", () => {
+    // 0 → 0 → peak: the flat 0-0 segment must leave with a ZERO tangent
+    // (Fritsch–Carlson), so the curve cannot dip below the data's 0.
+    const pts: [number, number][] = [[0, 0], [10, 0], [20, 40]];
+    const d = smoothPath(pts);
+    const firstCurve = d.split(" C ")[1];
+    // Control points: c1 = (x1+dx, y1 + m0*dx) with m0 clamped to 0 →
+    // y stays 0; c2 = (x2-dx, y2 - m1*dx) — m1 also clamped to 0 on a
+    // flat segment → 0.
+    assert.match(firstCurve, /^3\.33 0, 6\.67 0, 10 0$/);
+});
+
+test("smoothPath: monotone — an asymmetric valley never dips below its floor", () => {
+    // 50 → 0 → 80: the valley point is a local minimum (secants -5 then
+    // +8, opposite signs), so its tangent is ZEROED — the curve lands
+    // on the 0 and turns, instead of carrying the descent through it
+    // (the pre-fix curve left the 0 with an UPHILL tangent and dipped
+    // below zero to get there).
+    const pts: [number, number][] = [[0, 50], [10, 0], [20, 80]];
+    const d = smoothPath(pts);
+    const firstCurve = d.split(" C ")[1];
+    // Segment 1 (50 → 0): c2 = (x2 - dx, y2 - m1*dx) with m1 = 0 → the
+    // control point sits exactly ON the valley's y.
+    assert.match(firstCurve, /^3\.33 33\.33, 6\.67 0, 10 0$/);
+});
 
 function stat(id: string, providerID: string, variant: string | undefined, tokens: number, steps = 1): ModelUsageStat {
     return {
