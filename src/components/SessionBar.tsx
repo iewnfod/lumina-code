@@ -261,7 +261,14 @@ export default function SessionBar(props: SessionBarProps) {
                             if (key === "daily" || key === "dev") setAppMode(key);
                         }}
                     >
-                        <Tabs.List aria-label={t["Mode"]}>
+                        {/* Segmented-control background: the neutral ladder's
+                            fill token over the chrome glass (the badge/chip
+                            precedent), pill-shaped. */}
+                        <Tabs.List
+                            aria-label={t["Mode"]}
+                            className="rounded-full"
+                            style={{background: "var(--lum-neutral-fill)"}}
+                        >
                             {/* The indicator lives INSIDE each Tab (the
                                 react-aria pattern: it renders within the
                                 SELECTED tab and animates across via the
