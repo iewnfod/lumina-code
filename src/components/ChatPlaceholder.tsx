@@ -2,13 +2,16 @@ import {useMemo} from "react";
 import CO from "../assets/CO.svg";
 import {resolvedLanguage} from "../hooks/i18n.tsx";
 import {folderLabel} from "../lib/path.ts";
+import {useAppMode} from "../opencode/appMode.ts";
 import {pickGreeting} from "./greetings.ts";
 
 /**
  * Greeting shown above the centered composer on the welcome screen —
  * mostly plain time-of-day greetings, occasionally a meme, and
- * special-occasion eggs (see greetings.ts). Falls back to a
- * connection-status line while (dis)connecting.
+ * special-occasion eggs (see greetings.ts), all picked from the
+ * CURRENT MODE's pools (daily = life-assistant wording, dev = the
+ * coder set). Falls back to a connection-status line while
+ * (dis)connecting.
  *
  * The staggered entrance is pure CSS: .lum-enter with per-element
  * animation-delay utilities.
@@ -24,14 +27,15 @@ export default function ChatPlaceholder({
     /** Selected working directory — feeds the {project} greetings. */
     directory: string | null;
 }) {
-    // Re-rolled per mount and when the language or directory changes
+    // Re-rolled per mount and when the language, mode or directory changes
     // (App re-renders on language switches via useI18n, which is what makes
     // resolvedLanguage() observable here). Plain re-renders don't flicker.
     const projectName = directory ? folderLabel(directory) : null;
     const language = resolvedLanguage();
+    const mode = useAppMode();
     const greeting = useMemo(
-        () => pickGreeting({now: new Date(), language, projectName}),
-        [language, projectName],
+        () => pickGreeting({now: new Date(), language, mode, projectName}),
+        [language, mode, projectName],
     );
 
     return (

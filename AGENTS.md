@@ -2253,7 +2253,12 @@ src/
     │                      #   (independent id sets — zh-only memes don't leak
     │                      #   to en), probability-gated special occasions
     │                      #   (1024, Thursday KFC, late night, Friday deploy,
-    │                      #   Monday, weekend), {project} interpolation.
+    │                      #   Monday, weekend), {project} interpolation — ALL
+    │                      #   SPLIT BY daily/dev mode (GreetingMode mirrors
+    │                      #   AppMode structurally; mode-scoped sibling
+    │                      #   occasions): daily gets life-assistant wording
+    │                      #   and never a coder meme, dev keeps the original
+    │                      #   set; ChatPlaceholder feeds useAppMode() through.
     │                      #   node-testable.
     ├── WelcomeScreen.tsx  # The no-session surface: greeting + the staged
     │                      #   composer (session created on first send).
