@@ -142,6 +142,7 @@ export const BranchSyncSection = memo(function BranchSyncSection({
                 <Hint label={busy && !syncing ? t["Stop the AI before syncing"] : ""}>
                     <Button
                         primary
+                        size="sm"
                         disabled={syncing || busy}
                         onClick={onSync}
                         label={syncing ? t["Syncing…"] : t["Sync to local branch"]}

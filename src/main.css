@@ -161,6 +161,15 @@
 :root {
     --lum-code-size: 12px;
 
+    /* HeroUI theme pin: the library's accent hue drives its Switch
+     * checked track, focus tints and accent-variant surfaces — pin it
+     * to OUR brand cinnabar (the @theme tokens above) instead of
+     * heroui's default blue-violet. Everything derived from --accent
+     * (--accent-hover's color-mix, --focus) follows automatically;
+     * unlayered rules beat heroui's @layer base definitions. */
+    --accent: var(--color-brand-cinnabar);
+    --accent-foreground: #fff;
+
     /* Neutral gray ladder — the ONLY grays allowed in stylesheets. The
      * ~15 ad-hoc rgba(128,128,128,x) values that used to be scattered
      * across main.css / diffView.css collapsed into these 5 named tiers
@@ -1316,12 +1325,14 @@ button.lum-md-doc:focus-visible {
     box-shadow: none;
 }
 
-/* The HORIZONTAL segmented tabs' labels must never wrap (a squeezed
- * flex row folds CJK labels first — CJK min-content is a single
- * character): force the single line; the surrounding row's other end
- * takes the squeeze instead. */
+/* The HORIZONTAL segmented tabs: taller than heroui's default h-8
+ * (h-9 — the settings page's roomier sizing) and their labels never
+ * wrap (a squeezed flex row folds CJK labels first — CJK min-content
+ * is a single character): force the single line; the surrounding
+ * row's other end takes the squeeze instead. */
 .lum-usage-tabs .tabs__tab,
 .lum-model-tabs .tabs__tab {
+    height: 2.25rem;
     white-space: nowrap;
 }
 

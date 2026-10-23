@@ -80,6 +80,7 @@ export default function ImportSessionsModal({
                     <span className="text-sm font-semibold truncate leading-normal">{t["Import Session"]}</span>
                     {infos.length > 1 && (
                         <Button
+                            size="sm"
                             label={t["Import All"]}
                             onClick={() => importSessions(infos.map((s) => s.id))}
                         />

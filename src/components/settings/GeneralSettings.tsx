@@ -1,5 +1,6 @@
 import {info} from "@tauri-apps/plugin-log";
 import {motion} from "framer-motion";
+import {Button as HeroUIButton, ButtonGroup} from "@heroui/react";
 import {type CSSProperties} from "react";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import {useColors} from "../../hooks/colors.tsx";
@@ -40,9 +41,11 @@ import SystemPromptSection from "./SystemPromptSection.tsx";
  * draft/save footer here.
  */
 
-/** A SettingRow whose control is a segmented control. The visual language
- *  is the modal's own tab row (active pill on activeOverlay, idle labels
- *  in inactiveText) so settings controls and modal chrome read as one. */
+/** A SettingRow whose control is a segmented control — the HeroUI
+ * ButtonGroup (ghost, sm): the selected option carries the same
+ * lavender accent as the rail's selected tab, idle labels in
+ * inactiveText. The group's own tokens (--accent, --focus) are pinned
+ * to the brand palette in main.css. */
 function OptionRow({
     label,
     description,
@@ -59,33 +62,46 @@ function OptionRow({
     const colors = useColors();
     return (
         <SettingRow label={label} description={description}>
-            <div className="flex items-center gap-1">
-                {options.map((option) => {
+            {/* The segmented look: the group itself carries the neutral-fill
+             * pill container (the buttons' own edge radii form its shape)
+             * and a Separator hairline between the options. */}
+            <ButtonGroup
+                variant="ghost"
+                size="sm"
+                aria-label={label}
+                className="rounded-[var(--radius-md)]"
+                style={{background: "var(--lum-neutral-fill)"}}
+            >
+                {options.map((option, index) => {
                     const active = option.value === selected;
-                    return (
-                        <motion.button
+                    // NOTE: an ARRAY, not a Fragment — ButtonGroup injects its
+                    // variant/size into DIRECT children only (Children.map +
+                    // cloneElement); a Fragment would swallow the injection and
+                    // the buttons would fall back to the primary variant (an
+                    // all-cinnabar group). Children.map flattens arrays, so the
+                    // separator and the button both register as direct children.
+                    return [
+                        ...(index > 0 ? [<ButtonGroup.Separator key={`${option.value}-sep`}/>] : []),
+                        <HeroUIButton
                             key={option.value}
-                            type="button"
-                            onClick={() => onSelect(option.value)}
-                            {...whileHoverTap}
-                            className={`h-7 px-2.5 rounded-[var(--radius-sm)] text-xs font-medium cursor-pointer transition-colors duration-[var(--duration-fast)] ${
-                                active ? "" : "hover:bg-[var(--lum-seg-hover)]"
-                            }`}
+                            onPress={() => onSelect(option.value)}
                             style={
                                 active
-                                    // Same lavender accent as the sidebar's selected session.
-                                    ? {background: colors.accentOverlay}
-                                    : {
-                                        "--lum-seg-hover": colors.hoverOverlay,
-                                        color: colors.inactiveText,
+                                    ? {
+                                        // Same lavender accent as the sidebar's selected session.
+                                        "--button-bg": colors.accentOverlay,
+                                        "--button-bg-hover": colors.accentOverlay,
+                                        "--button-bg-pressed": colors.accentOverlay,
+                                        "--button-fg": colors.textPrimary,
                                     } as CSSProperties
+                                    : {"--button-fg": colors.inactiveText} as CSSProperties
                             }
                         >
                             {option.text}
-                        </motion.button>
-                    );
+                        </HeroUIButton>,
+                    ];
                 })}
-            </div>
+            </ButtonGroup>
         </SettingRow>
     );
 }
@@ -114,7 +130,7 @@ function SizeStepper({
             title={hint}
             onClick={() => onChange(value + delta)}
             {...whileHoverTap}
-            className={`h-7 w-7 shrink-0 rounded-[var(--radius-sm)] text-xs font-medium transition-colors duration-[var(--duration-fast)] ${
+            className={`h-9 w-9 shrink-0 rounded-[var(--radius-sm)] text-sm font-medium transition-colors duration-[var(--duration-fast)] ${
                 disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:bg-[var(--lum-step-hover)]"
             }`}
             style={{"--lum-step-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
@@ -123,9 +139,9 @@ function SizeStepper({
         </motion.button>
     );
     return (
-        <div className="flex items-center gap-1" role="group" aria-label={t["Font size"]}>
+        <div className="flex items-center gap-1.5" role="group" aria-label={t["Font size"]}>
             {step(-1, "−", t["Decrease font size"], value <= min)}
-            <span className="w-10 text-center text-xs tabular-nums" style={{color: colors.inactiveText}}>
+            <span className="w-12 text-center text-sm tabular-nums" style={{color: colors.inactiveText}}>
                 {value}px
             </span>
             {step(1, "+", t["Increase font size"], value >= max)}

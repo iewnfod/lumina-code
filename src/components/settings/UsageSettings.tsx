@@ -173,7 +173,7 @@ export default function UsageSettings({api}: {api: OpencodeApi | null}) {
                         type="button"
                         {...whileHoverTap}
                         onClick={retry}
-                        className="h-8 px-4 rounded-[var(--radius-sm)] text-xs font-medium cursor-pointer"
+                        className="h-9 px-4 rounded-[var(--radius-sm)] text-sm font-medium cursor-pointer"
                         style={{background: colors.activeOverlay, color: colors.textPrimary}}
                     >
                         {t["Retry"]}

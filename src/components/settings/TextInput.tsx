@@ -33,7 +33,7 @@ export default function TextInput({
             disabled={disabled}
             onChange={(e) => onChange(e.currentTarget.value)}
             onKeyDown={onKeyDown}
-            className={`h-7 w-full px-2 rounded-[var(--radius-sm)] text-xs outline-none placeholder:opacity-40 focus:ring-1 focus:ring-[var(--lum-input-ring)] disabled:opacity-50 disabled:cursor-not-allowed ${mono ? "font-mono" : ""}`}
+            className={`h-9 w-full px-3 rounded-[var(--radius-sm)] text-sm outline-none placeholder:opacity-40 focus:ring-1 focus:ring-[var(--lum-input-ring)] disabled:opacity-50 disabled:cursor-not-allowed ${mono ? "font-mono" : ""}`}
             style={{
                 background: colors.recessedBg,
                 border: `1px solid ${colors.glassBorder}`,

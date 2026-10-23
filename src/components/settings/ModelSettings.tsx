@@ -221,16 +221,16 @@ export default function ModelSettings({
                  * scrolling away with the rows. */}
                 {tab === "providers" && !inDetail && (
                     <div className="shrink-0 px-4 pt-3 pb-2">
-                        <label className="flex items-center gap-2 h-8 px-2.5 rounded-[var(--radius-sm)]"
+                        <label className="flex items-center gap-2 h-9 px-3 rounded-[var(--radius-sm)]"
                             style={{background: colors.recessedBg, border: `1px solid ${colors.glassBorder}`}}
                         >
-                            <Search size={13} className="shrink-0 opacity-45"/>
+                            <Search size={14} className="shrink-0 opacity-45"/>
                             <input
                                 type="text"
                                 value={query}
                                 placeholder={t["Search providers..."]}
                                 onChange={(e) => setQuery(e.currentTarget.value)}
-                                className="w-full bg-transparent text-xs outline-none placeholder:opacity-40"
+                                className="w-full bg-transparent text-sm outline-none placeholder:opacity-40"
                             />
                         </label>
                     </div>

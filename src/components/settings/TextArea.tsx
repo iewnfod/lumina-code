@@ -29,7 +29,7 @@ export default function TextArea({
             rows={rows}
             disabled={disabled}
             onChange={(e) => onChange(e.currentTarget.value)}
-            className="w-full px-2 py-1.5 rounded-[var(--radius-sm)] text-xs leading-relaxed outline-none resize-y placeholder:opacity-40 focus:ring-1 focus:ring-[var(--lum-input-ring)] disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full px-3 py-2 rounded-[var(--radius-sm)] text-sm leading-relaxed outline-none resize-y placeholder:opacity-40 focus:ring-1 focus:ring-[var(--lum-input-ring)] disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
                 background: colors.recessedBg,
                 border: `1px solid ${colors.glassBorder}`,

@@ -1,5 +1,6 @@
-import type {ReactNode} from "react";
+import type {ComponentProps, ReactNode} from "react";
 import {useColors} from "../../hooks/colors.tsx";
+import Button from "../ui/Button.tsx";
 
 /** Monospace stack used for mono surfaces (tool output, resource lists). */
 const MONO = "var(--font-mono, ui-monospace, monospace)";
@@ -29,8 +30,12 @@ export const MONO_ROW_STYLE = {
 } as const;
 
 // CardButton moved to ui/Button.tsx so non-request chrome (the model
-// config modal) can share it; re-exported here for the request cards.
-export {default as CardButton} from "../ui/Button.tsx";
+// config modal) can share it; re-exported here for the request cards —
+// wrapped at the SM size (the md default is the settings pages' roomier
+// tier; the pinned request stack must stay dense).
+export function CardButton(props: ComponentProps<typeof Button>) {
+    return <Button {...props} size="sm"/>;
+}
 
 /** Card chrome shared by the request kinds — mirrors the composer's
  *  surface (recessed bg + glass border) so the pinned stack reads as one
