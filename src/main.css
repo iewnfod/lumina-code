@@ -72,11 +72,15 @@
     --font-mono: "Maple Mono NF CN", ui-monospace, "Noto Sans Mono CJK SC",
         Consolas, monospace;
 
-    /* Type scale — the app's four-step rhythm. 2xs (11px) is the micro
+    /* Type scale — the app's step rhythm. 2xs (11px) is the micro
      * tier: dense rows and uppercase labels (the old unnamed
-     * text-[10px]/text-[11px] arbitrary values collapsed into it). */
+     * text-[10px]/text-[11px] arbitrary values collapsed into it).
+     * 2sm (13px) is the xs/sm halfway step (added for the sidebar's
+     * folder headers — 12 read too small, 14 too large). */
     --text-2xs: 11px;
     --text-2xs--line-height: 1rem;
+    --text-2sm: 13px;
+    --text-2sm--line-height: 1.125rem;
 
     /* Radii — soft, modern. Match the macOS Sequoia / Arc feel.
      * Semantic mapping (the unified scale; see AGENTS.md §3.8):

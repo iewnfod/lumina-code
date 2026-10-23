@@ -14,6 +14,10 @@ import Hint from "./ui/Hint.tsx";
 
 /** Sessions shown per folder before the "Show more" expander. */
 export const MAX_VISIBLE_SESSIONS = 5;
+/** The DAILY half's flat list cap — everything visible by default; the
+ *  cap (and its expander) exists purely as a DOM-size guard for a
+ *  future with hundreds of sessions. */
+export const MAX_PLAIN_VISIBLE_SESSIONS = 50;
 
 /**
  * One folder group in the sidebar: collapsible header (label + per-folder
@@ -24,8 +28,9 @@ export const MAX_VISIBLE_SESSIONS = 5;
  *
  * `plain` strips the folder chrome (header + collapse) for the DAILY
  * half: it owns exactly ONE workspace, so a directory header naming it
- * is noise — the rows render flat, always expanded, keeping the busy
- * dots, badges, ages and the show more/less expander.
+ * is noise — the rows render flat, always expanded, with a much higher
+ * reveal cap (`maxVisible`, 50 vs the dev folders' 5), keeping the
+ * busy dots, badges, ages and the show more/less expander.
  *
  * Motion is CSS: the folder body folds through .lum-fold (grid rows —
  * the browser animates the real height), the chevron rotates via a
@@ -51,6 +56,7 @@ export default function SessionFolder({
     onShowMore,
     onShowLess,
     plain = false,
+    maxVisible = MAX_VISIBLE_SESSIONS,
 }: {
     /** The group's PROJECT directory — branch-worktree sessions arrive
      * merged into their main repo's folder ("" = the no-directory
@@ -81,6 +87,9 @@ export default function SessionFolder({
     /** Flat mode (the DAILY half): no header, no collapse — rows only.
      *  The `directory` prop then only keys the show more/less state. */
     plain?: boolean;
+    /** The initial reveal cap ("Show more" grows past it in the same
+     *  batch size). The DAILY half passes the higher flat-list guard. */
+    maxVisible?: number;
 }) {
     const colors = useColors();
     const t = useI18n();
@@ -102,7 +111,7 @@ export default function SessionFolder({
         <div>
             {!plain && (
                 <div
-                    className="group/folder w-full flex items-center gap-1 px-3 pt-2.5 pb-1 text-2xs font-medium uppercase tracking-wider cursor-pointer transition-opacity duration-[var(--duration-fast)] ease-[var(--ease-glass)] hover:opacity-70"
+                    className="group/folder w-full flex items-center gap-1 px-3 pt-1.5 pb-1 text-2sm tracking-wider cursor-pointer transition-opacity duration-[var(--duration-fast)] ease-[var(--ease-glass)] hover:opacity-70"
                     style={{color: colors.inactiveText}}
                     onClick={() => onToggleFolder(directory)}
                 >
@@ -149,7 +158,7 @@ export default function SessionFolder({
                     layer so collapsing to 0fr clips it away too. PLAIN mode
                     has no header above, so the top padding stands in for
                     the header's breathing room. */}
-                <div className={plain ? "px-1.5 pt-2 pb-2" : "px-1.5 pt-0.5 pb-2"}>
+                <div className={plain ? "px-1.5 pt-1 pb-2" : "px-1.5 pt-0.5 pb-2"}>
                     <ExitPresence present={plain || !collapsed} exitMs={300} budget={false}>
                         {() => (<>
                     <ExitList
@@ -264,11 +273,12 @@ export default function SessionFolder({
                         }}
                     </ExitList>
                     {/* Expanded: split into two halves — left keeps
-                        revealing batches of 5, right collapses back
-                        to the initial cap. Fully expanded → collapse
-                        only. */}
-                    {sessions.length > MAX_VISIBLE_SESSIONS && (
-                        visibleCount > MAX_VISIBLE_SESSIONS ? (
+                        revealing another batch (sized by the cap),
+                        right collapses back to the initial cap. Fully
+                        expanded → collapse only. The DAILY half rides
+                        the same expander past its higher cap. */}
+                    {sessions.length > maxVisible && (
+                        visibleCount > maxVisible ? (
                             <div className="flex flex-row w-full gap-1">
                                 {visibleCount < sessions.length && (
                                     <motion.button

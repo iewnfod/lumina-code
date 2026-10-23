@@ -18,7 +18,7 @@ import {groupByDirectory, projectDirOf, type SessionInfo} from "./sessionGroupin
 import {setAppMode, useAppMode, useGitAvailable, useGitProbe} from "../opencode/appMode.ts";
 import {useConnection} from "../opencode/connectionContext.tsx";
 import {useWorktreeDirs} from "../opencode/worktreeSessions.ts";
-import SessionFolder, {MAX_VISIBLE_SESSIONS} from "./SessionFolder.tsx";
+import SessionFolder, {MAX_PLAIN_VISIBLE_SESSIONS, MAX_VISIBLE_SESSIONS} from "./SessionFolder.tsx";
 import type {CSSProperties} from "react";
 
 /**
@@ -158,12 +158,16 @@ export default function SessionBar(props: SessionBarProps) {
         return groups.map(([directory, groupSessions]) => {
             const collapsedFolder = collapsedDirs.has(directory);
             const activeIndex = activeId === null ? -1 : groupSessions.findIndex((s) => s.id === activeId);
-            // Cap each folder at its 5 most-recent sessions; each
-            // "Show more" reveals another 5. The active session always
-            // stays visible even beyond the current cap.
+            // Cap each folder at its N most-recent sessions; each
+            // "Show more" reveals another batch of the same size. The
+            // active session always stays visible even beyond the
+            // current cap. The DAILY half's flat list carries a much
+            // higher guard (50 vs 5) — everything visible by default,
+            // the cap existing purely as a DOM-size guard.
+            const cap = plain ? MAX_PLAIN_VISIBLE_SESSIONS : MAX_VISIBLE_SESSIONS;
             const visibleCount = Math.min(
                 groupSessions.length,
-                Math.max(MAX_VISIBLE_SESSIONS + (extraDirs.get(directory) ?? 0), activeIndex + 1),
+                Math.max(cap + (extraDirs.get(directory) ?? 0), activeIndex + 1),
             );
             return (
                 <SessionFolder
@@ -185,6 +189,7 @@ export default function SessionBar(props: SessionBarProps) {
                     onShowMore={showMore}
                     onShowLess={showLess}
                     plain={plain}
+                    maxVisible={cap}
                 />
             );
         });
@@ -258,7 +263,7 @@ export default function SessionBar(props: SessionBarProps) {
                 half is worse than none), and while the probe is still
                 pending there is simply nothing to switch yet. */}
             {switcher && (
-                <div className="lum-mode-tabs shrink-0 px-3 pb-1" data-tauri-drag-region>
+                <div className="lum-mode-tabs shrink-0 px-3 pt-1 pb-2" data-tauri-drag-region>
                     <Tabs
                         aria-label={t["Mode"]}
                         selectedKey={mode}

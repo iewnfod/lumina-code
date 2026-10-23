@@ -4178,8 +4178,9 @@ modals, bubbles, composer, window frame) · `xl 22` the largest float
 - Panel primary text is `colors.textPrimary` (one value, not per-panel
   0.88 hand-rolls).
 
-**Type scale** — four steps: `text-2xs` 11 (micro rows, uppercase
-labels) · `text-xs` 12 (default UI) · `text-sm` 14 (prose) ·
+**Type scale** — five steps: `text-2xs` 11 (micro rows, uppercase
+labels) · `text-xs` 12 (default UI) · `text-2sm` 13 (the xs/sm halfway,
+e.g. sidebar folder headers) · `text-sm` 14 (prose) ·
 `text-base` 16 (rare). No arbitrary `text-[Npx]`.
 
 **Spacing rhythm** — Tailwind's 4px grid only; the recurring beats:
