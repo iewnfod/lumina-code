@@ -14,6 +14,7 @@ const {
     humanSize,
     posixScanCommand,
     powershellScanCommand,
+    filterSeedDocuments,
     MAX_DOC_ROWS,
 } = await import("./workspaceDocuments.ts");
 
@@ -29,6 +30,18 @@ test("parseSizeLines: one size+path per line, noise dropped", () => {
     assert.deepEqual(parseSizeLines(out), [
         {size: 1204, path: "/home/u/Documents/LuminaWorkspace/报告.docx"},
         {size: 0, path: "/home/u/Documents/LuminaWorkspace/空 文件.txt"},
+    ]);
+});
+
+test("parseSizeLines: the LOCALIZED wc total row is dropped (zh_CN '总计')", () => {
+    // wc localizes its per-batch summary label; the panel must not turn
+    // it into a file row (live-observed on a zh_CN machine).
+    const out = [
+        "  1204 /home/u/Documents/LuminaWorkspace/报告.docx",
+        " 11298 总计",
+    ].join("\n");
+    assert.deepEqual(parseSizeLines(out), [
+        {size: 1204, path: "/home/u/Documents/LuminaWorkspace/报告.docx"},
     ]);
 });
 
@@ -92,6 +105,25 @@ test("humanSize tiers with one decimal under 10", () => {
     assert.equal(humanSize(12 * 1024), "12 KB");
     assert.equal(humanSize(1.5 * 1024 * 1024), "1.5 MB");
     assert.equal(humanSize(3 * 1024 * 1024 * 1024), "3.0 GB");
+});
+
+test("filterSeedDocuments: the app's root seed files drop, subfolder READMEs stay", () => {
+    const dir = "/home/u/Documents/LuminaWorkspace";
+    const docs = [
+        {path: `${dir}/README.md`, size: 193},
+        {path: `${dir}/AGENTS.md`, size: 551},
+        {path: `${dir}/随笔.docx`, size: 10554},
+        {path: `${dir}/资料/README.md`, size: 40}, // the user's own — stays
+    ];
+    assert.deepEqual(
+        filterSeedDocuments(docs, dir).map((d) => d.path),
+        [`${dir}/随笔.docx`, `${dir}/资料/README.md`],
+    );
+    // Trailing slash on the directory and Windows separators (the
+    // PowerShell fallback prints FullName with backslashes) both match.
+    assert.deepEqual(filterSeedDocuments([{path: "C:/w/README.md", size: 1}], "C:/w/"), []);
+    assert.deepEqual(filterSeedDocuments([{path: "C:\\w\\AGENTS.md", size: 1}], "C:/w"), []);
+    assert.deepEqual(filterSeedDocuments([{path: "C:\\w\\keep.docx", size: 1}], "C:/w").length, 1);
 });
 
 test("scan commands quote the directory once", () => {

@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useState} from "react";
 import {warn} from "@tauri-apps/plugin-log";
 import type {OpencodeApi} from "./api.ts";
+import {SEED_FILE_NAMES} from "./defaultWorkspace.ts";
 import {createKeyedStore} from "../lib/moduleStore.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 
@@ -47,8 +48,11 @@ export interface DocRow extends WorkspaceDoc {
 export const MAX_DOC_ROWS = 500;
 
 /** Parse `wc -c` batch output: one `  <size> <path>` line per file.
- *  Lines without a trailing path (wc's per-batch `total` rows) and
- *  blank/carriage-return noise drop out; paths keep their spaces. */
+ *  wc's per-batch summary row is LOCALIZED ("total" in C, "总计" in
+ *  zh_CN, …), so it is rejected STRUCTURALLY instead of by name: the
+ *  commands always pass ABSOLUTE paths, and no absolute path lacks a
+ *  directory separator. Blank/carriage-return noise drops out; paths
+ *  keep their spaces. */
 export function parseSizeLines(out: string): WorkspaceDoc[] {
     const docs: WorkspaceDoc[] = [];
     for (const raw of out.split("\n")) {
@@ -56,10 +60,9 @@ export function parseSizeLines(out: string): WorkspaceDoc[] {
         if (line === "") continue;
         const m = /^\s*(\d+)\s+(.+)$/.exec(line);
         if (!m) continue;
-        // wc's per-batch summary row ("  1234 total") — the commands
-        // always pass ABSOLUTE paths, so a bare "total" (no separator)
-        // can never be a real file.
-        if (m[2] === "total") continue;
+        // The summary row ("total" / "总计" / …) carries no path
+        // separator — an absolute path always does.
+        if (!m[2].includes("/") && !m[2].includes("\\")) continue;
         docs.push({size: Number(m[1]), path: m[2].trimEnd()});
         if (docs.length >= MAX_DOC_ROWS) break;
     }
@@ -104,6 +107,19 @@ export function humanSize(bytes: number): string {
     return `${text} ${units[unit]}`;
 }
 
+/** Drop the workspace's SEED files from a scan (defaultWorkspace.ts's
+ * plantings — README.md / AGENTS.md at the workspace ROOT are the
+ * infrastructure the app itself wrote, not the user's documents; a
+ * README the user drops inside a SUBFOLDER is theirs and stays).
+ * Exact-path match against the scanned directory, trailing slashes and
+ * Windows separators normalized (PowerShell's FullName prints `\`).
+ * Pure. */
+export function filterSeedDocuments(docs: WorkspaceDoc[], directory: string): WorkspaceDoc[] {
+    const root = directory.replace(/\/+$/, "").replace(/\\/g, "/");
+    const seeds = new Set(SEED_FILE_NAMES.map((name) => `${root}/${name}`));
+    return docs.filter((d) => !seeds.has(d.path.replace(/\\/g, "/")));
+}
+
 // --- The runner (shell API; dialect ladder) ---
 
 /** POSIX enumeration (fish/bash/zsh-legal): every non-hidden file with
@@ -136,11 +152,15 @@ export async function scanWorkspaceDocuments(
 ): Promise<WorkspaceDoc[] | null> {
     try {
         const shell = await api.spawnShell(posixScanCommand(directory), directory);
-        const done = await api.awaitShell(shell.id, directory);
-        if (done.exit === 0) return parseSizeLines(done.output);
+        // No directory on the awaits: the id-addressed shell routes must
+        // not carry a location (see api.ts's awaitShell — a spawned
+        // shell is owned by the server's default location, so passing
+        // the scan directory here 404s every poll).
+        const done = await api.awaitShell(shell.id);
+        if (done.exit === 0) return filterSeedDocuments(parseSizeLines(done.output), directory);
         const fallback = await api.spawnShell(powershellScanCommand(directory), directory);
-        const retry = await api.awaitShell(fallback.id, directory);
-        if (retry.exit === 0) return parseSizeLines(retry.output);
+        const retry = await api.awaitShell(fallback.id);
+        if (retry.exit === 0) return filterSeedDocuments(parseSizeLines(retry.output), directory);
         await warn(`Workspace scan exited ${done.exit}/${retry.exit} for ${directory}`).catch(() => {});
         return null;
     } catch (e) {

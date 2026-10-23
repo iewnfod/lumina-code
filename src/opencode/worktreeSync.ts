@@ -124,7 +124,7 @@ export async function runShellCommand(
     cwd: string,
 ): Promise<ShellResult> {
     const info = await api.spawnShell(command, cwd);
-    return api.awaitShell(info.id, cwd);
+    return api.awaitShell(info.id);
 }
 
 async function run(

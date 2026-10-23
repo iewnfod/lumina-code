@@ -587,18 +587,31 @@ export class OpencodeApi {
      * {@link spawnShell}). 250ms cadence, 60s cap: past it the shell is
      * killed via {@link removeShell} (dropping its retained output) and
      * the promise rejects. Exited shells drop off the list endpoint but
-     * stay readable here until the server evicts them. */
-    awaitShell(shellId: string, directory?: string | null): Promise<{exit: number; output: string}> {
+     * stay readable here until the server evicts them.
+     *
+     * Deliberately takes NO directory: the id-addressed get/output/remove
+     * routes below resolve shells ACROSS locations when no
+     * `location[directory]` is passed, but FILTER BY OWNERSHIP when one
+     * is — and a shell spawned through {@link spawnShell} is owned by
+     * the location the SERVER resolved at spawn time (its default
+     * location, i.e. the server process's cwd — the body's `cwd` only
+     * changes the child's working directory, binary-verified v2.0.11:
+     * spawn cwd=X, then GET /api/shell/{id}?location[directory]=X → 404
+     * ShellNotFoundError while the same GET without the param → 200).
+     * Passing the spawn cwd here used to 404 EVERY poll for any
+     * directory other than the server's own (the daily workspace scan,
+     * worktree sync, MCP log reads). */
+    awaitShell(shellId: string): Promise<{exit: number; output: string}> {
         const poll = (attempt: number): Promise<{exit: number; output: string}> =>
-            this.getShell(shellId, directory).then((info) => {
+            this.getShell(shellId).then((info) => {
                 if (info.status === "exited") {
-                    return this.shellOutput(shellId, {directory}).then((out) => ({
+                    return this.shellOutput(shellId).then((out) => ({
                         exit: info.exit ?? -1,
                         output: out.output,
                     }));
                 }
                 if (attempt >= 240) {
-                    return this.removeShell(shellId, directory)
+                    return this.removeShell(shellId)
                         .catch(() => {})
                         .then(() => {
                             throw new Error(`shell ${shellId} did not exit within 60s`);

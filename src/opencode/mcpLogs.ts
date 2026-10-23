@@ -119,7 +119,7 @@ export interface ShellRunResult {
 
 async function runShell(api: OpencodeApi, command: string, cwd: string): Promise<ShellRunResult> {
     const info = await api.spawnShell(command, cwd);
-    return api.awaitShell(info.id, cwd);
+    return api.awaitShell(info.id);
 }
 
 /** Resolve the opencode data directory through the shell probe (one

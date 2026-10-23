@@ -27,6 +27,13 @@ import type {OpencodeApi} from "./api.ts";
 /** The workspace folder's name under ~/Documents. */
 export const DEFAULT_WORKSPACE_NAME = "LuminaWorkspace";
 
+/** The seed files {@link ensureDefaultWorkspace} plants at the workspace
+ *  ROOT. Exported as the ONE name list because the daily panel consumes
+ *  it too (workspaceDocuments.ts hides these from the document
+ *  inventory — they are workspace infrastructure the app itself wrote,
+ *  not the user's documents). */
+export const SEED_FILE_NAMES = ["README.md", "AGENTS.md"] as const;
+
 export const README_CONTENT = `# LuminaWorkspace
 
 这是 Lumina Code 的日常工作区，用于写作、计划、笔记与资料整理。
@@ -76,8 +83,13 @@ export async function resolveDefaultWorkspace(api: OpencodeApi): Promise<string 
  *  blocked (the session still lands in the directory; only the
  *  seeding text is missing). */
 export async function ensureDefaultWorkspace(api: OpencodeApi, path: string): Promise<void> {
-    await ensureSeedFile(api, path, "README.md", README_CONTENT);
-    await ensureSeedFile(api, path, "AGENTS.md", AGENTS_CONTENT);
+    const seeds: Record<string, string> = {
+        "README.md": README_CONTENT,
+        "AGENTS.md": AGENTS_CONTENT,
+    };
+    for (const name of SEED_FILE_NAMES) {
+        await ensureSeedFile(api, path, name, seeds[name]);
+    }
 }
 
 async function ensureSeedFile(
