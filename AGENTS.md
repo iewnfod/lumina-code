@@ -3218,6 +3218,38 @@ src/
     │                      #   (pure) splits it out for a prominent mono
     │                      #   display + copy; code-less instructions
     │                      #   (Snowflake etc.) show as a plain caption.
+    ├── UsageSettings.tsx # The Usage pane — the stats endpoint's
+    │                      #   model-share donut + per-model daily-trend
+    │                      #   lines (data: GET /api/experimental/
+    │                      #   session/stats, curl-verified v2.0.11 —
+    │                      #   api.sessionStats; ONE whole-window query
+    │                      #   for the header totals + ONE query per
+    │                      #   LOCAL day for the per-model matrix, all
+    │                      #   parallel: the endpoint's activity[] has
+    │                      #   NO model split, so the time series is
+    │                      #   assembled client-side from day windows;
+    │                      #   a failed day drops out of its rows, a
+    │                      #   failed summary degrades the header to the
+    │                      #   series' own aggregate). Variants collapse
+    │                      #   into providerID/modelID rows (thinking-
+    │                      #   depth picks are one model). Range switch:
+    │                      #   7/30 days. Charts are hand-rolled SVG in
+    │                      #   UsageCharts.tsx (the UsageRing doctrine —
+    │                      #   no chart library): UsageDonut (center
+    │                      #   readout swaps to the hovered model's
+    │                      #   share; a single model owning 100% renders
+    │                      #   the evenodd full ring — an arc path
+    │                      #   degenerates at 2π), UsageLegend and
+    │                      #   UsageLines (niceTicks y grid +
+    │                      #   xLabelIndices sparse date labels), all
+    │                      #   three sharing ONE hover channel so a
+    │                      #   sector, its legend row and the matching
+    │                      #   line cross-highlight. Pure shaping
+    │                      #   (variant folding, day windows, pie
+    │                      #   geometry, tick math) + the fixed 8-color
+    │                      #   palette (SVG attributes can't resolve
+    │                      #   var()) live in usageOverview.ts,
+    │                      #   node-testable (usageOverview.test.ts).
     ├── ServerSettings.tsx # The Server pane — DUAL-PURPOSE by platform.
     │                      #   Desktop: sign in to a self-hosted
     │                      #   lumina-code-server (url + credentials → the

@@ -21,6 +21,7 @@ import type {
     PermissionRequest,
     SessionInboxItem,
     SessionModelRef,
+    SessionStatsInfo,
     ShellInfo,
     ShellOutput,
     WorkspaceDiffEntry,
@@ -206,6 +207,20 @@ export class OpencodeApi {
      *  process-local — a server restart clears it (nothing is running). */
     listActiveSessions(): Promise<Record<string, {type: string}>> {
         return this.request<Record<string, {type: string}>>("/api/session/active");
+    }
+
+    /** Aggregate session stats (`GET /api/experimental/session/stats`,
+     *  curl-verified v2.0.11): usage/cost/activity over the server's
+     *  local storage for a `from`/`to` window (ms epoch timestamps;
+     *  omitting both uses the server's default ~30-day range), grouped
+     *  per model in `models[]`. `tools:"none"` skips the tool
+     *  reliability aggregation (the Usage pane never shows it).
+     *  EXPERIMENTAL route — re-verify on server bumps. */
+    sessionStats(opts?: {from?: number; to?: number; tools?: "none" | "summary" | "detail"}): Promise<SessionStatsInfo> {
+        const params = new URLSearchParams({tools: opts?.tools ?? "none"});
+        if (opts?.from != null) params.set("from", String(opts.from));
+        if (opts?.to != null) params.set("to", String(opts.to));
+        return this.request<SessionStatsInfo>(`/api/experimental/session/stats?${params.toString()}`);
     }
 
     /** Creates a session. The working directory rides as `location.directory`

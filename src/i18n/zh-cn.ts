@@ -369,6 +369,15 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Sync status unavailable": "无法读取同步状态",
     // --- 移动端 ---
     "Sessions": "会话",
+    // --- 设置 · 用量总览 ---
+    "Usage": "用量",
+    "Last 7 days": "近 7 天",
+    "Last 30 days": "近 30 天",
+    "Total tokens": "总 tokens",
+    "Steps": "步数",
+    "Daily usage": "每日用量",
+    "Failed to load usage": "用量加载失败",
+    "No usage yet": "暂无用量数据",
 };
 
 export default zhCn;

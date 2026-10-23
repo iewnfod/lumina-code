@@ -1,6 +1,6 @@
 import {useRef, type ReactNode} from "react";
 import {motion} from "framer-motion";
-import {ChevronRight, Cpu, Info, Server as ServerIcon, Settings as SettingsIcon} from "lucide-react";
+import {ChartPie, ChevronRight, Cpu, Info, Server as ServerIcon, Settings as SettingsIcon} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
@@ -13,10 +13,11 @@ import GeneralSettings from "./GeneralSettings.tsx";
 import ModelSettings from "./ModelSettings.tsx";
 import AboutSettings from "./AboutSettings.tsx";
 import ServerSettings from "./ServerSettings.tsx";
+import UsageSettings from "./UsageSettings.tsx";
 
 /** Selectable settings tabs. App owns the value so an entry point can
  *  deep-link (the model picker opens straight to the Model tab). */
-export type SettingsTab = "general" | "model" | "server" | "about";
+export type SettingsTab = "general" | "model" | "usage" | "server" | "about";
 
 /**
  * The app's settings modal — the gear in the title bar opens it. Layout
@@ -77,6 +78,9 @@ export default function SettingsModal({
     const tabs: {id: SettingsTab; icon: typeof SettingsIcon; label: string}[] = [
         {id: "general", icon: SettingsIcon, label: t["General"]},
         {id: "model", icon: Cpu, label: t["Model settings"]},
+        // The Usage pane — the stats endpoint's model-share donut +
+        // daily trend (settings/UsageSettings.tsx).
+        {id: "usage", icon: ChartPie, label: t["Usage"]},
         // The Server pane is DUAL-PURPOSE: the desktop's own lumina-code-server
         // link (remote access) on desktop, the MOBILE app's account page
         // (server address + sign out — see ServerSettings' mobile branch)
@@ -92,6 +96,7 @@ export default function SettingsModal({
         <>
             {active === "general" && <GeneralSettings api={api}/>}
             {active === "model" && <ModelSettings api={api}/>}
+            {active === "usage" && <UsageSettings api={api}/>}
             {active === "server" && <ServerSettings/>}
             {active === "about" && <AboutSettings/>}
         </>

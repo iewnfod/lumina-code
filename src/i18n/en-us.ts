@@ -376,6 +376,15 @@ const enUs = {
     "Sync status unavailable": "Sync status unavailable",
     // --- Mobile app ---
     "Sessions": "Sessions",
+    // --- Settings · Usage overview ---
+    "Usage": "Usage",
+    "Last 7 days": "Last 7 days",
+    "Last 30 days": "Last 30 days",
+    "Total tokens": "Total tokens",
+    "Steps": "Steps",
+    "Daily usage": "Daily usage",
+    "Failed to load usage": "Failed to load usage",
+    "No usage yet": "No usage yet",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;

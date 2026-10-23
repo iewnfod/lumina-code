@@ -424,6 +424,51 @@ export interface SessionUsage {
     cost?: number;
 }
 
+// --- Session stats (`GET /api/experimental/session/stats`, v2.0.11) ---
+
+/** Token totals of one stats bucket (same shape as
+ *  `OpencodeSession.tokens`). */
+export interface StatTokens {
+    input: number;
+    output: number;
+    reasoning: number;
+    cache: {read: number; write: number};
+}
+
+/** One model's share of a stats window — an entry of
+ *  `SessionStatsInfo.models`. */
+export interface ModelUsageStat {
+    model: SessionModelRef;
+    steps: number;
+    tokens: StatTokens;
+    cost: number;
+}
+
+/** The stats endpoint's payload (curl-verified against server v2.0.11):
+ *  aggregate local session activity + usage for a `from`/`to` window,
+ *  grouped per model in `models[]` (the pie/line charts' source — see
+ *  settings/usageOverview.ts). `activity[]` carries whole-range steps
+ *  per DAY with NO model split, so a per-model time series is assembled
+ *  client-side from day-window queries. Experimental route — re-verify
+ *  the shape on server bumps. */
+export interface SessionStatsInfo {
+    range: {from: number; to: number};
+    sessions: number;
+    subagents: number;
+    prompts: number;
+    steps: number;
+    tokens: StatTokens;
+    cost: number;
+    tools: {
+        mode: "none" | "summary" | "detail";
+        totals?: {calls: number; succeeded: number; failed: number; unfinished: number};
+    };
+    activeDays: number;
+    streak: number;
+    activity: {date: string; steps: number}[];
+    models: ModelUsageStat[];
+}
+
 /** One text piece of a tool result (`content: [{type:"text", text}]`). */
 export interface ToolContentPiece {
     type: string;
