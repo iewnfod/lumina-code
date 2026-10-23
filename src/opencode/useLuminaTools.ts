@@ -9,6 +9,7 @@ import {globalConfigTarget} from "./configFiles.ts";
 import {useConnection} from "./connectionContext.tsx";
 import {
     freshConfigWithToolsPlugin,
+    luminaDailyAgentMissing,
     LUMINA_TOOLS_PLUGIN_DIR,
     luminaToolsEntryPresent,
     luminaToolsPluginPath,
@@ -67,6 +68,11 @@ async function ensureLuminaToolsPluginLocked(
     const desired = options ?? current;
     const entryMissing = raw === "" || !luminaToolsEntryPresent(raw, pluginPath);
     const optionsChanged = JSON.stringify(current) !== JSON.stringify(desired);
+    // The daily-mode agent lives in the `agents` section, not the plugin
+    // options — an options-unchanged upgrade (the common case: an
+    // existing install meeting a newer app) must still rewrite the
+    // config once to plant it (luminaDailyAgentMissing).
+    const agentMissing = luminaDailyAgentMissing(raw);
 
     const pluginDir = `${target.directory.replace(/\/+$/, "")}/${LUMINA_TOOLS_PLUGIN_DIR}`;
     // v2.0.11 quirk: fs/read on a directory that doesn't exist yet
@@ -80,7 +86,7 @@ async function ensureLuminaToolsPluginLocked(
         await api.writeTextFile(`${pluginDir}/index.js`, luminaToolsPluginSource);
         wrote = true;
     }
-    if (entryMissing || optionsChanged) {
+    if (entryMissing || optionsChanged || agentMissing) {
         const text = raw === ""
             ? freshConfigWithToolsPlugin(pluginPath, desired)
             : mergeLuminaToolsPlugin(raw, pluginPath, desired);

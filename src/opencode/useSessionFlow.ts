@@ -3,6 +3,7 @@ import {error, info, warn} from "@tauri-apps/plugin-log";
 import {loadState, saveState} from "../lib/persist.ts";
 import {fileRefToPromptFile, OpencodeApi} from "./api.ts";
 import {type AppMode, sessionMode, useAppMode} from "./appMode.ts";
+import {LUMINA_DAILY_AGENT_ID} from "./toolPluginConfig.ts";
 import {ensureDefaultWorkspace, resolveDefaultWorkspace, resolveSessionDirectory} from "./defaultWorkspace.ts";
 import {appendFailedPrompt, prepareCommandSubmission} from "./useSessionMessages.ts";
 import {useCatalog} from "./catalogContext.tsx";
@@ -79,6 +80,9 @@ export function useSessionFlow(): {
      *  staged/fallback pick. */
     effectiveModel: SessionModelRef | null;
     effectiveAgent: string;
+    /** Agent a plan approval switches the ACTIVE session into (build /
+     *  lumina-daily by the session's mode) — ChatView → useGateCards. */
+    approveAgent: string;
     /** The welcome screen's staged project directory. */
     pendingDirectory: string | null;
     /** The welcome screen's staged branch binding (null = main worktree). */
@@ -231,8 +235,32 @@ export function useSessionFlow(): {
         if (agents.length === 0) return pendingAgent; // catalog still loading
         return agents.some((a) => a.id === pendingAgent) ? pendingAgent : null;
     }, [pendingAgent, agents]);
+    // The mode's DEFAULT agent: daily sessions start on the dedicated
+    // lumina-daily agent (its config system prompt + tool gating ARE the
+    // daily half of the harness) when the server lists it; dev keeps the
+    // catalog's first primary (build). Null while the catalog is loading
+    // or the daily agent failed to install — the plain fallback applies.
+    const modeDefaultAgent = useMemo(() => {
+        if (mode === "daily" && agents.some((a) => a.id === LUMINA_DAILY_AGENT_ID)) {
+            return LUMINA_DAILY_AGENT_ID;
+        }
+        return agents[0]?.id ?? null;
+    }, [mode, agents]);
     const effectiveModel = activeSession?.model ?? stagedModel ?? fallbackModel;
-    const effectiveAgent = activeSession?.agent ?? stagedAgent ?? agents[0]?.id ?? "build";
+    const effectiveAgent = activeSession?.agent ?? stagedAgent ?? modeDefaultAgent ?? "build";
+    /** Which agent a plan APPROVAL switches the active session into —
+     *  build for dev sessions, lumina-daily for daily ones (switching a
+     *  daily session to build would strand it on the developer persona
+     *  + full toolset). Same rule as modeDefaultAgent, but derived from
+     *  the ACTIVE session's mode (the composer's mode may have moved on
+     *  while the session belongs to the other half). */
+    const approveAgent = useMemo(() => {
+        const sessionIsDaily = activeSession !== null && sessionMode(activeSession) === "daily";
+        if (sessionIsDaily && agents.some((a) => a.id === LUMINA_DAILY_AGENT_ID)) {
+            return LUMINA_DAILY_AGENT_ID;
+        }
+        return "build";
+    }, [activeSession, agents]);
 
     const changeModel = useCallback((ref: SessionModelRef) => {
         if (activeId) {
@@ -359,8 +387,12 @@ export function useSessionFlow(): {
                 error(`Failed to switch model: ${e}`).catch(() => {});
             });
         }
-        if (pendingAgent) {
-            await api.switchAgent(created.id, pendingAgent).catch((e) => {
+        // The staged pick, else the MODE's default agent (daily sessions
+        // start on lumina-daily — the daily half of the harness). "build"
+        // needs no switch: it is the server's default for a new session.
+        const startAgent = pendingAgent ?? modeDefaultAgent;
+        if (startAgent && startAgent !== "build") {
+            await api.switchAgent(created.id, startAgent).catch((e) => {
                 error(`Failed to switch agent: ${e}`).catch(() => {});
             });
         }
@@ -409,7 +441,7 @@ export function useSessionFlow(): {
                 ...(command ? {command} : {}),
             });
         });
-    }, [api, create, mode, models, pendingAgent, pendingBranch, pendingDirectory, pendingModel]);
+    }, [api, create, mode, models, modeDefaultAgent, pendingAgent, pendingBranch, pendingDirectory, pendingModel]);
 
     const deleteSession = useCallback((id: string) => {
         void remove(id);
@@ -435,16 +467,21 @@ export function useSessionFlow(): {
     // and each mode's last-open session (mode switches restore them; the
     // current mode's entry is always settled by the sync effect above by the
     // time this runs — mode-switch renders update activeId first).
+    // The AGENT deliberately persists only the user's EXPLICIT staged pick
+    // (stagedAgent), never the derived default: the default is re-derived
+    // per mode on load, and persisting it would freeze an upgrade's
+    // daily user onto whatever "build" was saved before lumina-daily
+    // existed.
     useEffect(() => {
         saveState({
             sessionId: activeId,
             dailySessionId: modeSessionsRef.current.daily,
             devSessionId: modeSessionsRef.current.dev,
             model: effectiveModel,
-            agent: effectiveAgent,
+            agent: stagedAgent,
             directory: pendingDirectory,
         });
-    }, [mode, activeId, effectiveModel, effectiveAgent, pendingDirectory]);
+    }, [mode, activeId, effectiveModel, stagedAgent, pendingDirectory]);
 
     return {
         sessions,
@@ -455,6 +492,10 @@ export function useSessionFlow(): {
         activeSession,
         effectiveModel,
         effectiveAgent,
+        /** Agent a plan approval switches the ACTIVE session into
+         *  (build / lumina-daily by the session's mode) — ChatView →
+         *  useGateCards. */
+        approveAgent,
         pendingDirectory,
         pendingBranch,
         changeModel,

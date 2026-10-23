@@ -124,3 +124,61 @@ test("interrupted tail (no completion stamp) gets no footer", () => {
     ], false);
     assert.equal(footers.size, 0);
 });
+
+// --- turn usage (the footer's token readout) ---
+
+/** Assistant message carrying a usage record (the wire's tokens/cost). */
+function asstUsage(
+    id: string,
+    tokens: {input: number; output: number; reasoning?: number; read?: number; write?: number},
+    cost: number,
+    opts: {created?: number; completed?: number; texts?: string[]} = {},
+): ChatAssistantMessage {
+    return {
+        ...asst(id, opts),
+        cost,
+        tokens: {
+            input: tokens.input,
+            output: tokens.output,
+            reasoning: tokens.reasoning ?? 0,
+            cache: {read: tokens.read ?? 0, write: tokens.write ?? 0},
+        },
+    };
+}
+
+test("turn usage: last step's prompt side, outputs summed, cost summed", () => {
+    const footers = collectRunFooters([
+        user("u1", 0),
+        asstUsage("a1", {input: 1_000, output: 100}, 0.01, {created: 1, completed: 2, texts: ["step one"]}),
+        // The run's LAST step carries the context footprint: its input
+        // already contains everything before it — the footer must show
+        // THIS snapshot, not the sum.
+        asstUsage("a2", {input: 3_000, output: 200, read: 500}, 0.02, {created: 3, completed: 4, texts: ["step two"]}),
+    ], false);
+    const u = footers.get("a2")!.usage!;
+    assert.equal(u.input, 3_000);
+    assert.equal(u.cacheRead, 500);
+    assert.equal(u.cacheWrite, 0);
+    assert.equal(u.output, 300); // 100 + 200 — summed across steps
+    assert.equal(u.reasoning, 0);
+    assert.equal(u.cost, 0.03); // summed
+});
+
+test("turn usage: all-zero snapshots skipped, reasoning sums, null without usage", () => {
+    // A streaming/failed step's all-zero usage must not become the
+    // context snapshot.
+    const footers = collectRunFooters([
+        user("u1", 0),
+        asstUsage("a1", {input: 2_000, output: 50, reasoning: 30}, 0.01, {created: 1, completed: 2, texts: ["x"]}),
+        asstUsage("a2", {input: 0, output: 0}, 0, {created: 3, completed: 4, texts: ["y"]}),
+    ], false);
+    const u = footers.get("a2")!.usage!;
+    assert.equal(u.input, 2_000); // kept the LAST meaningful snapshot
+    assert.equal(u.reasoning, 30);
+    // A run with no usage at all reads null — the footer hides tokens.
+    const bare = collectRunFooters([
+        user("u1", 0),
+        asst("a1", {created: 1, completed: 2, texts: ["answer"]}),
+    ], false);
+    assert.equal(bare.get("a1")!.usage, null);
+});

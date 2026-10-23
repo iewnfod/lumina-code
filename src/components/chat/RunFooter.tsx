@@ -1,5 +1,5 @@
 import {useState} from "react";
-import {Check, ChevronRight, Clock, Copy} from "lucide-react";
+import {Check, ChevronRight, Clock, Coins, Copy} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {requestStatsFileDrill} from "../../hooks/useStatsPanelMode.ts";
@@ -11,15 +11,25 @@ import {fileIconUrl} from "../../lib/fileIcons.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 
 import {MONO_STYLE} from "./RequestCardChrome.tsx";
+import {formatCost, formatTokens} from "./usageStats.ts";
+import type {TurnUsage} from "./runFooters.ts";
 import Hint from "../ui/Hint.tsx";
 import ExitPresence from "../ui/ExitPresence.tsx";
 
 /**
  * The quiet footer under a finished run: a copy affordance for the run's
  * whole answer (markdown source, joined across steps) and — when the
- * timestamps are known — how long the task took, wall-clock. Both read
- * as metadata, not content: dimmed rest opacity, lit on hover; the
- * duration stays passive and never lights up.
+ * timestamps are known — how long the task took, wall-clock, plus the
+ * turn's TOKEN READOUT (the harness-performance observability seat):
+ * ↑ the context footprint (the LAST step's prompt side — input + cache
+ * read/write; each step's input contains the whole prior context, so
+ * this snapshot is what the next turn inherits) and ↓ what this turn
+ * produced (output + reasoning, summed across steps), with cost when
+ * the server reports one; the hover hint decomposes the numbers —
+ * comparing the ↑ readout across agents/modes is how prompt-shrink
+ * wins are measured. All of it reads as metadata, not content: dimmed
+ * rest opacity, lit on hover; the duration and tokens stay passive and
+ * never light up.
  *
  * A turn that EDITED files additionally gets the TURNS-EDITS CARD below
  * the row (TurnEditsCard): a bordered summary "N files changed +A −D"
@@ -27,11 +37,13 @@ import ExitPresence from "../ui/ExitPresence.tsx";
  * truth (useTurnEdits; subagent/bash edits included, which no
  * client-side fold over tool inputs can promise).
  */
-export default function RunFooter({text, durationMs, enter, sessionId, turnUserId, directory}: {
+export default function RunFooter({text, durationMs, usage, enter, sessionId, turnUserId, directory}: {
     /** Copyable answer text (markdown source). */
     text: string;
     /** Wall-clock run duration, if start and completion are known. */
     durationMs: number | null;
+    /** The turn's token readout; null when no step carried usage. */
+    usage: TurnUsage | null;
     /** True when this footer appeared live (its run just finished while
      *  the user watched). Footers bulk-mounted with session history render
      *  without an entrance — see TranscriptList's gating. */
@@ -49,6 +61,20 @@ export default function RunFooter({text, durationMs, enter, sessionId, turnUserI
     const {copied, copy} = useCopy();
     const {api} = useConnection();
     const edits = useTurnEdits(api, sessionId ?? null, turnUserId ?? null);
+    // Token readout numbers: ↑ the context footprint (last step's prompt
+    // side), ↓ the turn's production (output + reasoning summed).
+    const contextTokens = usage !== null ? usage.input + usage.cacheRead + usage.cacheWrite : 0;
+    const outputTokens = usage !== null ? usage.output + usage.reasoning : 0;
+    const costLabel = usage !== null && usage.cost > 0 ? formatCost(usage.cost) : null;
+    const tokensHint =
+        usage !== null
+            ? `${t["Context after this turn"]}: ${formatTokens(contextTokens)} = ` +
+              `${t["input"]} ${formatTokens(usage.input)} + ${t["cache read"]} ${formatTokens(usage.cacheRead)} + ` +
+              `${t["cache write"]} ${formatTokens(usage.cacheWrite)}\n` +
+              `${t["Output this turn"]}: ${formatTokens(outputTokens)}` +
+              (usage.reasoning > 0 ? ` (${t["reasoning"]} ${formatTokens(usage.reasoning)})` : "") +
+              (costLabel !== null ? ` · ${t["cost"]} ${costLabel}` : "")
+            : null;
 
     return (
         <div className={enter ? "lum-enter" : undefined}>
@@ -76,6 +102,22 @@ export default function RunFooter({text, durationMs, enter, sessionId, turnUserI
                             space drags them low under items-center. */}
                         <span className="leading-none -translate-y-[0.5px]">{formatDuration(durationMs)}</span>
                     </span>
+                )}
+                {tokensHint !== null && (
+                    <Hint label={tokensHint}>
+                        <span
+                            className="inline-flex items-center gap-1 text-xs opacity-45 select-none"
+                            style={MONO_STYLE}
+                        >
+                            <Coins size={12} className="shrink-0"/>
+                            <span className="leading-none -translate-y-[0.5px]">
+                                ↑{formatTokens(contextTokens)} ↓{formatTokens(outputTokens)}
+                            </span>
+                            {costLabel !== null && (
+                                <span className="leading-none -translate-y-[0.5px]">· {costLabel}</span>
+                            )}
+                        </span>
+                    </Hint>
                 )}
             </div>
             {edits.status === "ready" && edits.files.length > 0 && (

@@ -203,6 +203,7 @@ const TranscriptList = memo(function TranscriptList({
                             <RunFooter
                                 text={run.text}
                                 durationMs={run.durationMs}
+                                usage={run.usage}
                                 enter={footerEnter}
                                 sessionId={sessionId ?? undefined}
                                 turnUserId={run.userMessageId}

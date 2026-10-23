@@ -49,6 +49,7 @@ export function useGateCards({
     directory,
     busy,
     agent,
+    approveAgent = "build",
     messages,
     pendingPermissions,
     pendingForms,
@@ -60,6 +61,11 @@ export function useGateCards({
     directory: string | null;
     busy: boolean;
     agent: string;
+    /** Agent the plan approval switches the session INTO — build for dev
+     *  sessions, lumina-daily for daily ones (useSessionFlow derives it;
+     *  the plugin executor's poll accepts ANY non-plan agent, so both
+     *  open the gate). */
+    approveAgent?: string;
     messages: readonly ChatMessage[];
     pendingPermissions: PermissionRequest[];
     pendingForms: FormRequest[];
@@ -109,7 +115,8 @@ export function useGateCards({
         });
     }, [directory, api, sessionId]);
 
-    // Plan approval: approve = switching the session to build (the agent
+    // Plan approval: approve = switching the session to its execution
+    // agent (build / lumina-daily by the session's mode — the agent
     // change IS what the executor's poll waits for); reject = interrupt,
     // which aborts the executor into a revision prompt. The plan DOCUMENT
     // is not written here: the plan_submit executor itself persists the
@@ -127,7 +134,7 @@ export function useGateCards({
                     snapToBottom();
                     void (async () => {
                         try {
-                            await api?.switchAgent(sessionId, "build");
+                            await api?.switchAgent(sessionId, approveAgent);
                         } catch (e) {
                             logWarn(`Failed to switch agent for plan recovery: ${e}`).catch(() => {});
                         }
@@ -153,9 +160,9 @@ export function useGateCards({
             // Approving resumes execution at the tail — follow it down even
             // if the reader had scrolled up through the plan text.
             snapToBottom();
-            void api?.switchAgent(sessionId, "build");
+            void api?.switchAgent(sessionId, approveAgent);
         },
-        [pendingPlan, api, sessionId, interrupt, snapToBottom, busy],
+        [pendingPlan, api, sessionId, approveAgent, interrupt, snapToBottom, busy],
     );
 
     // Work acceptance: approval is DELIVERED as the marker file (see

@@ -72,6 +72,13 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Copy": "复制",
     "Copied": "已复制",
     "Task duration": "任务持续时间",
+    "Context after this turn": "本轮结束时的上下文",
+    "input": "输入",
+    "cache read": "缓存读",
+    "cache write": "缓存写",
+    "Output this turn": "本轮输出",
+    "reasoning": "思考",
+    "cost": "费用",
     // --- Permission requests & questions ---
     "Permission request": "权限请求",
     "Access a folder outside the project": "访问项目外的文件夹",

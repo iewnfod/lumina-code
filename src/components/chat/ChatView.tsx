@@ -75,6 +75,7 @@ const ChatView = memo(function ChatView({
     onStagedBranchChange,
     onOpenModelConfig,
     usage,
+    approveAgent,
 }: {
     sessionId: string;
     busy: boolean;
@@ -97,6 +98,11 @@ const ChatView = memo(function ChatView({
      *  composer's context ring (which itself reads the transcript's last
      *  measured step; null on the welcome screen). */
     usage: SessionUsage | null;
+    /** Agent a plan approval switches this session into — build for dev
+     *  sessions, lumina-daily for daily ones (useSessionFlow derives it
+     *  from the session's mode; switching a daily session to build would
+     *  strand it on the developer persona + full toolset). */
+    approveAgent: string;
 }) {
     const t = useI18n();
     const {api} = useConnection();
@@ -359,12 +365,18 @@ const ChatView = memo(function ChatView({
 
     // The plan workflow's two gates (Route A) — derivation + decisions
     // + restart-orphan recovery, see useGateCards.ts.
-    const {pendingPlan, pendingWork, waitingForUser, onPlanDecision, onWorkDecision} = useGateCards({
+    const {
+        pendingPlan, pendingWork, waitingForUser, onPlanDecision, onWorkDecision,
+    } = useGateCards({
         api,
         sessionId,
         directory,
         busy,
         agent,
+        /** The agent a plan approval switches this session INTO (build
+         *  for dev sessions, lumina-daily for daily ones) — computed by
+         *  useSessionFlow from the ACTIVE session's mode. */
+        approveAgent,
         messages,
         pendingPermissions,
         pendingForms,

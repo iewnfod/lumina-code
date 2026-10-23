@@ -45,7 +45,12 @@ export const DEFAULT_WORKSPACE_NAME = "LuminaWorkspace";
  *  ROOT. Exported as the ONE name list because the daily panel consumes
  *  it too (workspaceDocuments.ts hides these from the document
  *  inventory — they are workspace infrastructure the app itself wrote,
- *  not the user's documents). */
+ *  not the user's documents).
+ *
+ *  UPGRADE NOTE: seeds write ONLY on a missing file (the readOrNull
+ *  contract below) — an AGENTS.md planted by an older build stays as
+ *  the user's copy forever. The content here serves NEW workspaces;
+ *  existing users edit theirs by hand. */
 export const SEED_FILE_NAMES = ["README.md", "AGENTS.md"] as const;
 
 export const README_CONTENT = `# LuminaWorkspace
@@ -62,13 +67,23 @@ export const AGENTS_CONTENT = `# 工作模式
 本次会话的专属文件夹（Sessions/ 下的一个子目录），用户在这里处理
 写作、计划、笔记、资料整理、日程安排等事务，产出通常是文档而非代码。
 
+回答风格：
 - 默认用中文交流与写作，除非用户另有要求。
+- 直接、简洁，先给结论；大多数问题不需要调用任何工具，好的回答
+  本身就是交付。
+- 需要查证时优先读当前文件夹的资料；读取较长文件时分段读取，
+  不要一次性读完整文件。
+- 拿不准需求时先问清楚，不要凭猜测开工。
+
+文档产出：
 - 产出以 Word、PPT 等文档为主；文件名简短、含义明确。
 - 产出的文档一律保存在当前目录（本次会话的文件夹）内，不要写到
   上级目录或其他会话的文件夹。
 - 生成 Word（.docx）或 PPT（.pptx）文档时，必须使用 write_document 工具，
   把内容按结构化块传入 —— 不要写脚本或代码去生成文档，那样不可控
   也不可复现。读取已有文档的内容用 read_document 工具。
+
+其他：
 - 不执行 git 操作；本目录不是仓库。
 - 如果任务确实需要写代码或操作代码仓库，建议用户切换到开发模式
   （在对应项目目录开新会话）。

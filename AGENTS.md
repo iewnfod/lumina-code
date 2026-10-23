@@ -207,7 +207,37 @@ src/
 │                          #   options (see opencode/useLuminaTools.ts, the
 │                          #   connect-time installer); the server hot-reloads
 │                          #   on config change. TOOLS registry inside = one
-│                          #   entry per tool (enabled/agentId/tool). v2.0.11
+│                          #   entry per tool (enabled/agentId/tool).
+│                          #   HARNESS-PERFORMANCE SPLIT (2026-10): the
+│                          #   context hook branches per agent — the
+│                          #   lumina-daily primary agent (config-defined;
+│                          #   DAILY_AGENT_ID mirrors toolPluginConfig's
+│                          #   LUMINA_DAILY_AGENT_ID) gets the COMPACT
+│                          #   plan protocol, every other primary gets
+│                          #   the full protocol + a static DEV_DISCIPLINE
+│                          #   anti-loop rule; the helper skip-set is the
+│                          #   TOOLS registry's agentIds
+│                          #   (HELPER_AGENT_IDS — a "lumina-" prefix
+│                          #   check would swallow the daily agent). The
+│                          #   RUNTIME anti-loop half: for EXECUTION
+│                          #   agents (isExecutionAgent — build/
+│                          #   lumina-daily, mirroring planWorkflow.ts)
+│                          #   the hook scans the trailing transcript
+│                          #   (ctx.session.context) every model call and
+│                          #   pushes a stall warning at the system tail
+│                          #   when the same normalized error survives 2
+│                          #   settles (errorFingerprint folds numbers/
+│                          #   hex/dirs, keeps file names) or — build
+│                          #   only — ≥3 trailing steps ran tools with no
+│                          #   file edits (daily sessions legitimately
+│                          #   read a lot); pure halves node-tested.
+│                          #   ALSO search_tools (always-on native): the
+│                          #   discovery window onto tools a mode HIDES
+│                          #   (the daily agent's deny rules) — a static
+│                          #   TOOL_GUIDES table + filterToolGuides query
+│                          #   matching, answering with what the tool
+│                          #   does and what to tell the user instead.
+│                          #   v2.0.11
 │                          #   facts encoded here: plugin tools default to
 │                          #   CODE MODE exposure — `codemode: false` makes
 │                          #   them NATIVE tools (verified live; the code-mode
@@ -628,7 +658,26 @@ src/
 │   │                      #   ships always-on) + the restricted helper agents
 │   │                      #   in the config's `agents` section (v2.0.11 has
 │   │                      #   no plugin-side agent add) + the vision-capable
-│   │                      #   model filter. NOTE: the plan workflow's
+│   │                      #   model filter. ALSO OWNS the
+│   │                      #   HARNESS-PERFORMANCE config half
+│   │                      #   (LUMINA_DAILY_AGENT_ID, spike-verified
+│   │                      #   2026-10-23): lumina-daily — a PRIMARY agent
+│   │                      #   whose `system` replaces build's
+│   │                      #   developer persona and whose permissions DENY
+│   │                      #   bash (a deny {action, resource:"*"} rule
+│   │                      #   removes the tool from the agent's tool list
+│   │                      #   ENTIRELY — v2.0.11 has NO agent.tools map;
+│   │                      #   the SDK's tools/prompt/name fields are
+│   │                      #   NEWER than the server and silently
+│   │                      #   stripped, the real ones are
+│   │                      #   system/description/mode/permissions),
+│   │                      #   written ALWAYS with the plugin —
+│   │                      #   luminaDailyAgentMissing feeds the
+│   │                      #   installer's upgrade-path rewrite (options
+│   │                      #   unchanged would otherwise skip it) — plus
+│   │                      #   the top-level tool_output ceiling
+│   │                      #   ({max_lines, max_bytes}, user-set values
+│   │                      #   preserved). NOTE: the plan workflow's
 │   │                      #   approval gate deliberately has NO config
 │   │                      #   rule — plugin tools have no execution-time
 │   │                      #   permission check on v2.0.11 (see the
@@ -914,7 +963,11 @@ src/
 │   │                      #   work_submit advance it), planApprovalPending
 │   │                      #   / workApprovalPending (Route A's two gates
 │   │                      #   over lastUnsettledPart), findPlanSubmitInput,
-│   │                      #   GateContext. sessionActivity re-exports it
+│   │                      #   GateContext, isExecutionAgent (build OR
+│   │                      #   lumina-daily count as "the gate opened" —
+│   │                      #   approvals switch a session into its mode's
+│   │                      #   execution agent; mirrored in the plugin
+│   │                      #   source). sessionActivity re-exports it
 │   │                      #   (imports unchanged); keep in sync with the
 │   │                      #   plugin source.
 │   ├── promptQueue.ts    # The per-session QUEUED-PROMPT store — now a MIRROR
@@ -1324,7 +1377,22 @@ src/
 │   │                      #   (mainDirFor; an explicit folder "+" still takes
 │   │                      #   the worktree dir literally — shared-checkout
 │   │                      #   semantics on the pinned branch), and the
-│   │                      #   cross-restart save. MODE-SWITCH MEMORY: each half remembers the
+│   │                      #   cross-restart save. MODE-SPLIT AGENTS
+│   │                      #   (harness performance): modeDefaultAgent —
+│   │                      #   daily sessions START on the lumina-daily
+│   │                      #   agent (sendFirst switches when the catalog
+│   │                      #   lists it) while dev keeps build; the
+│   │                      #   persisted `agent` records only the user's
+│   │                      #   EXPLICIT staged pick (never the derived
+│   │                      #   default — an upgrade's daily user must not
+│   │                      #   re-land on a frozen "build"); and
+│   │                      #   approveAgent — the agent a plan approval
+│   │                      #   switches the ACTIVE session into (build /
+│   │                      #   lumina-daily by the session's mode),
+│   │                      #   threaded App → ChatView → useGateCards
+│   │                      #   (switching a daily session to build would
+│   │                      #   strand it on the developer persona).
+│   │                      #   MODE-SWITCH MEMORY: each half remembers the
 │   │                      #   session it had open when left (modeSessionsRef,
 │   │                      #   null = welcome screen, persisted as ui-state
 │   │                      #   daily/devSessionId) and switching back
@@ -2516,7 +2584,21 @@ src/
     │   ├── RunFooter.tsx + runFooters.ts # Per-turn summary footer (pure collector in
     │   │                  #   runFooters.ts — node-testable; the footer
     │   │                  #   info carries the run's opening userMessageId).
-    │   │                  #   Beyond copy + duration, a turn that EDITED
+    │   │                  #   Beyond copy + duration, the TURN TOKEN
+    │   │                  #   READOUT (the harness-performance
+    │   │                  #   observability seat): ↑ the context
+    │   │                  #   footprint (the run's LAST usage step's
+    │   │                  #   prompt side — input + cache read/write;
+    │   │                  #   prompt tokens are a SNAPSHOT, never summed
+    │   │                  #   across steps — each step's input contains
+    │   │                  #   the whole prior context, summing would
+    │   │                  #   grow quadratically, see usageStats) and ↓
+    │   │                  #   the turn's output (output + reasoning +
+    │   │                  #   cost, summed — outputs are independent per
+    │   │                  #   step); the hover hint decomposes the
+    │   │                  #   numbers, and comparing the ↑ readout
+    │   │                  #   across agents/modes is how prompt-shrink
+    │   │                  #   wins are measured. ALSO a turn that EDITED
     │   │                  #   files gets the turns-edits CARD below the
     │   │                  #   row — a recessed bordered box (useColors)
     │   │                  #   whose header "N files changed +A −D"

@@ -2,6 +2,8 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {
     freshConfigWithToolsPlugin,
+    LUMINA_DAILY_AGENT_ID,
+    luminaDailyAgentMissing,
     luminaToolsEntryPresent,
     luminaToolsPluginPath,
     mergeLuminaToolsPlugin,
@@ -62,6 +64,21 @@ test("empty options keep the entry (plan_mode is always-on) but drop the vision 
     assert.deepEqual(root.plugins, [{package: PATH, options: {}}, "some-pkg"]);
     assert.equal("lumina-vision" in root.agents, false);
     assert.ok(root.agents.keep);
+    // The daily agent is always-on — written with the plugin, not an option.
+    assert.ok(root.agents[LUMINA_DAILY_AGENT_ID]);
+});
+
+test("lumina-daily agent: primary mode, compact system, bash denied", () => {
+    const root = JSON.parse(mergeLuminaToolsPlugin("{}", PATH, {})!);
+    const daily = root.agents[LUMINA_DAILY_AGENT_ID];
+    assert.equal(daily.mode, "primary");
+    assert.equal(daily.hidden, undefined);
+    assert.equal(typeof daily.system, "string");
+    // Tool gating rides deny rules (v2.0.11 has no agent.tools map).
+    assert.deepEqual(daily.permissions, [{action: "bash", resource: "*", effect: "deny"}]);
+    // Re-merge keeps exactly one entry (no duplicates, no drift).
+    const again = JSON.parse(mergeLuminaToolsPlugin(JSON.stringify(root), PATH, {})!);
+    assert.deepEqual(again.agents[LUMINA_DAILY_AGENT_ID], daily);
 });
 
 test("no options means an empty options object, not a dropped entry", () => {
@@ -89,9 +106,12 @@ test("fresh config carries schema and entry; empty options keep the entry", () =
     assert.equal(root.$schema, "https://opencode.ai/config.json");
     assert.deepEqual(root.plugins, [{package: PATH, options: OPTS}]);
     assert.ok(root.agents["lumina-vision"]);
+    assert.ok(root.agents[LUMINA_DAILY_AGENT_ID]);
     const bare = JSON.parse(freshConfigWithToolsPlugin(PATH, {}));
     assert.deepEqual(bare.plugins, [{package: PATH, options: {}}]);
-    assert.equal("agents" in bare, false);
+    // No vision agent without a model, but the daily agent persists.
+    assert.equal("lumina-vision" in bare.agents, false);
+    assert.ok(bare.agents[LUMINA_DAILY_AGENT_ID]);
 });
 
 test("luminaToolsEntryPresent distinguishes an absent entry from empty options", () => {
@@ -141,6 +161,30 @@ test("systemPrompt round-trips through merge/read and survives vision re-saves",
     const root = JSON.parse(cleared);
     assert.equal("systemPrompt" in root.plugins[0].options, false);
     assert.equal(root.plugins[0].options.vision.model, "zhipuai-coding-plan/glm-5.3-flash");
+});
+
+test("luminaDailyAgentMissing detects the upgrade path", () => {
+    const withAgent = mergeLuminaToolsPlugin("{}", PATH, OPTS)!;
+    assert.equal(luminaDailyAgentMissing(withAgent), false);
+    // The pre-daily config shape (entry + agents with only vision).
+    assert.equal(luminaDailyAgentMissing('{"agents": {"lumina-vision": {}}}'), true);
+    assert.equal(luminaDailyAgentMissing('{"agents": []}'), true); // wrong shape = missing
+    assert.equal(luminaDailyAgentMissing("{}"), true); // no agents section
+});
+
+test("tool_output default is planted once and never overrides the user's", () => {
+    const planted = JSON.parse(mergeLuminaToolsPlugin("{}", PATH, OPTS)!);
+    assert.deepEqual(planted.tool_output, {max_lines: 2000, max_bytes: 65536});
+    // A user's own ceiling survives every re-merge.
+    const custom = mergeLuminaToolsPlugin(
+        JSON.stringify({tool_output: {max_lines: 10}}),
+        PATH,
+        OPTS,
+    )!;
+    assert.deepEqual(JSON.parse(custom).tool_output, {max_lines: 10});
+    // A wrong-shaped value (array) is replaced by the default.
+    const broken = JSON.parse(mergeLuminaToolsPlugin('{"tool_output": []}', PATH, OPTS)!);
+    assert.deepEqual(broken.tool_output, {max_lines: 2000, max_bytes: 65536});
 });
 
 test("visionCapableModels filters on image input with catalog hygiene", () => {

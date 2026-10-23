@@ -161,6 +161,7 @@ function AppBody({
         activeSession,
         effectiveModel,
         effectiveAgent,
+        approveAgent,
         pendingDirectory,
         pendingBranch,
         changeModel,
@@ -513,6 +514,7 @@ function AppBody({
                                                 onModelChange={changeModel}
                                                 directory={activeDirectory}
                                                 onDirectoryChange={changeDirectory}
+                                                approveAgent={approveAgent}
                                                 stagedBranch={pendingBranch}
                                                 onStagedBranchChange={(branch) => {
                                                     // A branch pick on an EXISTING (empty) session

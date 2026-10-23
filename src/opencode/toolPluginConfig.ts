@@ -92,6 +92,7 @@ export function mergeLuminaToolsPlugin(
 
     const agentsError = mergeLuminaAgents(root, options);
     if (agentsError) return null;
+    mergeToolOutput(root);
     return JSON.stringify(root, null, 2);
 }
 
@@ -105,7 +106,22 @@ export function freshConfigWithToolsPlugin(
         plugins: [{package: pluginPath, options}],
     };
     mergeLuminaAgents(root, options);
+    mergeToolOutput(root);
     return JSON.stringify(root, null, 2);
+}
+
+/** The server-side tool-output ceiling (v2.0.11 config `tool_output`,
+ * spike-verified in the openapi schema): caps a runaway tool result —
+ * a log-dump bash call, a webfetch of a huge page — before it floods
+ * the model's context. Generous enough that healthy outputs (the read
+ * tool's own default 2000-line pages included) never hit it. A
+ * user-set `tool_output` object is preserved verbatim; only a missing
+ * or wrong-shaped one gets the default. */
+function mergeToolOutput(root: Record<string, unknown>): void {
+    const existing = root["tool_output"];
+    if (existing !== undefined && existing !== null &&
+        typeof existing === "object" && !Array.isArray(existing)) return;
+    root["tool_output"] = {max_lines: 2000, max_bytes: 65_536};
 }
 
 /** Whether our plugin entry exists in the raw config text — independent
@@ -119,6 +135,30 @@ export function luminaToolsEntryPresent(raw: string, pluginPath: string): boolea
     return plugins !== null && findOwnEntry(plugins, pluginPath) !== undefined;
 }
 
+/** Whether the daily-mode agent is MISSING from the raw config text —
+ * the upgrade-path trigger for the installer's config rewrite: an
+ * existing install whose options are unchanged would otherwise never
+ * re-write the file, stranding the lumina-daily agent out of the
+ * `agents` section. False on unreadable text (the caller's own null/
+ * JSONC handling owns those refusals). */
+export function luminaDailyAgentMissing(raw: string): boolean {
+    const root = parseRoot(raw);
+    if (!root) return false;
+    const agents = root["agents"];
+    if (agents === undefined || agents === null) return true;
+    if (typeof agents !== "object" || Array.isArray(agents)) return true;
+    return !((agents as Record<string, unknown>)[LUMINA_DAILY_AGENT_ID] instanceof Object);
+}
+
+/**
+ * The agent id of the DAILY-mode primary agent — the single constant
+ * shared by this config writer, the frontend's mode-default binding
+ * (useSessionFlow) and the plan workflow's approval switch-back
+ * (useGateCards). Sessions in daily mode run on it; dev sessions keep
+ * the builtin build/plan agents untouched.
+ */
+export const LUMINA_DAILY_AGENT_ID = "lumina-daily";
+
 /**
  * The restricted helper agents the plugin's tools delegate to, as the
  * config `agents` entries the server merges into its registry (v2.0.11
@@ -126,6 +166,20 @@ export function luminaToolsEntryPresent(raw: string, pluginPath: string): boolea
  * verified live against the pinned server: `permissions` must be the
  * ARRAY rulesen ([{action, resource, effect}]) — the object form
  * {deny: […]} of V1 configs is rejected by normalization.
+ *
+ * v2.0.11 agent-config facts (spike-verified 2026-10-23 against the
+ * pinned sidecar, curl + /openapi.json + binary): the accepted fields
+ * are model/request/system/description/mode/hidden/color/steps/
+ * disabled/permissions — the SDK's AgentConfig.tools/prompt/name/
+ * variant are NEWER than this server and are silently STRIPPED
+ * (additionalProperties:false); the agent display name always reads
+ * back as the id, so the description carries the human label. A
+ * permissions rule {action:"<toolName>", resource:"*", effect:"deny"}
+ * removes the tool from the agent's tool list ENTIRELY (binary: the
+ * Tool snapshot skips tools whose name/permission matches a
+ * last-matching deny-* rule — the same mechanism that hides edit from
+ * the builtin plan agent), so per-agent tool gating is expressed as
+ * deny rules, not the SDK's tools map.
  *
  * NOTE: the plan workflow's approval gate deliberately has NO config
  * rule here — binary-verified on v2.0.11 that plugin tools have no
@@ -147,15 +201,47 @@ function mergeLuminaAgents(
         return "agents-section-invalid";
     }
     const agents = (root["agents"] ?? {}) as Record<string, unknown>;
+    // The daily primary agent is ALWAYS present — it is the daily mode's
+    // half of the harness (system prompt + tool gating), installed with
+    // the plugin rather than toggled by an option.
+    agents[LUMINA_DAILY_AGENT_ID] = luminaDailyAgent();
     if (options.vision?.model) {
         agents["lumina-vision"] = luminaVisionAgent();
-        root["agents"] = agents;
     } else if ("lumina-vision" in agents) {
         delete agents["lumina-vision"];
-        if (Object.keys(agents).length > 0) root["agents"] = agents;
-        else delete root["agents"];
     }
+    root["agents"] = agents;
     return null;
+}
+
+/** The daily-mode primary agent — the harness's "daily" half. Its
+ * `system` REPLACES the builtin build agent's developer-oriented prompt
+ * (that replacement is the point: a daily session never carries code-
+ * review/test/verification guidance), while deny rules remove the
+ * tools a documents workspace has no use for. `bash` is the one denied
+ * today: non-developers gain nothing from a shell but can lose a lot
+ * to one, and the tasks that need it are dev-mode tasks by definition.
+ * (patch — the GPT-family editor — stays AVAILABLE: for a GPT model it
+ * is the only file-writing tool, and daily notes still get written.)
+ * Keep the system text COMPACT — shrinking the per-call prompt is this
+ * agent's other job. */
+function luminaDailyAgent(): Record<string, unknown> {
+    return {
+        description: "Lumina 日常助手（文档、笔记与资料整理）",
+        mode: "primary",
+        system:
+            "You are the daily assistant of Lumina Code, working in a personal documents workspace — " +
+            "writing, planning, notes and research. This is NOT a code repository.\n" +
+            "Working style:\n" +
+            "- Answer directly and concisely; a good reply beats a tool call. Ask when a request is unclear.\n" +
+            "- Read long files in sections (offset/limit); never dump whole files.\n" +
+            "- Save every file you create in the current working directory (this session's own folder).\n" +
+            "- Produce Word (.docx) and PowerPoint (.pptx) documents ONLY through the write_document tool " +
+            "with structured blocks — never scripts. Read existing ones with read_document.\n" +
+            "- There is no terminal or git here. If a task truly needs them, say so and suggest switching " +
+            "to dev mode (a session opened in the project directory).",
+        permissions: [{action: "bash", resource: "*", effect: "deny"}],
+    };
 }
 
 /** The vision helper agent — MUST stay in sync with the plugin's vision

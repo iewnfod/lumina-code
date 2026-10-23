@@ -74,6 +74,13 @@ const enUs = {
     "Copy": "Copy",
     "Copied": "Copied",
     "Task duration": "Task duration",
+    "Context after this turn": "Context after this turn",
+    "input": "input",
+    "cache read": "cache read",
+    "cache write": "cache write",
+    "Output this turn": "Output this turn",
+    "reasoning": "reasoning",
+    "cost": "cost",
     // --- Permission requests & questions ---
     "Permission request": "Permission request",
     "Access a folder outside the project": "Access a folder outside the project",

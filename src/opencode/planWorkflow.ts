@@ -12,6 +12,7 @@
  */
 import type {AssistantToolPart, ChatMessage} from "./types.ts";
 import {inputRecord, toolParts} from "./sessionActivity.ts";
+import {LUMINA_DAILY_AGENT_ID} from "./toolPluginConfig.ts";
 
 /** Tool names of the plan workflow (src/plugins/luminaTools.js). The
  * names are the contract between the plugin's executors, this file's
@@ -90,11 +91,13 @@ function applyTodoEvent(items: SessionTodoItem[], input: Record<string, unknown>
 /** Context the transcript alone cannot provide to the gate folds —
  * everything restart recovery needs beyond part status:
  * - `agent`: the session's CURRENT agent. Approval in this architecture
- *   IS the agent switch to build (the plugin executor's poll waits for
- *   exactly that), so a plan_submit part frozen RUNNING by an app
- *   restart (the server persists parts as running at call start and
- *   never settles orphans) counts as APPROVED under "build" — mirroring
- *   planStateFromEntries in the plugin source; keep the two in sync.
+ *   IS the agent switch to an EXECUTION agent (the plugin executor's
+ *   poll waits for exactly that — build for dev sessions,
+ *   LUMINA_DAILY_AGENT_ID for daily ones), so a plan_submit part frozen
+ *   RUNNING by an app restart (the server persists parts as running at
+ *   call start and never settles orphans) counts as APPROVED under
+ *   either — see isExecutionAgent; mirroring planStateFromEntries in
+ *   the plugin source; keep the two in sync.
  * - `decided`: locally recorded verdicts for parts whose executor died
  *   in a restart (partId → decision), which outlive the frozen running
  *   status in storage. Omitted/undefined agent ⇒ legacy status-only
@@ -107,6 +110,16 @@ export interface GateContext {
 
 /** A locally recorded verdict for a restart-orphaned gate part. */
 export type GateDecision = "rejected" | "accepted";
+
+/** The agents a plan approval switches a session INTO — the "execution"
+ * half of the plan workflow. build is dev's; LUMINA_DAILY_AGENT_ID
+ * (opencode/toolPluginConfig.ts) is the daily mode's. The approval card
+ * decides which one by the session's mode; every agent-as-truth fold
+ * (here AND the plugin's planStateFromEntries mirror — keep the two in
+ * sync) accepts either as "the gate opened". */
+export function isExecutionAgent(agent: string | undefined): boolean {
+    return agent === "build" || agent === LUMINA_DAILY_AGENT_ID;
+}
 
 /**
  * The session's plan-workflow state: the LAST plan_submit tool part
@@ -182,7 +195,7 @@ export function collectSessionTodos(list: ChatMessage[], opts?: GateContext): Se
         title: title.trim(),
         items,
         pendingApproval:
-            (submit.state.status === "running" || submit.state.status === "pending") && opts?.agent !== "build",
+            (submit.state.status === "running" || submit.state.status === "pending") && !isExecutionAgent(opts?.agent),
         archived,
         reportSubmitted,
     };
@@ -258,7 +271,7 @@ export function findPlanSubmitInput(
 export function planApprovalPending(list: ChatMessage[], opts?: GateContext): PlanSubmitPayload | null {
     const part = lastUnsettledPart(list, PLAN_SUBMIT_TOOL);
     if (!part) return null;
-    if (opts?.agent === "build") return null;
+    if (isExecutionAgent(opts?.agent)) return null;
     if (opts?.decided?.get(part.id) === "rejected") return null;
     return parsePlanSubmitPayload(part);
 }
