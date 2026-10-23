@@ -1299,7 +1299,15 @@ src/
 │   │                      #   (mainDirFor; an explicit folder "+" still takes
 │   │                      #   the worktree dir literally — shared-checkout
 │   │                      #   semantics on the pinned branch), and the
-│   │                      #   cross-restart save. Consumes the context split
+│   │                      #   cross-restart save. MODE-SWITCH MEMORY: each half remembers the
+│   │                      #   session it had open when left (modeSessionsRef,
+│   │                      #   null = welcome screen, persisted as ui-state
+│   │                      #   daily/devSessionId) and switching back
+│   │                      #   RESTORES it — only if it still exists and
+│   │                      #   belongs to that half (else the welcome
+│   │                      #   screen; the sync effect's ownership guard
+│   │                      #   keeps the switch render's stale activeId out
+│   │                      #   of the new half's entry). Consumes the context split
 │   │                      #   (connection handles + catalog + the
 │   │                      #   provider-hosted session list) — no parameters.
 │   ├── useSessionRequests.ts # Pending server→user asks across ALL sessions (permission

@@ -2,7 +2,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {error, info, warn} from "@tauri-apps/plugin-log";
 import {loadState, saveState} from "../lib/persist.ts";
 import {fileRefToPromptFile, OpencodeApi} from "./api.ts";
-import {sessionMode, useAppMode} from "./appMode.ts";
+import {type AppMode, sessionMode, useAppMode} from "./appMode.ts";
 import {ensureDefaultWorkspace, resolveDefaultWorkspace} from "./defaultWorkspace.ts";
 import {appendFailedPrompt, prepareCommandSubmission} from "./useSessionMessages.ts";
 import {useCatalog} from "./catalogContext.tsx";
@@ -123,6 +123,15 @@ export function useSessionFlow(): {
     const restored = useMemo(loadState, []);
     const [activeId, setActiveId] = useState<string | null>(restored.sessionId);
     const activeSession = sessions.find((s) => s.id === activeId) ?? null;
+    // What each mode had open when it was last left (null = that mode was
+    // on the welcome screen) — switching back restores it. Seeded from the
+    // persisted ui-state so the memory survives restarts; the CURRENT
+    // mode's entry tracks activeId through the sync effect below (the
+    // mode-switch effect only writes the mode being LEFT).
+    const modeSessionsRef = useRef<Record<AppMode, string | null>>({
+        daily: restored.dailySessionId,
+        dev: restored.devSessionId,
+    });
 
     // --- Composer selections (staged pre-session) ---
     const [pendingModel, setPendingModel] = useState<SessionModelRef | null>(restored.model);
@@ -137,20 +146,46 @@ export function useSessionFlow(): {
 
     // --- Mode-switch choreography (appMode.ts) ---
     // Switching halves (or being forced off dev by a confirmed git-less
-    // machine) invalidates the open session when it belongs to the
-    // OTHER half — the new mode's sidebar could never navigate back to
-    // it. Back to the welcome screen with the staging cleared: the
-    // previous session's directory belongs to the old mode too (a
-    // daily workspace must not leak into dev's picker), so unlike
-    // newSession() nothing is re-seeded here.
+    // machine) remembers what the LEFT mode had open, clears the staging
+    // (the previous session's directory belongs to the old mode too — a
+    // daily workspace must not leak into dev's picker, so unlike
+    // newSession() nothing is re-seeded) and RESTORES the new mode's own
+    // last session: each half reopens where the user left it, instead of
+    // always landing on the welcome screen. The restore only takes a
+    // session that still exists, still belongs to that mode and the list
+    // has loaded — anything else (deleted meanwhile, welcome screen when
+    // the mode was left, early boot) is the welcome screen, where the dev
+    // preselect effect below stages a directory as usual.
     const prevModeRef = useRef(mode);
     useEffect(() => {
         if (prevModeRef.current === mode) return;
+        const prevMode = prevModeRef.current;
         prevModeRef.current = mode;
+        // What the LEFT mode had open — activeId is still that mode's
+        // value in this render (the restore below only takes effect on
+        // the next one). null records the welcome screen just as
+        // faithfully.
+        modeSessionsRef.current[prevMode] = activeId;
         setPendingBranch(null);
         setPendingDirectory(null);
-        if (activeId !== null && activeSession && sessionMode(activeSession) !== mode) {
-            setActiveId(null);
+        // Already sitting on a session of the NEW mode (a session opened
+        // in one half never navigates in the other, but be safe): keep it.
+        if (activeId !== null && activeSession && sessionMode(activeSession) === mode) return;
+        const remembered = modeSessionsRef.current[mode];
+        const restoredSession = remembered !== null && sessionsLoaded
+            ? sessions.find((s) => s.id === remembered && sessionMode(s) === mode) ?? null
+            : null;
+        setActiveId(restoredSession ? remembered : null);
+    }, [mode, activeId, activeSession, sessions, sessionsLoaded]);
+    // Keep the CURRENT mode's memory in lockstep with every activeId
+    // change (user open/new/delete/edit-resend…). The ownership guard is
+    // the point: on the mode-switch render activeId still belongs to the
+    // OLD mode, and an unguarded write would pollute the new mode's
+    // entry with the old half's session until the restore re-render
+    // overwrites it.
+    useEffect(() => {
+        if (activeId === null || (activeSession && sessionMode(activeSession) === mode)) {
+            modeSessionsRef.current[mode] = activeId;
         }
     }, [mode, activeId, activeSession]);
     // Dev has no "default directory" anymore: an unstaged welcome
@@ -386,15 +421,20 @@ export function useSessionFlow(): {
     }, [sessionsLoaded, sessions, activeId]);
 
     // Persist what a restart should land on: the open session (or the welcome
-    // screen's staged project), plus the model / thinking depth / mode in use.
+    // screen's staged project), plus the model / thinking depth / mode in use
+    // and each mode's last-open session (mode switches restore them; the
+    // current mode's entry is always settled by the sync effect above by the
+    // time this runs — mode-switch renders update activeId first).
     useEffect(() => {
         saveState({
             sessionId: activeId,
+            dailySessionId: modeSessionsRef.current.daily,
+            devSessionId: modeSessionsRef.current.dev,
             model: effectiveModel,
             agent: effectiveAgent,
             directory: pendingDirectory,
         });
-    }, [activeId, effectiveModel, effectiveAgent, pendingDirectory]);
+    }, [mode, activeId, effectiveModel, effectiveAgent, pendingDirectory]);
 
     return {
         sessions,
