@@ -2834,10 +2834,13 @@ src/
     │   │                  #   DRILL BODY (the office-tools plugin's
     │   │                  #   structure sidecar rendered back —
     │   │                  #   opencode/docstruct.ts's contract): a docx
-    │   │                  #   renders as a WHITE paper column (headings/
-    │   │                  #   paragraphs/lists/tables/embedded images —
-    │   │                  #   dark-on-white regardless of theme, a
-    │   │                  #   document IS paper), a pptx as one 16:9 card
+    │   │                  #   renders as a THEME-COLORED document flow
+    │   │                  #   (headings/paragraphs/lists/tables/embedded
+    │   │                  #   images — a CONTENT preview: docx pagination
+    │   │                  #   is computed by Word's layout engine at
+    │   │                  #   render time, so no pages, paper chrome or
+    │   │                  #   fixed page width are simulated), a pptx as
+    │   │                  #   one 16:9 card
     │   │                  #   per slide (title/bullets/image/notes footer
     │   │                  #   + page chip). Fidelity is "what the
     │   │                  #   document says", not how Word paginates —

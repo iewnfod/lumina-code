@@ -1,5 +1,7 @@
 import {memo, useCallback, useEffect, useLayoutEffect, useRef, useState} from "react";
-import {Bot, ChevronLeft, ChevronUp, Diff, FileText, GitBranch, ListChecks, Square, SquareTerminal} from "lucide-react";
+import {Bot, ChevronLeft, ChevronUp, Diff, ExternalLink, FileText, FolderOpen, GitBranch, ListChecks, Square, SquareTerminal} from "lucide-react";
+import {openPath, revealItemInDir} from "@tauri-apps/plugin-opener";
+import {warn} from "@tauri-apps/plugin-log";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {useBackLevel} from "../../hooks/useBackLevel.ts";
@@ -520,6 +522,46 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         )}
                         {view.kind === "subagent" && liveSub && (
                             <SubagentStateChip running={liveSub.running}/>
+                        )}
+                        {/* The document drill's leave-the-app actions live
+                         * HERE (beside the collapse button), not inside the
+                         * preview body — the header owns every drill's
+                         * chrome (stop button for terminals, state chips…). */}
+                        {view.kind === "document" && liveDoc && (
+                            <>
+                                <Hint label={t["Open in system app"]}>
+                                    <IconButton
+                                        size={24}
+                                        circle
+                                        hoverOverlay={colors.hoverOverlay}
+                                        activeOverlay={colors.activeOverlay}
+                                        aria-label={t["Open in system app"]}
+                                        onClick={() => {
+                                            openPath(liveDoc.path).catch((e) => {
+                                                warn(`Failed to open ${liveDoc.path}: ${e}`).catch(() => {});
+                                            });
+                                        }}
+                                    >
+                                        <ExternalLink size={12}/>
+                                    </IconButton>
+                                </Hint>
+                                <Hint label={t["Show in folder"]}>
+                                    <IconButton
+                                        size={24}
+                                        circle
+                                        hoverOverlay={colors.hoverOverlay}
+                                        activeOverlay={colors.activeOverlay}
+                                        aria-label={t["Show in folder"]}
+                                        onClick={() => {
+                                            revealItemInDir(liveDoc.path).catch((e) => {
+                                                warn(`Failed to reveal ${liveDoc.path}: ${e}`).catch(() => {});
+                                            });
+                                        }}
+                                    >
+                                        <FolderOpen size={12}/>
+                                    </IconButton>
+                                </Hint>
+                            </>
                         )}
                         <IconButton
                             size={24}

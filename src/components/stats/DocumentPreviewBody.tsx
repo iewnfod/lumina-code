@@ -1,6 +1,5 @@
 import {memo, useEffect, useMemo, useState} from "react";
-import {ExternalLink, FolderOpen} from "lucide-react";
-import {openPath, revealItemInDir} from "@tauri-apps/plugin-opener";
+import {openPath} from "@tauri-apps/plugin-opener";
 import {warn} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
@@ -14,8 +13,6 @@ import {
 } from "../../opencode/docstruct.ts";
 import type {DocRow} from "../../opencode/workspaceDocuments.ts";
 import {splitFilePath} from "../chat/attachmentPreview.ts";
-import IconButton from "../ui/IconButton.tsx";
-import Hint from "../ui/Hint.tsx";
 import {BodyBox} from "./statsChrome.tsx";
 
 /**
@@ -26,13 +23,16 @@ import {BodyBox} from "./statsChrome.tsx";
  * detail, back button in the panel header).
  *
  * Rendering is the SIDECAR's structure, not the file's layout: a docx
- * renders as a paper-width document flow (headings/paragraphs/lists/
- * tables/embedded images), a pptx as one 16:9 card per slide. Fidelity
- * is "what the document says", not "how Word paginates it" — the
- * toolbar's system-app buttons cover the real look. Documents without a
- * sidecar (user's own, foreign) say so and offer the system app instead;
- * a size mismatch (edited in Word since generation) shows a staleness
- * banner but still renders.
+ * renders as a theme-colored document flow (headings/paragraphs/lists/
+ * tables/embedded images — a CONTENT preview: docx pagination is
+ * computed by Word's layout engine at render time, so no pages, paper
+ * chrome or fixed page width are simulated), a pptx as one 16:9 card
+ * per slide (a slide IS a fixed canvas — the white card is accurate).
+ * Fidelity is "what the document says", not "how Word paginates it" —
+ * the panel header's system-app buttons (beside the collapse button)
+ * cover the real look. Documents without a sidecar (user's own,
+ * foreign) say so and offer the system app instead; a size mismatch (edited in Word since generation) shows
+ * a staleness banner but still renders.
  */
 
 /** Resolve one sidecar image path (absolute or workspace-relative) into
@@ -154,87 +154,65 @@ const DocumentPreviewBody = memo(function DocumentPreviewBody({
     };
 
     return (
-        <BodyBox fill className="flex flex-col">
-            {/* Action row: leave the app only on purpose (the panel header
-             * owns the back/collapse chrome). */}
-            <div className="flex items-center justify-end gap-1 px-2 pt-1.5 pb-1 shrink-0">
-                <Hint label={t["Open in system app"]}>
-                    <IconButton
-                        size={22}
-                        circle
-                        hoverOverlay={colors.hoverOverlay}
-                        activeOverlay={colors.activeOverlay}
-                        aria-label={t["Open in system app"]}
-                        onClick={openExternally}
-                    >
-                        <ExternalLink size={12}/>
-                    </IconButton>
-                </Hint>
-                <Hint label={t["Show in folder"]}>
-                    <IconButton
-                        size={22}
-                        circle
-                        hoverOverlay={colors.hoverOverlay}
-                        activeOverlay={colors.activeOverlay}
-                        aria-label={t["Show in folder"]}
-                        onClick={() => {
-                            revealItemInDir(row.path).catch((e) => {
-                                warn(`Failed to reveal ${row.path}: ${e}`).catch(() => {});
-                            });
-                        }}
-                    >
-                        <FolderOpen size={12}/>
-                    </IconButton>
-                </Hint>
-            </div>
-
+        // ONE scroller: BodyBox's own (lum-fade-md + conditional top/
+        // bottom fades — the same mask the diff preview scrolls under).
+        // The previous inner overflow-y-auto starved it (flex-1 min-h-0
+        // meant the INNER layer always overflowed first), so the fades
+        // never fired.
+        <div className="lum-enter flex flex-col flex-1 min-h-0 gap-1.5">
+            {/* The leave-the-app actions (open in system app / show in
+             * folder) live in the PANEL HEADER beside the collapse button
+             * (SessionStatsCard's document branch) — the header owns every
+             * drill's chrome. The staleness banner stays OUTSIDE the
+             * scroller: pinned above it, never scrolled away. */}
             {stale && (
-                <div className="mx-2 mb-1.5 px-2 py-1 rounded-[var(--radius-xs)] text-2xs select-none shrink-0"
+                <div className="mx-2 px-2 py-1 rounded-[var(--radius-xs)] text-2xs select-none shrink-0"
                     style={{background: "var(--color-warning)", color: "#fff"}}>
                     {t["This document was modified outside the app — preview may be outdated"]}
                 </div>
             )}
-
-            {state.phase === "loading" && (
-                <div className="flex justify-center py-8 opacity-50">
-                    <span className="lum-loading"><span/><span/><span/></span>
-                </div>
-            )}
-            {state.phase === "no-sidecar" && (
-                <div className="flex flex-col items-center gap-3 py-8 px-4 text-center">
-                    <p className="text-xs opacity-50 select-none">{t["No in-app preview — this document was not generated here"]}</p>
-                    <button
-                        type="button"
-                        className="text-xs px-3 py-1.5 rounded-[var(--radius-sm)] lum-wash"
-                        style={{background: colors.activeOverlay, color: colors.textPrimary}}
-                        onClick={openExternally}
-                    >
-                        {t["Open in system app"]}
-                    </button>
-                </div>
-            )}
-            {doc && (
-                <div className="lum-enter min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-                    {doc.format === "docx"
-                        ? <WordPaper blocks={doc.blocks ?? []} images={images}/>
-                        : <SlideDeck slides={doc.slides ?? []} images={images}/>}
-                </div>
-            )}
-        </BodyBox>
+            <div className="flex-1 min-h-0 flex flex-col">
+                <BodyBox fill className="px-2 pt-2 pb-3">
+                    {state.phase === "loading" && (
+                        <div className="flex justify-center py-8 opacity-50">
+                            <span className="lum-loading"><span/><span/><span/></span>
+                        </div>
+                    )}
+                    {state.phase === "no-sidecar" && (
+                        <div className="flex flex-col items-center gap-3 py-8 px-4 text-center">
+                            <p className="text-xs opacity-50 select-none">{t["No in-app preview — this document was not generated here"]}</p>
+                            <button
+                                type="button"
+                                className="text-xs px-3 py-1.5 rounded-[var(--radius-sm)] lum-wash"
+                                style={{background: colors.activeOverlay, color: colors.textPrimary}}
+                                onClick={openExternally}
+                            >
+                                {t["Open in system app"]}
+                            </button>
+                        </div>
+                    )}
+                    {doc && (
+                        doc.format === "docx"
+                            ? <WordPaper blocks={doc.blocks ?? []} images={images}/>
+                            : <SlideDeck slides={doc.slides ?? []} images={images}/>
+                    )}
+                </BodyBox>
+            </div>
+        </div>
     );
 });
 
 // --- Word rendering -----------------------------------------------------------
 
-/** The paper: a white page-like column, dark text on white regardless of
- * the app theme (a document IS paper — the theme owns the chrome around
- * it). Width capped to a comfortable reading measure. */
+/** The document flow: blocks rendered in the panel's own surface and the
+ * theme's colors — a CONTENT preview, not a paper simulation. docx is a
+ * flow format (pagination is computed by Word's layout engine at render
+ * time), so no pages, page chrome or fixed paper width are simulated;
+ * the panel header's system-app buttons cover the real look. */
 function WordPaper({blocks, images}: {blocks: DocstructBlock[]; images: Map<string, string>}) {
+    const colors = useColors();
     return (
-        <div
-            className="mx-auto w-full max-w-[560px] rounded-[var(--radius-sm)] px-8 py-7 mb-3"
-            style={{background: "#ffffff", color: "#1f2328", boxShadow: "0 1px 8px rgba(0,0,0,0.15)"}}
-        >
+        <div className="w-full py-2" style={{color: colors.textPrimary}}>
             {blocks.map((block, i) => (
                 <WordBlock key={i} block={block} images={images}/>
             ))}
@@ -243,11 +221,12 @@ function WordPaper({blocks, images}: {blocks: DocstructBlock[]; images: Map<stri
 }
 
 function WordBlock({block, images}: {block: DocstructBlock; images: Map<string, string>}) {
+    const colors = useColors();
     switch (block.type) {
         case "heading": {
             const size = block.level === 1 ? "text-[19px]" : block.level === 2 ? "text-[15px]" : "text-[13.5px]";
             return (
-                <p className={`${size} font-bold leading-snug mt-4 mb-1.5 first:mt-0`} style={{color: "#111418"}}>
+                <p className={`${size} font-bold leading-snug mt-4 mb-1.5 first:mt-0`}>
                     {block.text}
                 </p>
             );
@@ -277,7 +256,7 @@ function WordBlock({block, images}: {block: DocstructBlock; images: Map<string, 
                                 <tr>
                                     {header.map((cell, i) => (
                                         <th key={i} className="border px-1.5 py-1 text-left font-semibold"
-                                            style={{borderColor: "#d0d7de"}}>{cell}</th>
+                                            style={{borderColor: colors.glassBorder}}>{cell}</th>
                                     ))}
                                 </tr>
                             )}
@@ -285,7 +264,7 @@ function WordBlock({block, images}: {block: DocstructBlock; images: Map<string, 
                                 <tr key={r}>
                                     {row.map((cell, c) => (
                                         <td key={c} className="border px-1.5 py-1 align-top"
-                                            style={{borderColor: "#d0d7de"}}>{cell}</td>
+                                            style={{borderColor: colors.glassBorder}}>{cell}</td>
                                     ))}
                                 </tr>
                             ))}
@@ -300,10 +279,10 @@ function WordBlock({block, images}: {block: DocstructBlock; images: Map<string, 
                 <figure className="my-3 flex flex-col items-center gap-1.5">
                     {url != null
                         ? <img src={url} alt={block.caption ?? ""} className="max-w-full rounded-[var(--radius-xs)]"/>
-                        : <div className="w-full h-14 rounded-[var(--radius-xs)] flex items-center justify-center text-2xs"
-                            style={{background: "#f0f2f4", color: "#8b949e"}}>[image]</div>}
+                        : <div className="w-full h-14 rounded-[var(--radius-xs)] flex items-center justify-center text-2xs opacity-60"
+                            style={{background: colors.activeOverlay}}>[image]</div>}
                     {block.caption && (
-                        <figcaption className="text-[10.5px]" style={{color: "#6e7781"}}>{block.caption}</figcaption>
+                        <figcaption className="text-[10.5px] opacity-60">{block.caption}</figcaption>
                     )}
                 </figure>
             );
