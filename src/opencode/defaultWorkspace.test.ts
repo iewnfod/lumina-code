@@ -14,6 +14,8 @@ const {
     defaultWorkspacePath,
     resolveDefaultWorkspace,
     ensureDefaultWorkspace,
+    sessionFolderName,
+    resolveSessionDirectory,
 } = await import("./defaultWorkspace.ts");
 
 /** Minimal fake recording reads (per file) and writes. */
@@ -118,4 +120,80 @@ test("ensureDefaultWorkspace survives a failing write (best effort)", async () =
         writeTextFile: () => Promise.reject(new Error("disk full")),
     } as unknown as OpencodeApi;
     await ensureDefaultWorkspace(api, dir); // must not throw
+});
+
+// --- Per-session folders (resolveSessionDirectory / sessionFolderName) ---
+
+test("sessionFolderName keeps CJK prompts readable, folds punctuation, takes the first line", () => {
+    assert.equal(sessionFolderName("帮我写周报", "会话-fallback"), "帮我写周报");
+    assert.equal(sessionFolderName("帮我, 写个报告！！", "会话-fallback"), "帮我-写个报告");
+    assert.equal(sessionFolderName("第一行\n第二行", "会话-fallback"), "第一行");
+    assert.equal(sessionFolderName("写“年度总结”文档", "会话-fallback"), "写年度总结文档");
+    // Long prompts cap at the folder-name limit without a trailing dash.
+    const long = sessionFolderName("这是一段特别长的开场白用来验证目录名截断逻辑不会留下尾巴破折号", "会话-fallback");
+    assert.ok(long.length <= 24 && !long.endsWith("-"), long);
+});
+
+test("sessionFolderName falls back to the stamp when nothing readable remains", () => {
+    assert.equal(sessionFolderName("", "会话-2026-10-23-1430"), "会话-2026-10-23-1430");
+    assert.equal(sessionFolderName("!!! ???", "会话-2026-10-23-1430"), "会话-2026-10-23-1430");
+});
+
+test("resolveSessionDirectory materializes Sessions/<name> with a parseable marker", async () => {
+    const {api, writes} = fakeApi({});
+    const dir = await resolveSessionDirectory(api, "/home/u/Documents/LuminaWorkspace", "帮我写周报");
+    assert.equal(dir, "/home/u/Documents/LuminaWorkspace/Sessions/帮我写周报");
+    const path = "/home/u/Documents/LuminaWorkspace/Sessions/帮我写周报/.lumina-session.json";
+    assert.deepEqual([...writes.keys()], [path]);
+    const marker = JSON.parse(writes.get(path)!);
+    assert.equal(marker.app, "lumina-code");
+    assert.equal(marker.kind, "session-folder");
+});
+
+test("resolveSessionDirectory dedupes taken names with -2, -3…", async () => {
+    const sessions = "/home/u/Documents/LuminaWorkspace/Sessions";
+    const {api, writes} = fakeApi({
+        files: {
+            [`${sessions}/周报/.lumina-session.json`]: "{}",
+            [`${sessions}/周报-2/.lumina-session.json`]: "{}",
+        },
+    });
+    const dir = await resolveSessionDirectory(api, "/home/u/Documents/LuminaWorkspace", "周报");
+    assert.equal(dir, `${sessions}/周报-3`);
+    assert.deepEqual([...writes.keys()], [`${sessions}/周报-3/.lumina-session.json`]);
+});
+
+test("resolveSessionDirectory: the 500 missing-directory quirk reads as a free name", async () => {
+    const sessions = "/home/u/Documents/LuminaWorkspace/Sessions";
+    const {api, writes} = fakeApi({
+        files: {[`${sessions}/新任务/.lumina-session.json`]: Object.assign(new Error("no dir"), {status: 500})},
+    });
+    const dir = await resolveSessionDirectory(api, "/home/u/Documents/LuminaWorkspace", "新任务");
+    assert.equal(dir, `${sessions}/新任务`);
+    assert.equal(writes.size, 1);
+});
+
+test("resolveSessionDirectory returns null on an unreadable probe (never occupies a guess)", async () => {
+    const sessions = "/home/u/Documents/LuminaWorkspace/Sessions";
+    const {api, writes} = fakeApi({
+        files: {[`${sessions}/周报/.lumina-session.json`]: Object.assign(new Error("forbidden"), {status: 403})},
+    });
+    assert.equal(await resolveSessionDirectory(api, "/home/u/Documents/LuminaWorkspace", "周报"), null);
+    assert.equal(writes.size, 0);
+});
+
+test("resolveSessionDirectory returns null when the marker write fails", async () => {
+    const api = {
+        readTextFile: () => Promise.resolve(null),
+        writeTextFile: () => Promise.reject(new Error("disk full")),
+    } as unknown as OpencodeApi;
+    assert.equal(await resolveSessionDirectory(api, "/home/u/Documents/LuminaWorkspace", "周报"), null);
+});
+
+test("resolveSessionDirectory uses the timestamp fallback for empty prompts", async () => {
+    const {api} = fakeApi({});
+    const dir = await resolveSessionDirectory(api, "/home/u/Documents/LuminaWorkspace/", "");
+    // Trailing workspace slash tolerated; the folder name is the
+    // 会话-stamp minted inside (shape-checked — the clock is real).
+    assert.ok(dir?.startsWith("/home/u/Documents/LuminaWorkspace/Sessions/会话-"), dir ?? "");
 });

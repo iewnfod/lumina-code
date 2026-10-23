@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useState} from "react";
 import {warn} from "@tauri-apps/plugin-log";
 import type {OpencodeApi} from "./api.ts";
-import {SEED_FILE_NAMES} from "./defaultWorkspace.ts";
+import {SEED_FILE_NAMES, SESSION_MARKER_NAME, SESSIONS_DIR_NAME} from "./defaultWorkspace.ts";
 import {createKeyedStore} from "../lib/moduleStore.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 
@@ -9,11 +9,21 @@ import type {OpencodeEventHandler} from "./useOpencode.ts";
  * The DAILY side of the workspace panel (opencode/appMode.ts): the
  * "workspace documents" scan — what the git diff does for dev, done for
  * a plain folder of DOCUMENTS where line counts are meaningless. After
- * each run the workspace is enumerated (path + SIZE only) through the
- * server's shell API and diffed against the previous scan: files that
- * appeared or changed size sit on top with a 新增/变更 chip (a docx is
- * rewritten wholesale by python-docx, so a size delta IS the change
- * signal), the rest follow as the folder's plain inventory.
+ * each run the session's OWN directory is enumerated (path + SIZE only)
+ * through the server's shell API and diffed against the previous scan:
+ * files that appeared or changed size sit on top with a 新增/变更 chip
+ * (a docx is rewritten wholesale by python-docx, so a size delta IS the
+ * change signal), the rest follow as the folder's plain inventory.
+ *
+ * PER-SESSION SCOPE: a daily session's directory is its private
+ * <workspace>/Sessions/<name>/ folder (defaultWorkspace.ts), so the
+ * scan IS the isolation — each session sees only its own files. The
+ * same predicate also serves LEGACY root-level sessions (created before
+ * the split): both scan commands skip the Sessions container's
+ * contents, so an old session no longer lists every newer session's
+ * documents under the root. The hidden session marker never shows
+ * either (POSIX find skips dotfiles; the PowerShell fallback lists
+ * them and filterSessionMarkers drops them).
  *
  * Scanning rides the shell API (the worktreeSync/mcpLogs precedent —
  * the fs routes can only read known files, there is no directory
@@ -120,18 +130,42 @@ export function filterSeedDocuments(docs: WorkspaceDoc[], directory: string): Wo
     return docs.filter((d) => !seeds.has(d.path.replace(/\\/g, "/")));
 }
 
+/** Drop the per-session marker files (defaultWorkspace.ts's hidden
+ * `.lumina-session.json` claim) at ANY depth: the POSIX scan's
+ * hidden-path exclusion already skips them, but PowerShell's
+ * Get-ChildItem lists dotfiles — filtering by basename keeps both
+ * dialects agreeing. Pure. */
+export function filterSessionMarkers(docs: WorkspaceDoc[]): WorkspaceDoc[] {
+    return docs.filter((d) => d.path.split(/[\\/]/).pop() !== SESSION_MARKER_NAME);
+}
+
 // --- The runner (shell API; dialect ladder) ---
 
 /** POSIX enumeration (fish/bash/zsh-legal): every non-hidden file with
- *  its size in one pass — find -exec hands paths to wc as ARGV, so
- *  spaces and CJK in names never go through shell word-splitting. */
+ * its size in one pass — find -exec hands paths to wc as ARGV, so
+ * spaces and CJK in names never go through shell word-splitting. The
+ * Sessions container under the scanned directory is EXCLUDED (its `*`
+ * sits inside the quotes, so the shell never expands it): a legacy
+ * root-level session must not list newer sessions' folders
+ * (defaultWorkspace.ts's per-session split); for a session's own
+ * folder the predicate matches nothing — harmless. */
 export function posixScanCommand(directory: string): string {
-    return `find ${shellSafePath(directory)} -type f -not -path '*/.*' -exec wc -c {} +`;
+    const root = directory.replace(/\/+$/, "");
+    return `find ${shellSafePath(directory)} -type f -not -path '*/.*'` +
+        ` -not -path ${shellSafePath(`${root}/${SESSIONS_DIR_NAME}/*`)} -exec wc -c {} +`;
 }
 
-/** PowerShell fallback (Windows login shells). */
+/** PowerShell fallback (Windows login shells). The Sessions exclusion
+ * tries BOTH separator forms — FullName prints `\`, but the directory
+ * may have arrived with `/` (the server accepts forward slashes on
+ * Windows). */
 export function powershellScanCommand(directory: string): string {
-    return `Get-ChildItem -Recurse -File -Path ${shellSafePath(directory)} | ForEach-Object { '{0} {1}' -f $_.Length, $_.FullName }`;
+    const root = directory.replace(/[\\/]+$/, "");
+    const posixForm = shellSafePath(`${root}/${SESSIONS_DIR_NAME}/*`);
+    const windowsForm = shellSafePath(`${root.replace(/\//g, "\\")}\\${SESSIONS_DIR_NAME}\\*`);
+    return `Get-ChildItem -Recurse -File -Path ${shellSafePath(directory)}` +
+        ` | Where-Object { $_.FullName -notlike ${posixForm} -and $_.FullName -notlike ${windowsForm} }` +
+        ` | ForEach-Object { '{0} {1}' -f $_.Length, $_.FullName }`;
 }
 
 /** Quote a directory for one shell word. The `'\''` splice is the
@@ -157,10 +191,10 @@ export async function scanWorkspaceDocuments(
         // shell is owned by the server's default location, so passing
         // the scan directory here 404s every poll).
         const done = await api.awaitShell(shell.id);
-        if (done.exit === 0) return filterSeedDocuments(parseSizeLines(done.output), directory);
+        if (done.exit === 0) return filterSessionMarkers(filterSeedDocuments(parseSizeLines(done.output), directory));
         const fallback = await api.spawnShell(powershellScanCommand(directory), directory);
         const retry = await api.awaitShell(fallback.id);
-        if (retry.exit === 0) return filterSeedDocuments(parseSizeLines(retry.output), directory);
+        if (retry.exit === 0) return filterSessionMarkers(filterSeedDocuments(parseSizeLines(retry.output), directory));
         await warn(`Workspace scan exited ${done.exit}/${retry.exit} for ${directory}`).catch(() => {});
         return null;
     } catch (e) {

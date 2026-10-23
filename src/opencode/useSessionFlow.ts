@@ -3,7 +3,7 @@ import {error, info, warn} from "@tauri-apps/plugin-log";
 import {loadState, saveState} from "../lib/persist.ts";
 import {fileRefToPromptFile, OpencodeApi} from "./api.ts";
 import {type AppMode, sessionMode, useAppMode} from "./appMode.ts";
-import {ensureDefaultWorkspace, resolveDefaultWorkspace} from "./defaultWorkspace.ts";
+import {ensureDefaultWorkspace, resolveDefaultWorkspace, resolveSessionDirectory} from "./defaultWorkspace.ts";
 import {appendFailedPrompt, prepareCommandSubmission} from "./useSessionMessages.ts";
 import {useCatalog} from "./catalogContext.tsx";
 import {useConnection} from "./connectionContext.tsx";
@@ -322,17 +322,27 @@ export function useSessionFlow(): {
         command: PendingCommand | null = null,
     ) => {
         if (!api) return;
-        // The mode decides the directory contract: DAILY always lands
-        // in the fixed workspace (materialized + seeded on first use —
-        // defaultWorkspace.ts), DEV requires an explicit project (the
-        // "default directory" escape hatch is gone; the UI disables
-        // sending until one is picked, so a bare dev send here is a
-        // raced button — refuse it rather than fall back to home).
+        // The mode decides the directory contract: DAILY lands in the
+        // workspace's PER-SESSION subfolder
+        // (<workspace>/Sessions/<first-prompt-slug>/, materialized +
+        // claimed by its hidden marker — defaultWorkspace.ts; the
+        // root's AGENTS.md still applies, OpenCode loads instructions
+        // upward toward home), falling back to the workspace ROOT when
+        // the folder cannot be resolved (today's behavior — a prompt
+        // must never hand the server's bash a directory that doesn't
+        // exist). DEV requires an explicit project (the "default
+        // directory" escape hatch is gone; the UI disables sending
+        // until one is picked, so a bare dev send here is a raced
+        // button — refuse it rather than fall back to home).
         let directory: string | undefined;
         if (mode === "daily") {
             const workspace = await resolveDefaultWorkspace(api);
-            if (workspace) await ensureDefaultWorkspace(api, workspace); // best-effort, never throws
-            directory = workspace ?? undefined;
+            if (workspace) {
+                await ensureDefaultWorkspace(api, workspace); // best-effort, never throws
+                const sessionDir = await resolveSessionDirectory(api, workspace, text);
+                if (sessionDir) directory = sessionDir;
+                else directory = workspace; // root fallback — the panel then sees the whole root
+            }
         } else {
             if (!pendingDirectory) {
                 warn("dev-mode send without a staged project directory; refusing").catch(() => {});

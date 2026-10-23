@@ -15,6 +15,7 @@ const {
     posixScanCommand,
     powershellScanCommand,
     filterSeedDocuments,
+    filterSessionMarkers,
     MAX_DOC_ROWS,
 } = await import("./workspaceDocuments.ts");
 
@@ -129,12 +130,35 @@ test("filterSeedDocuments: the app's root seed files drop, subfolder READMEs sta
 test("scan commands quote the directory once", () => {
     assert.equal(
         posixScanCommand("/home/u/Work Space"),
-        `find '/home/u/Work Space' -type f -not -path '*/.*' -exec wc -c {} +`,
+        `find '/home/u/Work Space' -type f -not -path '*/.*'` +
+            ` -not -path '/home/u/Work Space/Sessions/*' -exec wc -c {} +`,
     );
     assert.equal(
         powershellScanCommand("/home/u/Work Space"),
-        `Get-ChildItem -Recurse -File -Path '/home/u/Work Space' | ForEach-Object { '{0} {1}' -f $_.Length, $_.FullName }`,
+        `Get-ChildItem -Recurse -File -Path '/home/u/Work Space'` +
+            ` | Where-Object { $_.FullName -notlike '/home/u/Work Space/Sessions/*'` +
+            ` -and $_.FullName -notlike '\\home\\u\\Work Space\\Sessions\\*' }` +
+            ` | ForEach-Object { '{0} {1}' -f $_.Length, $_.FullName }`,
     );
     // Apostrophes survive the POSIX splice idiom.
     assert.ok(posixScanCommand("/home/u/it's").includes(`'/home/u/it'\\''s'`));
+});
+
+test("scan commands tolerate a trailing slash on the directory (no //Sessions pattern)", () => {
+    // find's -path is a LITERAL match — '/w//Sessions/*' would never
+    // hit the real '/w/Sessions/x', silently un-excluding the container.
+    assert.ok(posixScanCommand("/home/u/w/").includes(`-not -path '/home/u/w/Sessions/*'`));
+});
+
+test("filterSessionMarkers drops the hidden claim file at any depth, both separators", () => {
+    const docs = [
+        {path: "/w/Sessions/周报/.lumina-session.json", size: 60},
+        {path: "/w/资料\\.lumina-session.json", size: 60}, // PowerShell FullName form
+        {path: "/w/Sessions/周报/报告.docx", size: 10554},
+        {path: "/w/随手记.md", size: 40},
+    ];
+    assert.deepEqual(
+        filterSessionMarkers(docs).map((d) => d.path),
+        ["/w/Sessions/周报/报告.docx", "/w/随手记.md"],
+    );
 });

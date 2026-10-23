@@ -565,7 +565,7 @@ src/
 │   │                      #   strangers, imports) read as "dev".
 │   │                      #   node-testable (storage-stub + query re-import).
 │   ├── defaultWorkspace.ts # THE DAILY WORKSPACE: ~/Documents/LuminaWorkspace
-│   │                      #   — the mode's fixed working directory (a
+│   │                      #   — the mode's fixed working AREA (a
 │   │                      #   non-developer never picks folders).
 │   │                      #   defaultWorkspacePath (pure join, trailing-slash
 │   │                      #   tolerant), resolveDefaultWorkspace (GET
@@ -577,8 +577,29 @@ src/
 │   │                      #   a 404 read (never overwrites; a FAILED read is
 │   │                      #   not "absent" — the readOrNull contract), and the
 │   │                      #   AGENTS.md IS the daily mode's behavioral half:
-│   │                      #   the server reads it for every session in the
-│   │                      #   directory, no app-level mode system needed.
+│   │                      #   the server reads it for every session under
+│   │                      #   the workspace (OpenCode loads AGENTS.md
+│   │                      #   upward toward home — subfolder sessions
+│   │                      #   included), no app-level mode system needed.
+│   │                      #   PER-SESSION SUBDIRECTORIES: every NEW daily
+│   │                      #   session gets its own folder at
+│   │                      #   <workspace>/Sessions/<name>/ —
+│   │                      #   sessionFolderName mints a readable name from
+│   │                      #   the FIRST PROMPT (CJK kept verbatim, quotes
+│   │                      #   dropped, other non-alphanumerics folded to
+│   │                      #   dashes, capped; empty → 会话-timestamp
+│   │                      #   fallback) and resolveSessionDirectory
+│   │                      #   dedupes -2, -3… against the hidden marker
+│   │                      #   .lumina-session.json (its fs/write IS the
+│   │                      #   materialization — the server's bash needs the
+│   │                      #   cwd to exist; 500-missing-dir reads as free,
+│   │                      #   unreadable probes return null rather than
+│   │                      #   guess). The session's directory IS that
+│   │                      #   folder, so documents stay isolated per
+│   │                      #   session; failures fall back to the workspace
+│   │                      #   ROOT (sendFirst). Session directories are
+│   │                      #   create-only — the name never follows the
+│   │                      #   later AI-generated title.
 │   │                      #   node-testable (fake api).
 │   ├── useLuminaTools.ts  # The custom-tools plugin's install half:
 │   │                      #   ensureLuminaToolsPlugin(api, options?) writes the
@@ -1287,7 +1308,11 @@ src/
 │   │                      #   deleteSession, sendFirst (create-then-deliver with
 │   │                      #   the slash-command fallback; MODE-SPLIT directory rules — daily
 │   │                      #   resolves + ensures the fixed LuminaWorkspace (opencode/
-│   │                      #   defaultWorkspace.ts) and stamps its sessions, dev REQUIRES a
+│   │                      #   defaultWorkspace.ts) and lands each NEW session in its
+│   │                      #   own <workspace>/Sessions/<name>/ folder (resolveSession
+│   │                      #   Directory — first-prompt name, marker-materialized,
+│   │                      #   root fallback on failure) so per-session documents stay
+│   │                      #   isolated, dev REQUIRES a
 │   │                      #   staged project (no default — sendBlocked refuses a bare send)
 │   │                      #   and creates the linked worktree for a staged branch; a branch-bound send
 │   │                      #   FIRST creates the linked worktree via
@@ -1440,10 +1465,24 @@ src/
 │   ├── workspaceDocuments.ts # THE DAILY SIDE of the workspace panel —
 │   │                      #   what useSessionActivity's git diff is for dev,
 │   │                      #   done for a plain folder of DOCUMENTS where
-│   │                      #   line counts are meaningless. Scanning rides
+│   │                      #   line counts are meaningless. PER-SESSION
+│   │                      #   SCOPE: a daily session's directory is its
+│   │                      #   private <workspace>/Sessions/<name>/ folder
+│   │                      #   (defaultWorkspace.ts), so the scan IS the
+│   │                      #   isolation — each session's panel lists only
+│   │                      #   its own files; the same predicate serves
+│   │                      #   LEGACY root-level sessions (both scan
+│   │                      #   commands skip the Sessions container's
+│   │                      #   contents — an old session no longer lists
+│   │                      #   newer sessions' documents) and the hidden
+│   │                      #   session marker never shows (POSIX find
+│   │                      #   skips dotfiles; the PowerShell fallback
+│   │                      #   lists them — filterSessionMarkers drops
+│   │                      #   them by basename). Scanning rides
 │   │                      #   the SHELL API (fs routes can't list
 │   │                      #   directories): one POSIX pass (`find <dir>
-│   │                      #   -type f -not -path '*/.*' -exec wc -c {} +`
+│   │                      #   -type f -not -path '*/.*' -not -path
+│   │                      #   '<dir>/Sessions/*' -exec wc -c {} +`
 │   │                      #   — find hands paths to wc as argv, so spaces
 │   │                      #   and CJK survive; legal in fish/POSIX alike)
 │   │                      #   falling back to a PowerShell pipeline on
