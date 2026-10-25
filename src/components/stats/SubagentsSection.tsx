@@ -1,11 +1,11 @@
 import {memo} from "react";
 import {Bot} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
-import {useSessionTranscript} from "../../opencode/sessionDataContext.tsx";
+import {useSessionData, useSessionTranscript} from "../../opencode/sessionDataContext.tsx";
 import type {SessionSubagentRef} from "../../opencode/sessionActivity.ts";
 import TranscriptList from "../chat/TranscriptList.tsx";
 import {ExitList} from "../ui/ExitPresence.tsx";
-import {BodyBox, DrillChevron, FinishedTotal, statsRowClass, StateChip, StatsSection} from "./statsChrome.tsx";
+import {BodyBox, DrillChevron, FinishedTotal, StateChip, StatsSection, statsRowClass} from "./statsChrome.tsx";
 
 /** Running / finished chip (shared shape — see statsChrome). */
 export function SubagentStateChip({running}: {running: boolean}) {
@@ -54,6 +54,12 @@ export const SubagentsSection = memo(function SubagentsSection({
     onOpenSubagent: (sub: SessionSubagentRef & {running: boolean}) => void;
 }) {
     const t = useI18n();
+    // A child blocked on the server (its permission/question waiting)
+    // swaps the row's state chip for a warning one — the subagent looks
+    // "still running" otherwise, and the user never learns it is THEIR
+    // move. pendingCounts holds the child's own entry (the parent-merge
+    // only ADDS a parent row, it never removes the child's).
+    const {pendingCounts} = useSessionData();
     const running = subagents.filter((s) => s.running).length;
     return (
         <StatsSection
@@ -73,17 +79,24 @@ export const SubagentsSection = memo(function SubagentsSection({
                     exitMs={250}
                     exit={{animation: "lum-row-exit"}}
                 >
-                    {(sub, _closing, _bind, entering) => (
-                        <button
-                            type="button"
-                            onClick={() => onOpenSubagent(sub)}
-                            className={`${entering ? "" : "lum-enter"} ${statsRowClass}`}
-                        >
-                            <SubagentTitle sub={sub} className="flex-1"/>
-                            <SubagentStateChip running={sub.running}/>
-                            <DrillChevron/>
-                        </button>
-                    )}
+                    {(sub, _closing, _bind, entering) => {
+                        const pending = (pendingCounts.get(sub.id) ?? 0) > 0;
+                        return (
+                            <button
+                                type="button"
+                                onClick={() => onOpenSubagent(sub)}
+                                className={`${entering ? "" : "lum-enter"} ${statsRowClass}`}
+                            >
+                                <SubagentTitle sub={sub} className="flex-1"/>
+                                {pending ? (
+                                    <StateChip running={false} warning label={t["Waiting for approval"]}/>
+                                ) : (
+                                    <SubagentStateChip running={sub.running}/>
+                                )}
+                                <DrillChevron/>
+                            </button>
+                        );
+                    }}
                 </ExitList>
             </div>
         </StatsSection>
@@ -93,7 +106,9 @@ export const SubagentsSection = memo(function SubagentsSection({
 /**
  * One subagent's transcript — the same rendering as the main conversation
  * (MessageItem/ActivityGroup/footers through TranscriptList), read-only:
- * no composer, no permission cards. The messages come from the shared
+ * no composer, no permission cards (a child blocked on the server pins
+ * its ask cards in the PARENT conversation's composer area — ChatView —
+ * the one surface that answers them). The messages come from the shared
  * module-level store, so a background subagent streams in here live.
  */
 export const SubagentBody = memo(function SubagentBody({

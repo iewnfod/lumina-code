@@ -50,19 +50,24 @@ export function DrillChevron({className = ""}: {className?: string}) {
     return <ChevronRight size={13} className={`shrink-0 opacity-35 ${className}`}/>;
 }
 
-/** One state chip for terminal/subagent rows and drill headers. Both
- *  states share the same shape — running wears the accent wash, finished
+/** One state chip for terminal/subagent rows and drill headers. All
+ *  states share the same shape — running wears the accent wash, warning
+ *  (a subagent waiting on the user) turns the text amber, finished
  *  stays quiet. No live dot: the row icon's pulse already says "running". */
 export function StateChip({
     running,
     label,
     danger = false,
+    warning = false,
     mono = false,
 }: {
     running: boolean;
     label: string;
     /** Error outcome — red text on the quiet chip. */
     danger?: boolean;
+    /** Waiting-on-the-user outcome — amber text (a subagent row whose
+     *  child session is blocked on a pending ask). */
+    warning?: boolean;
     /** Mono for data-ish labels ("exit 0"). */
     mono?: boolean;
 }) {
@@ -73,7 +78,7 @@ export function StateChip({
             style={{
                 ...(mono ? MONO_STYLE : null),
                 background: running ? colors.accentOverlay : colors.activeOverlay,
-                color: danger ? "var(--color-danger)" : undefined,
+                color: danger ? "var(--color-danger)" : warning ? "var(--color-warning)" : undefined,
                 fontWeight: running ? 500 : 400,
                 opacity: running ? 1 : 0.65,
             }}

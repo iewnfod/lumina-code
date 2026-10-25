@@ -75,12 +75,16 @@ export function readLuminaToolsOptions(raw: string, pluginPath: string): LuminaT
  * the plan_mode tool ships always-on (it needs no options), so an empty
  * options object still loads the plugin; vision registers only when its
  * model is configured. Per-tool opt-in arrives with a proper tool
- * marketplace. Returns the new text, or null when the file isn't plain
- * JSON / a managed section exists but has the wrong shape. */
+ * marketplace. `configFile` is the absolute path of the config document
+ * being rewritten (baked into the managed slash commands' templates —
+ * their `!`cat`` blocks read that exact file). Returns the new text, or
+ * null when the file isn't plain JSON / a managed section exists but
+ * has the wrong shape. */
 export function mergeLuminaToolsPlugin(
     raw: string,
     pluginPath: string,
     options: LuminaToolsOptions,
+    configFile: string,
 ): string | null {
     // The entry is ALWAYS written — the plan_mode tool ships always-on
     // (it needs no options), so an empty options object still loads the
@@ -93,6 +97,8 @@ export function mergeLuminaToolsPlugin(
     const agentsError = mergeLuminaAgents(root, options);
     if (agentsError) return null;
     mergeToolOutput(root);
+    const commandsError = mergeManagedCommands(root, configFile);
+    if (commandsError) return null;
     return JSON.stringify(root, null, 2);
 }
 
@@ -100,6 +106,7 @@ export function mergeLuminaToolsPlugin(
 export function freshConfigWithToolsPlugin(
     pluginPath: string,
     options: LuminaToolsOptions,
+    configFile: string,
 ): string {
     const root: Record<string, unknown> = {
         $schema: "https://opencode.ai/config.json",
@@ -107,6 +114,7 @@ export function freshConfigWithToolsPlugin(
     };
     mergeLuminaAgents(root, options);
     mergeToolOutput(root);
+    mergeManagedCommands(root, configFile);
     return JSON.stringify(root, null, 2);
 }
 
@@ -122,6 +130,140 @@ function mergeToolOutput(root: Record<string, unknown>): void {
     if (existing !== undefined && existing !== null &&
         typeof existing === "object" && !Array.isArray(existing)) return;
     root["tool_output"] = {max_lines: 2000, max_bytes: 65_536};
+}
+
+// ---------------------------------------------------------------------------
+// Managed slash commands (/mcp, /plugin)
+// ---------------------------------------------------------------------------
+
+/** First line of every managed command's template. Doubles as the
+ * ownership marker: an existing same-name command whose template does
+ * NOT start with it belongs to the user and is never touched, and the
+ * plugin's context hook recognizes an expanded command message by it
+ * (skipping its own on-demand guide injection — the template already
+ * carries the full manual). */
+export const MANAGED_COMMAND_MARK = "<!-- managed by Lumina Code -->";
+
+/** The no-CLI preamble shared by both command templates (and mirrored,
+ * in short form, by the plugin's on-demand guides — keep the message
+ * consistent across the sites). */
+const NO_CLI_RULE =
+    "Never run any `opencode` command in a terminal: the binary on PATH (if present) is an " +
+    "unrelated install, and this app (Lumina Code) bundles its own server. All configuration " +
+    "below is done by editing JSON files, which the server hot-reloads the moment they are saved.";
+
+/** The /mcp command's template. `configFile` is baked in absolute: the
+ * `!`cat '<path>'`` shell block (executed server-side at submission —
+ * spike-verified 2026-10-25 against the pinned v2.0.11 sidecar, along
+ * with $ARGUMENTS substitution and the JSON-entry listing) injects the
+ * live config so the model never has to hunt for the file, and the
+ * instructions name the exact paths. Single-quoted for spaces and
+ * PowerShell alike; no stderr redirect (the installer guarantees the
+ * file exists, and PowerShell has no /dev/null). */
+export function mcpCommandTemplate(configFile: string): string {
+    return (
+        MANAGED_COMMAND_MARK + "\n" +
+        "The user wants to configure MCP servers (Model Context Protocol) for OpenCode — the " +
+        "server powering this app. Follow this procedure exactly. " + NO_CLI_RULE + "\n\n" +
+        `Current global config (${configFile}):\n` +
+        "!`cat '" + configFile + "'`\n\n" +
+        "How to add or change an MCP server:\n" +
+        `1. Global (available in every project): edit ${configFile} — the "mcp.servers" object. ` +
+        "Project-only: .opencode/opencode.json in the project root (create it if absent) — same shape.\n" +
+        "2. Server entry shapes (v2 config):\n" +
+        "   - stdio process: \"weather\": {\"type\": \"local\", \"command\": \"npx\", \"args\": [\"-y\", \"@example/mcp-server\"], \"env\": {\"API_KEY\": \"...\"}}\n" +
+        "   - remote HTTP/SSE: \"search\": {\"type\": \"remote\", \"url\": \"https://example.com/mcp\", \"headers\": {\"Authorization\": \"Bearer ...\"}}\n" +
+        "3. Read the file first; preserve every unrelated key and add only your entry — merge, " +
+        "never rewrite wholesale, and keep the JSON valid.\n" +
+        "4. After saving, tell the user they can inspect and toggle servers (and read each one's " +
+        "log) in Lumina Code: Settings → Extensions. If a server fails, check its log there.\n\n" +
+        "User request: $ARGUMENTS"
+    );
+}
+
+/** The /plugin command's template — the plugin-management twin of
+ * {@link mcpCommandTemplate}. */
+export function pluginCommandTemplate(configFile: string): string {
+    return (
+        MANAGED_COMMAND_MARK + "\n" +
+        "The user wants to install or manage OpenCode plugins. Follow this procedure exactly. " +
+        NO_CLI_RULE + "\n\n" +
+        `Current global config (${configFile}):\n` +
+        "!`cat '" + configFile + "'`\n\n" +
+        "How to add or remove a plugin:\n" +
+        `1. Plugins live in the "plugins" array. Global (every project): ${configFile}. ` +
+        "Project-only: .opencode/opencode.json in the project root (create it if absent).\n" +
+        "2. Entry shapes: an npm package is the bare string \"package-name\" (or " +
+        "{\"package\": \"package-name\", \"options\": {...}} to configure it); a local plugin " +
+        "directory is its ABSOLUTE path: {\"package\": \"/abs/path/to/plugin\"}.\n" +
+        "3. Read the file first; preserve every unrelated entry — append yours, never rewrite " +
+        "the array wholesale, and keep the JSON valid.\n" +
+        "4. npm packages download on first load (may take a moment); config saves hot-reload " +
+        "immediately. Tell the user plugins can be toggled in Lumina Code: Settings → Extensions.\n\n" +
+        "User request: $ARGUMENTS"
+    );
+}
+
+/** The managed commands' definitions: name → what the composer's `/`
+ * picker shows + the template factory. Chinese descriptions follow the
+ * app's convention for config-written labels (the lumina-daily agent's
+ * description is Chinese too). Neither name collides with a built-in
+ * (v2.0.11 ships only /init and /review — spike-verified). */
+const MANAGED_COMMANDS: Record<string, {description: string; template: (configFile: string) => string}> = {
+    mcp: {description: "添加或管理 MCP 服务器", template: mcpCommandTemplate},
+    plugin: {description: "添加或管理插件", template: pluginCommandTemplate},
+};
+
+/** Whether a `commands` entry is ours to rewrite — an object entry whose
+ * template carries {@link MANAGED_COMMAND_MARK}. Anything else (a
+ * user-defined command, a malformed entry) is respected verbatim. */
+function isManagedEntry(entry: unknown): boolean {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return false;
+    const template = (entry as Record<string, unknown>)["template"];
+    return typeof template === "string" && template.startsWith(MANAGED_COMMAND_MARK);
+}
+
+/** Write/update the managed slash commands into the config root's
+ * `commands` section (v2.0.11: JSON `commands` entries and markdown
+ * command files share one registry — spike-verified). User-defined
+ * same-name commands are never touched. Returns null on success, or a
+ * marker when `commands` exists with a non-object shape (caller refuses
+ * the rewrite — same contract as mergeLuminaAgents). */
+function mergeManagedCommands(root: Record<string, unknown>, configFile: string): string | null {
+    const section = root["commands"];
+    if (section !== undefined && section !== null &&
+        (typeof section !== "object" || Array.isArray(section))) {
+        return "commands-section-invalid";
+    }
+    const commands = (section ?? {}) as Record<string, unknown>;
+    for (const [name, def] of Object.entries(MANAGED_COMMANDS)) {
+        const existing = commands[name];
+        if (existing !== undefined && !isManagedEntry(existing)) continue;
+        commands[name] = {description: def.description, template: def.template(configFile)};
+    }
+    root["commands"] = commands;
+    return null;
+}
+
+/** Whether the managed commands are present and exactly current in the
+ * raw config text — the installer's upgrade-path trigger (the
+ * luminaDailyAgentMissing pattern: an options-unchanged upgrade must
+ * still rewrite the file once when a template changed). False on
+ * unreadable text (the caller's own null/JSONC handling owns those
+ * refusals). */
+export function managedCommandsCurrent(raw: string, configFile: string): boolean {
+    const root = parseRoot(raw);
+    if (!root) return false;
+    const section = root["commands"];
+    if (section === undefined || section === null ||
+        typeof section !== "object" || Array.isArray(section)) return false;
+    const commands = section as Record<string, unknown>;
+    for (const [name, def] of Object.entries(MANAGED_COMMANDS)) {
+        const entry = commands[name];
+        if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return false;
+        if ((entry as Record<string, unknown>)["template"] !== def.template(configFile)) return false;
+    }
+    return true;
 }
 
 /** Whether our plugin entry exists in the raw config text — independent

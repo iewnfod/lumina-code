@@ -1051,11 +1051,21 @@ function renderChecklist(state) {
  * Without this, the server's own prompt says only "OpenCode" and a model
  * running inside Lumina Code cannot know its actual harness (the desktop
  * GUI, not the TUI). This plugin is installed EXCLUSIVELY by Lumina Code
- * (opencode/useLuminaTools.ts), so its presence is the reliable signal. */
+ * (opencode/useLuminaTools.ts), so its presence is the reliable signal.
+ * The config tail line steers models away from the two classic mistakes:
+ * running the PATH `opencode` CLI (an unrelated install — the app bundles
+ * its own server; on a machine without one the model used to conclude
+ * OpenCode is missing) and hand-rolling config edits blind, when every
+ * JSON config edit hot-reloads. The full per-topic manuals ride the
+ * managed /mcp + /plugin commands (toolPluginConfig.ts) and the
+ * on-demand guides below (configGuideFor). */
 const HOST_IDENTITY =
   "Harness identity: you are running inside Lumina Code — a desktop GUI client for OpenCode " +
   "(Tauri + React), NOT the OpenCode TUI or CLI. When asked which harness or app you run in, " +
-  "answer \"Lumina Code\"; the underlying server and agent machinery is OpenCode's.";
+  "answer \"Lumina Code\"; the underlying server and agent machinery is OpenCode's. " +
+  "OpenCode's JSON config files (MCP servers, plugins) HOT-RELOAD on save — configure by " +
+  "editing them directly, and never run `opencode` CLI commands in a terminal: that binary " +
+  "(if present) is an unrelated install, not this app's bundled server.";
 
 /** The daily-mode primary agent's id — MUST stay in sync with
  * LUMINA_DAILY_AGENT_ID in opencode/toolPluginConfig.ts (the plugin
@@ -1122,6 +1132,114 @@ const DEV_DISCIPLINE =
   "with no file edits and no test/status change, STOP the current approach — re-read the failing " +
   "evidence, question your assumption, and try a genuinely different approach instead of repeating " +
   "yourself. When you switch approaches, say briefly what you tried and why the next attempt differs.";
+
+// ---------------------------------------------------------------------------
+// On-demand MCP/plugin configuration guides
+// ---------------------------------------------------------------------------
+
+/** Marker shared with the managed /mcp + /plugin command templates
+ * (opencode/toolPluginConfig.ts's MANAGED_COMMAND_MARK — the plugin is a
+ * no-imports island, so the constant is mirrored here). An expanded
+ * command message starts with it, which is how configGuideFor knows the
+ * full manual is already in the prompt. Keep the two in sync. */
+const MANAGED_COMMAND_MARK = "<!-- managed by Lumina Code -->";
+
+/** The no-CLI line every guide carries (the HOST_IDENTITY tail states it
+ * too; the guides repeat it because a mid-task model may be working from
+ * the guide alone). Keep the wording consistent with the command
+ * templates' NO_CLI_RULE in toolPluginConfig.ts. */
+const GUIDE_NO_CLI =
+  "NEVER run `opencode` CLI commands in a terminal — the binary on PATH (if present) is an " +
+  "unrelated install, not this app's bundled server; configuration is done by editing JSON files, " +
+  "which hot-reload the moment they are saved.";
+
+/** Where OpenCode's config files live — both common global locations,
+ * named without assuming which one this machine uses (the model has read
+ * tools and can check). */
+const GUIDE_CONFIG_PATHS =
+  "Global config: opencode.json in the global config directory (most installs: ~/.config/opencode/ " +
+  "or ~/.opencode/ — check which exists). Project-only: .opencode/opencode.json in the project root " +
+  "(create it if absent).";
+
+/** The MCP quick guide — injected when the user's latest message asks
+ * about MCP servers (configGuideFor). The FULL manual (with the live
+ * config snapshot) rides the managed /mcp command instead. */
+const MCP_GUIDE =
+  "Lumina Code MCP guide: MCP servers are configured in OpenCode's JSON config files, " +
+  "under \"mcp.servers\". " + GUIDE_CONFIG_PATHS + " Entry shapes: a stdio server is " +
+  "{\"type\": \"local\", \"command\": \"npx\", \"args\": [\"-y\", \"@scope/mcp-server\"], \"env\": {...}}; " +
+  "a remote one is {\"type\": \"remote\", \"url\": \"https://...\", \"headers\": {...}}. Read the file " +
+  "first, add only your entry, preserve every unrelated key, keep the JSON valid. " + GUIDE_NO_CLI +
+  " Servers can be inspected and toggled (with per-server logs) in Lumina Code: Settings → Extensions.";
+
+/** The plugin quick guide — configGuideFor's plugin branch. */
+const PLUGIN_GUIDE =
+  "Lumina Code plugin guide: OpenCode plugins are configured in the \"plugins\" array of the JSON " +
+  "config files. " + GUIDE_CONFIG_PATHS + " Entry shapes: an npm package is the bare string " +
+  "\"package-name\" (or {\"package\": \"package-name\", \"options\": {...}} to configure it); a local " +
+  "plugin directory is {\"package\": \"/abs/path/to/plugin\"}. Read the file first, append your entry, " +
+  "preserve every unrelated one, keep the JSON valid; npm packages download on first load. " +
+  GUIDE_NO_CLI + " Plugins can be toggled in Lumina Code: Settings → Extensions.";
+
+/** Keyword sets for the on-demand guide decision (configGuideFor). MCP
+ * terms are distinctive enough to stand alone; plugin/extension terms
+ * are common in ordinary development talk, so they additionally require
+ * an action verb in the same message (both word sets case-insensitive,
+ * Chinese included). */
+const MCP_TERMS = /\bmcp\b|model context protocol/i;
+const PLUGIN_TERMS = /\bplugins?\b|插件|扩展|\bextensions?\b/i;
+const CONFIG_ACTION_TERMS =
+  /add|install|配置|设置|添加|安装|装|启用|开启|卸载|删除|remove|uninstall|configure|enable|disable|set ?up/i;
+
+/** The last user message's joined text parts (the shape ctx.session.context
+ * returns — {info: {role}, parts: [{type, text}]}, same defensive parse
+ * as replyText). Empty string when there is no user message. */
+function lastUserText(messages) {
+  for (let i = (Array.isArray(messages) ? messages.length : 0) - 1; i >= 0; i--) {
+    const m = messages[i] ?? {};
+    const role = m.info?.role ?? m.role ?? m.type;
+    if (role !== "user") continue;
+    const parts = m.parts ?? m.content ?? [];
+    const texts = [];
+    for (const p of parts) {
+      if (p?.type === "text" && typeof p.text === "string" && p.text) texts.push(p.text);
+    }
+    return texts.join("\n\n").trim();
+  }
+  return "";
+}
+
+/** Which on-demand configuration guide the current model call needs, if
+ * any — derived from the user's LATEST message so the guide rides every
+ * step of the turn it belongs to (and drops out once the topic changes).
+ * "" when none. Exported for node tests.
+ *
+ * The MANAGED_COMMAND_MARK short-circuit: a message that IS an expanded
+ * managed command (/mcp, /plugin) already carries the full manual with a
+ * live config snapshot — injecting the quick guide on top would be pure
+ * duplication. */
+export function configGuideFor(messages) {
+  const text = lastUserText(messages);
+  if (!text) return "";
+  if (text.startsWith(MANAGED_COMMAND_MARK)) return "";
+  if (MCP_TERMS.test(text)) return MCP_GUIDE;
+  if (PLUGIN_TERMS.test(text) && CONFIG_ACTION_TERMS.test(text)) return PLUGIN_GUIDE;
+  return "";
+}
+
+/** The hook-side runner: resolve the session's context and pick the
+ * guide, if any. Best-effort — a failed context read means no guide this
+ * call, never a blocked model call (the stallWarning contract). */
+async function configGuide(ctx, sessionID) {
+  if (!sessionID) return "";
+  let messages;
+  try {
+    messages = await ctx.session.context({sessionID});
+  } catch {
+    return "";
+  }
+  return configGuideFor(messages);
+}
 
 // ---------------------------------------------------------------------------
 // Runtime stall detection — the anti-loop RUNTIME half
@@ -1795,6 +1913,19 @@ export default {
           // assembled (built-in prompt + AGENTS.md / instructions).
           const custom = customSystemPrompt(options);
           if (custom) event.system.push({type: "text", text: custom});
+          // On-demand MCP/plugin configuration guides: the user's latest
+          // message asking to configure one (configGuideFor's keyword
+          // match) injects the quick manual for every step of that turn —
+          // most users never discover the /mcp + /plugin commands, and
+          // without this the model wanders into the terminal looking for
+          // an `opencode` CLI. An expanded managed command short-circuits
+          // (its template already carries the full manual).
+          try {
+            const guide = await configGuide(ctx, event.sessionID);
+            if (guide) event.system.push({type: "text", text: guide});
+          } catch {
+            // best-effort context enrichment — never block the call
+          }
           // Restart-orphan acceptances converge HERE first (the sweep is
           // what archives them) — before the note below so an archived
           // plan doesn't advertise itself in the same call.

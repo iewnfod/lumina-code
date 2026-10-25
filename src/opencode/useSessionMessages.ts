@@ -389,6 +389,15 @@ export function peekSessionMessages(sessionId: string): readonly ChatMessage[] |
     return entries.peek(sessionId)?.messages;
 }
 
+/** Every tracked session id (sessions whose store entry exists — opened
+ *  here at least once this run). The request pipeline walks these to
+ *  resolve a subagent child's PARENT session (its ask merges into the
+ *  parent's sidebar badge), so a child pending on the server is never
+ *  invisible just because the sidebar lists root sessions only. */
+export function trackedSessionIds(): string[] {
+    return [...entries.keys()];
+}
+
 /** Stable empty snapshot for sessions with no store entry. */
 const EMPTY_MESSAGES: readonly ChatMessage[] = [];
 

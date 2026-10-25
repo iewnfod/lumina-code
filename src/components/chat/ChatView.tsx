@@ -1,7 +1,9 @@
 import {memo, useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {Bot} from "lucide-react";
 import {info as logInfo} from "@tauri-apps/plugin-log";
 import {useTranscriptScroll} from "../../hooks/useTranscriptScroll.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {collectSessionSubagents, type SessionSubagentRef} from "../../opencode/sessionActivity.ts";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {usePendingRequests, useSessionData, useSessionTranscript} from "../../opencode/sessionDataContext.tsx";
@@ -15,6 +17,7 @@ import {
 } from "../../opencode/promptQueue.ts";
 import {divertAttachmentsForSend, modelAcceptsImages} from "../../opencode/visionAttachments.ts";
 import type {
+    ChatMessage,
     ChatUserMessage,
     ComposerAttachment,
     ComposerFileRef,
@@ -107,7 +110,7 @@ const ChatView = memo(function ChatView({
     const t = useI18n();
     const {api} = useConnection();
     const {models} = useCatalog();
-    const {replyPermission, replyForm, cancelForm} = useSessionData();
+    const {permissions: allPermissions, forms: allForms, replyPermission, replyForm, cancelForm} = useSessionData();
     const {
         messages,
         hasMore,
@@ -132,6 +135,41 @@ const ChatView = memo(function ChatView({
     const permissionGroups = useMemo(
         () => groupPermissionRequests(pendingPermissions),
         [pendingPermissions],
+    );
+    // Subagent children's asks: a child session blocked on the server
+    // (its permission/question waiting) surfaces HERE, in the
+    // conversation the user is watching — the sidebar lists root
+    // sessions only, so the child has no row to badge or open. The
+    // child link (spawn part metadata.sessionID) is in the store before
+    // the child's first ask can arrive, so this derivation is never
+    // late. Same collector + identity discipline as the stats panel
+    // (useSessionActivity re-runs it per frame too).
+    const subagentChildren = useMemo(
+        () => collectSessionSubagents(messages as ChatMessage[]),
+        [messages],
+    );
+    const childById = useMemo(
+        () => new Map(subagentChildren.map((child) => [child.id, child])),
+        [subagentChildren],
+    );
+    const childPermissionGroups = useMemo(() => {
+        if (subagentChildren.length === 0) return [];
+        return groupPermissionRequests(allPermissions.filter((p) => childById.has(p.sessionID))).map(
+            (group) => ({
+                key: `${group.requests[0].sessionID}:${group.key}`,
+                group,
+                child: childById.get(group.requests[0].sessionID)!,
+            }),
+        );
+    }, [allPermissions, subagentChildren, childById]);
+    const childForms = useMemo(
+        () =>
+            subagentChildren.length === 0
+                ? []
+                : allForms
+                      .filter((f) => childById.has(f.sessionID))
+                      .map((form) => ({form, child: childById.get(form.sessionID)!})),
+        [allForms, subagentChildren, childById],
     );
     // Stop pressed, run not yet unwound — the tail's indicator says
     // "Stopping" through the interrupt latency window (sessionStopping.ts).
@@ -584,6 +622,54 @@ const ChatView = memo(function ChatView({
                         />
                     )}
                 </ExitList>
+                {/* The SAME pinned treatment for SUBAGENT children's asks:
+                 *  a child blocked on the server hangs its parent's run
+                 *  too, and the child itself has no sidebar row — without
+                 *  these cards the whole chain stalls invisibly. Cards
+                 *  render under a source label naming the waiting child;
+                 *  replies go through the same session-addressed
+                 *  endpoints as the session's own asks. */}
+                <ExitList
+                    items={childPermissionGroups}
+                    keyOf={(item) => item.key}
+                    exitMs={250}
+                    exit={{animation: "lum-row-exit"}}
+                >
+                    {(item) => (
+                        <div className="flex flex-col gap-1">
+                            <SubagentAskSource sub={item.child}/>
+                            <PermissionCard
+                                request={item.group.requests[0]}
+                                onDecision={(_, decision) => {
+                                    snapToBottom();
+                                    for (const reply of groupReplyPlan(item.group.requests, decision)) {
+                                        void replyPermission(reply.request, reply.decision);
+                                    }
+                                }}
+                            />
+                        </div>
+                    )}
+                </ExitList>
+                <ExitList
+                    items={childForms}
+                    keyOf={(item) => item.form.id}
+                    exitMs={250}
+                    exit={{animation: "lum-row-exit"}}
+                >
+                    {(item) => (
+                        <div className="flex flex-col gap-1">
+                            <SubagentAskSource sub={item.child}/>
+                            <QuestionCard
+                                form={item.form}
+                                onReply={(f, answer) => {
+                                    snapToBottom();
+                                    void replyForm(f, answer);
+                                }}
+                                onCancel={cancelForm}
+                            />
+                        </div>
+                    )}
+                </ExitList>
                 {/* The composer stays mounted while requests pend (see
                  * the comment above): busy still swaps its send button
                  * for stop per the usual run flow. */}
@@ -617,3 +703,26 @@ const ChatView = memo(function ChatView({
 });
 
 export default ChatView;
+
+/** Source label above a subagent child's pinned ask card — names the
+ *  child that is waiting ("子代理 · Explore · find auth code"), so the
+ *  card below reads as belonging to that child, not this conversation.
+ *  Module-level on purpose (an inline definition would churn identity
+ *  per render). */
+function SubagentAskSource({sub}: {sub: SessionSubagentRef}) {
+    const t = useI18n();
+    const agent = sub.agent
+        ? sub.agent.charAt(0).toUpperCase() + sub.agent.slice(1)
+        : null;
+    const text = agent === null
+        ? t["Subagent"]
+        : sub.label
+            ? `${t["Subagent"]} · ${agent} · ${sub.label}`
+            : `${t["Subagent"]} · ${agent}`;
+    return (
+        <div className="flex items-center gap-1.5 text-2xs opacity-60 pl-1">
+            <Bot size={12} className="shrink-0"/>
+            <span className="min-w-0 truncate">{text}</span>
+        </div>
+    );
+}

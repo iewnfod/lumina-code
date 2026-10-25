@@ -4,8 +4,8 @@ import {createModuleStore} from "../lib/moduleStore.ts";
 import type {OpencodeApi} from "./api.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {ChatMessage, EventMap, FormAnswer, FormRequest, PermissionDecision, PermissionRequest} from "./types.ts";
-import {peekSessionMessages, subscribeSessionMessages} from "./useSessionMessages.ts";
-import {planApprovalPending, workApprovalPending} from "./sessionActivity.ts";
+import {peekSessionMessages, subscribeSessionMessages, trackedSessionIds} from "./useSessionMessages.ts";
+import {collectSessionSubagents, planApprovalPending, workApprovalPending} from "./sessionActivity.ts";
 
 /**
  * Pending server→user requests across ALL sessions: permission asks
@@ -94,6 +94,42 @@ function ensurePendingFlagsWiring(): void {
     subscribeSessionMessages((sessionId) => recomputePendingFlags(sessionId));
 }
 
+// --- Subagent child asks → their PARENT session (badge merge) ----------------
+
+/** child session id → parent session id. The sidebar lists ROOT sessions
+ *  only, so a subagent child's pending ask (its execution blocked
+ *  server-side, e.g. an external_directory read) would have no row to
+ *  badge — the ask merges into the PARENT's badge instead. The parent's
+ *  transcript holds the spawn part whose metadata.sessionID is the child
+ *  link (collectSessionSubagents), and that link is in the store before
+ *  the child's first ask can arrive (tool.progress precedes any child
+ *  tool call). */
+const childParents = new Map<string, string>();
+
+/** Rebuild the child→parent map from the tracked message stores. Run
+ *  ONLY when pending asks arrive (seed + permission.asked/form.created)
+ *  — a linear scan over already-materialized transcripts, never per
+ *  streaming delta. Runs BEFORE the ask's setState so the pendingCounts
+ *  memo (which does not depend on the map's identity) recomputes with
+ *  the fresh mapping in the same render pass. */
+function resolveChildParents(): void {
+    childParents.clear();
+    for (const sessionId of trackedSessionIds()) {
+        const messages = peekSessionMessages(sessionId);
+        if (!messages) continue;
+        for (const ref of collectSessionSubagents(messages as ChatMessage[])) {
+            if (!childParents.has(ref.id)) childParents.set(ref.id, sessionId);
+        }
+    }
+}
+
+/** The parent session id behind a subagent child, when known — the
+ *  notification composer uses this to name the conversation a child's
+ *  ask belongs to (child sessions are not in the root-only list). */
+export function peekSessionParent(childId: string): string | undefined {
+    return childParents.get(childId);
+}
+
 export function useSessionRequests(
     api: OpencodeApi | null,
     subscribe: (handler: OpencodeEventHandler) => () => void,
@@ -117,17 +153,25 @@ export function useSessionRequests(
     apiRef.current = api;
 
     // Seed once connected: anything already pending predates our event
-    // stream and would otherwise never surface.
+    // stream and would otherwise never surface. The child→parent map
+    // resolves first so seed-time child asks merge into their parent's
+    // badge in the same commit.
     useEffect(() => {
         if (!api) return;
         let cancelled = false;
         api.listPermissionRequests().then((list) => {
-            if (!cancelled) setPermissions(list);
+            if (!cancelled) {
+                resolveChildParents();
+                setPermissions(list);
+            }
         }).catch((e) => {
             logError(`Failed to load pending permission requests: ${e}`).catch(() => {});
         });
         api.listForms().then((list) => {
-            if (!cancelled) setForms(list);
+            if (!cancelled) {
+                resolveChildParents();
+                setForms(list);
+            }
         }).catch((e) => {
             logError(`Failed to load pending forms: ${e}`).catch(() => {});
         });
@@ -142,6 +186,7 @@ export function useSessionRequests(
             switch (event.type) {
                 case "permission.asked": {
                     const d = event.data as EventMap["permission.asked"];
+                    resolveChildParents();
                     setPermissions((prev) =>
                         prev.some((p) => p.id === d.id) ? prev : [...prev, d],
                     );
@@ -154,6 +199,7 @@ export function useSessionRequests(
                 }
                 case "form.created": {
                     const d = event.data as EventMap["form.created"];
+                    resolveChildParents();
                     setForms((prev) =>
                         prev.some((f) => f.id === d.form.id) ? prev : [...prev, d.form],
                     );
@@ -253,10 +299,26 @@ export function useSessionRequests(
 
     const pendingCounts = useMemo(() => {
         const counts = new Map<string, number>();
-        for (const p of permissions) counts.set(p.sessionID, (counts.get(p.sessionID) ?? 0) + 1);
-        for (const f of forms) counts.set(f.sessionID, (counts.get(f.sessionID) ?? 0) + 1);
+        const add = (sessionId: string, n: number) => {
+            counts.set(sessionId, (counts.get(sessionId) ?? 0) + n);
+        };
+        // A subagent child's ask counts for the child AND its parent: the
+        // child itself has no sidebar row (root sessions only), so the
+        // parent's badge is where the user sees it. The map is refreshed
+        // right before these arrays change (resolveChildParents), so the
+        // memo's missing dependency on it is safe by construction.
+        for (const p of permissions) {
+            add(p.sessionID, 1);
+            const parent = childParents.get(p.sessionID);
+            if (parent !== undefined) add(parent, 1);
+        }
+        for (const f of forms) {
+            add(f.sessionID, 1);
+            const parent = childParents.get(f.sessionID);
+            if (parent !== undefined) add(parent, 1);
+        }
         for (const [sid, flags] of pendingFlags) {
-            counts.set(sid, (counts.get(sid) ?? 0) + (flags.plan ? 1 : 0) + (flags.work ? 1 : 0));
+            add(sid, (flags.plan ? 1 : 0) + (flags.work ? 1 : 0));
         }
         return counts;
     }, [permissions, forms, pendingFlags]);

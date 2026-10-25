@@ -15,7 +15,7 @@ import {
     type NotifyScene,
     type RunEndReason,
 } from "../opencode/notificationTriggers.ts";
-import {peekGateFlags} from "../opencode/useSessionRequests.ts";
+import {peekGateFlags, peekSessionParent} from "../opencode/useSessionRequests.ts";
 import {useSessionData} from "../opencode/sessionDataContext.tsx";
 import {isLinux} from "../lib/platform.ts";
 import {currentDictionary} from "./i18n.tsx";
@@ -233,9 +233,27 @@ export function useNotifications(activeId: string | null): void {
                 if (primary === null) continue;
                 const session = sessionsRef.current.find((s) => s.id === sessionId);
                 const dict = currentDictionary();
+                // Subagent children are not in the root-only session
+                // list — attribute their asks to the PARENT conversation
+                // (peekSessionParent), so the notification names the
+                // conversation the blocked work belongs to instead of a
+                // meaningless app name. An unresolved parent still says
+                // "Subagent", which at least points at the right ask.
+                let body: string;
+                if (session) {
+                    body = notifySubject(session);
+                } else {
+                    const parentId = peekSessionParent(sessionId);
+                    const parent = parentId === undefined
+                        ? undefined
+                        : sessionsRef.current.find((s) => s.id === parentId);
+                    body = parent
+                        ? `${dict["Subagent"]} · ${notifySubject(parent)}`
+                        : dict["Subagent"];
+                }
                 sendDesktopNotification(
                     dict[attentionTitleKey(primary)],
-                    session ? notifySubject(session) : "Lumina Code",
+                    body,
                 );
             }
         }

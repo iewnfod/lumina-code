@@ -14,6 +14,7 @@ import {
     luminaToolsEntryPresent,
     luminaToolsPluginPath,
     mergeLuminaToolsPlugin,
+    managedCommandsCurrent,
     readLuminaToolsOptions,
     type LuminaToolsOptions,
 } from "./toolPluginConfig.ts";
@@ -71,8 +72,11 @@ async function ensureLuminaToolsPluginLocked(
     // The daily-mode agent lives in the `agents` section, not the plugin
     // options — an options-unchanged upgrade (the common case: an
     // existing install meeting a newer app) must still rewrite the
-    // config once to plant it (luminaDailyAgentMissing).
+    // config once to plant it (luminaDailyAgentMissing). The managed
+    // slash commands (/mcp, /plugin) are the same story: their templates
+    // evolve with the app, so a stale pair rewrites the file too.
     const agentMissing = luminaDailyAgentMissing(raw);
+    const commandsStale = raw === "" || !managedCommandsCurrent(raw, target.file);
 
     const pluginDir = `${target.directory.replace(/\/+$/, "")}/${LUMINA_TOOLS_PLUGIN_DIR}`;
     // v2.0.11 quirk: fs/read on a directory that doesn't exist yet
@@ -86,10 +90,10 @@ async function ensureLuminaToolsPluginLocked(
         await api.writeTextFile(`${pluginDir}/index.js`, luminaToolsPluginSource);
         wrote = true;
     }
-    if (entryMissing || optionsChanged || agentMissing) {
+    if (entryMissing || optionsChanged || agentMissing || commandsStale) {
         const text = raw === ""
-            ? freshConfigWithToolsPlugin(pluginPath, desired)
-            : mergeLuminaToolsPlugin(raw, pluginPath, desired);
+            ? freshConfigWithToolsPlugin(pluginPath, desired, target.file)
+            : mergeLuminaToolsPlugin(raw, pluginPath, desired, target.file);
         if (text === null) return {status: "skipped", reason: "invalid-config"};
         await api.writeTextFile(target.file, text);
         wrote = true;

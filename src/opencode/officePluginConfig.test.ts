@@ -11,6 +11,7 @@ import {mergeLuminaToolsPlugin} from "./toolPluginConfig.ts";
 
 const OFFICE = "/home/me/.config/opencode/plugins/office-tools";
 const LUMINA = "/home/me/.config/opencode/plugins/lumina-tools";
+const CFG = "/home/me/.config/opencode/opencode.json";
 
 test("officeToolsPluginPath joins the config directory", () => {
     assert.equal(officeToolsPluginPath("/home/me/.config/opencode"), OFFICE);
@@ -46,7 +47,7 @@ test("merge replaces our previous entry, tolerates JSONC refusal", () => {
 test("the two plugins coexist in one config (the dual-installer shape)", () => {
     // The realistic interleaving under the write lock: lumina writes its
     // entry, office merges into the result — both present, neither lost.
-    const afterLumina = mergeLuminaToolsPlugin("{}", LUMINA, {vision: {model: "p/m"}})!;
+    const afterLumina = mergeLuminaToolsPlugin("{}", LUMINA, {vision: {model: "p/m"}}, CFG)!;
     const afterOffice = mergeOfficeToolsPlugin(afterLumina, OFFICE)!;
     const root = JSON.parse(afterOffice);
     assert.equal(root.plugins.length, 2);

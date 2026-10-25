@@ -13,6 +13,7 @@ import {
     composePlanDoc,
     composeReportDoc,
     composeTasksDoc,
+    configGuideFor,
     customSystemPrompt,
     errorFingerprint,
     gateIsCurrent,
@@ -513,4 +514,57 @@ test("filterToolGuides matches tokens and falls back to the catalog", async () =
     // Empty query → the whole catalog.
     assert.equal(filterToolGuides(TOOL_GUIDES, "").length, TOOL_GUIDES.length);
     assert.equal(filterToolGuides(TOOL_GUIDES, null).length, TOOL_GUIDES.length);
+});
+
+// --- configGuideFor (on-demand MCP/plugin guides) -------------------------
+
+/** A session.context-shaped transcript: {info: {role}, parts: [{type, text}]}. */
+const transcript = (...turns) =>
+    turns.map(([role, text]) => ({info: {role}, parts: [{type: "text", text}]}));
+
+test("configGuideFor injects the MCP guide on MCP asks (zh + en)", () => {
+    const zh = transcript(["user", "帮我加一个天气 MCP 服务器"], ["assistant", "好的"]);
+    const en = transcript(["user", "can you set up an MCP server for search?"]);
+    assert.match(configGuideFor(zh), /mcp\.servers/);
+    assert.match(configGuideFor(en), /mcp\.servers/);
+    // The full protocol name counts too.
+    assert.match(
+        configGuideFor(transcript(["user", "how do I use Model Context Protocol here?"])),
+        /mcp\.servers/,
+    );
+});
+
+test("configGuideFor needs an action verb for plugin asks", () => {
+    // Bare plugin chatter (development talk) → no guide.
+    assert.equal(configGuideFor(transcript(["user", "the plugin system in this codebase is neat"])), "");
+    // With an action verb → the plugin guide.
+    assert.match(configGuideFor(transcript(["user", "帮我安装一个翻译插件"])), /"plugins" array/);
+    assert.match(configGuideFor(transcript(["user", "install the github plugin please"])), /"plugins" array/);
+    // 扩展 counts as the plugin term.
+    assert.match(configGuideFor(transcript(["user", "配置一个扩展"])), /"plugins" array/);
+});
+
+test("configGuideFor short-circuits expanded managed commands and quiet topics", () => {
+    // An expanded /mcp command message: starts with the managed mark —
+    // the template already carries the full manual, no duplicate guide.
+    const expanded = transcript(["user", "<!-- managed by Lumina Code -->\nCurrent global config…"]);
+    assert.equal(configGuideFor(expanded), "");
+    // Unrelated topic → "".
+    assert.equal(configGuideFor(transcript(["user", "写一份周报"])), "");
+    // Only the LATEST user message decides (an earlier MCP ask has ended).
+    const movedOn = transcript(
+        ["user", "add an mcp server"],
+        ["assistant", "done"],
+        ["user", "thanks, now write a summary"],
+    );
+    assert.equal(configGuideFor(movedOn), "");
+});
+
+test("configGuideFor tolerates empty and degraded transcripts", () => {
+    assert.equal(configGuideFor([]), "");
+    assert.equal(configGuideFor(null), "");
+    assert.equal(configGuideFor([{info: {role: "assistant"}, parts: []}]), "");
+    // Degraded shapes (no parts / non-array) never throw.
+    assert.equal(configGuideFor([{info: {role: "user"}}]), "");
+    assert.equal(configGuideFor([{info: {role: "user"}, parts: null}]), "");
 });

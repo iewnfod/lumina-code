@@ -208,7 +208,30 @@ src/
 │                          #   connect-time installer); the server hot-reloads
 │                          #   on config change. TOOLS registry inside = one
 │                          #   entry per tool (enabled/agentId/tool).
-│                          #   HARNESS-PERFORMANCE SPLIT (2026-10): the
+│                          #   ON-DEMAND CONFIG GUIDES: the context hook
+│                          #   reads the user's LATEST message (ctx.session
+│                          #   .context, the stallWarning pattern) and, on
+│                          #   an MCP ask (mcp / model context protocol)
+│                          #   or a plugin ask (plugin/插件/扩展/extension
+│                          #   + an action verb — the double condition
+│                          #   keeps development chatter from firing it),
+│                          #   pushes MCP_GUIDE / PLUGIN_GUIDE for every
+│                          #   step of that turn: config-file locations +
+│                          #   entry shapes + edit-not-CLI, because most
+│                          #   users never discover the managed /mcp +
+│                          #   /plugin commands. A message starting with
+│                          #   MANAGED_COMMAND_MARK (an expanded command —
+│                          #   the constant mirrors toolPluginConfig's)
+│                          #   short-circuits: the template already carries
+│                          #   the full manual with a live config snapshot.
+│                          #   HOST_IDENTITY carries the always-on tail:
+│                          #   config JSON hot-reloads on save, never run
+│                          #   the PATH `opencode` CLI (an unrelated
+│                          #   install — models used to conclude OpenCode
+│                          #   was missing on machines without one).
+│                          #   configGuideFor is the pure half,
+│                          #   node-tested. HARNESS-PERFORMANCE SPLIT
+│                          #   (2026-10): the
 │                          #   context hook branches per agent — the
 │                          #   lumina-daily primary agent (config-defined;
 │                          #   DAILY_AGENT_ID mirrors toolPluginConfig's
@@ -638,9 +661,14 @@ src/
 │   │                      #   useLuminaToolsInstall (AppBody, once per
 │   │                      #   connection) keeps both current so the always-on
 │   │                      #   plan_mode tool exists from the first prompt on.
-│   │                      #   Passing options REPLACES the stored
-│   │                      #   options wholesale (per-tool namespaces AND
-│   │                      #   plugin-level fields like the General tab's
+│   │                      #   The same rewrite ALSO plants the MANAGED SLASH
+│   │                      #   COMMANDS (/mcp, /plugin — toolPluginConfig's
+│   │                      #   managedCommandsCurrent probe is an upgrade
+│   │                      #   trigger beside luminaDailyAgentMissing), so
+│   │                      #   teaching-models-how-to-configure commands ship
+│   │                      #   with the plugin. Passing options REPLACES the
+│   │                      #   stored options wholesale (per-tool namespaces
+│   │                      #   AND plugin-level fields like the General tab's
 │   │                      #   systemPrompt — save sites spread the
 │   │                      #   read-back current options first);
 │   │                      #   omitting them preserves what's configured.
@@ -657,7 +685,31 @@ src/
 │   │                      #   the entry is ALWAYS written now — plan_mode
 │   │                      #   ships always-on) + the restricted helper agents
 │   │                      #   in the config's `agents` section (v2.0.11 has
-│   │                      #   no plugin-side agent add) + the vision-capable
+│   │                      #   no plugin-side agent add) + the MANAGED SLASH
+│   │                      #   COMMANDS in the config's `commands` section —
+│   │                      #   /mcp and /plugin, JSON command entries
+│   │                      #   (spike-verified 2026-10-25 against the pinned
+│   │                      #   sidecar: JSON `commands` entries list beside
+│   │                      #   markdown files via GET /api/command, `$ARGUMENTS`
+│   │                      #   substitutes, `!`cat <path>`` shell blocks run
+│   │                      #   server-side at submission, and the only
+│   │                      #   built-ins are init/review — no collisions):
+│   │                      #   each template (mcpCommandTemplate /
+│   │                      #   pluginCommandTemplate, the config file's
+│   │                      #   ABSOLUTE path baked in) teaches the model to
+│   │                      #   edit the JSON directly (mcp.servers shapes /
+│   │                      #   plugins array shapes, global vs project
+│   │                      #   documents, merge-don't-rewrite) and NEVER run
+│   │                      #   the `opencode` CLI — the PATH binary is an
+│   │                      #   unrelated install beside the app's bundled
+│   │                      #   sidecar. MANAGED_COMMAND_MARK (the templates'
+│   │                      #   first line) is the ownership marker: a
+│   │                      #   user-defined same-name command is respected
+│   │                      #   verbatim, and the plugin's configGuideFor
+│   │                      #   recognizes an expanded command by it (no
+│   │                      #   duplicate guide injection). managedCommands
+│   │                      #   Current is the installer's stale-template
+│   │                      #   probe. + the vision-capable
 │   │                      #   model filter. ALSO OWNS the
 │   │                      #   HARNESS-PERFORMANCE config half
 │   │                      #   (LUMINA_DAILY_AGENT_ID, spike-verified
