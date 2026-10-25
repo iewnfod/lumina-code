@@ -3,6 +3,7 @@ import {Folder, FolderSearch, GitBranch} from "lucide-react";
 import {open as openDialog} from "@tauri-apps/plugin-dialog";
 import {warn} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
+import {sessionMode} from "../../opencode/appMode.ts";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {registeredSessionIds, unionMembership} from "../../opencode/sessionRegistry.ts";
 import {serverWhitelistIds} from "../../opencode/sessionWhitelistSync.ts";
@@ -46,7 +47,8 @@ export default function DirectoryPicker({
     // (probe runs, deleted sessions, the root, the home itself) and can hold
     // duplicates under different ids. Keep only directories that are real
     // quick-picks: non-root, not the server home, deduped by canonical path,
-    // and still hosting at least one root session.
+    // and still hosting at least one whitelisted DEV root session (see the
+    // liveDirs note below for why daily sessions don't count).
     useEffect(() => {
         if (!api) return;
         let cancelled = false;
@@ -63,11 +65,19 @@ export default function DirectoryPicker({
                 // sessionWhitelistSync.ts): a directory only stays a
                 // quick-pick if one of OUR whitelisted sessions lives
                 // in it — strangers (TUI/other instances) must not
-                // seed the picker.
+                // seed the picker. DEV sessions only: daily sessions
+                // each auto-create a folder under LuminaWorkspace/
+                // Sessions/, and those are not code projects to
+                // suggest (the same rule as useSessionFlow's preselect
+                // effect). This picker is dev-only, so no dev session
+                // anywhere → an empty list + "Browse…" (never a
+                // fallback to every known project, which would list
+                // the daily folders wholesale).
                 const members = unionMembership(registeredSessionIds(), serverWhitelistIds());
                 const liveDirs = new Set(
                     (sessions ?? [])
-                        .filter((s) => !s.parentID && members.has(s.id))
+                        .filter((s) =>
+                            !s.parentID && members.has(s.id) && sessionMode(s) === "dev")
                         .map((s) => s.directory ?? s.location?.directory)
                         .filter((d): d is string => !!d),
                 );
@@ -77,7 +87,7 @@ export default function DirectoryPicker({
                         p.canonical && p.canonical !== "/" && p.canonical !== "." &&
                         p.canonical !== home)
                     .sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0))) {
-                    if (liveDirs.size > 0 && !liveDirs.has(p.canonical)) continue;
+                    if (!liveDirs.has(p.canonical)) continue;
                     if (!byCanonical.has(p.canonical)) byCanonical.set(p.canonical, p);
                 }
                 setProjects([...byCanonical.values()].slice(0, 8));
