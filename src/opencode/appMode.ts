@@ -34,7 +34,10 @@ import type {OpencodeSession} from "./types.ts";
  * unknown state must not yank a restored dev session back to the
  * welcome screen mid-boot (the mode-switch effect reacts to effective
  * mode changes). A confirmed absence mid-run (git uninstalled since
- * last boot) does exactly that through the same path.
+ * last boot) does exactly that through the same path. The BOOT GATE
+ * (BootScreen) also waits on the attempt's SETTLEMENT (the probed
+ * flag) — the reveal's first frame must carry the final mode state,
+ * not a switcher that pops in after.
  */
 
 export type AppMode = "daily" | "dev";
@@ -48,6 +51,15 @@ const store = createPersistedStore<AppMode>({
 
 /** null = not yet probed (or the probe itself failed). */
 const gitStore = createModuleStore<boolean | null>(null);
+
+/** Whether a probe attempt has SETTLED this app run (verdict or probe
+ *  failure — see probeGitAvailability). The BOOT GATE's condition
+ *  (components/BootScreen.tsx): the reveal's first frame must carry the
+ *  FINAL mode state (switcher visible or not, a restored dev session in
+ *  its half), so it waits for the attempt, not for `true` — a failed
+ *  probe's unknown is a STABLE conservative state (no switcher, no
+ *  forced mode) and settles the gate just the same. */
+const probedStore = createModuleStore(false);
 
 /** The current mode ("daily" when nothing valid was stored). A
  *  CONFIRMED git-less machine forces "daily" whatever the stored
@@ -78,6 +90,20 @@ export function gitAvailable(): boolean | null {
     return gitStore.get();
 }
 
+/** The boot gate's hook binding: has a probe attempt settled (verdict
+ *  OR failure)? See {@link gitProbed} for the semantics. */
+export function useGitProbed(): boolean {
+    return useSyncExternalStore(probedStore.subscribe, probedStore.get);
+}
+
+/** Non-hook twin of {@link useGitProbed} — false until the first
+ *  probeGitAvailability attempt settles, true from then on (whatever
+ *  the outcome; a settled verdict short-circuits later calls without
+ *  touching this flag — it is already true). */
+export function gitProbed(): boolean {
+    return probedStore.get();
+}
+
 // One in-flight promise (the useBlurMyShell probe-dedupe pattern):
 // StrictMode double-mounts and every api consumer probing at once must
 // share one shell round trip.
@@ -85,9 +111,13 @@ let probeInFlight: Promise<void> | null = null;
 
 /** Probe `git --version` through the server's shell API and record the
  *  verdict. A failed probe records NOTHING (stays unknown — see the
- *  gate note); the next connection re-probes. */
+ *  gate note); the next connection re-probes. Either way the attempt
+ *  settles the probed flag (the boot gate's condition). */
 export async function probeGitAvailability(api: OpencodeApi): Promise<void> {
-    if (gitStore.get() === true || gitStore.get() === false) return; // settled
+    if (gitStore.get() === true || gitStore.get() === false) {
+        probedStore.set(true); // settled by an earlier attempt this run
+        return;
+    }
     if (probeInFlight) return probeInFlight;
     probeInFlight = (async () => {
         try {
@@ -104,13 +134,16 @@ export async function probeGitAvailability(api: OpencodeApi): Promise<void> {
             // verdict; a reconnection re-probes.
         } finally {
             probeInFlight = null;
+            probedStore.set(true);
         }
     })();
     return probeInFlight;
 }
 
-/** Probe once per server connection — mount wherever the switcher's
- *  data lives (SessionBar). */
+/** Probe once per server connection — mounted at the CONNECTION level
+ *  (AppBody, beside the connect-time installers): the phone layout's
+ *  SessionBar is lazily mounted (the drawer), so a sidebar mount point
+ *  would leave the probe unstarted through the whole boot. */
 export function useGitProbe(api: OpencodeApi | null): void {
     useEffect(() => {
         if (api) void probeGitAvailability(api);

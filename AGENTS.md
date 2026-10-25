@@ -611,6 +611,20 @@ src/
 │   │                      #   choice — a flaked probe must not yank a
 │   │                      #   restored dev session to the welcome screen;
 │   │                      #   the switcher renders only on confirmed true).
+│   │                      #   The probe's ATTEMPT also settles a probed
+│   │                      #   flag (gitProbed/useGitProbed) that feeds the
+│   │                      #   BOOT GATE (BootScreen): the reveal's first
+│   │                      #   frame must carry the final mode state —
+│   │                      #   verdict OR probe failure (unknown is a
+│   │                      #   stable conservative UI), never a hung
+│   │                      #   attempt (the 15s valve covers that). The
+│   │                      #   probe MOUNTS at the connection level
+│   │                      #   (AppBody's useGitProbe, beside the
+│   │                      #   connect-time installers): the phone
+│   │                      #   layout's SessionBar is lazily mounted in
+│   │                      #   the drawer, so a sidebar mount point would
+│   │                      #   leave boot waiting on a probe that never
+│   │                      #   starts.
 │   │                      #   SESSION-SIDE: modeMetadata is the creation-time
 │   │                      #   stamp (beside CLIENT_SOURCE, create-only
 │   │                      #   metadata) and sessionMode derives it back —
@@ -2171,8 +2185,11 @@ src/
     │                      #   conversation (live-observed on Android).
     ├── SessionBar.tsx     # Left glass sidebar shell: brand row, THE MODE
     │                      #   SWITCHER (HeroUI Tabs — 日常/开发, rendered
-    │                      #   ONLY once git availability is CONFIRMED;
-    │                      #   opencode/appMode.ts), the TWO-PAGE session
+    │                      #   ONLY once git availability is CONFIRMED
+    │                      #   (the probe itself fires at the CONNECTION
+    │                      #   level in AppBody — this bar is lazily
+    │                      #   mounted in the phone drawer; appMode.ts),
+    │                      #   the TWO-PAGE session
     │                      #   slider (both halves stay MOUNTED inside a
     │                      #   w-[200%] strip that translates between them —
     │                      #   collapsed folders, scroll positions and show-
@@ -2283,7 +2300,11 @@ src/
     │                      #   the app is genuinely USABLE — connected ∧
     │                      #   sessionsLoaded ∧ catalogLoaded (the
     │                      #   catalog's initial-settle flag, see
-    │                      #   useModelCatalog) ∧ the restored session's
+    │                      #   useModelCatalog) ∧ the dev-mode git
+    │                      #   probe settled (verdict OR failure —
+    │                      #   appMode's probed flag; the probe mounts
+    │                      #   in AppBody, so it runs in parallel)
+    │                      #   ∧ the restored session's
     │                      #   message store seeded (warmed HERE at
     │                      #   mount via ensureSessionSeeded, parallel
     │                      #   with the list/catalog fetches — the mobile

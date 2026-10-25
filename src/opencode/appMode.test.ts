@@ -81,14 +81,16 @@ function probeApi(exit: number | Error): {api: import("./api.ts").OpencodeApi; c
 }
 
 test("probeGitAvailability: exit 0 confirms git", async () => {
-    const {probeGitAvailability} = await loadModule("git-ok");
+    const {probeGitAvailability, gitProbed} = await loadModule("git-ok");
     const {api, commands} = probeApi(0);
     await probeGitAvailability(api);
     assert.deepEqual(commands, ["git --version @ /home/u"]);
+    assert.equal(gitProbed(), true);
     // Settled true — a re-probe is a no-op (one shell round trip per
-    // connection at most).
+    // connection at most) whose short-circuit keeps the flag up.
     await probeGitAvailability(api);
     assert.equal(commands.length, 1);
+    assert.equal(gitProbed(), true);
 });
 
 test("probeGitAvailability: nonzero exit records a git-less machine", async () => {
@@ -101,4 +103,26 @@ test("probeGitAvailability: a failed probe records NOTHING (unknown, not false)"
     const {probeGitAvailability, gitAvailable} = await loadModule("git-error");
     await probeGitAvailability(probeApi(new Error("route flaked")).api); // must not throw
     assert.equal(gitAvailable(), null);
+});
+
+// --- The probed flag (the boot gate's condition) ---
+
+test("gitProbed: false until a probe settles", async () => {
+    const {gitProbed} = await loadModule("probed-fresh");
+    assert.equal(gitProbed(), false);
+});
+
+test("gitProbed: a successful probe settles it", async () => {
+    const {probeGitAvailability, gitProbed} = await loadModule("probed-ok");
+    await probeGitAvailability(probeApi(0).api);
+    assert.equal(gitProbed(), true);
+});
+
+test("gitProbed: a FAILED probe settles it too (unknown is a stable state)", async () => {
+    const {probeGitAvailability, gitProbed} = await loadModule("probed-error");
+    await probeGitAvailability(probeApi(new Error("route flaked")).api);
+    // The boot gate waits for the ATTEMPT, not the verdict — a failed
+    // probe's unknown UI (no switcher, no forced mode) is final until a
+    // reconnection re-probes, so the gate must reveal on it.
+    assert.equal(gitProbed(), true);
 });

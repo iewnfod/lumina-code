@@ -2,6 +2,7 @@ import {useEffect, useState} from "react";
 import CO from "../assets/CO.svg";
 import {useI18n} from "../hooks/i18n.tsx";
 import {isMobileApp} from "../lib/platform.ts";
+import {useGitProbed} from "../opencode/appMode.ts";
 import {useCatalog} from "../opencode/catalogContext.tsx";
 import {useConnection} from "../opencode/connectionContext.tsx";
 import {useSessionData} from "../opencode/sessionDataContext.tsx";
@@ -46,6 +47,13 @@ const BOOT_MAX_WAIT_MS = 15_000;
  *   - catalogLoaded   — the initial model/agent catalog attempt settled
  *     (success OR failure; a fresh install with no providers must not
  *     hang the gate on an empty picker)
+ *   - the git availability probe settled (verdict OR probe failure —
+ *     opencode/appMode.ts): the mode switcher's visibility and a
+ *     restored dev session's half both hang on it, so the reveal's
+ *     first frame must carry the FINAL mode state. A failed probe's
+ *     unknown settles the gate too (a stable, conservative UI); the
+ *     probe's own mounts are in AppBody, so it runs in parallel with
+ *     everything above.
  *   - the RESTORED session's message store is seeded — the reveal then
  *     lands exactly when the session surface's entrance starts (both
  *     key on the same seeded flag), so the first visible frame of the
@@ -75,11 +83,16 @@ export default function BootScreen({activeId, bg, fg}: {activeId: string | null;
     const {status, api} = useConnection();
     const {sessionsLoaded} = useSessionData();
     const {catalogLoaded} = useCatalog();
+    // The dev-mode git probe's settlement (see the readiness list): a
+    // verdict or a failed attempt — never a hung one, which the 15s
+    // valve below covers (a hung shell is stuck in awaitShell's 60s
+    // cap; the gate must not wait it out).
+    const gitProbed = useGitProbed();
     // The restored session (null on the welcome path) — `true` for null
     // by definition, so the seed condition only gates real sessions.
     const seeded = useSessionSeeded(activeId);
 
-    const ready = status.state === "connected" && sessionsLoaded && catalogLoaded && seeded;
+    const ready = status.state === "connected" && sessionsLoaded && catalogLoaded && seeded && gitProbed;
     const failed = status.state === "error";
 
     // One-way reveal. The render-time edge is the codebase's

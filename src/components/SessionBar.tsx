@@ -15,8 +15,7 @@ import {useI18n} from "../hooks/i18n.tsx";
 import {useScrollEdges, type ScrollEdges} from "../hooks/useScrollEdges.ts";
 import {useSidebarResizing, useSidebarWidth} from "../hooks/useSidebarWidth.ts";
 import {groupByDirectory, projectDirOf, type SessionInfo} from "./sessionGrouping.ts";
-import {setAppMode, useAppMode, useGitAvailable, useGitProbe} from "../opencode/appMode.ts";
-import {useConnection} from "../opencode/connectionContext.tsx";
+import {setAppMode, useAppMode, useGitAvailable} from "../opencode/appMode.ts";
 import {useWorktreeDirs} from "../opencode/worktreeSessions.ts";
 import SessionFolder, {MAX_PLAIN_VISIBLE_SESSIONS, MAX_VISIBLE_SESSIONS} from "./SessionFolder.tsx";
 import type {CSSProperties} from "react";
@@ -87,12 +86,12 @@ export default function SessionBar(props: SessionBarProps) {
     // The DAILY/DEV split (opencode/appMode.ts): the HeroUI tabs row is
     // the mode switcher, shown ONLY once git availability is CONFIRMED
     // — a git-less machine gets the plain daily sidebar, no dev half to
-    // enter (its features all assume git). useGitProbe fires the
-    // once-per-connection probe that flips useGitAvailable to a verdict.
+    // enter (its features all assume git). The probe itself fires at
+    // the CONNECTION level (AppBody's useGitProbe — this bar is lazily
+    // mounted inside the phone drawer); this component only READS the
+    // verdict.
     const mode = useAppMode();
     const switcher = useGitAvailable() === true;
-    const {api} = useConnection();
-    useGitProbe(api);
     const dailySessions = sessions.filter((s) => s.mode === "daily");
     const devSessions = sessions.filter((s) => s.mode === "dev");
     // The expanded width comes from the sidebar-width module store (the
