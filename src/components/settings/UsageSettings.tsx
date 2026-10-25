@@ -7,7 +7,7 @@ import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {whileHoverTap} from "../../lib/motion.ts";
-import {formatCost, formatTokens} from "../chat/usageStats.ts";
+import {formatCost} from "../chat/usageStats.ts";
 import {UsageDonut, UsageLegend, UsageLines, type HoverKey} from "./UsageCharts.tsx";
 import {
     buildUsageSeries,
@@ -110,10 +110,9 @@ export default function UsageSettings({api}: {api: OpencodeApi | null}) {
         [series],
     );
 
-    // The header's totals prefer the whole-window summary; when it
-    // failed, fall back to the matrix's own aggregate.
-    const totalTokens_ = summary ? formatTokens(summary.tokens.input + summary.tokens.output + summary.tokens.reasoning + summary.tokens.cache.read + summary.tokens.cache.write) : null;
-    const totalFromSeries = displaySeries.reduce((s, r) => s + r.tokens, 0);
+    // The header shows only the side facts — the token TOTAL lives in
+    // the donut's center readout, never duplicated here. Cost prefers
+    // the whole-window summary, falling back to the matrix's aggregate.
     const costLabel = formatCost(summary?.cost ?? displaySeries.reduce((s, r) => s + r.cost, 0));
 
     return (
@@ -151,9 +150,6 @@ export default function UsageSettings({api}: {api: OpencodeApi | null}) {
                     <span className="text-xs" style={{color: "var(--color-danger)"}}>{t["Failed to load usage"]}</span>
                 ) : (
                     <div className="flex items-baseline gap-3 text-xs tabular-nums min-w-0" style={{color: colors.inactiveText}}>
-                        <span>
-                            <span style={{color: colors.textPrimary, fontWeight: 600}}>{totalTokens_ ?? formatTokens(totalFromSeries)}</span>{" "}{t["Total tokens"]}
-                        </span>
                         {costLabel && <span>{costLabel} {t["Cost"]}</span>}
                         {summary && <span>{summary.sessions.toLocaleString()} {t["Sessions"]}</span>}
                         {summary && <span>{summary.steps.toLocaleString()} {t["Steps"]}</span>}
