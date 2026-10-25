@@ -5,6 +5,7 @@ import type {OpencodeApi} from "../../opencode/api.ts";
 import type {SessionStatsInfo} from "../../opencode/types.ts";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {usePhoneLayout} from "../../hooks/useLayoutMode.ts";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {whileHoverTap} from "../../lib/motion.ts";
 import {formatCost} from "../chat/usageStats.ts";
@@ -35,6 +36,11 @@ export default function UsageSettings({api}: {api: OpencodeApi | null}) {
     const colors = useColors();
     const t = useI18n();
     const {models} = useCatalog();
+    // The pane's LAYOUT branch (hooks/useLayoutMode.ts): the phone
+    // layout stacks the share block (centered donut above the
+    // full-width legend) and drops the daily-trend lines below;
+    // tablet mode keeps the desktop composition.
+    const phone = usePhoneLayout();
     const [days, setDays] = useState<(typeof RANGES)[number]>(7);
     // Bumped by the retry button — remounts the load below.
     const [attempt, setAttempt] = useState(0);
@@ -115,6 +121,18 @@ export default function UsageSettings({api}: {api: OpencodeApi | null}) {
     // the whole-window summary, falling back to the matrix's aggregate.
     const costLabel = formatCost(summary?.cost ?? displaySeries.reduce((s, r) => s + r.cost, 0));
 
+    // The share block's halves, shared by both layout branches below.
+    const donut = (
+        <UsageDonut
+            slices={slices}
+            colors={rowColors}
+            hovered={hovered}
+            onHover={onHover}
+            totalLabel={t["Total tokens"]}
+        />
+    );
+    const legend = <UsageLegend rows={displaySeries} colors={rowColors} hovered={hovered} onHover={onHover}/>;
+
     return (
         <div className="flex-1 min-h-0 overflow-y-auto px-8 py-8 lum-fade-top lum-fade-bottom lum-fade-md">
             {/* Range switch + summary line. The range control is the
@@ -180,22 +198,33 @@ export default function UsageSettings({api}: {api: OpencodeApi | null}) {
                 </div>
             ) : (
                 <>
-                    {/* Model share — donut + legend, one hover channel. */}
-                    <div className="flex items-center gap-8 pb-10">
-                        <UsageDonut
-                            slices={slices}
-                            colors={rowColors}
-                            hovered={hovered}
-                            onHover={onHover}
-                            totalLabel={t["Total tokens"]}
-                        />
-                        <UsageLegend rows={displaySeries} colors={rowColors} hovered={hovered} onHover={onHover}/>
-                    </div>
+                    {/* Model share — donut + legend, one hover channel.
+                     * The phone layout STACKS them (see the phone note
+                     * above): a phone row cannot give the legend a
+                     * readable half beside the 192px donut, so the donut
+                     * centers above the legend, which stretches to the
+                     * full width through the column's default. */}
+                    {phone ? (
+                        <div className="flex flex-col gap-5 pb-8">
+                            <div className="flex justify-center">{donut}</div>
+                            {legend}
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-8 pb-10">
+                            {donut}
+                            {legend}
+                        </div>
+                    )}
 
                     {/* Daily trend — no section header: the chart follows
                      * the donut block directly (the pane's own hierarchy
-                     * reads fine without the caption). */}
-                    <UsageLines labels={labels} series={lines} ticks={ticks} hovered={hovered} onHover={onHover}/>
+                     * reads fine without the caption). Phone layout hides
+                     * it (see the phone note above): the 600-wide viewBox
+                     * crams at phone width; donut + legend carry the
+                     * share story on their own. */}
+                    {!phone && (
+                        <UsageLines labels={labels} series={lines} ticks={ticks} hovered={hovered} onHover={onHover}/>
+                    )}
                 </>
             )}
         </div>
