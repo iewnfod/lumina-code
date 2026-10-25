@@ -2,7 +2,7 @@ import type {CSSProperties} from "react";
 import {useColors} from "../../hooks/colors.tsx";
 import {usePhoneLayout} from "../../hooks/useLayoutMode.ts";
 import type {SessionUsage} from "../../opencode/types.ts";
-import PopoverMenu, {MenuLabel} from "../ui/PopoverMenu.tsx";
+import PopoverMenu, {MenuDivider, MenuLabel, MenuRow} from "../ui/PopoverMenu.tsx";
 import Hint from "../ui/Hint.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {cacheHitRate, formatCost, formatTokens, ringFraction, totalTokens, type UsageTokens} from "./usageStats.ts";
@@ -91,27 +91,27 @@ export default function UsageRing({tokens, sessionUsage, contextLimit}: {
             {() => (
                 <div className="py-0.5">
                     <MenuLabel>{t["Session usage"]}</MenuLabel>
-                    <Row label={t["Context"]} value={pct != null
+                    <MenuRow label={t["Context"]} value={pct != null
                         ? `${formatTokens(total)} / ${formatTokens(contextLimit!)} · ${pct}%`
                         : formatTokens(total)}/>
-                    <Row label={t["Input"]} value={num(tokens?.input ?? 0)}/>
-                    <Row label={t["Output"]} value={num(tokens?.output ?? 0)}/>
+                    <MenuRow label={t["Input"]} value={num(tokens?.input ?? 0)}/>
+                    <MenuRow label={t["Output"]} value={num(tokens?.output ?? 0)}/>
                     {(tokens?.reasoning ?? 0) > 0 && (
-                        <Row label={t["Reasoning"]} value={num(tokens!.reasoning)}/>
+                        <MenuRow label={t["Reasoning"]} value={num(tokens!.reasoning)}/>
                     )}
-                    <Row label={t["Cache read"]} value={num(tokens?.cache?.read ?? 0)}/>
-                    <Row label={t["Cache write"]} value={num(tokens?.cache?.write ?? 0)}/>
-                    {hit != null && <Row label={t["Cache hit rate"]} value={`${Math.round(hit * 100)}%`}/>}
+                    <MenuRow label={t["Cache read"]} value={num(tokens?.cache?.read ?? 0)}/>
+                    <MenuRow label={t["Cache write"]} value={num(tokens?.cache?.write ?? 0)}/>
+                    {hit != null && <MenuRow label={t["Cache hit rate"]} value={`${Math.round(hit * 100)}%`}/>}
                     {(sessionTotal > 0 || cost != null) && (
                         <>
-                            <Divider/>
+                            <MenuDivider/>
                             {sessionTotal > 0 && (
                                 // The aggregate grows with every step (each
                                 // input re-reads the context) — a reference
                                 // number, not the ring's basis.
-                                <Row label={t["Session total"]} value={formatTokens(sessionTotal)}/>
+                                <MenuRow label={t["Session total"]} value={formatTokens(sessionTotal)}/>
                             )}
-                            {cost != null && <Row label={t["Cost"]} value={cost}/>}
+                            {cost != null && <MenuRow label={t["Cost"]} value={cost}/>}
                         </>
                     )}
                 </div>
@@ -150,19 +150,4 @@ function Ring({fraction, arc, track}: {fraction: number | null; arc: string; tra
             />
         </svg>
     );
-}
-
-/** One static label/value line in the details dropdown. */
-function Row({label, value}: {label: string; value: string}) {
-    return (
-        <div className="flex items-center justify-between gap-4 px-2.5 py-1 text-xs leading-normal select-none">
-            <span className="opacity-55">{label}</span>
-            <span className="tabular-nums">{value}</span>
-        </div>
-    );
-}
-
-function Divider() {
-    const colors = useColors();
-    return <div className="my-1 h-px mx-1.5" style={{background: colors.glassBorder}}/>;
 }

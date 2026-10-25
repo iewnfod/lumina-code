@@ -2380,7 +2380,17 @@ src/
     │   │                  #   onBack renders a back arrow before the title —
     │   │                  #   the mobile settings pages' header)
     │   ├── MaskedSurface.tsx # SVG rounded-rect clip exposing the glass chrome corners
-    │   ├── PopoverMenu.tsx   # Shared dropdown menu
+    │   ├── PopoverMenu.tsx   # Shared dropdown menu. PORTAL mode
+    │                      #   (portal prop): the panel renders under
+    │                      #   <body> with FIXED placement for triggers
+    │                      #   inside scrolling containers (the
+    │                      #   transcript's run-footer usage card) —
+    │                      #   measured at open, following the trigger
+    │                      #   on resize/scroll, above the drawer scrim
+    │                      #   and under modals. Also exports the
+    │                      #   details-card primitives MenuRow (static
+    │                      #   label/value row) and MenuDivider, shared
+    │                      #   by UsageRing and RunFooter's cards.
     │   ├── RollingTitle.tsx # Ellipsized title that scrolls on hover
     │   └── WindowControls.tsx # minimize/maximize/close cluster (non-macOS)
     ├── chat/              # The conversation surface
@@ -2652,7 +2662,12 @@ src/
     │   │                  #   grow quadratically, see usageStats) and ↓
     │   │                  #   the turn's output (output + reasoning +
     │   │                  #   cost, summed — outputs are independent per
-    │   │                  #   step); the hover hint decomposes the
+    │   │                  #   step); CLICKING the readout opens the
+    │   │                  #   details card (UsageRing's MenuRow
+    │   │                  #   presentation over a PORTAL PopoverMenu —
+    │   │                  #   the footer lives inside the transcript's
+    │   │                  #   scroller, where an in-root absolute panel
+    │   │                  #   would clip at the edge) decomposing the
     │   │                  #   numbers, and comparing the ↑ readout
     │   │                  #   across agents/modes is how prompt-shrink
     │   │                  #   wins are measured. ALSO a turn that EDITED

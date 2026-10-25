@@ -1,4 +1,5 @@
 import {useLayoutEffect, useRef, useState, type ReactNode} from "react";
+import {createPortal} from "react-dom";
 import {Check} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import {useBackLevel} from "../../hooks/useBackLevel.ts";
@@ -9,6 +10,11 @@ import ExitPresence from "./ExitPresence.tsx";
 
 /** Viewport breathing room (px) for auto-aligned panels. */
 const AUTO_EDGE = 8;
+
+/** Paint level of PORTAL panels (under <body>): above the drawer scrim
+ * (z-60) and every content surface, below modals (9000) — an open menu
+ * never covers a dialog. */
+const PORTAL_Z = 8000;
 
 /**
  * The chrome's dropdown primitive: a trigger (render prop) plus a floating
@@ -26,6 +32,7 @@ export default function PopoverMenu({
     direction = "up",
     panelClassName = "",
     disabled = false,
+    portal = false,
 }: {
     /** Renders the visible trigger; `toggle` opens/closes the panel. */
     trigger: (props: {open: boolean; toggle: () => void}) => ReactNode;
@@ -47,6 +54,13 @@ export default function PopoverMenu({
     direction?: "up" | "down";
     panelClassName?: string;
     disabled?: boolean;
+    /** Render the panel through a portal under <body> with FIXED
+     *  placement, for triggers inside a scrolling container (the
+     *  transcript): an in-root absolute panel would be clipped by the
+     *  scroller's overflow edge and its z-index trapped by the mask's
+     *  stacking context. The panel follows its trigger on scroll
+     *  (capture-phase re-measure). */
+    portal?: boolean;
 }) {
     const colors = useColors();
     const [open, setOpen] = useState(false);
@@ -98,9 +112,68 @@ export default function PopoverMenu({
         return () => window.removeEventListener("resize", measure);
     }, [open, align]);
 
+    // PORTAL placement: the panel lives under <body> (position: fixed),
+    // so its coordinates come from the trigger's VIEWPORT rect —
+    // measured pre-paint at open, re-measured on viewport resize and on
+    // ANY scroll (capture: the trigger may sit inside a scrolling
+    // container, like the transcript — the panel FOLLOWS its trigger).
+    // Same-value updates are skipped, so the panel's own internal
+    // scrolling (which also fires capture scroll events) never churns
+    // renders. Deliberately not reset on close — the frozen coordinates
+    // carry the exit animation in place (same policy as autoPlace).
+    const [portalPlace, setPortalPlace] = useState<{left: number; top: number; maxWidth: number} | null>(null);
+    useLayoutEffect(() => {
+        if (!open || !portal) return;
+        const measure = () => {
+            const root = rootRef.current;
+            const panel = panelRef.current;
+            if (!root || !panel) return;
+            const rootRect = root.getBoundingClientRect();
+            const panelRect = panel.getBoundingClientRect();
+            const vw = document.documentElement.clientWidth;
+            const vh = document.documentElement.clientHeight;
+            const width = panelRect.width;
+            let left = rootRect.left;
+            if (align === "end") left = rootRect.right - width;
+            else if (align === "center") left = rootRect.left + rootRect.width / 2 - width / 2;
+            // Horizontal containment, mirroring align="auto"'s rules:
+            // flip to the end edge when the panel would cross the right
+            // rim, clamp to the rim when even that overflows.
+            if (left + width > vw - AUTO_EDGE) left = rootRect.right - width;
+            if (left < AUTO_EDGE) left = AUTO_EDGE;
+            let top: number;
+            if (direction === "up") {
+                top = rootRect.top - panelRect.height - 6;
+                if (top < AUTO_EDGE) top = AUTO_EDGE;
+            } else {
+                top = rootRect.bottom + 6;
+                if (top + panelRect.height > vh - AUTO_EDGE) {
+                    top = Math.max(AUTO_EDGE, vh - AUTO_EDGE - panelRect.height);
+                }
+            }
+            const maxWidth = Math.max(0, vw - 2 * AUTO_EDGE);
+            setPortalPlace((prev) =>
+                prev != null && prev.left === left && prev.top === top && prev.maxWidth === maxWidth
+                    ? prev
+                    : {left, top, maxWidth},
+            );
+        };
+        measure();
+        window.addEventListener("resize", measure);
+        window.addEventListener("scroll", measure, true);
+        return () => {
+            window.removeEventListener("resize", measure);
+            window.removeEventListener("scroll", measure, true);
+        };
+    }, [open, portal, align, direction]);
+
     // Click-away + Escape dismissal (capture phase — a click that opens
-    // another surface closes this one first).
-    useOutsideDismiss(rootRef, open, () => setOpen(false));
+    // another surface closes this one first). In PORTAL mode the panel
+    // is not under rootRef in the DOM, so pointerdowns inside it must be
+    // exempted or clicking the panel's own body/scrollbar would close it.
+    useOutsideDismiss(rootRef, open, () => setOpen(false), {
+        exempt: portal ? (target) => panelRef.current?.contains(target) ?? false : undefined,
+    });
 
     const toggle = () => {
         if (!disabled) setOpen((v) => !v);
@@ -126,40 +199,64 @@ export default function PopoverMenu({
             {/* Holds the panel mounted through its .lum-pop-exit close
                 animation (the exit engine removes it when it ends). */}
             <ExitPresence present={open} exitMs={150} exit={{animation: "lum-pop-exit"}}>
-                {(closing, bind) => (
-                    <div
-                        ref={panelRef}
-                        {...bind}
-                        className={`absolute z-50 min-w-40 max-h-72 flex flex-col rounded-[var(--radius-md)] py-1 ${
-                            direction === "down" ? "top-full mt-1.5" : "bottom-full mb-1.5"
-                        } ${
-                            align === "start"
-                                ? "left-0"
-                                : align === "end"
-                                    ? "right-0"
-                                    : align === "center"
-                                        ? "left-1/2 lum-pop-center"
-                                        : "" // "auto": no class — the measured inline style positions it
-                        } ${closing ? "lum-pop-exit" : "lum-pop"} ${panelClassName}`}
-                        style={
-                            align === "auto"
-                                ? {
-                                      ...panelStyle,
-                                      ...(autoPlace ? {left: autoPlace.left, maxWidth: autoPlace.maxWidth} : {}),
-                                  }
-                                : panelStyle
-                        }
-                    >
-                        {/* The whole panel body scrolls as one list. */}
+                {(closing, bind) => {
+                    const panelNode = (
                         <div
-                            ref={edges.ref}
-                            onScroll={edges.onScroll}
-                            className={`min-h-0 overflow-y-auto lum-fade-md${fadeClasses(edges)}`}
+                            ref={panelRef}
+                            {...bind}
+                            className={`${portal ? "fixed" : "absolute z-50"} min-w-40 max-h-72 flex flex-col rounded-[var(--radius-md)] py-1 ${
+                                portal
+                                    ? ""
+                                    : `${
+                                          direction === "down" ? "top-full mt-1.5" : "bottom-full mb-1.5"
+                                      } ${
+                                          align === "start"
+                                              ? "left-0"
+                                              : align === "end"
+                                                  ? "right-0"
+                                                  : align === "center"
+                                                      ? "left-1/2 lum-pop-center"
+                                                      : "" // "auto": no class — the measured inline style positions it
+                                      }`
+                            } ${closing ? "lum-pop-exit" : "lum-pop"} ${panelClassName}`}
+                            style={
+                                portal
+                                    ? {
+                                          ...panelStyle,
+                                          zIndex: PORTAL_Z,
+                                          // Hidden until the first measure lands — the layout
+                                          // effect runs before the same paint, so this never
+                                          // shows (and a stale re-open position corrects the
+                                          // same way).
+                                          visibility: portalPlace == null ? "hidden" : undefined,
+                                          left: portalPlace?.left,
+                                          top: portalPlace?.top,
+                                          maxWidth: portalPlace?.maxWidth,
+                                      }
+                                    : align === "auto"
+                                      ? {
+                                            ...panelStyle,
+                                            ...(autoPlace ? {left: autoPlace.left, maxWidth: autoPlace.maxWidth} : {}),
+                                        }
+                                      : panelStyle
+                            }
                         >
-                            {children(() => setOpen(false))}
+                            {/* The whole panel body scrolls as one list. */}
+                            <div
+                                ref={edges.ref}
+                                onScroll={edges.onScroll}
+                                className={`min-h-0 overflow-y-auto lum-fade-md${fadeClasses(edges)}`}
+                            >
+                                {children(() => setOpen(false))}
+                            </div>
                         </div>
-                    </div>
-                )}
+                    );
+                    // Portal keeps the React tree under this root (bind and
+                    // the exit engine keep working); only the DOM node moves
+                    // to <body>, where no scroller edge can clip it and no
+                    // ancestor stacking context traps its z-index.
+                    return portal ? createPortal(panelNode, document.body) : panelNode;
+                }}
             </ExitPresence>
         </div>
     );
@@ -210,4 +307,22 @@ export function MenuLabel({children}: {children: ReactNode}) {
             {children}
         </div>
     );
+}
+
+/** One static label/value line in a details panel (usage readouts and
+ *  friends): the informational sibling of MenuItem — menu-shaped rows
+ *  that don't select anything. Extracted from UsageRing's private Row. */
+export function MenuRow({label, value}: {label: ReactNode; value: ReactNode}) {
+    return (
+        <div className="flex items-center justify-between gap-4 px-2.5 py-1 text-xs leading-normal select-none">
+            <span className="opacity-55">{label}</span>
+            <span className="tabular-nums">{value}</span>
+        </div>
+    );
+}
+
+/** Hairline separator between MenuRow groups inside a details panel. */
+export function MenuDivider() {
+    const colors = useColors();
+    return <div className="my-1 h-px mx-1.5" style={{background: colors.glassBorder}}/>;
 }
