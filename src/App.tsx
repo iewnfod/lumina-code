@@ -33,7 +33,7 @@ import {isColorDark, withAlpha} from "./lib/color.ts";
 import {isLinux, isCefRuntime, isMobileApp} from "./lib/platform.ts";
 import {appThemeFor, type ChromeTheme} from "./lib/theme.ts";
 import {useOpencode} from "./opencode/useOpencode.ts";
-import {sessionMode} from "./opencode/appMode.ts";
+import {sessionMode, useGitProbe} from "./opencode/appMode.ts";
 import {useSessionFlow} from "./opencode/useSessionFlow.ts";
 import {useDirectoryBranch} from "./opencode/useDirectoryBranch.ts";
 import {useLuminaToolsInstall} from "./opencode/useLuminaTools.ts";
@@ -218,6 +218,15 @@ function AppBody({
     // /t/<routeId>/ on the server (see hooks/useServerFrp.ts +
     // src-tauri/src/frp.rs). No-op on mobile.
     useServerFrp();
+
+    // The dev-mode GIT GATE's probe (opencode/appMode.ts), mounted at
+    // the CONNECTION level: the phone layout's SessionBar (the old
+    // mount point) is lazily mounted inside the drawer, and the boot
+    // gate (BootScreen) now WAITS on the probe's settlement — mounting
+    // it there too would leave a closed drawer's boot waiting on a
+    // probe that never starts. Once per connection; a settled verdict
+    // short-circuits re-probes.
+    useGitProbe(api);
 
     // The settings PAGE (the sidebar's bottom-left gear toggles it, and
     // the model picker's "Configure models…" deep-links to its Model
@@ -610,7 +619,8 @@ function AppBody({
             {/* The boot gate (see components/BootScreen.tsx): a full-screen
                 overlay covering the whole chrome until the app is genuinely
                 usable — connection + session list + model catalog + the
-                restored session's seed all landed. Mobile shows it from the
+                dev-mode git probe + the restored session's seed all
+                landed. Mobile shows it from the
                 first frame (the remote route's latency is the norm there);
                 desktop only intervenes past a grace period, so the local
                 fast path never sees it. Renders null permanently once
