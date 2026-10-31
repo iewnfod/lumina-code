@@ -10,12 +10,13 @@
  * parser still sees contiguous text); a cut is only made where both
  * sides are provably independent blocks. The CommonMark/GFM constructs
  * that can span a blank line are loose lists, HTML blocks of the
- * kinds that don't end at a blank line, and reference-style definitions
+ * kinds that don't end at a blank line, reference-style definitions
  * (link reference definitions + footnote definitions, which resolve
  * document-wide and may be separated from their usages by other
- * blocks). Boundaries adjacent to any of those are left uncut, and a
- * document containing a reference definition or an HTML block start
- * anywhere falls back to a single chunk.
+ * blocks), and display-math `$$` blocks (fence syntax; LaTeX allows
+ * blank lines inside). Boundaries adjacent to any of those are left
+ * uncut, and a document containing a reference definition or an HTML
+ * block start anywhere falls back to a single chunk.
  *
  * Stability property (what memoization relies on): a chunk's text never
  * changes after another chunk has been cut after it — chunks only grow
@@ -65,6 +66,12 @@ export function splitMarkdownBlocks(text: string): string[] {
     // a qualifying blank run, outside fenced code).
     const cuts: number[] = [];
     let fence: {marker: string; length: number} | null = null;
+    // A display-math block (`$$` on its own line, fence syntax — may
+    // contain blank lines, which LaTeX allows inside align etc.) must
+    // never be cut at its internal blank lines: a chunk holding half of
+    // `$$…$$` freezes as UNPARSEABLE math (no closing delimiter), so the
+    // boundary has to wait for the closing `$$` line.
+    let displayMathOpen = false;
     let prevNonBlank = -1;
     for (let i = 0; i < lines.length;) {
         const line = lines[i];
@@ -85,6 +92,7 @@ export function splitMarkdownBlocks(text: string): string[] {
             if (
                 next < lines.length
                 && prevNonBlank >= 0
+                && !displayMathOpen
                 && boundarySafe(lines[prevNonBlank])
                 && boundarySafe(lines[next])
             ) {
@@ -93,6 +101,18 @@ export function splitMarkdownBlocks(text: string): string[] {
             }
             i = next;
             continue;
+        }
+        const trimmed = line.trim();
+        if (displayMathOpen) {
+            if (trimmed.includes("$$")) displayMathOpen = false;
+        } else if (
+            trimmed.startsWith("$$")
+            && (trimmed.match(/\$\$/g) ?? []).length % 2 === 1
+        ) {
+            // An ODD `$$` count on the opening line (a lone `$$`, or one
+            // left un-closed on that line) opens the block; `$$x$$` on a
+            // single line is even — self-closed, nothing to protect.
+            displayMathOpen = true;
         }
         const open = line.match(/^ {0,3}(`{3,}|~{3,})/);
         if (open) fence = {marker: open[1][0], length: open[1].length};

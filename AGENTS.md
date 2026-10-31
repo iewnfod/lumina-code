@@ -2750,6 +2750,53 @@ src/
     │   │                  #   tailActivity.ts is pure + node-testable.
     │   ├── UsageRing.tsx + usageStats.ts # Context/cost ring (pure math in usageStats.ts)
     │   ├── Markdown.tsx   # Shared react-markdown + remark-gfm; links via plugin-opener.
+    │   │                  #   MATH (2026-10): remark-math + rehype-katex
+    │   │                  #   render `$…$` / `$$…$$` through KaTeX
+    │   │                  #   (colors inherit currentColor; both themes
+    │   │                  #   work untouched). LaTeX's own `\(…\)` /
+    │   │                  #   `\[…\]` delimiters fold into dollar form
+    │   │                  #   FIRST by markdownMath.ts (pure,
+    │   │                  #   node-tested) — CommonMark escapes would
+    │   │                  #   otherwise eat the backslashes; block `$$`
+    │   │                  #   follows FENCE syntax (delimiter alone on its
+    │   │                  #   line — a carrying delimiter drops its text),
+    │   │                  #   which the normalizer splits out, and
+    │   │                  #   markdownBlocks.ts tracks open `$$` blocks so
+    │   │                  #   blank lines inside a formula never cut a
+    │   │                  #   chunk. THREE interlocking gotchas
+    │   │                  #   (live-observed 2026-11, each one broke math
+    │   │                  #   in a different way): (1) VERSION LOCK —
+    │   │                  #   katex must stay 0.16.x, the SAME line
+    │   │                  #   rehype-katex@7 resolves (^0.16): a 0.19
+    │   │                  #   stylesheet beside 0.16 DOM silently breaks
+    │   │                  #   script sizing (0.16 emits class "sizing",
+    │   │                  #   0.19's rules select ".katex-sizing"); (2)
+    │   │                  #   rehypeStyles.ts — react-markdown's
+    │   │                  #   hast→JSX layer DROPS every inline style:
+    │   │                  #   style-to-js (its parser dep) is a
+    │   │                  #   pre-exports CJS build whose default export
+    │   │                  #   interop fails ("styleToJs is not a
+    │   │                  #   function", silently caught) — the plugin
+    │   │                  #   after rehype-katex objectifies style
+    │   │                  #   strings (the converter's object path never
+    │   │                  #   calls the broken parser), restoring
+    │   │                  #   KaTeX's vlist positioning; (3) the
+    │   │                  #   stylesheet import lives in MAIN.TSX (the
+    │   │                  #   entry js) — a component-level css import can
+    │   │                  #   miss a long-lived dev webview's HMR, and a
+    │   │                  #   main.css bare-specifier @import gets inlined
+    │   │                  #   through the Tailwind v4 plugin's stale-able
+    │   │                  #   expansion cache; the entry import rides
+    │   │                  #   vite's standard css-module pipeline.
+    │   │                  #   Font prewarm in main.tsx closes the lazy-
+    │   │                  #   load race (WebKitGTK reflows late-arriving
+    │   │                  #   fonts unreliably — a formula laid out with
+    │   │                  #   fallback metrics keeps the wrong layout).
+    │   │                  #   Truncated formulas mid-stream show KaTeX's
+    │   │                  #   red error text and settle when the closer
+    │   │                  #   arrives; `$5 and $6` currency CAN
+    │   │                  #   false-positive into math (accepted
+    │   │                  #   trade-off, same as every mainstream client).
     │   │                  #   Splits text into memoized block chunks (only the
     │   │                  #   tail chunk re-parses per streamed delta) and gates
     │   │                  #   the CSS entrance fade to `live` (streaming)

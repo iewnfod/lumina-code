@@ -154,3 +154,34 @@ test("leading blank lines join the previous chunk, trailing ones the tail", () =
     assert.equal(chunks.length, 2);
     assert.equal(chunks[1], "first\n\n");
 });
+
+test("display-math blocks with internal blank lines never split", () => {
+    // A half `$$` chunk would freeze as unparseable math — the boundary
+    // must wait for the closing `$$` line.
+    assert.deepEqual(chunksOf("intro\n\n$$\nx = 1\n\ny = 2\n$$\n\noutro"), [
+        "intro\n\n",
+        "$$\nx = 1\n\ny = 2\n$$\n\n",
+        "outro",
+    ]);
+});
+
+test("single-line $$…$$ math does not lock subsequent boundaries", () => {
+    assert.deepEqual(chunksOf("a\n\n$$x$$\n\nb"), ["a\n\n", "$$x$$\n\n", "b"]);
+});
+
+test("an unpaired `$$` opening line holds the rest of the document", () => {
+    // Streaming shape: the block opened but the closer hasn't arrived —
+    // everything stays one chunk until it does.
+    assert.deepEqual(chunksOf("intro\n\n$$\nx = 1\n\nstill math"), [
+        "intro\n\n",
+        "$$\nx = 1\n\nstill math",
+    ]);
+});
+
+test("`$$` inside a fenced code block is fence content, not math state", () => {
+    assert.deepEqual(chunksOf("a\n\n```\n$$\n\n$$\n```\n\nb"), [
+        "a\n\n",
+        "```\n$$\n\n$$\n```\n\n",
+        "b",
+    ]);
+});

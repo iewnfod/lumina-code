@@ -8,6 +8,15 @@
  * tree. */
 @source "./**/*.{ts,tsx}";
 @import "@heroui/styles";
+/* KaTeX's stylesheet is imported in main.tsx (the ENTRY js), not here:
+ * a bare-specifier @import on this sheet gets inlined through the
+ * Tailwind v4 plugin's own expansion cache, which went STALE across a
+ * katex version change (live-observed 2026-11: kept serving the old
+ * build's rules until the dev server restarted). The entry-level js
+ * import rides vite's standard css-module pipeline instead — always
+ * the installed package's bytes — and an entry css change triggers a
+ * full reload, unlike the component-level import that once failed to
+ * reach a long-lived dev webview (see Markdown.tsx's note). */
 
 /*
  * Bundled fonts — the app ships its own faces so typography (and text
@@ -715,6 +724,21 @@ button.lum-md-doc:focus-visible {
 }
 
 /*
+ * KaTeX math (remark-math + rehype-katex wired in Markdown.tsx; the
+ * engine CSS itself is imported by that component). Only LAYOUT is
+ * adapted here — colors inherit currentColor, so light/dark both work
+ * untouched: a wide display formula scrolls inside the bubble instead
+ * of stretching it, and the engine's 1em display margins are tightened
+ * to the rhythm of the surrounding blocks.
+ */
+.lum-md .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+    margin: 0.75em 0;
+    padding: 0.125em 0;
+}
+
+/*
  * Streaming appearance — block-level markdown children (paragraphs, code
  * blocks, lists) fade in as they are created mid-stream. Opacity only:
  * it's a non-layout property, so concurrent/restarted animations blend
@@ -1403,3 +1427,4 @@ button.lum-md-doc:focus-visible {
 body[data-lum-sidebar-resizing] {
     user-select: none;
 }
+

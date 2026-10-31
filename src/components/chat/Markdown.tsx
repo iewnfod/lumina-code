@@ -1,6 +1,12 @@
 import {memo, createContext, useContext, type ReactNode} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+// KaTeX's own stylesheet + fonts are imported in main.css (NOT here) —
+// see the note there: a component-level CSS import rides the JS chunk's
+// injection, which a long-lived dev webview's HMR can fail to deliver.
+import {rehypeInlineStyles} from "./rehypeStyles.ts";
 import {openUrl} from "@tauri-apps/plugin-opener";
 import {Check, Copy} from "lucide-react";
 import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
@@ -11,6 +17,7 @@ import {requestStatsDocumentDrill} from "../../hooks/useStatsPanelMode.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
 import Hint from "../ui/Hint.tsx";
 import {splitMarkdownBlocks} from "./markdownBlocks.ts";
+import {normalizeMathDelimiters} from "./markdownMath.ts";
 import {mdCodeText} from "./mdCodeText.ts";
 
 /**
@@ -18,6 +25,15 @@ import {mdCodeText} from "./mdCodeText.ts";
  * in main.css so the chat typography stays part of the design-token system
  * (radii, mono font) instead of a parallel stylesheet. Links open in the
  * system browser — the webview must never navigate away.
+ *
+ * MATH: remark-math turns `$…$` / `$$…$$` into math nodes and
+ * rehype-katex renders them through KaTeX (colors inherit currentColor,
+ * so light/dark both work untouched). LaTeX's own `\(…\)` / `\[…\]`
+ * delimiters are folded into dollar form FIRST (markdownMath.ts —
+ * CommonMark escapes would eat the backslashes otherwise). A truncated
+ * formula mid-stream shows KaTeX's red error text and settles when the
+ * closing delimiter arrives; currency like "$5 and $6" stays text
+ * (remark-math refuses a closing `$` after a space).
  *
  * PERFORMANCE — two mechanisms keep streaming cheap (this was the frame
  * dropper on WebKitGTK):
@@ -178,12 +194,22 @@ function MdLink({href, children}: {href?: string; children?: ReactNode}) {
 }
 
 // Module scope — stable component identities across renders (see the
-// PERFORMANCE note in the header comment).
+// PERFORMANCE note in the header comment). The plugin ARRAYS live here
+// for the same reason: one shared constant documents the module-scope
+// discipline.
 const mdComponents = {
     a: MdLink,
     table: MdTable,
     pre: MdPre,
 };
+
+const remarkPlugins = [remarkGfm, remarkMath];
+// rehypeInlineStyles AFTER rehype-katex: objectifies every inline style
+// the katex HTML carries, because hast-util-to-jsx-runtime's STRING
+// path goes through the broken style-to-js CJS interop and silently
+// DROPS the attribute (see rehypeStyles.ts for the full post-mortem) —
+// the object path bypasses it entirely.
+const rehypePlugins = [rehypeKatex, rehypeInlineStyles];
 
 /** One block chunk. Memoized on its text: while a message streams only
  * the tail chunk's text changes, so every settled chunk skips re-parsing
@@ -193,7 +219,8 @@ const mdComponents = {
 const MarkdownBlock = memo(function MarkdownBlock({children}: {children: string}) {
     return (
         <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
+            remarkPlugins={remarkPlugins}
+            rehypePlugins={rehypePlugins}
             components={mdComponents}
         >
             {children}
@@ -202,7 +229,12 @@ const MarkdownBlock = memo(function MarkdownBlock({children}: {children: string}
 });
 
 const Markdown = memo(function Markdown({children, live}: {children: string; live?: boolean}) {
-    const chunks = splitMarkdownBlocks(children);
+    // LaTeX's own delimiters (\(…\), \[…\]) fold into the dollar forms
+    // BEFORE chunking — CommonMark escapes would otherwise eat the
+    // backslashes, and the chunker's frozen chunks must never hold a
+    // half-rewritten formula.
+    const normalized = normalizeMathDelimiters(children);
+    const chunks = splitMarkdownBlocks(normalized);
     return (
         <div className={live ? "lum-md live" : "lum-md"}>
             {chunks.map((chunk, i) => (
