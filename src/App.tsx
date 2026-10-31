@@ -275,8 +275,11 @@ function AppBody({
         setActiveId(id);
         closeSettings();
     }, [setActiveId, closeSettings]);
-    const startNewSession = useCallback(() => {
-        newSession();
+    // Forwards the folder's directory (a folder-header "+") into the
+    // flow's newSession — dropping it here left the welcome composer's
+    // staged directory untouched when composing with no active session.
+    const startNewSession = useCallback((directory?: string) => {
+        newSession(directory);
         closeSettings();
     }, [newSession, closeSettings]);
     const changeSettingsTab = useCallback((tab: SettingsTab | null) => {
@@ -367,8 +370,8 @@ function AppBody({
                             closeDrawer();
                         } : selectSession}
                         onClose={deleteSession}
-                        onNew={phoneLayout ? () => {
-                            startNewSession();
+                        onNew={phoneLayout ? (directory?: string) => {
+                            startNewSession(directory);
                             closeDrawer();
                         } : startNewSession}
                         onImport={phoneLayout ? () => {
