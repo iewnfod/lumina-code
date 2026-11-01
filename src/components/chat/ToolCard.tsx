@@ -10,8 +10,8 @@ import {useI18n, type TranslationKey} from "../../hooks/i18n.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
 import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {displayPath} from "../../lib/path.ts";
-import {fileIconUrl} from "../../lib/fileIcons.ts";
-import {errorText, inputFilePath, inputObject, inputStr, metaFor, toolOutputIsMarkdown, ERROR_TEXT} from "./toolMeta.ts";
+import {fileIconUrl, folderIconUrl} from "../../lib/fileIcons.ts";
+import {errorText, inputFilePath, inputObject, inputStr, metaFor, readOutputIsDirectory, toolOutputIsMarkdown, ERROR_TEXT} from "./toolMeta.ts";
 import Markdown from "./Markdown.tsx";
 import {diffCounts, toolDiffFor, toolHunksFor, toolPatchFiles, type DiffLine} from "./toolDiff.ts";
 import {ERROR_DISCLOSURE_MS, useExpansion} from "./useExpansion.ts";
@@ -167,9 +167,9 @@ function toolDetail(
     // icons with icons. (A former -0.5px lift on this icon chased the
     // uncorrected, high-reading text; with the text fixed it
     // double-counted and was removed.)
-    const file = (s?: string) => s == null ? undefined : (
+    const file = (s?: string, isDir = false) => s == null ? undefined : (
         <>
-            <img src={fileIconUrl(s)} alt="" className="w-4 h-4 shrink-0"/>
+            <img src={isDir ? folderIconUrl(s) : fileIconUrl(s)} alt="" className="w-4 h-4 shrink-0"/>
             {path(displayPath(s, directory))}
         </>
     );
@@ -202,7 +202,10 @@ function toolDetail(
         case "write":
             return file(inputStr(o, "filePath", "path", "file_path"));
         case "read":
-            return file(inputStr(o, "filePath", "file_path", "path"));
+            // Directory listings swap the icon for a folder once the
+            // output arrives (readOutputIsDirectory reads the server's
+            // "Read directory …" lead line).
+            return file(inputStr(o, "filePath", "file_path", "path"), readOutputIsDirectory(part));
         case "read_document":
         case "write_document":
             // The office-tools plugin sends a single `path` input — same

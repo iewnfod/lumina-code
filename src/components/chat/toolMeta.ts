@@ -140,6 +140,20 @@ export function inputFilePath(part: AssistantToolPart): string | undefined {
     return o ? inputStr(o, "filePath", "file_path", "path") : undefined;
 }
 
+/** Whether a read tool part's output is a DIRECTORY listing: the server
+ * renders directory reads with a leading "Read directory <path>, entries
+ * …" (or ", 0 entries") line — binary-verified against v2.0.11's ReadTool
+ * content renderer. Drives the folder icon in ToolCard's detail line;
+ * false while the call is still running (no output yet — the plain file
+ * icon shows until it settles, then swaps). */
+export function readOutputIsDirectory(part: AssistantToolPart): boolean {
+    if (part.name !== "read") return false;
+    const first = (part.state.content ?? []).find(
+        (c) => typeof c.text === "string" && c.text.length > 0,
+    );
+    return first != null && first.text.startsWith("Read directory ");
+}
+
 /** Human text of a tool error payload — `{type, message}` objects carry
  *  the reason ("The user dismissed this question", …). */
 export function errorText(error: unknown): string | null {

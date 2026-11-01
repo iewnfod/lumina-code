@@ -1839,9 +1839,13 @@ src/
 │   ├── fileIcons.ts       # fileIconName/fileIconUrl — file path → Material
 │   │                      #   Icon Theme SVG (public/icons/files, generated
 │   │                      #   by `pnpm gen:icons`; maps in
-│   │                      #   fileIcons.generated.ts). Used by composer
-│   │                      #   mentions/suggestions/attachment chips and
-│   │                      #   tool-card file lines. node-testable.
+│   │                      #   fileIcons.generated.ts) + the FOLDER twin
+│   │                      #   folderIconName/folderIconUrl (folder-name →
+│   │                      #   folder-icon map, no extension ladder — the
+│   │                      #   read tool's directory listings wear it, see
+│   │                      #   toolMeta.readOutputIsDirectory). Used by
+│   │                      #   composer mentions/suggestions/attachment
+│   │                      #   chips and tool-card file lines. node-testable.
 │   ├── theme.ts           # appThemeFor(systemTheme) — lumina-code follows the system
 │   │                      #   light/dark (no per-profile palettes like lumina-terminal)
 │   ├── typography.ts      # Custom typography for the General settings:

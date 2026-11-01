@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {FILE_ICON_DEFAULT, FILE_ICON_NAMES} from "./fileIcons.generated.ts";
-import {fileIconName, fileIconUrl} from "./fileIcons.ts";
+import {FILE_ICON_DEFAULT, FILE_ICON_NAMES, FOLDER_ICON_DEFAULT} from "./fileIcons.generated.ts";
+import {fileIconName, fileIconUrl, folderIconName, folderIconUrl} from "./fileIcons.ts";
 
 test("exact filename wins over the extension", () => {
     // package.json is a json file, but its filename maps to the nodejs icon.
@@ -23,6 +23,19 @@ test("unknown and extension-less files fall back to the generic icon", () => {
     assert.equal(fileIconName("mystery.zzzx"), FILE_ICON_DEFAULT);
     assert.equal(fileIconName("zzz-unknown-name"), FILE_ICON_DEFAULT);
     assert.equal(fileIconName("a/b/"), FILE_ICON_DEFAULT);
+});
+
+test("folders resolve through the folder-name map, no extension ladder", () => {
+    // The read tool's directory listings and any other known-folder
+    // display resolve by exact folder name (VS Code's icon-theme order
+    // for folders: name → default; the extension ladder is file-only,
+    // so "dist" must not pick up a ".dist" extension association).
+    assert.equal(folderIconName("src"), "folder-src");
+    assert.equal(folderIconName("/abs/project/NODE_MODULES"), "folder-node"); // lookup lowercases
+    assert.equal(folderIconName(".git"), "folder-git");
+    assert.equal(folderIconName("zzz-unknown-dir"), FOLDER_ICON_DEFAULT);
+    assert.equal(folderIconUrl("src"), "/icons/files/folder-src.svg");
+    assert.equal(folderIconUrl("zzz-unknown-dir"), `/icons/files/${FOLDER_ICON_DEFAULT}.svg`);
 });
 
 test("urls point at the generated asset set", () => {

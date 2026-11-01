@@ -6,10 +6,11 @@
 // Source: the material-icon-theme npm package (MIT) — the same icon set as
 // the VS Code extension, packaged for use in any web project. Its
 // generateManifest() returns the VS Code icon-theme manifest (icon
-// definitions + fileNames/fileExtensions associations), which this script
-// flattens into two lookup maps; only icons referenced by those maps are
-// copied (~590 of the package's 1251 SVGs — folder icons and language-id
-// associations stay out).
+// definitions + fileNames/fileExtensions/folderNames associations), which
+// this script flattens into three lookup maps; only icons referenced by
+// those maps are copied (~860 of the package's 1251 SVGs — language-id
+// associations and the EXPANDED folder variants stay out; folderNames
+// collapses onto ~270 icons, many shared with file associations).
 //
 // Run after bumping material-icon-theme in package.json:
 //   pnpm gen:icons
@@ -57,14 +58,22 @@ function lowercaseMap(associations) {
 }
 const fileNames = lowercaseMap(manifest.fileNames ?? {});
 const fileExtensions = lowercaseMap(manifest.fileExtensions ?? {});
+const folderNames = lowercaseMap(manifest.folderNames ?? {});
 const fallback = manifest.file;
+const folderFallback = manifest.folder;
 
-// The copy set: every icon the two maps plus the default reference.
+// The copy set: every icon the maps plus the defaults reference.
 const referenced = new Set([...Object.values(fileNames), ...Object.values(fileExtensions)]);
 if (!fallback || !manifest.iconDefinitions[fallback]) {
     throw new Error("manifest has no default file icon definition");
 }
 referenced.add(fallback);
+for (const icon of [...Object.values(folderNames), folderFallback]) {
+    if (!icon || !manifest.iconDefinitions[icon]) {
+        throw new Error("manifest has no folder icon definition");
+    }
+    referenced.add(icon);
+}
 
 await rm(OUT_ICONS_DIR, {recursive: true, force: true});
 await mkdir(OUT_ICONS_DIR, {recursive: true});
@@ -94,7 +103,8 @@ await writeFile(
     `// GENERATED FILE — do not edit; regenerate with \`pnpm gen:icons\`
 // (scripts/gen-file-icons.mjs). Source: the material-icon-theme npm
 // package (MIT) — see THIRD_PARTY_NOTICES.md. Keys are lowercase; the
-// lookup order in lib/fileIcons.ts is exact filename → extension → default.
+// lookup order in lib/fileIcons.ts is exact filename → extension → default
+// (files) and exact folder name → default (folders).
 
 /** Exact-match filenames (lowercased, including dotfiles) → icon name. */
 export const FILE_ICON_NAMES: Record<string, string> = ${record(fileNames)};
@@ -104,10 +114,16 @@ export const FILE_ICON_EXTENSIONS: Record<string, string> = ${record(fileExtensi
 
 /** Icon for files matching neither map (manifest.file). */
 export const FILE_ICON_DEFAULT = ${JSON.stringify(fallback)};
+
+/** Exact-match folder names (lowercased, e.g. "node_modules", ".git") → icon name. */
+export const FOLDER_ICON_NAMES: Record<string, string> = ${record(folderNames)};
+
+/** Icon for folders matching no name (manifest.folder). */
+export const FOLDER_ICON_DEFAULT = ${JSON.stringify(folderFallback)};
 `,
 );
 
 console.log(`→ ${referenced.size} icons (${(bytes / 1e6).toFixed(1)} MB) → ${OUT_ICONS_DIR}`);
 console.log(
-    `→ ${Object.keys(fileNames).length} filenames + ${Object.keys(fileExtensions).length} extensions → ${OUT_TS}`,
+    `→ ${Object.keys(fileNames).length} filenames + ${Object.keys(fileExtensions).length} extensions + ${Object.keys(folderNames).length} foldernames → ${OUT_TS}`,
 );
