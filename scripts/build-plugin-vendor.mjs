@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Bundles the Office Tools plugin's document engines (npm `docx` +
-// `pptxgenjs`, both MIT and dependency-light) into two self-contained
-// single-file ESM modules under src/plugins/officeToolsVendor/ — the
-// plugin (src/plugins/officeTools.js) reaches them at runtime through a
-// DYNAMIC relative import (`await import("./vendor/docx.mjs")`), which
-// the opencode server executes from the installed plugin directory.
+// `pptxgenjs`, both MIT and dependency-light; plus pdfjs-dist for
+// reading PDFs) into single-file ESM modules under
+// src/plugins/officeToolsVendor/ — the plugin (src/plugins/officeTools.js)
+// reaches them at runtime through DYNAMIC relative imports
+// (`await import("./vendor/docx.mjs")`), which the opencode server
+// executes from the installed plugin directory.
 //
 // Generated-but-committed, the gen:icons doctrine: CI never runs this
 // (the bundles are source-controlled); rerun manually after bumping the
@@ -16,8 +17,21 @@
 // external (the server runtime provides them) while inlining everything
 // else; minify keeps each bundle small enough to write through the fs
 // API on every plugin install (the diff-gate skips identical writes).
+//
+// PDF: pdfjs-dist ships OFFICIAL minified ESM builds, so those are
+// COPIED verbatim (no esbuild pass) — pdf.min.mjs plus pdf.worker.mjs
+// (the worker file MUST keep the non-min NAME: pdf.js's fake-worker
+// fallback in Node/Bun hard-codes `import("./pdf.worker.mjs")`; the
+// installed name is what resolves, the content is the minified build).
+// The cmaps (CJK CID→Unicode) and standard_fonts (non-embedded western
+// fonts) directories are inlined as base64 into ONE resource module
+// pdfData.mjs — the plugin feeds them to pdf.js through the v6
+// `BinaryDataFactory` parameter (no on-disk resource directory). That
+// module also polyfills Uint8Array.prototype.toHex: pdf.js v6
+// fingerprints rely on it, JSC (Bun) ships it but Node does not
+// (verified 2026-11).
 import { build } from "esbuild";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -63,3 +77,84 @@ await writeFile(join(OUT_DIR, "pptxgenjs.mjs"), BANNER + pptxgenjs, "utf8");
 const kb = (s) => `${(s.length / 1024).toFixed(0)} KB`;
 console.log(`→ src/plugins/officeToolsVendor/docx.mjs (${kb(docx)})`);
 console.log(`→ src/plugins/officeToolsVendor/pptxgenjs.mjs (${kb(pptxgenjs)})`);
+
+// ---------------------------------------------------------------------------
+// PDF engine: copy the official minified ESM builds + inline the resource
+// directories (cmaps + standard_fonts) as one base64 table module.
+// ---------------------------------------------------------------------------
+
+const PDFJS_DIR = join(REPO_ROOT, "node_modules", "pdfjs-dist");
+
+async function copyPdfjsBuild(name, source) {
+  const text = await readFile(join(PDFJS_DIR, "build", source), "utf8");
+  await writeFile(join(OUT_DIR, name), BANNER + text, "utf8");
+  return text;
+}
+
+/** One resource directory → entries of the pdfData.mjs table: base64
+ * per file, keyed by file NAME (pdf.js asks for names/ids, never paths). */
+async function resourceEntries(subdir, filter) {
+  const names = (await readdir(join(PDFJS_DIR, subdir))).filter(filter).sort();
+  const entries = [];
+  for (const name of names) {
+    const bytes = await readFile(join(PDFJS_DIR, subdir, name));
+    entries.push(`  ${JSON.stringify(name)}: ${JSON.stringify(bytes.toString("base64"))}`);
+  }
+  return entries;
+}
+
+const pdfMain = await copyPdfjsBuild("pdf.min.mjs", "pdf.min.mjs");
+const pdfWorker = await copyPdfjsBuild("pdf.worker.mjs", "pdf.worker.min.mjs");
+
+const cmaps = await resourceEntries("cmaps", (n) => n.endsWith(".bcmap"));
+const fonts = await resourceEntries("standard_fonts", (n) => /\.(pfb|ttf)$/i.test(n));
+
+const pdfData =
+  BANNER +
+  `// pdf.js's out-of-tree resources, inlined as base64 (see
+// scripts/build-plugin-vendor.mjs). Consumed through the v6
+// BinaryDataFactory parameter — kind is "cMapUrl" | "standardFontDataUrl"
+// | "wasmUrl", filename is the bare resource name.
+
+if (typeof Uint8Array.prototype.toHex !== "function") {
+  // pdf.js v6 fingerprints call u8.toHex(); JSC (Bun) ships it, Node
+  // does not (verified 2026-11). Harmless where it already exists.
+  Uint8Array.prototype.toHex = function toHex() {
+    let out = "";
+    for (const b of this) out += b.toString(16).padStart(2, "0");
+    return out;
+  };
+}
+
+function decodeBase64(text) {
+  const bin = atob(text);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+const CMAPS = {
+${cmaps.join(",\n")}
+};
+
+const STANDARD_FONTS = {
+${fonts.join(",\n")}
+};
+
+/** Resolve an embedded pdf.js resource → Uint8Array, or null when the
+ * kind/filename is not part of the table. */
+export function binaryResource(kind, filename) {
+  const table = kind === "cMapUrl" ? CMAPS : kind === "standardFontDataUrl" ? STANDARD_FONTS : null;
+  const encoded = table ? table[filename] : null;
+  return typeof encoded === "string" ? decodeBase64(encoded) : null;
+}
+
+/** The toHex shim, applied eagerly on import so pdf.js's module-load-time
+ * fingerprint paths (Node runtimes) are covered too. */
+export const polyfilled = typeof Uint8Array.prototype.toHex === "function";
+`;
+await writeFile(join(OUT_DIR, "pdfData.mjs"), pdfData, "utf8");
+
+console.log(`→ src/plugins/officeToolsVendor/pdf.min.mjs (${kb(pdfMain)})`);
+console.log(`→ src/plugins/officeToolsVendor/pdf.worker.mjs (${kb(pdfWorker)})`);
+console.log(`→ src/plugins/officeToolsVendor/pdfData.mjs (${cmaps.length} cmaps + ${fonts.length} fonts, ${kb(pdfData)})`);

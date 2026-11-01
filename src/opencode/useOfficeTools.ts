@@ -5,6 +5,9 @@ import {error as logError, info, warn as logWarn} from "@tauri-apps/plugin-log";
 // read_document tools; see src/plugins/officeTools.js).
 import officeToolsPluginSource from "../plugins/officeTools.js?raw";
 import officeDocxVendorSource from "../plugins/officeToolsVendor/docx.mjs?raw";
+import officePdfVendorSource from "../plugins/officeToolsVendor/pdf.min.mjs?raw";
+import officePdfWorkerSource from "../plugins/officeToolsVendor/pdf.worker.mjs?raw";
+import officePdfDataVendorSource from "../plugins/officeToolsVendor/pdfData.mjs?raw";
 import officePptxVendorSource from "../plugins/officeToolsVendor/pptxgenjs.mjs?raw";
 import type {OpencodeApi} from "./api.ts";
 import {globalConfigTarget} from "./configFiles.ts";
@@ -60,11 +63,18 @@ async function ensureOfficeToolsPluginLocked(api: OpencodeApi): Promise<OfficeTo
     // Plugin files first: the config entry references the directory, and
     // the server reloads the config the moment it is written. Every file
     // is diff-gated (any read failure reads as "not there" — the v2.0.11
-    // 500-on-missing-directory quirk documented in useLuminaTools).
+    // 500-on-missing-directory quirk documented in useLuminaTools). The
+    // PDF trio is ~5MB of vendor text (~459KB engine + 1.26MB worker +
+    // 2.5MB inlined cmaps/fonts) — written once, then diff-gated to a
+    // no-op; the mobile frp route's 120s upload timeout (api.ts) covers
+    // the initial write.
     const files: Array<[dir: string, name: string, source: string]> = [
         [pluginDir, "index.js", officeToolsPluginSource],
         [`${pluginDir}/vendor`, "docx.mjs", officeDocxVendorSource],
         [`${pluginDir}/vendor`, "pptxgenjs.mjs", officePptxVendorSource],
+        [`${pluginDir}/vendor`, "pdf.min.mjs", officePdfVendorSource],
+        [`${pluginDir}/vendor`, "pdf.worker.mjs", officePdfWorkerSource],
+        [`${pluginDir}/vendor`, "pdfData.mjs", officePdfDataVendorSource],
     ];
     for (const [dir, name, source] of files) {
         const existing = await api.readTextFile(dir, name).catch(() => null);

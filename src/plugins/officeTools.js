@@ -1,7 +1,7 @@
-// Lumina Code Office Tools — the Word/PPT plugin shipped with the app.
+// Lumina Code Office Tools — the Word/PPT/PDF plugin shipped with the app.
 //
 // Distribution: Lumina Code writes this file to
-// `<global config>/plugins/office-tools/index.js` together with the two
+// `<global config>/plugins/office-tools/index.js` together with the
 // vendored document engines under `vendor/` (see
 // src/plugins/officeToolsVendor/ + scripts/build-plugin-vendor.mjs), and
 // references the directory from the global opencode.json's `plugins`
@@ -27,6 +27,16 @@
 //     "nodebuffer"}); its 16:9 layout key is "LAYOUT_16x9",
 //   - dynamic `await import("node:fs"/"node:path"/"node:zlib")` works
 //     inside executors (the lumina-tools precedent, live-verified there),
+//   - PDF (vendored pdf.js v6: vendor/pdf.min.mjs + pdf.worker.mjs +
+//     pdfData.mjs): text extraction works under both node and the
+//     Bun-compiled server via the FAKE WORKER — pdf.js disables real
+//     workers in Node-like runtimes and dynamically imports
+//     ./pdf.worker.mjs (the SAME relative-import mechanism as the docx
+//     engine, spike-verified 2026-11 on node 24 + bun 1.4). The
+//     cmaps/standard_fonts table rides the v6 BinaryDataFactory
+//     parameter (fetch({kind, filename}) with useWorkerFetch:false);
+//     pdf.js v6 fingerprints need Uint8Array.prototype.toHex, which
+//     pdfData.mjs shims (JSC/Bun ships it, Node does not),
 //   - executors receive context.{sessionID, agent, signal}; the
 //     session's own directory comes from
 //     ctx.session.get({sessionID}).location.directory (NEVER
@@ -60,8 +70,13 @@ async function nodeApis() {
 // Protocol validation (pure, node-testable)
 // ---------------------------------------------------------------------------
 
-/** The office file formats this plugin understands. */
-export const FORMATS = ["docx", "pptx"];
+/** The office file formats the WRITE side understands (the read side
+ * additionally accepts PDF — see READ_FORMATS). */
+export const WRITE_FORMATS = ["docx", "pptx"];
+
+/** The READ side's formats: everything the write side produces plus
+ * .pdf (read-only — the plugin never generates PDFs). */
+export const READ_FORMATS = ["docx", "pptx", "pdf"];
 
 /** Path resolution result shared by every entry point. */
 function pathError(message) {
@@ -73,8 +88,9 @@ function pathError(message) {
  * (default true) additionally REJECTS anything resolving outside the
  * directory — writes stay inside the workspace; reads pass {confine:
  * false} so the user can point the AI at a document anywhere on disk.
- * The file name must carry a .docx/.pptx extension (the extension IS
- * the format — a bare name would produce a file Word cannot open).
+ * `opts.formats` (default WRITE_FORMATS) is the accepted extension set
+ * — the extension IS the format (a bare name would produce a file Word
+ * cannot open), so a .pdf path is read-legal but write-illegal.
  * Returns {abs, format, fileName} or {error}. Pure — takes the path
  * module as an argument so node tests inject it. */
 export function resolveDocumentPath(p, directory, path, opts) {
@@ -94,8 +110,9 @@ export function resolveDocumentPath(p, directory, path, opts) {
   }
   const fileName = path.basename(normalized);
   const ext = fileName.toLowerCase().split(".").pop();
-  if (!FORMATS.includes(ext) || path.extname(fileName).toLowerCase() !== `.${ext}`) {
-    return pathError("the path must end in .docx or .pptx — the extension decides the format");
+  const formats = opts?.formats ?? WRITE_FORMATS;
+  if (!formats.includes(ext) || path.extname(fileName).toLowerCase() !== `.${ext}`) {
+    return pathError(`the path must end in ${formats.map((f) => `.${f}`).join(" or ")} — the extension decides the format`);
   }
   return {abs: normalized, format: ext, fileName};
 }
@@ -591,6 +608,119 @@ export function pptxToMarkdown(entries) {
 }
 
 // ---------------------------------------------------------------------------
+// PDF text extraction (engine-bound via the vendored pdf.js pair) —
+// read_document's .pdf path
+// ---------------------------------------------------------------------------
+
+/** Group one page's getTextContent items into visual lines (pure,
+ * node-testable — items are plain {str, hasEOL, transform} objects).
+ * Lines break when the baseline (transform[5]) moves by more than
+ * LINE_TOLERANCE points or an item carries hasEOL; items without `str`
+ * are marked-content markers and are skipped. Blank lines are dropped —
+ * PDF spacing is layout, not paragraphs. */
+const LINE_TOLERANCE = 2.5;
+
+export function pdfItemsToLines(items) {
+  const lines = [];
+  let current = "";
+  let lastY = null;
+  const flush = () => {
+    if (current.trim()) lines.push(current.trim());
+    current = "";
+  };
+  for (const item of items ?? []) {
+    if (typeof item?.str !== "string") continue; // TextMarkedContent
+    const y = Array.isArray(item.transform) ? item.transform[5] : null;
+    if (lastY !== null && y !== null && Math.abs(y - lastY) > LINE_TOLERANCE) {
+      flush(); // baseline moved — a new visual line
+    }
+    current += item.str;
+    if (item.hasEOL) flush();
+    if (y !== null) lastY = y;
+  }
+  flush();
+  return lines;
+}
+
+/** The loaded PDF engine: {pdfjs, BinaryDataFactory}. Cached as a
+ * promise; a failed load resets so the next call retries (an engine-less
+ * install degrades read_document's PDF branch to a clean error while
+ * docx/pptx reading keeps working). */
+let PDF_ENGINE = null;
+
+async function loadPdfEngine() {
+  if (!PDF_ENGINE) {
+    PDF_ENGINE = (async () => {
+      // Same dynamic relative imports as the docx/pptxgenjs engines —
+      // resolved against the INSTALLED plugin directory (verified live
+      // on the bundled server). pdfData.mjs also applies the
+      // Uint8Array.toHex shim pdf.js v6 fingerprints need on Node.
+      const [pdfjs, data] = await Promise.all([
+        import("./vendor/pdf.min.mjs"),
+        import("./vendor/pdfData.mjs"),
+      ]);
+      if (typeof pdfjs?.getDocument !== "function") throw new Error("pdf.mjs exports no getDocument");
+      class InlineBinaryDataFactory {
+        // pdf.js v6's main-thread resource fetch ({kind, filename}) —
+        // cmaps + standard_fonts ride the inlined table (see
+        // scripts/build-plugin-vendor.mjs), never the disk.
+        async fetch({kind, filename}) {
+          const bytes = data.binaryResource(kind, filename);
+          if (!bytes) throw new Error(`no embedded pdf.js resource '${filename}' (${kind})`);
+          return bytes;
+        }
+      }
+      return {pdfjs, BinaryDataFactory: InlineBinaryDataFactory};
+    })().catch((e) => {
+      PDF_ENGINE = null; // retry on the next call
+      throw e;
+    });
+  }
+  return PDF_ENGINE;
+}
+
+/** Extract a PDF's readable text as markdown via the vendored pdf.js
+ * (fake worker — same relative-import mechanism as the docx engine,
+ * spike-verified on node + bun 2026-11). Returns {markdown, pages} or
+ * {error: "password"|"invalid"|"no-text"|"<message>"} — errors are
+ * protocol feedback for the calling model. */
+export async function pdfToMarkdown(engine, bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.length === 0) return {error: "empty file"};
+  let doc;
+  try {
+    doc = await engine.pdfjs.getDocument({
+      data: bytes,
+      isEvalSupported: false,
+      useSystemFonts: false, // no system font enumeration in the server runtime
+      useWorkerFetch: false, // force the main-thread BinaryDataFactory
+      verbosity: 0,
+      BinaryDataFactory: engine.BinaryDataFactory,
+    }).promise;
+  } catch (e) {
+    if (e?.name === "PasswordException") return {error: "password"};
+    if (e?.name === "InvalidPDFException") return {error: "invalid"};
+    return {error: String(e?.message ?? e)};
+  }
+  try {
+    const pages = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      pages.push(pdfItemsToLines(content.items));
+    }
+    const allLines = pages.flat();
+    if (allLines.length === 0) return {error: "no-text"};
+    const parts = pages.map((lines) => lines.join("\n"));
+    const markdown =
+      `(PDF, ${doc.numPages} page${doc.numPages === 1 ? "" : "s"})\n\n` +
+      parts.join("\n\n---\n\n") + "\n";
+    return {markdown, pages: doc.numPages};
+  } finally {
+    doc.loadingTask?.destroy?.().catch?.(() => {});
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Engine loading (the spike-verified relative vendor import)
 // ---------------------------------------------------------------------------
 
@@ -960,11 +1090,13 @@ const readDocument = {
     return {
       name: "read_document",
       description:
-        "Read the readable content of an existing Word (.docx) or PowerPoint (.pptx) document in the working " +
-        "directory and return it as markdown: headings map to #/##/###, tables to markdown tables, slide breaks " +
-        "to '## Slide n' sections with speaker notes quoted. Style/layout is not preserved — this is content " +
-        "extraction for understanding or rewriting a document. Documents this app generated read back exactly " +
-        "(structure sidecar); foreign documents are parsed best-effort from the file itself.",
+        "Read the readable content of an existing Word (.docx), PowerPoint (.pptx) or PDF document and return it as " +
+        "markdown: headings map to #/##/###, tables to markdown tables, slide breaks to '## Slide n' sections with " +
+        "speaker notes quoted; PDFs return the text of each page in order (pages separated by ---, no layout). " +
+        "Style/layout is not preserved — this is content extraction for understanding or rewriting a document. " +
+        "Documents this app generated read back exactly (structure sidecar); foreign documents are parsed " +
+        "best-effort from the file itself. A scanned PDF (images without a text layer) returns an error saying so — " +
+        "tell the user and fall back to the vision tool on the file if a page must be seen.",
       input: {
         type: "object",
         properties: {
@@ -982,9 +1114,42 @@ const readDocument = {
         if (!directory) return {error: "cannot resolve the working directory for this session"};
         const {path, fs} = await nodeApis();
         // Reads may point anywhere on disk (the user's own files); only
-        // writes stay confined to the workspace.
-        const resolved = resolveDocumentPath(input?.path, directory, path, {confine: false});
+        // writes stay confined to the workspace. PDF is read-only — the
+        // READ format set.
+        const resolved = resolveDocumentPath(input?.path, directory, path, {confine: false, formats: READ_FORMATS});
         if (resolved.error) return {error: resolved.error};
+        // PDF: its own engine path — no zip, no sidecar (the plugin
+        // generates no PDFs, so there is never a structure sidecar).
+        if (resolved.format === "pdf") {
+          let bytes;
+          try {
+            bytes = new Uint8Array(await fs.promises.readFile(resolved.abs));
+          } catch (e) {
+            return {error: `cannot read '${resolved.fileName}': ${String(e?.message ?? e)}`};
+          }
+          let engine;
+          try {
+            engine = await loadPdfEngine();
+          } catch (e) {
+            return {error: `the PDF engine is unavailable: ${String(e?.message ?? e)}`};
+          }
+          const result = await pdfToMarkdown(engine, bytes);
+          if (result.error === "password") {
+            return {error: `'${resolved.fileName}' is password-protected — ask the user for an unprotected copy`};
+          }
+          if (result.error === "invalid") {
+            return {error: `'${resolved.fileName}' does not parse as a PDF (wrong format or damaged file)`};
+          }
+          if (result.error === "no-text") {
+            return {
+              error:
+                `'${resolved.fileName}' has no text layer (probably a scanned/image PDF) — text extraction is ` +
+                "impossible; tell the user, or use the vision tool on the file if seeing specific pages matters",
+            };
+          }
+          if (result.error) return {error: `PDF extraction failed: ${result.error}`};
+          return {content: result.markdown};
+        }
         // Sidecar hit? The app-generated fast path — exact structure.
         const sidecarPath = path.join(directory, ".lumina", "docstruct", sidecarName(resolved.fileName));
         try {

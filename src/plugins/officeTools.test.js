@@ -17,7 +17,10 @@ import {
     docxToMarkdown,
     imageBox,
     imageDimensions,
+    pdfItemsToLines,
+    pdfToMarkdown,
     pptxToMarkdown,
+    READ_FORMATS,
     readZipEntries,
     resolveDocumentPath,
     sidecarName,
@@ -25,6 +28,7 @@ import {
     splitDocxBody,
     validateBlocks,
     validateSlides,
+    WRITE_FORMATS,
 } from "./officeTools.js";
 
 const NOW = new Date(2026, 9, 23, 12, 0);
@@ -324,4 +328,115 @@ test("the sidecar the plugin composes is the sidecar the frontend parses", async
     // <dir>/.lumina/docstruct/<file>.json; the preview reads the same).
     assert.ok(docstructSidecarPath("/ws", "连通性.docx").endsWith("/.lumina/docstruct/连通性.docx.json"));
     assert.equal(sidecarName("连通性.docx"), "连通性.docx.json");
+});
+
+// --- PDF reading (vendored pdf.js v6) ----------------------------------------
+
+/** Hand-built minimal single-page PDF (uncompressed, exact xref offsets
+ * — the same builder shape as the 2026-11 vendor spike). Pure: returns
+ * latin1 bytes pdf.js happily parses. */
+function buildSimplePdf(lines, opts) {
+    const objects = [];
+    objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
+    objects[2] = "<< /Type /Pages /Kids [3 0 R] /Count 1 >>";
+    objects[3] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>";
+    objects[4] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+    let stream = "BT /F1 18 Tf 72 700 Td 20 TL\n";
+    for (const line of lines) stream += `(${line}) Tj T*\n`;
+    stream += "ET";
+    if (opts?.emptyStream) stream = "";
+    objects[5] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
+    let out = "%PDF-1.4\n";
+    const offsets = [0];
+    for (let i = 1; i <= 5; i++) {
+        offsets[i] = out.length;
+        out += `${i} 0 obj\n${objects[i]}\nendobj\n`;
+    }
+    const xrefAt = out.length;
+    out += "xref\n0 6\n0000000000 65535 f \n";
+    for (let i = 1; i <= 5; i++) out += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+    out += `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF`;
+    return new Uint8Array(Buffer.from(out, "latin1"));
+}
+
+// The vendored pdf.js pair + inlined resource table, loaded the way the
+// plugin's loadPdfEngine composes them (the executor injects the same
+// shape into pdfToMarkdown; officeTools.js's own relative vendor imports
+// only resolve inside the INSTALLED plugin directory, like the docx
+// engine's — see loadEngines).
+const pdfEngine = (() => {
+    let cached = null;
+    return () => {
+        if (!cached) {
+            cached = (async () => {
+                const pdfjs = await import(new URL("./officeToolsVendor/pdf.min.mjs", import.meta.url));
+                const data = await import(new URL("./officeToolsVendor/pdfData.mjs", import.meta.url));
+                class InlineBinaryDataFactory {
+                    async fetch({kind, filename}) {
+                        const bytes = data.binaryResource(kind, filename);
+                        if (!bytes) throw new Error(`no embedded pdf.js resource '${filename}' (${kind})`);
+                        return bytes;
+                    }
+                }
+                return {pdfjs, BinaryDataFactory: InlineBinaryDataFactory};
+            })();
+        }
+        return cached;
+    };
+})();
+
+test("resolveDocumentPath splits write formats from read formats", () => {
+    // .pdf is READ-legal…
+    const read = resolveDocumentPath("/tmp/手册.pdf", "/home/me/ws", path, {confine: false, formats: READ_FORMATS});
+    assert.equal(read.format, "pdf");
+    // …but WRITE-illegal by default (the plugin never generates PDFs) —
+    // the error names the write formats only.
+    const write = resolveDocumentPath("手册.pdf", "/home/me/ws", path);
+    assert.ok(write.error && write.error.includes(".docx") && write.error.includes(".pptx"), write.error);
+    // The write set is unchanged for office formats.
+    assert.equal(resolveDocumentPath("a.pptx", "/w", path).format, "pptx");
+    assert.deepEqual(WRITE_FORMATS, ["docx", "pptx"]);
+    assert.deepEqual(READ_FORMATS, ["docx", "pptx", "pdf"]);
+});
+
+test("pdfItemsToLines groups items into visual lines", () => {
+    const item = (str, y, hasEOL = false) => ({str, hasEOL, transform: [18, 0, 0, 18, 72, y]});
+    // Same baseline → one line, concatenated; EOL closes it.
+    assert.deepEqual(
+        pdfItemsToLines([item("Hello ", 700), item("PDF", 700, true), item("next", 680)]),
+        ["Hello PDF", "next"],
+    );
+    // Baseline move beyond the tolerance breaks the line; within it does not.
+    assert.deepEqual(pdfItemsToLines([item("a", 700), item("b", 699), item("c", 690)]), ["ab", "c"]);
+    // Marked-content items (no str) are skipped; blank lines are dropped.
+    assert.deepEqual(
+        pdfItemsToLines([{type: "beginMarkedContent"}, item("visible", 700), item("   ", 680, true)]),
+        ["visible"],
+    );
+});
+
+test("pdfToMarkdown extracts a real PDF through the vendored pdf.js", async () => {
+    const engine = await pdfEngine();
+    const bytes = buildSimplePdf(["Hello PDF tool", "second line here"]);
+    const result = await pdfToMarkdown(engine, bytes);
+    assert.ok(!result.error, result.error);
+    assert.equal(result.pages, 1);
+    assert.match(result.markdown, /\(PDF, 1 page\)/);
+    assert.match(result.markdown, /Hello PDF tool/);
+    assert.match(result.markdown, /second line here/);
+});
+
+test("pdfToMarkdown reports the failure modes as protocol errors", async () => {
+    const engine = await pdfEngine();
+    // Garbage bytes → invalid.
+    assert.equal((await pdfToMarkdown(engine, new Uint8Array([0x00, 0x01, 0x02, 0x03]))).error, "invalid");
+    // A page with no text operators → no-text (the scanned-PDF shape).
+    assert.equal((await pdfToMarkdown(engine, buildSimplePdf([], {emptyStream: true}))).error, "no-text");
+    // Empty input → empty file.
+    assert.equal((await pdfToMarkdown(engine, new Uint8Array(0))).error, "empty file");
+    // A truncated (but PDF-signed) body still parses or fails cleanly —
+    // never a throw.
+    const cut = buildSimplePdf(["x"]).subarray(0, 40);
+    const cutResult = await pdfToMarkdown(engine, cut);
+    assert.ok(cutResult.error || cutResult.markdown);
 });

@@ -203,6 +203,12 @@ function toolDetail(
             return file(inputStr(o, "filePath", "path", "file_path"));
         case "read":
             return file(inputStr(o, "filePath", "file_path", "path"));
+        case "read_document":
+        case "write_document":
+            // The office-tools plugin sends a single `path` input — same
+            // file display as read/write (icon + relative path), never
+            // the raw JSON.
+            return file(inputStr(o, "path"));
         case "list":
             return file(inputStr(o, "path", "filePath", "file_path"));
         case "grep":

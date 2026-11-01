@@ -39,7 +39,7 @@ or ask the user to enter the plan mode for you.
 | Unit tests (pure frontend logic) | `pnpm test` (`node --test "src/**/*.test.ts" "src/**/*.test.js"`) |
 | Point dev at a different server binary | `OPENCODE_BIN=/path/to/opencode pnpm tauri dev` |
 | Regenerate Material file-type icons (after bumping `material-icon-theme`) | `pnpm gen:icons` (output is committed) |
-| Rebuild the office-tools plugin's vendored engines (after bumping `docx`/`pptxgenjs`) | `pnpm gen:office-vendor` (esbuild bundles into `src/plugins/officeToolsVendor/`, committed — CI never runs it) |
+| Rebuild the office-tools plugin's vendored engines (after bumping `docx`/`pptxgenjs`/`pdfjs-dist`) | `pnpm gen:office-vendor` (esbuild bundles into `src/plugins/officeToolsVendor/`, committed — CI never runs it) |
 
 - `pnpm fetch:opencode` is a **prerequisite** for `tauri dev`/`tauri build`:
   the `resources` maps in `tauri.linux/macos/windows.conf.json` reference
@@ -480,6 +480,34 @@ src/
 │                          #   reads may point outside the workspace,
 │                          #   writes are confined to it —
 │                          #   resolveDocumentPath's confine flag).
+│                          #   PDF (2026-11): read_document ALSO reads
+│                          #   .pdf — READ_FORMATS vs WRITE_FORMATS split
+│                          #   the format sets (the plugin never
+│                          #   GENERATES PDFs). The pdf.js v6 trio rides
+│                          #   the same vendor mechanism: loadPdfEngine
+│                          #   (lazy cached promise, failure resets)
+│                          #   imports vendor/pdf.min.mjs +
+│                          #   pdfData.mjs and wraps an
+│                          #   InlineBinaryDataFactory (v6's
+│                          #   BinaryDataFactory param, useWorkerFetch:
+│                          #   false) over the INLINED cmaps +
+│                          #   standard_fonts table — no on-disk resource
+│                          #   dir; pdfToMarkdown → per-page
+│                          #   getTextContent → pdfItemsToLines (baseline
+│                          #   + hasEOL line grouping, pure) with
+│                          #   semantic errors: password / invalid /
+│                          #   no-text (the scanned-PDF shape — the tool
+│                          #   tells the model to fall back to vision).
+│                          #   Fake-worker facts (spike-verified 2026-11
+│                          #   on node 24 + bun 1.4): pdf.js disables
+│                          #   real workers in Node-like runtimes and
+│                          #   dynamically imports ./pdf.worker.mjs —
+│                          #   the SAME relative-import mechanism as the
+│                          #   docx engine (which the 2026-10-23 sidecar
+│                          #   spike proved); v6 fingerprints need
+│                          #   Uint8Array.prototype.toHex, which
+│                          #   pdfData.mjs shims (JSC/Bun ships it, Node
+│                          #   does not).
 │                          #   SPIKE-VERIFIED 2026-10-23 on the bundled
 │                          #   v2.0.11 sidecar: the Bun-compiled server
 │                          #   resolves the plugin's DYNAMIC RELATIVE
@@ -488,7 +516,10 @@ src/
 │                          #   directory, and both engines generate valid
 │                          #   documents (incl. CJK) from inside setup();
 │                          #   write_document registers ONLY when the
-│                          #   engines load, read_document always.
+│                          #   engines load, read_document always (the
+│                          #   PDF engine loads per-call inside execute —
+│                          #   an engine-less install still reads
+│                          #   docx/pptx).
 │                          #   Images: content-sniffed kind + PNG/JPEG
 │                          #   header dimensions (imageDimensions),
 │                          #   width-capped at 560px (imageBox); the
@@ -499,8 +530,19 @@ src/
 │                          #   gen:icons doctrine; CI never rebuilds).
 │                          #   docx.mjs (456 KB) + pptxgenjs.mjs (392 KB),
 │                          #   both esbuild ESM with node:* externals so
-│                          #   the server runtime provides the builtins.
-│                          #   devDps: docx, pptxgenjs, esbuild (MIT).
+│                          #   the server runtime provides the builtins;
+│                          #   PLUS the pdf.js v6 trio — pdf.min.mjs
+│                          #   (448 KB) + pdf.worker.mjs (1.2 MB, COPIED
+│                          #   VERBATIM from the official minified builds,
+│                          #   the worker keeping its NON-min file NAME —
+│                          #   pdf.js's fake-worker fallback hard-codes
+│                          #   import("./pdf.worker.mjs")) + pdfData.mjs
+│                          #   (2.5 MB: the full cmaps/*.bcmap (168) +
+│                          #   standard_fonts (14) inlined as base64 with
+│                          #   a binaryResource(kind, filename) resolver
+│                          #   and the Uint8Array.toHex shim).
+│                          #   devDps: docx, pptxgenjs, pdfjs-dist,
+│                          #   esbuild (MIT/Apache-2.0).
 │
 ├── opencode/              # THE domain layer — everything talking to the server
 │   ├── api.ts             # OpencodeApi: hand-rolled typed REST client (fetch +
@@ -776,7 +818,10 @@ src/
 │   ├── useOfficeTools.ts  # The office-tools plugin's install half (the
 │   │                      #   useLuminaTools pattern): ensureOfficeTools
 │   │                      #   Plugin writes index.js + vendor/docx.mjs +
-│   │                      #   vendor/pptxgenjs.mjs (each diff-gated
+│   │                      #   vendor/pptxgenjs.mjs + the pdf.js trio
+│   │                      #   (pdf.min.mjs / pdf.worker.mjs /
+│   │                      #   pdfData.mjs, ~5 MB total — written once,
+│   │                      #   then diff-gated; each file checked
 │   │                      #   against the committed sources pulled in
 │   │                      #   via ?raw) plus the config entry, the whole
 │   │                      #   batch under the shared write lock;
