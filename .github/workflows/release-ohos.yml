@@ -1,0 +1,217 @@
+name: Release HarmonyOS
+
+# The HarmonyOS app (mobile/, tauri's feat/open-harmony line) — its own
+# workflow because this is the most volatile leg of a release (branch-pinned
+# tauri CLI, third-party-mirrored SDK, unsigned output for now): a failure
+# here must never block the desktop/Android publishing chain in release.yml
+# (the docker-server.yml precedent of an independent release-event lane).
+#
+# Produces ONE UNSIGNED HAP for arm64: Lumina.Code_<ver>_ohos-arm64-unsigned.hap.
+# HarmonyOS requires AGC-issued release certificates to sign for distribution,
+# which this repo has not set up yet — users sign the HAP locally before
+# installing (DevEco: gen/ohos → Project Structure → Signing Configs).
+# When AGC publishing lands: decode the OHOS_SIGNING_* secrets into gen/ohos,
+# rewrite the build-profile.json5 signingConfigs the "Strip signing config"
+# step empties, and drop the -unsigned suffix — the upload step below already
+# prefers a signed artifact when one exists.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to (re)build (e.g. v0.1.0)"
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  # Huawei's command-line tools (hvigorw + ohpm + node + the API-26 SDK),
+  # mirrored on GitHub Releases so runners pull them fast — the official CDN
+  # is slow and flaky from US runners. 26.0.0.821 == the DevEco Studio
+  # version the project builds against locally (API 26, build-profile
+  # compatibleSdkVersion "26.0.0", hvigor 6.26.x). Bump together with the
+  # local toolchain and the compatibleSdkVersion.
+  OHOS_CLI_MIRROR: "ErBWs/ohos-sdk"
+  OHOS_CLI_VERSION: "26.0.0.821"
+
+jobs:
+  publish-ohos:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-ohos
+
+      # hvigor's packaging/signing stages shell out to Java tools; the
+      # CLI bundle ships no JRE. 21 matches the DevEco-bundled JBR.
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # libGL for the SDK's packaging natives (the community setup-ohos
+      # action documents it as the only Linux system dependency). jq comes
+      # preinstalled on GitHub runners.
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1
+
+      # ONE cache for everything cargo: the branch tauri-cli + ohrs installs
+      # (bin + registry + git checkouts — a cold `cargo install tauri-cli
+      # --git` alone is 10+ min) AND the mobile crate's ohos cross-compile
+      # target. cargo skips an install whose exact version is already
+      # recorded in .crates2.json, so a cache hit turns both installs into
+      # no-ops. Bump the vN in BOTH keys when the branch/CLI moves.
+      - name: Cache cargo home and build target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo
+            mobile/src-tauri/target
+          key: ohos-cargo-v1-${{ hashFiles('mobile/src-tauri/Cargo.lock') }}
+          restore-keys: ohos-cargo-v1-
+
+      # The npm @tauri-apps/cli has no `ohos` subcommand — the CLI must come
+      # from the feat/open-harmony branch (mobile/README.md's HarmonyOS
+      # section; the same branch line the crate's [patch.crates-io] pins).
+      - name: Install tauri-cli (feat/open-harmony) and ohrs
+        run: |
+          cargo install tauri-cli --git https://github.com/tauri-apps/tauri --branch feat/open-harmony
+          cargo install ohrs
+
+      # ~2 GB split download with a checksum, unpacks to command-line-tools/.
+      - name: Download HarmonyOS command-line tools
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dir="$HOME/ohos-cli"
+          mkdir -p "$dir" && cd "$dir"
+          gh release download "$OHOS_CLI_VERSION" -R "$OHOS_CLI_MIRROR" \
+            --pattern 'ohos-sdk-linux-amd64.tar.gz.*'
+          cat ohos-sdk-linux-amd64.tar.gz.aa ohos-sdk-linux-amd64.tar.gz.ab \
+            > ohos-sdk-linux-amd64.tar.gz
+          sha256sum -c ohos-sdk-linux-amd64.tar.gz.sha256
+          tar -xzf ohos-sdk-linux-amd64.tar.gz
+          rm -f ohos-sdk-linux-amd64.tar.gz*
+
+      # command-line-tools ships a FLAT SDK layout (sdk/default/openharmony
+      # with NO API-version layer), but cargo-mobile2 expects the DevEco
+      # layout: OHOS_HOME = <sdk>/default/openharmony/<api>, with
+      # DEVECO_SDK_HOME and the ohpm path (<sdk>/ohpm/bin/ohpm) derived by
+      # walking three parents up from OHOS_HOME (see cargo-mobile2's
+      # open_harmony env.rs / ohpm.rs). Two symlinks reshape the flat layout
+      # into the DevEco one — the same trick as the two sudo symlinks in
+      # mobile/README.md's toolchain section, minus the sudo.
+      - name: Adapt SDK layout and export environment
+        run: |
+          cli="$HOME/ohos-cli/command-line-tools"
+          api="$(jq -r '.data.apiVersion' "$cli/sdk/default/sdk-pkg.json")"
+          if [ -z "$api" ] || [ "$api" = "null" ]; then
+            echo "::error::Could not read the SDK's apiVersion from $cli/sdk/default/sdk-pkg.json."
+            exit 1
+          fi
+          # a) the API-version layer under openharmony/
+          ln -s "$cli/sdk/default/openharmony" "$cli/sdk/default/openharmony/$api"
+          # b) ohpm where cargo-mobile2 looks for it; command-line-tools
+          #    keeps it under tool/ (bin/ohpm is a wrapper script)
+          if [ -d "$cli/tool/ohpm" ]; then
+            ln -s "$cli/tool/ohpm" "$cli/sdk/ohpm"
+          else
+            real="$(readlink -f "$cli/bin/ohpm")"
+            ln -s "$(dirname "$(dirname "$real")")" "$cli/sdk/ohpm"
+          fi
+          "$cli/sdk/ohpm/bin/ohpm" -v
+          {
+            echo "OHOS_HOME=$cli/sdk/default/openharmony/$api"
+            echo "DEVECO_SDK_HOME=$cli/sdk"
+          } >> "$GITHUB_ENV"
+          {
+            echo "$cli/bin"
+            echo "$cli/tool/node/bin"
+          } >> "$GITHUB_PATH"
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The committed build-profile.json5 carries a developer's LOCAL debug
+      # signing material (absolute home-dir paths + DevEco-encrypted
+      # passwords) — on CI those files don't exist and hvigor's signing task
+      # fails the build. Strip the signing config entirely so hvigor emits an
+      # unsigned HAP (signing stays a local user step until AGC publishing
+      # lands). Also disable the hvigor daemon: community HarmonyOS CI runs
+      # hit hangs with it on, and a fresh runner gains nothing from it.
+      # Both files remain JSON5-valid (hvigor parses them with a JSON5
+      # reader; only strict json.loads would object to pre-existing trailing
+      # commas).
+      - name: Strip signing config and disable hvigor daemon
+        run: |
+          python3 - <<'EOF'
+          import re
+
+          bp = "mobile/src-tauri/gen/ohos/build-profile.json5"
+          s = open(bp).read()
+          s, n1 = re.subn(r'"signingConfigs"\s*:\s*\[.*?\](\s*),(\s*)"products"',
+                          r'"signingConfigs": []\1,\2"products"', s, flags=re.S)
+          s, n2 = re.subn(r'"signingConfig"\s*:\s*"[^"]*"\s*,\s*', '', s)
+          assert n1 == 1 and n2 == 1, f"unexpected build-profile shape (n1={n1}, n2={n2})"
+          open(bp, "w").write(s)
+
+          hv = "mobile/src-tauri/gen/ohos/hvigor/hvigor-config.json5"
+          s = open(hv).read()
+          s, n = re.subn(r'("execution"\s*:\s*\{)', r'\1\n    "daemon": false,', s)
+          assert n == 1, f"unexpected hvigor-config shape (n={n})"
+          open(hv, "w").write(s)
+          print("signing stripped (unsigned HAP), hvigor daemon off")
+          EOF
+
+      # The CLI resolves the mobile project from mobile/ (src-tauri next
+      # door); beforeBuildCommand (pnpm run build:mobile) walks up pnpm's
+      # package chain to the repo root. No opencode/frpc sidecar fetch here:
+      # the mobile shell bundles neither. CI=true in the runner environment
+      # makes the CLI's --ci flag (skip prompts) automatic.
+      - name: Build HarmonyOS HAP (aarch64)
+        working-directory: mobile
+        run: cargo tauri ohos build --target aarch64
+
+      - name: Upload HAP to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ver="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' mobile/src-tauri/tauri.conf.json | head -n1)"
+          out="mobile/src-tauri/gen/ohos/entry/build/default/outputs/default"
+          # Prefer a signed artifact; until AGC signing lands the build only
+          # emits the unsigned one.
+          if [ -f "$out/entry-default-signed.hap" ]; then
+            src="$out/entry-default-signed.hap"; flavor="ohos-arm64"
+          elif [ -f "$out/entry-default-unsigned.hap" ]; then
+            src="$out/entry-default-unsigned.hap"; flavor="ohos-arm64-unsigned"
+          else
+            echo "::error::No HAP found under $out"
+            ls -la "$out" 2>/dev/null || true
+            exit 1
+          fi
+          asset="Lumina.Code_${ver}_${flavor}.hap"
+          cp "$src" "$asset"
+          gh release upload "$RELEASE_TAG" "$asset" --clobber
+          echo "uploaded $asset (sign it locally before installing)"

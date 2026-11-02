@@ -91,6 +91,19 @@ Mirrors lumina-terminal's pipeline (keep the two in sync when fixing one):
   with setup instructions when the secrets are missing rather than
   uploading an uninstallable unsigned APK; see mobile/README.md for the
   one-time keystore/secret setup.
+- **release-ohos.yml** — on a published GitHub release (or manual dispatch
+  with a `tag`): builds the HarmonyOS HAP (mobile/, the feat/open-harmony
+  tauri line) — arm64, **unsigned** for now (HarmonyOS release signing
+  needs AGC-issued certificates; signing stays a local user step until AGC
+  publishing lands — the upload step auto-prefers a signed artifact once
+  one exists, see mobile/README.md's 鸿蒙 Release 流水线 section). Kept a
+  SEPARATE workflow from release.yml on purpose: the ohos toolchain is the
+  most volatile release leg (branch-pinned `cargo install tauri-cli` +
+  `ohrs`, the Huawei command-line-tools mirrored on GitHub at
+  ErBWs/ohos-sdk `26.0.0.821` — same version as the local DevEco / API 26
+  — with two symlinks reshaping its flat SDK layout into the DevEco layout
+  cargo-mobile2 expects) and must never block the desktop/Android chain.
+  Asset: `Lumina.Code_<ver>_ohos-arm64-unsigned.hap`.
 - **pkg-trigger.yml → aur.yml / copr.yml** — after Release succeeds,
   republish the .deb/.rpm assets as `lumina-code-bin` (AUR) and `lumina-code`
   (Fedora COPR) from the `.aur/PKGBUILD` / `.copr/lumina-code.spec`

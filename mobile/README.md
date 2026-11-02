@@ -104,6 +104,33 @@ i686-linux-android x86_64-linux-android`；环境变量 `ANDROID_HOME=$HOME/Andr
   secrets 缺失时 android job 会**快速失败**并打印上述指引——宁可发布红着，
   不上传一个装不上的 unsigned APK。
 
+### 鸿蒙 Release 流水线（unsigned）
+
+- **`.github/workflows/release-ohos.yml`**：release 发布（或带 tag 的手动
+  dispatch）时构建 **arm64 unsigned HAP**，资产名
+  `Lumina.Code_<ver>_ohos-arm64-unsigned.hap`。**签名是用户的本地步骤**
+  （DevEco 打开 `gen/ohos` → Project Structure → Signing Configs 勾自动
+  签名后本地构建，或对下载的 HAP 用 hap-sign-tool 手动签）——鸿蒙发布
+  分发需要 AGC 签发的发布证书（.cer/.p12/.p7b），本仓库暂未接入；接入时
+  在 workflow 里解码 secrets、改写 `build-profile.json5` 的
+  signingConfigs（构建前有一步会把它**清空**，因为仓库里提交的是某位
+  开发者的本机 debug 材料，绝对路径在 CI 上会让 hvigor 签名任务直接
+  报错），上传步骤自动切换为不带 `-unsigned` 后缀的 signed 名。
+- **工具链全在 CI 上组装**：`cargo install tauri-cli`（feat/open-harmony
+  分支）+ `ohrs`（~/.cargo 整体缓存，命中后安装变 no-op）；SDK 用华为
+  command-line-tools 的 GitHub 镜像（`ErBWs/ohos-sdk` 的 `26.0.0.821`，
+  与本机 DevEco 版本一致 = API 26 / hvigor 6.26.x，官方 CDN 从美国
+  runner 拉不稳）；下载后**两条符号链接**把平铺布局重整成 DevEco 布局
+  ——`sdk/default/openharmony/<api>` 版本层 + `sdk/ohpm → tool/ohpm`
+  （cargo-mobile2 从 OHOS_HOME 三级上推 DEVECO_SDK_HOME 与 ohpm 路径，
+  见其 `open_harmony/env.rs`/`ohpm.rs`；等价于上文工具链一节的两条
+  sudo 符号链接，无需提权）。
+- **已验证的坑**：hvigor daemon 在 CI 上可能挂起构建（社区先例），
+  构建前把 `hvigor-config.json5` 的 `execution.daemon` 改为 false；
+  `build-profile.json5` 与 `hvigor-config.json5` 的改写用 python 正则
+  （文件是 JSON5，严格 json.loads 会被既有尾随逗号噎住，hvigor 自己
+  的 json5 reader 没问题）。
+
 ### E2E 冒烟（无需跑桌面 App）
 
 ```bash
