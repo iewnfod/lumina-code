@@ -3943,6 +3943,14 @@ desktop layout still connects to the DESKTOP's opencode remotely.
   (manifest carries `android:roundIcon`). The template's leftover
   green-grid background / android-robot foreground drawables and
   purple/teal colors were deleted (unreferenced, trap hand-wiring).
+  The OHOS half (`gen/ohos` res) is covered by NEITHER `tauri icon`
+  NOR any init — DevEco's template icons ship unless replaced:
+  `pnpm gen:ohos-icons` (scripts/gen-ohos-icons.mjs, system
+  ImageMagick) regenerates the layered pair (foreground = the master
+  as-is, background = its average base color) + the 144px startIcon
+  into both AppScope and entry, outputs committed (the gen:icons
+  doctrine; a dedicated mobile icon design may later add content
+  scaling in the script).
 - **The soft keyboard is handled NATIVELY, never in CSS/JS**:
   MainActivity's insets listener pads the content view with
   `max(bars.bottom, ime.bottom)` — under targetSdk 35+ edge-to-edge the
@@ -4022,7 +4030,24 @@ desktop layout still connects to the DESKTOP's opencode remotely.
   under the `openHarmony` platform tag). plugin-os's js platform()
   reads a plugin-injected global SYNCHRONOUSLY — lib/platform.ts
   guards it (absent plugin = not-macos/not-linux; the unguarded read
-  white-screened the app at InnerApp's first render). Frontend
+  white-screened the app at InnerApp's first render). THREE device
+  fixes (2026-11-02, live-diagnosed via the CDP channel below): the
+  launcher name read the entry module's template placeholder
+  "label" (EntryAbility_label in entry's string.json — the desktop
+  shows the ABILITY label, not AppScope's app_name); the icons were
+  DevEco template defaults (see gen:ohos-icons above); and
+  persistence died SILENTLY — the feat/open-harmony tauri resolves
+  paths through the DESKTOP (dirs/XDG) resolver on ohos, so
+  app_data_dir landed at $HOME/.local/share (read-only on device)
+  and every plugin-store save hit EPERM while load "succeeded",
+  which the frontend's persistedStore read as a healthy file
+  backend (writes failed fire-and-forget, no log plugin to tell).
+  The bridge: EntryAbility.onCreate passes this.context.filesDir/
+  cacheDir to a `set_sandbox_dirs` napi export (mobile lib.rs) that
+  sets XDG_DATA/CONFIG/CACHE_HOME at the sandbox — dirs re-reads
+  the vars per call and the store resolves lazily, so no tauri
+  patch is needed (keep the bridge after upstream fixes ohos paths;
+  it is then a no-op pointing at the same dirs). Frontend
   debugging on device: the ArkWeb DevTools channel (hdc fport 9222 +
   CDP — hilog shows no JS exceptions). Full resume record + toolchain
   pitfalls: mobile/README.md's HarmonyOS section.

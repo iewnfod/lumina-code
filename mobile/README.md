@@ -197,6 +197,41 @@ API 26）上登录 lumina-code-server → frp 直连桌面 opencode → v2 桌�
    HMR 连接正常），内嵌版（`ohos build`，frontendDist 打进 HAP）同样
    渲染正常。二分证据：内嵌 HAP 有画面 → 壳层（napi 胶水/ArkWeb/插件）
    全通，v1 现象归因于当时代的 dev 流程，现已消解。
+ 6. **桌面应用名 "label"**：鸿蒙桌面图标下的名字取 **ability** 的
+    label（entry 模块 string.json 的 `EntryAbility_label`），不是
+    AppScope 的 app_name——DevEco 模板占位值 `"label"` 就这么上了桌面。
+    同修 `module_desc`/`EntryAbility_desc` 占位符（应用详情会露出）。
+ 7. **图标 = DevEco 模板默认**：`tauri icon` 不覆盖 gen/ohos，模板的
+    蓝网格 startIcon + 蓝白分层对从未被替换。仓库根
+    `pnpm gen:ohos-icons`（scripts/gen-ohos-icons.mjs，需系统
+    ImageMagick）从 `mobile/src-tauri/icons/icon.png`（1024 master，
+    即电脑版同一设计）重生成 AppScope/entry 两套分层对 + 144px
+    startIcon，产物提交（gen:icons 教义）。**当前刻意原样复用桌面
+    master、零移动端处理**（专用图标设计后再在脚本里加缩放/分层）；
+    background 层取 master 平均底色（分层清单引用它，系统超椭圆
+    裁切露边用）。
+ 8. **持久化静默全丢（最严重）**：CDP 实锤——ArkWeb 的 localStorage
+    为 **null**，`plugin:store|save` 报 `Operation not permitted
+    (os error 1)`。根因：feat/open-harmony 的 tauri 在 ohos 上走
+    `path/desktop.rs`（`path/mod.rs` 只按 android 切分，ohos 的
+    target_os 是 "linux"）→ `dirs::data_dir()` XDG 推导 →
+    `/storage/Users/currentUser/.local/share/<identifier>`（设备上
+    不存在且不可写）。而 `load` 成功（缺文件=新 store）→ 前端
+    `initPersistedState` 误判 file 档健康 → 所有写盘 fire-and-forget
+    失败且无 log 插件可诉 → 每次重启登录态/设置归零。**修复桥接**
+    （无需 patch tauri）：EntryAbility.onCreate 在 `super.onCreate()`
+    **之前**动态 import 自己的 so，调 `set_sandbox_dirs`（lib.rs 的
+    `#[napi]` 导出，napi-ohos 已是依赖）传入
+    `this.context.filesDir/cacheDir`，Rust 侧 set
+    `XDG_DATA_HOME`/`XDG_CONFIG_HOME`/`XDG_CACHE_HOME` 指向沙箱——
+    `dirs` 每次调用重读环境变量、store 惰性解析路径，故早于 webview
+    创建的一次注入即可全程生效；state 文件落在
+    `<filesDir>/com.iewnfod.lumina-code-mobile/state/state.json`
+    （与桌面同构）。上游修好 ohos path 后此桥接保留无害（指向同一
+    沙箱目录）。ArkTS 两个坑：动态 import 的目标必须走**变量**
+    （模板字符串内联会被编译器当包名解析报
+    `pkgContextInfo` 错），`await import()` 结果须显式标
+    `ESObject`（strict 禁 any/unknown）——写法照抄 RustAbility.ets。
 
 ### 调试通道（本次排查的取证利器）
 

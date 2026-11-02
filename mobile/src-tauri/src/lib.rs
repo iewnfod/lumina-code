@@ -24,6 +24,42 @@
 #[cfg(not(target_env = "ohos"))]
 use tauri_plugin_log::{Target, TargetKind};
 
+/// ohos only — receives the ability's sandbox dirs from EntryAbility BEFORE
+/// `super.onCreate()` boots tauri, and redirects the XDG env vars at them.
+///
+/// WHY this exists (live-diagnosed on device 2026-11-02 via CDP): the
+/// feat/open-harmony tauri resolves paths through the DESKTOP resolver on
+/// ohos (`path/mod.rs` only splits android/non-android, and the ohos targets
+/// are `target_os = "linux"`), so `app_data_dir` = `dirs::data_dir()` =
+/// `$HOME/.local/share/<identifier>` → `/storage/Users/currentUser/…` — a
+/// read-only location that does not even exist. Every `plugin:store|save`
+/// then fails with `Operation not permitted (os error 1)` while `load`
+/// succeeds (missing file = fresh store), which makes persistence fail
+/// SILENTLY: the frontend's `initPersistedState` sees a working transport,
+/// marks the file backend active, and every write dies fire-and-forget.
+///
+/// The fix rides the fact that `dirs` re-reads the XDG vars on every call
+/// (no caching) and that the store plugin resolves lazily at the first
+/// `plugin:store|load`: pointing `XDG_DATA_HOME` at the ability's filesDir
+/// lands `state/state.json` inside the sandbox
+/// (`<filesDir>/com.iewnfod.lumina-code-mobile/state/state.json`, same
+/// layout as the desktop shells). No tauri patch needed.
+///
+/// Harmless to keep after upstream fixes ohos path resolution (an env var
+/// pointing at the same sandbox dir the resolver would pick).
+#[cfg(target_env = "ohos")]
+#[napi_derive_ohos::napi]
+pub fn set_sandbox_dirs(files_dir: String, cache_dir: String) -> napi_ohos::Result<()> {
+    // The `dirs` crate consults these per call on the linux-flavored ohos
+    // target; app_data_dir/app_local_data_dir read XDG_DATA_HOME,
+    // app_config_dir XDG_CONFIG_HOME, cache_dir XDG_CACHE_HOME.
+    std::env::set_var("XDG_DATA_HOME", &files_dir);
+    std::env::set_var("XDG_CONFIG_HOME", &files_dir);
+    std::env::set_var("XDG_CACHE_HOME", &cache_dir);
+    Ok(())
+}
+
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // The universal plugin set — verified to compile AND initialize on

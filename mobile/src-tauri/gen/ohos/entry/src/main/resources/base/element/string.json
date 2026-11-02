@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "module description"
+      "value": "Lumina Code mobile client module"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "description"
+      "value": "Lumina Code mobile client"
     },
     {
       "name": "EntryAbility_label",
-      "value": "label"
+      "value": "Lumina Code"
     }
   ]
 }
