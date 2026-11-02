@@ -3925,12 +3925,22 @@ desktop layout still connects to the DESKTOP's opencode remotely.
   needs macOS; Linux covers `pnpm build:mobile` +
   host/`aarch64-linux-android` `cargo check` only.
 - **App icons: the master export is `mobile/src-tauri/icons/icon.png`
-  (1024×1024)** — downscaled once (Lanczos) from the designer's
-  `Code Icon@3x.png` (3837, the icon.svg 3x export; file at the repo
-  root). Never re-render `src/assets/icon.svg` yourself and never let
-  the CLI's 512 re-encode become the master (the gen script
+  (1024×1024)** — made from the designer's largest export (the
+  2026-11 set: 5116×5116 `Code Icon.png`; the 2026-09 set was
+  `Code Icon@3x.png`, 3837): Lanczos downscale to 1024, then **trim
+  the transparent margins and scale the content back to the FULL
+  canvas** (`magick src -filter Lanczos -resize 1024x1024 -trim
+  +repage -resize 1024x1024`). The trim is load-bearing: the 2026-11
+  export ships ~11%-per-side transparent margins (content bbox 77%),
+  and an un-trimmed master renders as an icon floating inside a hollow
+  ring of the layered background plate on device (live-observed on
+  Mate 80 Pro; the 2026-09 set was 90% and passed). Both the ohos
+  foreground (master AS-IS, gen-ohos-icons.mjs) and the tauri-CLI
+  android foregrounds inherit the fill ratio from the master. Never
+  re-render `src/assets/icon.svg` yourself and never let the CLI's
+  512 re-encode become the master (the gen script
   git-restores icons/ after each run — the 1024 master must stay
-  committed or reruns will silently drop it back to 512). Desktop + CEF
+  committed or reruns will silently drop it back to the old design). Desktop + CEF
   icon sets are committed as exported (512 era). The ANDROID half
   (`gen/android` res) is NOT covered by `tauri android init` — init
   plants the tauri template's own mipmaps; regenerate them from the
