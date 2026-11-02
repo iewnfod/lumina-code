@@ -13,3 +13,7 @@ gen/android/build/
 gen/android/local.properties
 gen/ios/Pods/
 gen/ios/build/
+# The CLI regenerates this copy on every ohos build (it bakes the
+# current devUrl — including the LAN-IP dev overlay), same as android's
+# untracked build assets.
+gen/ohos/assets/

@@ -3997,10 +3997,25 @@ desktop layout still connects to the DESKTOP's opencode remotely.
   `with_back_forward_navigation_gestures` but tauri 2.11 does not
   expose it (would need a vendored patch, plus a macOS build host);
   the history-based frontend half already works for it as-is.
-- **HarmonyOS is FROZEN on the `feat/mobile-ohos` branch** (branch-patch
-  line, blocked on a device black-screen + tauri-plugin-log SIGABRT on
-  ohos — this branch's lib.rs must cfg the plugin out if that port
-  resumes).
+- **HarmonyOS is RUNNING on the `feat/mobile-ohos` branch** (merged back
+  into master 2026-11-02): the v2 desktop tree renders natively on
+  device (Mate 80 Pro, API 26) — sign-in → frp route → session list
+  all live, dev AND embedded loads both verified. The branch-patch
+  line: tauri `=2.11.5` + the official `feat/open-harmony`
+  `[patch.crates-io]` quartet + vendored openharmony-ability (see
+  mobile/src-tauri/Cargo.toml). Two load-bearing ohos facts: the ohos
+  targets are `target_os "linux"` + `target_env "ohos"` (every ohos
+  cfg keys on target_env), and the plugin set is SPLIT per target —
+  ohos resolves with store+opener ONLY (tauri-plugin-log SIGABRTs on
+  ohos init, never re-add; os/dialog/notification are excluded from
+  the ohos graph and their capabilities live in capabilities/ohos.json
+  under the `openHarmony` platform tag). plugin-os's js platform()
+  reads a plugin-injected global SYNCHRONOUSLY — lib/platform.ts
+  guards it (absent plugin = not-macos/not-linux; the unguarded read
+  white-screened the app at InnerApp's first render). Frontend
+  debugging on device: the ArkWeb DevTools channel (hdc fport 9222 +
+  CDP — hilog shows no JS exceptions). Full resume record + toolchain
+  pitfalls: mobile/README.md's HarmonyOS section.
 
 ### lumina-code-server (`server/`) — the self-hosted companion server
 

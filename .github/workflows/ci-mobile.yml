@@ -1,11 +1,14 @@
 name: CI - Mobile
 
 # The mobile client's web bundle (second vite entry, reusing the desktop
-# components) plus a HOST-target `cargo check` of the mobile Tauri crate
-# (stable crates.io tauri 2 — the same version line as the webkit shell,
-# so this catches dependency drift into mobile-incompatible shapes).
-# Full Android/iOS builds need the SDK toolchains / macOS and stay a
-# LOCAL/release concern (see mobile/README.md).
+# components) plus a HOST-target `cargo check` of the mobile Tauri crate.
+# The crate pins tauri =2.11.5 and patches tauri/wry/tao/tauri-build to
+# the feat/open-harmony branches (the HarmonyOS line, merged 2026-11-02),
+# so this catches patch/version drift early (the classic trap: crates.io
+# publishing a newer version that silently bypasses the patch). Full
+# ohos HAP builds need the HarmonyOS SDK + DevEco toolchain and stay a
+# LOCAL concern (see mobile/README.md's HarmonyOS section); Android/iOS
+# builds likewise need their SDK toolchains.
 
 on:
   push:
