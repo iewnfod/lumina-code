@@ -1,11 +1,33 @@
 import {platform} from "@tauri-apps/plugin-os";
 
+/**
+ * The plugin's js side reads a global the RUST plugin's init script
+ * plants (window.__TAURI_OS_PLUGIN_INTERNALS__) — SYNCHRONOUSLY, so on
+ * a shell that resolves WITHOUT the os plugin (HarmonyOS: the ohos
+ * target-scoped dependency table excludes it, see
+ * mobile/src-tauri/Cargo.toml) the global is undefined and platform()
+ * THROWS. Reading it defensively is the difference between "glass off"
+ * and React tearing the whole tree out at InnerApp's first render
+ * (live-observed as the post-login white screen on ohos, 2026-11-02).
+ * `undefined` reads as "not macos / not linux" — correct for ohos:
+ * ArkWeb is Chromium (backdrop-filter works, glass stays on) and none
+ * of the linux-gated chrome (Blur my Shell, window outline, CEF
+ * detection) applies there.
+ */
+function osPlatform(): string | undefined {
+    try {
+        return platform();
+    } catch {
+        return undefined;
+    }
+}
+
 export function isMacOS() {
-    return platform() === "macos";
+    return osPlatform() === "macos";
 }
 
 export function isLinux() {
-    return platform() === "linux";
+    return osPlatform() === "linux";
 }
 
 /**
