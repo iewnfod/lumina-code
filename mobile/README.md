@@ -232,6 +232,44 @@ API 26）上登录 lumina-code-server → frp 直连桌面 opencode → v2 桌�
     （模板字符串内联会被编译器当包名解析报
     `pkgContextInfo` 错），`await import()` 结果须显式标
     `ESObject`（strict 禁 any/unknown）——写法照抄 RustAbility.ets。
+ 9. **壳窗口背景对齐安卓**（2026-11-02）：启动/运行时窗口背景此前是
+    DevEco 模板默认（base `#FFFFFF` / dark `#000000`，启动闪白/闪黑）。
+    对齐安卓 `lumina_window_bg` 的玻璃表面等效色：`resources/{base,dark}/
+    element/color.json` 的 `start_window_background` → `#F0F0F0`/`#282828`
+    （启动窗，资源系统自动跟系统深浅），EntryAbility 保存 mainWindow 并
+    在 `onWindowStageCreate`（super 之后——`setWindowBackgroundColor`
+    按 d.ts 约定须在 loadContent 生效后调用）与
+    `onConfigurationUpdate`（先 super：RustAbility 把它转发给 Rust
+    lifecycle，断了会切死原生侧）按 `colorMode` 重应用。ColorMode 枚举
+    是 `NOT_SET=-1 / DARK=0 / LIGHT=1`（与直觉相反）；API 是同步 throws
+    （BusinessError 1300002，try/catch 而非 Promise catch）——SDK 文档
+    明确 phone/tablet 生效，编译器 "unavailable to phone" 警告系
+    `string | ColorMetrics`（since 18）联合签名的标签误报。**已知限制**：
+    安卓 `__luminaNative.setChromeBackground`（应用内主题偏好推送）在
+    鸿蒙无实现途径——ArkWeb 的 javaScriptProxy 必须挂在 Web 组件上，
+    而 Web 组件在 @ohos-rs/ability HAR 内部构建；壳背景跟随**系统**
+    主题（前端 `useChromeThemeSync` 的 optional chaining 自动 no-op）。
+    四处同步：安卓 values/values-night、MainActivity fallback、
+    EntryAbility 常量、start_window_background 资源。
+10. **webview 系统深色跟随（vendor tao）**（2026-11-02）：前端
+    `useSystemTheme` 走 tauri 的 `window.theme()`/`onThemeChanged`（不是
+    prefers-color-scheme），而 tao feat/open-harmony 的 ohos backend
+    `Window::theme()` **硬编码 `Theme::Light`**、`ConfigChanged` arm 只
+    转发 ScaleFactorChanged 丢弃 colorMode——系统深色永远到不了前端。
+    修复：tao checkout（feat 分支 813572f）vendor 到 `mobile/vendor/tao`
+    （1.4M，rsync 去 .git/examples/tests；同 openharmony-ability 的 path
+    patch 先例），`[patch.crates-io]` tao 行 git → path。vendor 内**仅两处**
+    LUMINA 改动（源码有 LUMINA 注释）：`theme()` 读
+    `app.config().color_mode`（EventLoop 加 `last_theme: Cell` 字段），
+    `ConfigChanged` arm 在真实深浅跃迁时补发 `WindowEvent::ThemeChanged`
+    （语言/字号变化不重发）——tauri-runtime-wry → `tauri://theme-changed`
+    → 前端 onThemeChanged 的既有映射全部复用，前端零改动。另一坑：系统
+    只在**变化**时回调 `onConfigurationUpdate`，深色系统冷启动 Rust config
+    停在 NoSet——EntryAbility.onCreate 末尾主动调一次
+    `this.onConfigurationUpdate(this.context.config)` 种子（Rust 侧先更新
+    `app.configuration` 再发事件，事件循环未就绪也只丢事件不丢值，
+    `theme()` 查询兜底正确）。随 wry/tauri 分支升级时 vendor 需 re-sync
+    并重放两处改动（Cargo.toml patch 注释同）。
 
 ### 调试通道（本次排查的取证利器）
 
@@ -288,7 +326,9 @@ export PATH="/opt/devecostudio/tools/bin:/opt/devecostudio/tools/node/bin:$PATH"
 - **openharmony-ability 需要 vendor**：分支 wry 依赖 harmony-contrib 的
   openharmony-ability（git-only），其 HEAD 已删 `webview` feature，cargo 拒
   同源 patch——rev `295a276a`（v0.3.0）vendor 在 `mobile/vendor/`，path
-  patch 进图。随 wry 分支一起更新。
+  patch 进图。随 wry 分支一起更新。**tao 同样 vendor**（见上 device
+  fix 10：ohos 主题支持是 stub，两处 LUMINA 补丁），`[patch.crates-io]`
+  的 tao 行指向 `../vendor/tao`。
 - **`beforeBuildCommand` 在仓库根执行**（不是 src-tauri 目录）。
 - **API 26+ 的版本串是 `"26.0.0"`**（API 10-25 才用 `"5.0.0(12)"` 形式）。
 - **hvigor 守护进程缓存环境变量**：改过 DEVECO_SDK_HOME/OHOS_HOME 后旧

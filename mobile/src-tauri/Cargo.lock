@@ -3949,7 +3949,6 @@ dependencies = [
 [[package]]
 name = "tao"
 version = "0.36.0"
-source = "git+https://github.com/tauri-apps/tao?branch=feat%2Fopen-harmony#813572fbe582005e2fb513458bc212842745ceab"
 dependencies = [
  "bitflags 2.13.2",
  "block2",
@@ -3979,7 +3978,7 @@ dependencies = [
  "parking_lot",
  "percent-encoding",
  "raw-window-handle",
- "tao-macros 0.1.4 (git+https://github.com/tauri-apps/tao?branch=feat%2Fopen-harmony)",
+ "tao-macros 0.1.4",
  "unicode-segmentation",
  "url",
  "windows 0.61.3",
@@ -3991,8 +3990,6 @@ dependencies = [
 [[package]]
 name = "tao-macros"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f7eeb6d99155545da6150a1795945f16ac9c178deb2a5f2e74d776107bd5849"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4002,7 +3999,8 @@ dependencies = [
 [[package]]
 name = "tao-macros"
 version = "0.1.4"
-source = "git+https://github.com/tauri-apps/tao?branch=feat%2Fopen-harmony#813572fbe582005e2fb513458bc212842745ceab"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f7eeb6d99155545da6150a1795945f16ac9c178deb2a5f2e74d776107bd5849"
 dependencies = [
  "proc-macro2",
  "quote",

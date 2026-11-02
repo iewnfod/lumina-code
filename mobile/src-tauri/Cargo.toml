@@ -91,7 +91,16 @@ tauri-plugin-notification = "=2.4.0"
 [patch.crates-io]
 tauri = { git = "https://github.com/tauri-apps/tauri", branch = "feat/open-harmony" }
 wry = { git = "https://github.com/tauri-apps/wry", branch = "feat/open-harmony" }
-tao = { git = "https://github.com/tauri-apps/tao", branch = "feat/open-harmony" }
+# LUMINA: tao is vendored (the openharmony-ability pattern above) because
+# the stock ohos backend's theme support is a stub — Window::theme() is a
+# hardcoded Theme::Light and the ConfigChanged arm only forwards
+# ScaleFactorChanged, so the system dark/light mode never reaches tauri's
+# window.theme()/onThemeChanged (and through them the web frontend's
+# useSystemTheme). The vendor carries exactly two LUMINA changes (marked
+# with LUMINA comments): theme() reads the live app config's color mode,
+# and ConfigChanged also emits WindowEvent::ThemeChanged on real theme
+# transitions. Re-sync with the branch + re-apply those two when bumping.
+tao = { path = "../vendor/tao" }
 # CRITICAL: tauri-build decides the `mobile` cfg alias — the STABLE
 # crates.io tauri-build knows only ios/android and emits `desktop` for
 # the ohos target, which silently drops the #[ability] napi glue from

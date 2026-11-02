@@ -4020,8 +4020,8 @@ desktop layout still connects to the DESKTOP's opencode remotely.
   device (Mate 80 Pro, API 26) — sign-in → frp route → session list
   all live, dev AND embedded loads both verified. The branch-patch
   line: tauri `=2.11.5` + the official `feat/open-harmony`
-  `[patch.crates-io]` quartet + vendored openharmony-ability (see
-  mobile/src-tauri/Cargo.toml). Two load-bearing ohos facts: the ohos
+  `[patch.crates-io]` quartet + vendored openharmony-ability AND
+  vendored tao (see mobile/src-tauri/Cargo.toml). Two load-bearing ohos facts: the ohos
   targets are `target_os "linux"` + `target_env "ohos"` (every ohos
   cfg keys on target_env), and the plugin set is SPLIT per target —
   ohos resolves with store+opener ONLY (tauri-plugin-log SIGABRTs on
@@ -4030,12 +4030,12 @@ desktop layout still connects to the DESKTOP's opencode remotely.
   under the `openHarmony` platform tag). plugin-os's js platform()
   reads a plugin-injected global SYNCHRONOUSLY — lib/platform.ts
   guards it (absent plugin = not-macos/not-linux; the unguarded read
-  white-screened the app at InnerApp's first render). THREE device
+  white-screened the app at InnerApp's first render). FIVE device
   fixes (2026-11-02, live-diagnosed via the CDP channel below): the
   launcher name read the entry module's template placeholder
   "label" (EntryAbility_label in entry's string.json — the desktop
   shows the ABILITY label, not AppScope's app_name); the icons were
-  DevEco template defaults (see gen:ohos-icons above); and
+  DevEco template defaults (see gen:ohos-icons above);
   persistence died SILENTLY — the feat/open-harmony tauri resolves
   paths through the DESKTOP (dirs/XDG) resolver on ohos, so
   app_data_dir landed at $HOME/.local/share (read-only on device)
@@ -4047,10 +4047,32 @@ desktop layout still connects to the DESKTOP's opencode remotely.
   sets XDG_DATA/CONFIG/CACHE_HOME at the sandbox — dirs re-reads
   the vars per call and the store resolves lazily, so no tauri
   patch is needed (keep the bridge after upstream fixes ohos paths;
-  it is then a no-op pointing at the same dirs). Frontend
-  debugging on device: the ArkWeb DevTools channel (hdc fport 9222 +
-  CDP — hilog shows no JS exceptions). Full resume record + toolchain
-  pitfalls: mobile/README.md's HarmonyOS section.
+  it is then a no-op pointing at the same dirs);
+  the SHELL WINDOW BACKGROUND was DevEco template white/black —
+  start_window_background is now #F0F0F0/#282828 (the same
+  glassSurfaceEquivalent pair Android's lumina_window_bg carries),
+  and EntryAbility re-applies setWindowBackgroundColor on
+  onConfigurationUpdate (AFTER super — RustAbility forwards the
+  call into the Rust lifecycle); the __luminaNative
+  setChromeBackground JS bridge has NO ohos twin (javaScriptProxy
+  must attach to the Web component inside the @ohos-rs/ability
+  HAR), so the ohos shell follows the SYSTEM theme only; and the
+  WEB FRONTEND never saw system dark mode at all — tao's ohos
+  backend hardcodes Window::theme() to Theme::Light and drops
+  colorMode from ConfigChanged, while the frontend's useSystemTheme
+  reads tauri's window.theme()/onThemeChanged. Fixed by VENDORING
+  TAO (mobile/vendor/tao, the openharmony-ability pattern; two
+  LUMINA-marked changes — re-apply when bumping the branch):
+  theme() reads app.config().color_mode, and ConfigChanged emits
+  WindowEvent::ThemeChanged on real dark/light transitions;
+  EntryAbility additionally seeds the initial configuration by
+  calling this.onConfigurationUpdate(this.context.config) at the
+  end of onCreate (the system only delivers it on CHANGES — a cold
+  start into an already-dark system would otherwise read NoSet
+  forever). Frontend debugging on device: the ArkWeb DevTools
+  channel (hdc fport 9222 + CDP — hilog shows no JS exceptions).
+  Full resume record + toolchain pitfalls: mobile/README.md's
+  HarmonyOS section.
 
 ### lumina-code-server (`server/`) — the self-hosted companion server
 
