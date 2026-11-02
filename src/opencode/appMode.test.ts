@@ -25,7 +25,7 @@ class MemoryStorage {
 const storage = new MemoryStorage();
 (globalThis as unknown as {localStorage: MemoryStorage}).localStorage = storage;
 
-const {setAppMode, modeMetadata, sessionMode} = await import("./appMode.ts");
+const {setAppMode, modeMetadata, sessionMode, pickableAgents} = await import("./appMode.ts");
 
 function session(metadata?: Record<string, unknown>): Pick<OpencodeSession, "metadata"> {
     return {metadata};
@@ -42,6 +42,30 @@ test("sessionMode: the daily stamp decides, everything else reads dev", () => {
 
 test("modeMetadata is the create-time stamp shape", () => {
     assert.deepEqual(modeMetadata("daily"), {mode: "daily"});
+});
+
+// --- pickableAgents (the mode picker's scope rule) ---
+
+const CATALOG = [
+    {id: "build"},
+    {id: "plan"},
+    {id: "lumina-daily"},
+];
+
+test("pickableAgents: dev hides the daily persona", () => {
+    assert.deepEqual(pickableAgents("dev", CATALOG), [{id: "build"}, {id: "plan"}]);
+});
+
+test("pickableAgents: daily offers ONLY the daily agent", () => {
+    assert.deepEqual(pickableAgents("daily", CATALOG), [{id: "lumina-daily"}]);
+});
+
+test("pickableAgents: without lumina-daily (install failed / loading) the list passes through", () => {
+    const noDaily = [{id: "build"}, {id: "plan"}];
+    // Daily degrades to the plain fallback rather than an empty picker.
+    assert.deepEqual(pickableAgents("daily", noDaily), noDaily);
+    assert.deepEqual(pickableAgents("dev", noDaily), noDaily);
+    assert.deepEqual(pickableAgents("daily", []), []);
 });
 
 test("setAppMode persists through the store", () => {

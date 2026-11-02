@@ -4,6 +4,7 @@ import {createPersistedStore} from "../lib/persistedStore.ts";
 import {createModuleStore} from "../lib/moduleStore.ts";
 import type {OpencodeApi} from "./api.ts";
 import type {OpencodeSession} from "./types.ts";
+import {LUMINA_DAILY_AGENT_ID} from "./toolPluginConfig.ts";
 
 /**
  * The app's DAILY/DEV mode split — which half of the sidebar's session
@@ -161,4 +162,27 @@ export function modeMetadata(mode: AppMode): {mode: AppMode} {
  *  (older builds, TUI/CLI, imports) are "dev". */
 export function sessionMode(session: Pick<OpencodeSession, "metadata">): AppMode {
     return session.metadata?.["mode"] === "daily" ? "daily" : "dev";
+}
+
+/**
+ * Which catalog agents the composer's mode picker may offer in this app
+ * mode: lumina-daily is the DAILY half's dedicated primary agent (its
+ * config system prompt + tool gating ARE the daily persona — see
+ * toolPluginConfig), so dev never lists it; and a daily user picks
+ * agents, not developer personas, so daily lists ONLY it — build/plan
+ * stay out (the plan agent is still reachable: the model switches
+ * itself into it through the plan workflow's plan_mode tool, and the
+ * picker stays the escape hatch back). Degrades to the unfiltered list
+ * when lumina-daily is absent from the catalog (plugin install failed /
+ * still loading): a daily session then runs on the plain fallback and
+ * the picker must not go empty. Pure; shared by the picker
+ * (ComposerToolbar) and the staged-pick validation (useSessionFlow) so
+ * the two can never disagree.
+ */
+export function pickableAgents<T extends {id: string}>(mode: AppMode, agents: T[]): T[] {
+    const hasDaily = agents.some((a) => a.id === LUMINA_DAILY_AGENT_ID);
+    if (mode === "daily") {
+        return hasDaily ? agents.filter((a) => a.id === LUMINA_DAILY_AGENT_ID) : agents;
+    }
+    return hasDaily ? agents.filter((a) => a.id !== LUMINA_DAILY_AGENT_ID) : agents;
 }

@@ -51,6 +51,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Model": "模型",
     "Thinking depth": "思考深度",
     "Build mode": "构建模式",
+    "Daily mode": "日常模式",
     "Off": "关闭",
     "Low": "低",
     "Medium": "中",

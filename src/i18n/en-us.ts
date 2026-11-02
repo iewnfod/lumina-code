@@ -53,6 +53,7 @@ const enUs = {
     "Model": "Model",
     "Thinking depth": "Thinking depth",
     "Build mode": "Build mode",
+    "Daily mode": "Daily mode",
     "Off": "Off",
     "Low": "Low",
     "Medium": "Medium",

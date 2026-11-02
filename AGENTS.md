@@ -671,7 +671,17 @@ src/
 │   │                      #   stamp (beside CLIENT_SOURCE, create-only
 │   │                      #   metadata) and sessionMode derives it back —
 │   │                      #   unstamped sessions (pre-mode builds, TUI/CLI
-│   │                      #   strangers, imports) read as "dev".
+│   │                      #   strangers, imports) read as "dev". ALSO
+│   │                      #   pickableAgents (pure): the mode picker's SCOPE
+│   │                      #   rule — dev never lists lumina-daily, daily
+│   │                      #   lists ONLY it (the plan agent stays reachable
+│   │                      #   via the model's own plan_mode switch; the
+│   │                      #   picker is the escape hatch back); passes the
+│   │                      #   list through unchanged when lumina-daily is
+│   │                      #   absent (install failed / catalog loading) so
+│   │                      #   daily never faces an empty picker. Shared by
+│   │                      #   ComposerToolbar's picker and useSessionFlow's
+│   │                      #   staged/default agent derivations.
 │   │                      #   node-testable (storage-stub + query re-import).
 │   ├── defaultWorkspace.ts # THE DAILY WORKSPACE: ~/Documents/LuminaWorkspace
 │   │                      #   — the mode's fixed working AREA (a

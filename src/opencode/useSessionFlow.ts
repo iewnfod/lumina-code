@@ -2,7 +2,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {error, info, warn} from "@tauri-apps/plugin-log";
 import {loadState, saveState} from "../lib/persist.ts";
 import {fileRefToPromptFile, OpencodeApi} from "./api.ts";
-import {type AppMode, sessionMode, useAppMode} from "./appMode.ts";
+import {type AppMode, pickableAgents, sessionMode, useAppMode} from "./appMode.ts";
 import {LUMINA_DAILY_AGENT_ID} from "./toolPluginConfig.ts";
 import {ensureDefaultWorkspace, resolveDefaultWorkspace, resolveSessionDirectory} from "./defaultWorkspace.ts";
 import {appendFailedPrompt, prepareCommandSubmission} from "./useSessionMessages.ts";
@@ -233,18 +233,20 @@ export function useSessionFlow(): {
     const stagedAgent = useMemo(() => {
         if (!pendingAgent) return null;
         if (agents.length === 0) return pendingAgent; // catalog still loading
-        return agents.some((a) => a.id === pendingAgent) ? pendingAgent : null;
-    }, [pendingAgent, agents]);
+        // Same mode scoping as the picker (pickableAgents): a staged pick
+        // from the OTHER half (persisted across a mode switch — e.g. dev's
+        // plan) must not leak in; null lets the mode's default take over.
+        return pickableAgents(mode, agents).some((a) => a.id === pendingAgent) ? pendingAgent : null;
+    }, [mode, pendingAgent, agents]);
     // The mode's DEFAULT agent: daily sessions start on the dedicated
     // lumina-daily agent (its config system prompt + tool gating ARE the
     // daily half of the harness) when the server lists it; dev keeps the
     // catalog's first primary (build). Null while the catalog is loading
     // or the daily agent failed to install — the plain fallback applies.
+    // Scoped through pickableAgents like the picker itself: dev's default
+    // can never land on the daily persona either.
     const modeDefaultAgent = useMemo(() => {
-        if (mode === "daily" && agents.some((a) => a.id === LUMINA_DAILY_AGENT_ID)) {
-            return LUMINA_DAILY_AGENT_ID;
-        }
-        return agents[0]?.id ?? null;
+        return pickableAgents(mode, agents)[0]?.id ?? null;
     }, [mode, agents]);
     const effectiveModel = activeSession?.model ?? stagedModel ?? fallbackModel;
     const effectiveAgent = activeSession?.agent ?? stagedAgent ?? modeDefaultAgent ?? "build";

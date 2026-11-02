@@ -1,6 +1,6 @@
 import {ArrowUp, Blocks, Brain, Cpu, Paperclip, Settings2, Square} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
-import {useAppMode} from "../../opencode/appMode.ts";
+import {pickableAgents, useAppMode} from "../../opencode/appMode.ts";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import type {
@@ -35,6 +35,7 @@ function depthLabel(variant: string, t: Record<TranslationKey, string>): string 
 const AGENT_LABELS: Record<string, TranslationKey> = {
     build: "Build mode",
     plan: "Plan mode",
+    "lumina-daily": "Daily mode",
 };
 
 function agentLabel(id: string, name: string | null | undefined, t: Record<TranslationKey, string>): string {
@@ -251,6 +252,12 @@ export function ComposerSettingsControls({
     // fixed workspace (defaultWorkspace.ts) and hides both — git-flavored
     // controls are exactly the clutter a non-developer should never see.
     const mode = useAppMode();
+    // The mode picker offers each half's OWN agents only (pickableAgents):
+    // dev never lists the daily persona, daily never offers build/plan —
+    // the current agent may still sit outside the list (the model's own
+    // plan-mode switch mid-workflow), in which case nothing renders
+    // selected and picking an entry is the way back.
+    const pickable = pickableAgents(mode, agents);
 
     return (
         <>
@@ -268,7 +275,7 @@ export function ComposerSettingsControls({
                 {(close) => (
                     <div className="w-52">
                         <MenuLabel>{t["Mode"]}</MenuLabel>
-                        {agents.map((a) => (
+                        {pickable.map((a) => (
                             <div key={a.id}>
                                 <MenuItem
                                     selected={a.id === agent}
