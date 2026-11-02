@@ -1,15 +1,28 @@
 import {memo, useCallback, useEffect, useLayoutEffect, useRef, useState} from "react";
-import {Bot, ChevronLeft, ChevronUp, Diff, ListChecks, Square, SquareTerminal} from "lucide-react";
+import {Bot, ChevronLeft, ChevronUp, Diff, ExternalLink, FileText, FolderOpen, GitBranch, ListChecks, Square, SquareTerminal} from "lucide-react";
+import {openPath, revealItemInDir} from "@tauri-apps/plugin-opener";
+import {warn} from "@tauri-apps/plugin-log";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
+import {useBackLevel} from "../../hooks/useBackLevel.ts";
+import {isMobileApp} from "../../lib/platform.ts";
 import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
-import {useStatsExpanded, useStatsPanelMode, usePendingStatsFileDrill, clearStatsFileDrill} from "../../hooks/useStatsPanelMode.ts";
+import {useOutsideDismiss} from "../../hooks/useOutsideDismiss.ts";
+import {useStatsExpanded, useStatsPanelMode, usePendingStatsDrill, clearStatsDrill} from "../../hooks/useStatsPanelMode.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 import type {SessionShellRef, SessionSubagentRef, SessionTodos} from "../../opencode/sessionActivity.ts";
+import {driftNeedsSync} from "../../opencode/worktreeSync.ts";
+import type {DocRow} from "../../opencode/workspaceDocuments.ts";
+import {displayPath} from "../../lib/path.ts";
+import type {AppMode} from "../../opencode/appMode.ts";
 import ExitPresence, {Reveal} from "../ui/ExitPresence.tsx";
 import IconButton from "../ui/IconButton.tsx";
 import Hint from "../ui/Hint.tsx";
+import {BranchSyncSection} from "./BranchSyncSection.tsx";
+import type {BranchSyncProps} from "./BranchSyncSection.tsx";
 import {ChangesSection, DiffCountsBadge, FileDiffBody, FileTitle} from "./ChangesSection.tsx";
+import {DocumentsSection} from "./DocumentsSection.tsx";
+import DocumentPreviewBody from "./DocumentPreviewBody.tsx";
 import {ShellStateChip, TerminalsSection, TerminalBody} from "./TerminalsSection.tsx";
 import {SubagentsSection, SubagentBody, SubagentStateChip, SubagentTitle} from "./SubagentsSection.tsx";
 import {FinishedTotal} from "./statsChrome.tsx";
@@ -19,6 +32,7 @@ import {TodoSection} from "./TodoSection.tsx";
 type StatsView =
     | {kind: "overview"}
     | {kind: "file"; file: WorkspaceDiffEntry}
+    | {kind: "document"; doc: DocRow}
     | {kind: "terminal"; shell: SessionShellRef & {running: boolean}}
     | {kind: "subagent"; sub: SessionSubagentRef & {running: boolean}};
 
@@ -44,25 +58,37 @@ const SessionStatsCard = memo(function SessionStatsCard({
     activity,
     directory,
     busyIds,
+    worktree,
 }: {
     /** The active session — terminals/subagents are ITS (see
      *  WorkspaceStatsCard). The card outlives same-directory session
      *  switches, so this prop CHANGES without a remount. */
     sessionId: string;
     activity: {
+        /** The active session's mode (appMode.ts): picks which workspace
+         *  scope the card renders — the git diff (dev) or the document
+         *  inventory (daily) below. */
+        mode: AppMode;
         diff: WorkspaceDiffEntry[] | null;
         diffLoading: boolean;
         diffTotals: {added: number; removed: number; files: number};
+        /** The DAILY scope (null in dev): the workspace's documents. */
+        documents: {rows: DocRow[] | null; loading: boolean} | null;
         shells: (SessionShellRef & {running: boolean})[];
         subagents: (SessionSubagentRef & {running: boolean})[];
         /** The plan-workflow todo list (null when the session has no plan). */
         todos: SessionTodos | null;
+        /** Refresh the live workspace scope (diff — or documents, per mode). */
         refreshDiff: () => void;
         /** Manual stop for one of the session's running shells. */
         stopShell: (shellId: string) => void;
     };
     directory: string | null;
     busyIds: ReadonlySet<string>;
+    /** The worktree write-back scope for the active DIRECTORY (null when
+     *  it is not a managed worktree — no pill row, no section). Built by
+     *  WorkspaceStatsCard from the binding + the drift store. */
+    worktree?: BranchSyncProps | null;
 }) {
     const t = useI18n();
     const colors = useColors();
@@ -76,6 +102,11 @@ const SessionStatsCard = memo(function SessionStatsCard({
     // collapsed exactly when switching back to a session whose layout
     // the user had set.
     const [expanded, setExpanded] = useStatsExpanded();
+    // SYSTEM BACK collapses the expanded panel (mobile): on a phone the
+    // expanded panel is an ALWAYS-OVERLAY spanning the conversation —
+    // a full page level to the user's thumb, not chrome furniture.
+    // (Desktop short-circuits inside the hook.)
+    useBackLevel(isMobileApp() && expanded, () => setExpanded(false));
     // "always" remounts expanded (a manual collapse in that mode lasts
     // until the card remounts).
     useLayoutEffect(() => {
@@ -85,10 +116,17 @@ const SessionStatsCard = memo(function SessionStatsCard({
     }, []);
     const [view, setView] = useState<StatsView>({kind: "overview"});
     const rootRef = useRef<HTMLDivElement>(null);
+    // The worktree refresh rides expand() through a ref — the worktree
+    // prop object rebuilds per render (the drillRequest pattern).
+    const wtRefreshRef = useRef<(() => void) | undefined>(undefined);
+    wtRefreshRef.current = worktree?.refresh;
 
-    const {diff, diffLoading, diffTotals, shells, subagents, todos, stopShell} = activity;
+    const {mode, diff, diffLoading, diffTotals, documents, shells, subagents, todos, stopShell} = activity;
     const runningShells = shells.filter((s) => s.running).length;
     const runningSubagents = subagents.filter((s) => s.running).length;
+    // The live workspace scope's "has data" read: the diff (dev) or the
+    // document scan (daily — null until its first scan lands).
+    const workspaceLoaded = mode === "daily" ? (documents?.rows ?? null) !== null : diff !== null;
 
     // The plan's progress read: completed tasks + whether anything is
     // live (an execution in flight, or a submission still awaiting its
@@ -98,28 +136,42 @@ const SessionStatsCard = memo(function SessionStatsCard({
         todos && (todos.pendingApproval || (busyIds.has(sessionId) && todos.items.some((i) => i.status === "pending"))),
     );
 
+    // The worktree write-back's derived presence: the collapsed pill is
+    // an ATTENTION signal (drift or an in-flight sync only), while the
+    // expanded section also stays for the LAST sync's outcome — the
+    // "已同步 · N 个提交" closure the click asked for.
+    const wtSyncing = worktree?.entry.syncing ?? false;
+    const wtSnapshot = worktree?.entry.snapshot ?? null;
+    const wtNeedsSync = wtSnapshot ? driftNeedsSync(wtSnapshot) : false;
+    const showWorktreePill = Boolean(worktree) && (wtSyncing || wtNeedsSync);
+    const showWorktreeSection =
+        Boolean(worktree) && (wtSyncing || wtNeedsSync || worktree?.entry.lastOutcome != null);
+
     // The card exists from the moment a session is entered and its first
-    // diff pull has landed — even at zero changes (entering a session
-    // must already SHOW the workspace being tracked, not wait for the
-    // first message to edit something). While the diff is still loading
-    // the card doesn't exist visually (no flash of an empty shell).
+    // workspace pull has landed — even at zero changes (entering a
+    // session must already SHOW the workspace being tracked, not wait
+    // for the first message to edit something). While it is still
+    // loading the card doesn't exist visually (no flash of an empty
+    // shell).
     const visible =
-        diff !== null ||
+        workspaceLoaded ||
         shells.length > 0 ||
         subagents.length > 0 ||
         (todos?.items.length ?? 0) > 0;
-    // Empty sections don't render in the expanded panel either. Changes
-    // renders once its diff has loaded (the panel then shows the explicit
-    // "No changes yet" state) and is exempt while the diff LOADS on a
-    // card already open for terminals/subagents, so the file list
+    // Empty sections don't render in the expanded panel either. The
+    // workspace section renders once its scope has loaded (the panel
+    // then shows the explicit empty state) and is exempt while it LOADS
+    // on a card already open for terminals/subagents, so the list
     // doesn't pop in unannounced.
-    const showChanges = diff !== null || (diffLoading && (shells.length > 0 || subagents.length > 0));
+    const workspaceLoading = mode === "daily" ? (documents?.loading ?? false) : diffLoading;
+    const showWorkspaceSection = workspaceLoaded || (workspaceLoading && (shells.length > 0 || subagents.length > 0));
 
     const expand = useCallback(() => {
         setExpanded(true);
         // Refresh on open so the panel doesn't show stale counts; a CSS
         // width transition doesn't fight a re-render, so no deferral.
         activity.refreshDiff();
+        wtRefreshRef.current?.();
     }, [setExpanded, activity]);
 
     const collapse = useCallback(() => {
@@ -134,48 +186,56 @@ const SessionStatsCard = memo(function SessionStatsCard({
         setView({kind: "overview"});
     }, [sessionId]);
 
-    // A file drill REQUESTED from the transcript (a turn-edit row — the
-    // same {kind:"file"} view the Changes rows open): expand the panel,
-    // refresh the workspace numbers, aim the view, clear the request.
-    // Refs for the helpers so the effect runs on the REQUEST only (the
-    // activity object rebuilds per render).
-    const drillRequest = usePendingStatsFileDrill();
+    // A drill REQUESTED from the transcript (a turn-edit row → file diff,
+    // a SubagentCard row → its child's live transcript — the same views
+    // the panel's own rows open): expand the panel, aim the view, clear
+    // the request. Refs for the helpers so the effect runs on the
+    // REQUEST only (the activity/busy objects rebuild per render). The
+    // subagent view's `running` flag is the busy set AT REQUEST TIME —
+    // the live resolution below upgrades it every render afterwards.
+    const drillRequest = usePendingStatsDrill();
     const refreshRef = useRef(activity.refreshDiff);
     refreshRef.current = activity.refreshDiff;
+    const busyRef = useRef(busyIds);
+    busyRef.current = busyIds;
     useEffect(() => {
         if (!drillRequest) return;
         setExpanded(true);
-        refreshRef.current();
-        setView({kind: "file", file: drillRequest});
-        clearStatsFileDrill();
+        if (drillRequest.kind === "file") {
+            refreshRef.current();
+            setView({kind: "file", file: drillRequest.file});
+        } else if (drillRequest.kind === "document") {
+            refreshRef.current(); // the scan row carries the real size
+            setView({kind: "document", doc: drillRequest.doc});
+        } else {
+            setView({
+                kind: "subagent",
+                sub: {...drillRequest.sub, running: busyRef.current.has(drillRequest.sub.id)},
+            });
+        }
+        clearStatsDrill();
     }, [drillRequest, setExpanded]);
 
     // Outside pointer-down / Escape collapse the panel (PopoverMenu's
     // capture-phase pattern) — only in "auto" mode. "always" keeps the
     // panel open through outside interaction; its own collapse button
-    // still works and lasts until the card remounts. A pointer-down on
-    // a turn-edit drill row ([data-lum-stats-drill], in the transcript)
-    // is exempt: its click re-aims the panel at that file, and the
-    // collapse-then-re-expand would jank the width transition.
-    useEffect(() => {
-        if (!expanded || panelMode !== "auto") return;
-        const onPointerDown = (e: PointerEvent) => {
-            if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-                const el = e.target as Element;
-                if (typeof el.closest === "function" && el.closest("[data-lum-stats-drill]")) return;
-                collapse();
-            }
-        };
-        const onKeyDown = (e: KeyboardEvent) => {
-            if (e.key === "Escape") collapse();
-        };
-        document.addEventListener("pointerdown", onPointerDown, true);
-        document.addEventListener("keydown", onKeyDown, true);
-        return () => {
-            document.removeEventListener("pointerdown", onPointerDown, true);
-            document.removeEventListener("keydown", onKeyDown, true);
-        };
-    }, [expanded, panelMode, collapse]);
+    // still works and lasts until the card remounts. Two exemptions:
+    // a pointer-down on a turn-edit drill row ([data-lum-stats-drill],
+    // in the transcript) re-aims the panel at that file, and the
+    // collapse-then-re-expand would jank the width transition; and a
+    // pointer-down inside ANY modal ([data-lum-modal], portal-rendered
+    // by the Modal primitive — e.g. the plan/report documents opened
+    // from TodoSection's header) is the modal's own interaction — a
+    // portal subtree is never inside rootRef, so without the exemption
+    // the first click in the modal would collapse the panel, unmounting
+    // TodoSection and its modal with it. Escape follows the same layer
+    // discipline: while a modal is open it belongs to the modal (Modal's
+    // own Escape handler closes it); the panel takes over once none is.
+    const outsideDismiss = useCallback(() => collapse(), [collapse]);
+    useOutsideDismiss(rootRef, expanded && panelMode === "auto", outsideDismiss, {
+        exempt: (el) => Boolean(el.closest("[data-lum-stats-drill]") || el.closest("[data-lum-modal]")),
+        escapeBusy: () => document.querySelector("[data-lum-modal]") !== null,
+    });
 
     // Switching the mode to "always" mid-session expands a collapsed
     // card right away; switching back to "auto" leaves it as-is. Refs,
@@ -190,10 +250,16 @@ const SessionStatsCard = memo(function SessionStatsCard({
 
     // Drill views resolve their entry LIVE (by id/path) so state updates
     // flow in — a terminal that exits while open must stop pulsing and
-    // polling, a refreshed diff must re-render the open file view.
+    // polling, a refreshed diff must re-render the open file view, a
+    // re-scanned document's fresh byte count must reach the staleness
+    // check.
     const liveFile =
         view.kind === "file"
             ? diff?.find((e) => e.file === view.file.file) ?? view.file
+            : null;
+    const liveDoc =
+        view.kind === "document"
+            ? documents?.rows?.find((r) => r.path === view.doc.path) ?? view.doc
             : null;
     const liveShell =
         view.kind === "terminal"
@@ -219,13 +285,6 @@ const SessionStatsCard = memo(function SessionStatsCard({
         "--lum-stats-divider": colors.glassBorder,
         "--lum-wash": colors.hoverOverlay,
     } as React.CSSProperties;
-
-    /** "已完成 / 总数" — finished prominent, total dimmed behind the slash. */
-    const StatCount = ({finished, total, label}: {finished: number; total: number; label: string}) => (
-        <Hint label={`${label} · ${finished} / ${total}`}>
-            <FinishedTotal finished={finished} total={total}/>
-        </Hint>
-    );
 
     // The card unmounts with a short fade (the exit engine holds it
     // until the fade actually ends). The root stays a REAL flex sibling
@@ -260,6 +319,33 @@ const SessionStatsCard = memo(function SessionStatsCard({
                     className="flex flex-col items-stretch gap-1 px-3 py-2.5 cursor-pointer rounded-[var(--radius-xl)] text-xs lum-wash"
                     aria-label={t["Workspace activity"]}
                 >
+                    <Reveal as="span" present={showWorktreePill}>
+                        {showWorktreePill ? (
+                            // The write-back's ATTENTION row rides on
+                            // top — "your local branch is stale" is the
+                            // most actionable thing the pill can say.
+                            // Diverged warns; drift counts stay quiet.
+                            <span className="flex items-center justify-between gap-2">
+                                <GitBranch
+                                    size={13}
+                                    className={`shrink-0 opacity-70${wtSyncing ? " animate-pulse" : ""}`}
+                                />
+                                {wtSyncing ? (
+                                    <span className="text-2xs opacity-40 select-none">{t["Syncing…"]}</span>
+                                ) : wtSnapshot?.diverged ? (
+                                    <span className="text-2xs select-none" style={{color: "var(--color-warning)"}}>
+                                        {t["Branch diverged"]}
+                                    </span>
+                                ) : (
+                                    <span className="text-2xs opacity-60 select-none tabular-nums">
+                                        {wtSnapshot && wtSnapshot.dirtyFiles > 0
+                                            ? `${wtSnapshot.dirtyFiles} ${t["files to sync"]}`
+                                            : `${wtSnapshot?.commitsAhead ?? 0} ${t["commits to sync"]}`}
+                                    </span>
+                                )}
+                            </span>
+                        ) : null}
+                    </Reveal>
                     <Reveal as="span" present={todos !== null && todos.items.length > 0}>
                         {todos && todos.items.length > 0 ? (
                             // The plan's progress rides ABOVE the diff row —
@@ -283,23 +369,51 @@ const SessionStatsCard = memo(function SessionStatsCard({
                             </span>
                         ) : null}
                     </Reveal>
-                    <Reveal as="span" present={diff !== null}>
-                        {diff !== null ? (
-                            <span className="flex items-center justify-between gap-2">
-                                <Diff size={13} className="shrink-0 opacity-70"/>
-                                {diffTotals.files > 0 ? (
-                                    <DiffCountsBadge added={diffTotals.added} removed={diffTotals.removed}/>
-                                ) : (
-                                    // Clean working copy — the row still shows so
-                                    // the card says "tracked, nothing changed"
-                                    // instead of vanishing.
-                                    <span className="text-2xs opacity-40 select-none">
-                                        {t["No changes yet"]}
-                                    </span>
-                                )}
-                            </span>
-                        ) : null}
-                    </Reveal>
+                    {mode === "daily" ? (
+                        <Reveal as="span" present={workspaceLoaded}>
+                            {workspaceLoaded && documents ? (
+                                // The daily pill row: what the document
+                                // inventory last learned. New/changed docs
+                                // are the attention signal; a quiet folder
+                                // still says "tracked".
+                                <span className="flex items-center justify-between gap-2">
+                                    <FileText size={13} className="shrink-0 opacity-70"/>
+                                    {documents.rows!.some((r) => r.change !== null) ? (
+                                        <span className="text-2xs select-none" style={{color: "var(--color-diff-add)"}}>
+                                            {documents.rows!.filter((r) => r.change !== null).length}{" "}
+                                            {t["Updated"]}
+                                        </span>
+                                    ) : documents.rows!.length > 0 ? (
+                                        <span className="text-2xs opacity-60 select-none tabular-nums">
+                                            {documents.rows!.length} {t["Files"]}
+                                        </span>
+                                    ) : (
+                                        <span className="text-2xs opacity-40 select-none">
+                                            {t["No documents yet"]}
+                                        </span>
+                                    )}
+                                </span>
+                            ) : null}
+                        </Reveal>
+                    ) : (
+                        <Reveal as="span" present={diff !== null}>
+                            {diff !== null ? (
+                                <span className="flex items-center justify-between gap-2">
+                                    <Diff size={13} className="shrink-0 opacity-70"/>
+                                    {diffTotals.files > 0 ? (
+                                        <DiffCountsBadge added={diffTotals.added} removed={diffTotals.removed}/>
+                                    ) : (
+                                        // Clean working copy — the row still shows so
+                                        // the card says "tracked, nothing changed"
+                                        // instead of vanishing.
+                                        <span className="text-2xs opacity-40 select-none">
+                                            {t["No changes yet"]}
+                                        </span>
+                                    )}
+                                </span>
+                            ) : null}
+                        </Reveal>
+                    )}
                     <Reveal as="span" present={shells.length > 0}>
                         {shells.length > 0 ? (
                             <span className="flex items-center justify-between gap-2">
@@ -362,6 +476,13 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         )}
                         {view.kind === "file" && liveFile ? (
                             <FileTitle entry={liveFile} directory={directory} className="flex-1"/>
+                        ) : view.kind === "document" && liveDoc ? (
+                            // The document's workspace-relative name — the
+                            // same display FileTitle gives diff rows.
+                            <div className="flex-1 min-w-0 text-xs font-medium truncate pl-1"
+                                title={liveDoc.path}>
+                                {displayPath(liveDoc.path, directory)}
+                            </div>
                         ) : view.kind === "terminal" ? (
                             // Not the raw command — commands are long; the
                             // full command gets its own block above the
@@ -401,6 +522,46 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         )}
                         {view.kind === "subagent" && liveSub && (
                             <SubagentStateChip running={liveSub.running}/>
+                        )}
+                        {/* The document drill's leave-the-app actions live
+                         * HERE (beside the collapse button), not inside the
+                         * preview body — the header owns every drill's
+                         * chrome (stop button for terminals, state chips…). */}
+                        {view.kind === "document" && liveDoc && (
+                            <>
+                                <Hint label={t["Open in system app"]}>
+                                    <IconButton
+                                        size={24}
+                                        circle
+                                        hoverOverlay={colors.hoverOverlay}
+                                        activeOverlay={colors.activeOverlay}
+                                        aria-label={t["Open in system app"]}
+                                        onClick={() => {
+                                            openPath(liveDoc.path).catch((e) => {
+                                                warn(`Failed to open ${liveDoc.path}: ${e}`).catch(() => {});
+                                            });
+                                        }}
+                                    >
+                                        <ExternalLink size={12}/>
+                                    </IconButton>
+                                </Hint>
+                                <Hint label={t["Show in folder"]}>
+                                    <IconButton
+                                        size={24}
+                                        circle
+                                        hoverOverlay={colors.hoverOverlay}
+                                        activeOverlay={colors.activeOverlay}
+                                        aria-label={t["Show in folder"]}
+                                        onClick={() => {
+                                            revealItemInDir(liveDoc.path).catch((e) => {
+                                                warn(`Failed to reveal ${liveDoc.path}: ${e}`).catch(() => {});
+                                            });
+                                        }}
+                                    >
+                                        <FolderOpen size={12}/>
+                                    </IconButton>
+                                </Hint>
+                            </>
                         )}
                         <IconButton
                             size={24}
@@ -446,15 +607,27 @@ const SessionStatsCard = memo(function SessionStatsCard({
                                         />
                                     ) : null}
                                 </Reveal>
-                                <Reveal present={showChanges}>
-                                    {showChanges ? (
-                                        <ChangesSection
-                                            diff={diff}
-                                            loading={diffLoading}
-                                            totals={diffTotals}
-                                            directory={directory}
-                                            onOpenFile={(file) => setView({kind: "file", file})}
-                                        />
+                                <Reveal present={showWorktreeSection}>
+                                    {worktree ? <BranchSyncSection {...worktree}/> : null}
+                                </Reveal>
+                                <Reveal present={showWorkspaceSection}>
+                                    {showWorkspaceSection ? (
+                                        mode === "daily" && documents ? (
+                                            <DocumentsSection
+                                                rows={documents.rows}
+                                                loading={documents.loading}
+                                                directory={directory}
+                                                onOpenDocument={(row) => setView({kind: "document", doc: row})}
+                                            />
+                                        ) : (
+                                            <ChangesSection
+                                                diff={diff}
+                                                loading={diffLoading}
+                                                totals={diffTotals}
+                                                directory={directory}
+                                                onOpenFile={(file) => setView({kind: "file", file})}
+                                            />
+                                        )
                                     ) : null}
                                 </Reveal>
                                 <Reveal present={shells.length > 0}>
@@ -479,6 +652,9 @@ const SessionStatsCard = memo(function SessionStatsCard({
                         {view.kind === "file" && liveFile && (
                             <FileDiffBody entry={liveFile}/>
                         )}
+                        {view.kind === "document" && liveDoc && (
+                            <DocumentPreviewBody row={liveDoc} directory={directory}/>
+                        )}
                         {view.kind === "terminal" && liveShell && (
                             <TerminalBody
                                 shell={liveShell}
@@ -502,3 +678,15 @@ const SessionStatsCard = memo(function SessionStatsCard({
 });
 
 export default SessionStatsCard;
+
+/** "已完成 / 总数" — finished prominent, total dimmed behind the slash.
+ *  Module-level on purpose: an inline component definition re-creates
+ *  its function identity every render, which defeats the memo checks of
+ *  anything receiving it. */
+function StatCount({finished, total, label}: {finished: number; total: number; label: string}) {
+    return (
+        <Hint label={`${label} · ${finished} / ${total}`}>
+            <FinishedTotal finished={finished} total={total}/>
+        </Hint>
+    );
+}

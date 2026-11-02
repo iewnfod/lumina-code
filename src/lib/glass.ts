@@ -83,6 +83,44 @@ export function defaultSaturate(): number {
 }
 
 /**
+ * The default tint a glass surface wears over its bg — a faint
+ * lightening on dark bgs, a faint darkening on light ones. Extracted so
+ * the compositor-blur path, the glass path and the equivalent-opaque
+ * derivation ({@link glassSurfaceEquivalent}) share ONE definition.
+ */
+export function defaultGlassTint(dark: boolean): string {
+    return dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)";
+}
+
+/**
+ * The OPAQUE color a default-tinted glass surface presents over a solid
+ * bg — the standard alpha composite of {@link defaultGlassTint}'s layer
+ * over the bg (blur/saturate do nothing to a solid color, so the tint
+ * mix IS the visual result). The chrome surfaces are translucent, but
+ * consumers that need ONE opaque swatch matching them — the Android
+ * shell's safe-area bands (the native window background behind the
+ * padded content view; see MainActivity's chrome sync) — derive it here
+ * so the bands read as a seamless continuation of the title bar /
+ * chrome glass.
+ */
+export function glassSurfaceEquivalent(bg: string): string {
+    const dark = isColorDark(bg);
+    // Same numbers as defaultGlassTint, decomposed for the mix.
+    const alpha = dark ? 0.06 : 0.04;
+    const tintChannel = dark ? 255 : 0;
+    const h = bg.replace("#", "");
+    if (h.length < 6) return bg;
+    // Hex output on purpose: the native consumer (Android's
+    // Color.parseColor) only accepts #rrggbb, not CSS rgb() forms.
+    const channel = (start: number) => {
+        const base = parseInt(h.substring(start, start + 2), 16);
+        const mixed = Math.round(tintChannel * alpha + base * (1 - alpha));
+        return mixed.toString(16).padStart(2, "0");
+    };
+    return `#${channel(0)}${channel(2)}${channel(4)}`;
+}
+
+/**
  * Build the inline style for a glass surface.
  *
  * @param bg the effective background hex the surface floats over.
@@ -109,7 +147,7 @@ export function glassSurface(
         // keeps the same tint the glass path would wear so the chrome
         // reads identically to the filtered platforms.
         if (opts?.compositorBlur) {
-            const tint = opts.tint ?? (dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)");
+            const tint = opts.tint ?? defaultGlassTint(dark);
             return {background: tint};
         }
         // Opaque fallback. Nudge the bg by a small amount so the surface is
@@ -121,7 +159,7 @@ export function glassSurface(
     }
 
     // Glass path.
-    const tint = opts?.tint ?? (dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)");
+    const tint = opts?.tint ?? defaultGlassTint(dark);
     const filter = `blur(${blurPx}px) saturate(${saturate})`;
     return {
         background: tint,

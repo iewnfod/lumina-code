@@ -1,5 +1,6 @@
 import {info} from "@tauri-apps/plugin-log";
 import {createPersistedStore} from "../lib/persistedStore.ts";
+import type {OpencodeSession} from "./types.ts";
 
 /**
  * THE sidebar's session whitelist: the ids of sessions created by THIS app's
@@ -13,7 +14,13 @@ import {createPersistedStore} from "../lib/persistedStore.ts";
  * registry flips that around: membership is OURS to grant, exactly once,
  * at the single creation choke-point (useSessions.create ← sendFirst);
  * deletions (useSessions.remove, the session.deleted event, seed-time
- * reconciliation) take ids back out. Other instances' sessions never enter.
+ * reconciliation) take ids back out. Strangers — the TUI/CLI and other
+ * software building on OpenCode — only enter through manual IMPORT.
+ * Sessions created by OTHER Lumina Code clients (desktop windows, the
+ * CEF shell, the mobile app) are the exception: they carry the
+ * CLIENT_SOURCE metadata stamp and auto-register (see
+ * autoRegisterClientSessions) — the whitelist isolates foreign tools,
+ * not Lumina Code's own instances.
  *
  * `null` = NOT YET ADOPTED (the storage key is absent — a fresh install or
  * a pre-registry upgrade). The first successful session list after connect
@@ -26,6 +33,16 @@ import {createPersistedStore} from "../lib/persistedStore.ts";
  * The persisted shape is a plain id array in REGISTRATION order — the
  * substrate for future pinned/fixed-order features; extending entries
  * (e.g. `{id, pinned}`) later only needs a read-side shim here.
+ *
+ * This store is only the LOCAL half of the membership now: every Lumina
+ * Code client deriving its sidebar from `local ∪ shared` (the shared
+ * half lives in sessionWhitelistSync.ts — one whitelist.json next to
+ * the server's global opencode config, union-merged by every writer).
+ * The local layer doubles as the offline buffer and the healing source
+ * for lost updates on the shared file (each seed union-pushes it).
+ * Cross-device: importing on ONE client registers the session for
+ * every client; the create-time CLIENT_SOURCE stamp stays as the fast
+ * path (no file round-trip needed for brand-new sessions).
  */
 /** Parse the raw storage string: `null` (absent key) = not adopted;
  *  malformed or non-array values also read as not-adopted so adoption
@@ -52,8 +69,9 @@ const store = createPersistedStore<string[] | null>({
     eq: (a, b) => JSON.stringify(a) === JSON.stringify(b),
 });
 
-/** Register a session WE created (idempotent; appends in registration
- *  order). The only writer is the create path in useSessions. */
+/** Register a session WE created or the user chose to IMPORT
+ *  (idempotent; appends in registration order). The writers are the
+ *  create and import paths in useSessions. */
 export function registerSession(id: string): void {
     if (id === "") return;
     const current = store.get() ?? [];
@@ -71,9 +89,88 @@ export function unregisterSession(id: string): void {
     info(`Unregistered session ${id} (${current.length - 1} left)`).catch(() => {});
 }
 
-/** Synchronous membership check against the current snapshot. */
-export function isSessionRegistered(id: string): boolean {
-    return (store.get() ?? []).includes(id);
+/** A user-initiated (root) session: OpenCode's subagents
+ *  (explore/review/…) spawn children with `parentID` set, which would
+ *  otherwise flood the sidebar with internal transcripts, and Lumina
+ *  Code's tools plugin stamps its transient helper sessions with
+ *  `{source: "lumina-tools"}` (v2.0.11's public create API ignores
+ *  `parentID`, so the marker is the only hiding mechanism). The
+ *  server's `?roots=true` filter does not work on v2.0.x — filter
+ *  client-side. Both the sidebar view and the import candidate set
+ *  filter on this, and the registry's one-time ADOPTION depends on it
+ *  too (helper sessions must never be adopted wholesale). */
+export function isRootSession(s: OpencodeSession): boolean {
+    return !s.parentID && s.metadata?.["source"] !== "lumina-tools";
+}
+
+/** The CLIENT marker: sessions created by ANY Lumina Code client
+ *  (desktop, CEF shell, mobile) carry `{source: "lumina-code"}` from
+ *  the creation choke-point (useSessions.create). Deliberately a
+ *  different value from the plugin's "lumina-tools" — that marker
+ *  HIDES helper sessions, this one ADOPTS them across instances.
+ *  The whitelist's purpose is keeping out subagent children and
+ *  sessions created by OTHER software on OpenCode's shared storage
+ *  (TUI/CLI/third-party clients), never isolating Lumina Code's own
+ *  instances from each other. */
+export const CLIENT_SOURCE = "lumina-code";
+
+/** Whether the session was created by a Lumina Code client. */
+export function isClientSession(s: OpencodeSession): boolean {
+    return s.metadata?.["source"] === CLIENT_SOURCE;
+}
+
+/** AUTO-WHITELIST: register root sessions stamped as Lumina Code
+ *  creations that the registry does not hold yet — the cross-instance
+ *  half of the membership rule (a session started on the phone or in a
+ *  sibling desktop window joins this instance's sidebar on its next
+ *  list, live via the session.created re-list, no manual import).
+ *  Called from useSessions' seed fold and relist() BEFORE the two lists
+ *  derive, so stamped sessions land in `sessions` and drop out of
+ *  `foreignSessions` on their own. Returns the newly registered ids
+ *  (for aggregate logging); an UNADOPTED registry (null) registers
+ *  nothing — the one-time adoption covers everything visible. */
+export function autoRegisterClientSessions(raw: readonly OpencodeSession[]): string[] {
+    const registered = store.get();
+    if (registered === null) return [];
+    const members = new Set(registered);
+    const added: string[] = [];
+    for (const s of raw) {
+        if (isRootSession(s) && isClientSession(s) && !members.has(s.id)) added.push(s.id);
+    }
+    for (const id of added) registerSession(id);
+    return added;
+}
+
+/** The IMPORT CANDIDATE set: root sessions from the server's list that
+ *  are NOT members (local registry ∪ shared whitelist), in server order
+ *  (most recently updated first) — what the import picker offers. The
+ *  `shared` parameter is the server-file half (sessionWhitelistSync's
+ *  snapshot); with every client pushing its local set into the file at
+ *  each seed, the candidate set converges to the SAME list on every
+ *  device. `registered === null` (the registry not adopted yet — the
+ *  seed's one-time adoption runs before any import UI is reachable)
+ *  imports nothing. */
+export function importableSessions(
+    raw: readonly OpencodeSession[],
+    registered: readonly string[] | null,
+    shared: readonly string[] = [],
+): OpencodeSession[] {
+    if (registered === null) return [];
+    const members = unionMembership(registered, shared);
+    return raw.filter((s) => isRootSession(s) && !members.has(s.id));
+}
+
+/** Membership = local registry ∪ shared whitelist, as a Set for
+ * filtering (the sidebar view and the DirectoryPicker quick-picks both
+ * derive from this; `registered === null` still unions — pre-adoption
+ * nothing is listed anyway, and the seed adopts before deriving). */
+export function unionMembership(
+    registered: readonly string[] | null,
+    shared: readonly string[],
+): Set<string> {
+    const members = new Set(registered ?? []);
+    for (const id of shared) members.add(id);
+    return members;
 }
 
 /** The registered ids in registration order, or `null` when the registry

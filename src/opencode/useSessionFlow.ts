@@ -1,8 +1,11 @@
-import {useCallback, useEffect, useMemo, useState} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {error, info, warn} from "@tauri-apps/plugin-log";
 import {loadState, saveState} from "../lib/persist.ts";
-import {OpencodeApi} from "./api.ts";
-import {prepareCommandSubmission} from "./useSessionMessages.ts";
+import {fileRefToPromptFile, OpencodeApi} from "./api.ts";
+import {type AppMode, sessionMode, useAppMode} from "./appMode.ts";
+import {LUMINA_DAILY_AGENT_ID} from "./toolPluginConfig.ts";
+import {ensureDefaultWorkspace, resolveDefaultWorkspace, resolveSessionDirectory} from "./defaultWorkspace.ts";
+import {appendFailedPrompt, prepareCommandSubmission} from "./useSessionMessages.ts";
 import {useCatalog} from "./catalogContext.tsx";
 import {useConnection} from "./connectionContext.tsx";
 import {useSessionData} from "./sessionDataContext.tsx";
@@ -77,6 +80,9 @@ export function useSessionFlow(): {
      *  staged/fallback pick. */
     effectiveModel: SessionModelRef | null;
     effectiveAgent: string;
+    /** Agent a plan approval switches the ACTIVE session into (build /
+     *  lumina-daily by the session's mode) — ChatView → useGateCards. */
+    approveAgent: string;
     /** The welcome screen's staged project directory. */
     pendingDirectory: string | null;
     /** The welcome screen's staged branch binding (null = main worktree). */
@@ -97,6 +103,9 @@ export function useSessionFlow(): {
         command: PendingCommand | null,
     ) => Promise<void>;
     deleteSession: (id: string) => void;
+    /** DEV + welcome screen + no project staged: the composer's send
+     *  is refused until a directory is picked (dev has no default). */
+    sendBlocked: boolean;
 } {
     const {api} = useConnection();
     const {models, agents, defaultModel} = useCatalog();
@@ -108,12 +117,25 @@ export function useSessionFlow(): {
         removeSession: remove,
         patchSession: patch,
     } = useSessionData();
+    // The DAILY/DEV split (opencode/appMode.ts): sendFirst's directory
+    // rules and the mode stamp follow the EFFECTIVE mode (a confirmed
+    // git-less machine forces "daily" — see the gate there).
+    const mode = useAppMode();
 
     // Cross-restart restore, read synchronously so the first paint already
     // targets the previous session / composer choices.
     const restored = useMemo(loadState, []);
     const [activeId, setActiveId] = useState<string | null>(restored.sessionId);
     const activeSession = sessions.find((s) => s.id === activeId) ?? null;
+    // What each mode had open when it was last left (null = that mode was
+    // on the welcome screen) — switching back restores it. Seeded from the
+    // persisted ui-state so the memory survives restarts; the CURRENT
+    // mode's entry tracks activeId through the sync effect below (the
+    // mode-switch effect only writes the mode being LEFT).
+    const modeSessionsRef = useRef<Record<AppMode, string | null>>({
+        daily: restored.dailySessionId,
+        dev: restored.devSessionId,
+    });
 
     // --- Composer selections (staged pre-session) ---
     const [pendingModel, setPendingModel] = useState<SessionModelRef | null>(restored.model);
@@ -125,6 +147,65 @@ export function useSessionFlow(): {
     // welcome screen starts a fresh choice (the same reasoning as the
     // in-progress draft staying in memory).
     const [pendingBranch, setPendingBranch] = useState<string | null>(null);
+
+    // --- Mode-switch choreography (appMode.ts) ---
+    // Switching halves (or being forced off dev by a confirmed git-less
+    // machine) remembers what the LEFT mode had open, clears the staging
+    // (the previous session's directory belongs to the old mode too — a
+    // daily workspace must not leak into dev's picker, so unlike
+    // newSession() nothing is re-seeded) and RESTORES the new mode's own
+    // last session: each half reopens where the user left it, instead of
+    // always landing on the welcome screen. The restore only takes a
+    // session that still exists, still belongs to that mode and the list
+    // has loaded — anything else (deleted meanwhile, welcome screen when
+    // the mode was left, early boot) is the welcome screen, where the dev
+    // preselect effect below stages a directory as usual.
+    const prevModeRef = useRef(mode);
+    useEffect(() => {
+        if (prevModeRef.current === mode) return;
+        const prevMode = prevModeRef.current;
+        prevModeRef.current = mode;
+        // What the LEFT mode had open — activeId is still that mode's
+        // value in this render (the restore below only takes effect on
+        // the next one). null records the welcome screen just as
+        // faithfully.
+        modeSessionsRef.current[prevMode] = activeId;
+        setPendingBranch(null);
+        setPendingDirectory(null);
+        // Already sitting on a session of the NEW mode (a session opened
+        // in one half never navigates in the other, but be safe): keep it.
+        if (activeId !== null && activeSession && sessionMode(activeSession) === mode) return;
+        const remembered = modeSessionsRef.current[mode];
+        const restoredSession = remembered !== null && sessionsLoaded
+            ? sessions.find((s) => s.id === remembered && sessionMode(s) === mode) ?? null
+            : null;
+        setActiveId(restoredSession ? remembered : null);
+    }, [mode, activeId, activeSession, sessions, sessionsLoaded]);
+    // Keep the CURRENT mode's memory in lockstep with every activeId
+    // change (user open/new/delete/edit-resend…). The ownership guard is
+    // the point: on the mode-switch render activeId still belongs to the
+    // OLD mode, and an unguarded write would pollute the new mode's
+    // entry with the old half's session until the restore re-render
+    // overwrites it.
+    useEffect(() => {
+        if (activeId === null || (activeSession && sessionMode(activeSession) === mode)) {
+            modeSessionsRef.current[mode] = activeId;
+        }
+    }, [mode, activeId, activeSession]);
+    // Dev has no "default directory" anymore: an unstaged welcome
+    // composer preselects the most recent DEV session's project (a
+    // daily session's workspace is not a code project to suggest). No
+    // dev session yet (a brand-new install) keeps null — the send
+    // button stays blocked with the "choose a project directory" hint
+    // until the user picks one.
+    useEffect(() => {
+        if (mode !== "dev" || activeId !== null || pendingDirectory !== null) return;
+        const recent = sessions.find((s) =>
+            sessionMode(s) === "dev" && !!(s.directory ?? s.location?.directory)
+        );
+        const dir = recent?.directory ?? recent?.location?.directory;
+        if (dir) setPendingDirectory(mainDirFor(dir));
+    }, [mode, activeId, pendingDirectory, sessions]);
 
     // Preselect the server's default model when it survived the catalog
     // filter; otherwise the first (newest-first) own model. None until the
@@ -154,8 +235,32 @@ export function useSessionFlow(): {
         if (agents.length === 0) return pendingAgent; // catalog still loading
         return agents.some((a) => a.id === pendingAgent) ? pendingAgent : null;
     }, [pendingAgent, agents]);
+    // The mode's DEFAULT agent: daily sessions start on the dedicated
+    // lumina-daily agent (its config system prompt + tool gating ARE the
+    // daily half of the harness) when the server lists it; dev keeps the
+    // catalog's first primary (build). Null while the catalog is loading
+    // or the daily agent failed to install — the plain fallback applies.
+    const modeDefaultAgent = useMemo(() => {
+        if (mode === "daily" && agents.some((a) => a.id === LUMINA_DAILY_AGENT_ID)) {
+            return LUMINA_DAILY_AGENT_ID;
+        }
+        return agents[0]?.id ?? null;
+    }, [mode, agents]);
     const effectiveModel = activeSession?.model ?? stagedModel ?? fallbackModel;
-    const effectiveAgent = activeSession?.agent ?? stagedAgent ?? agents[0]?.id ?? "build";
+    const effectiveAgent = activeSession?.agent ?? stagedAgent ?? modeDefaultAgent ?? "build";
+    /** Which agent a plan APPROVAL switches the active session into —
+     *  build for dev sessions, lumina-daily for daily ones (switching a
+     *  daily session to build would strand it on the developer persona
+     *  + full toolset). Same rule as modeDefaultAgent, but derived from
+     *  the ACTIVE session's mode (the composer's mode may have moved on
+     *  while the session belongs to the other half). */
+    const approveAgent = useMemo(() => {
+        const sessionIsDaily = activeSession !== null && sessionMode(activeSession) === "daily";
+        if (sessionIsDaily && agents.some((a) => a.id === LUMINA_DAILY_AGENT_ID)) {
+            return LUMINA_DAILY_AGENT_ID;
+        }
+        return "build";
+    }, [activeSession, agents]);
 
     const changeModel = useCallback((ref: SessionModelRef) => {
         if (activeId) {
@@ -245,18 +350,49 @@ export function useSessionFlow(): {
         command: PendingCommand | null = null,
     ) => {
         if (!api) return;
-        const directory = pendingBranch && pendingDirectory
-            ? await resolveBranchDirectory(api, pendingDirectory, pendingBranch)
-            : pendingDirectory ?? undefined;
-        const created = await create(directory);
+        // The mode decides the directory contract: DAILY lands in the
+        // workspace's PER-SESSION subfolder
+        // (<workspace>/Sessions/<first-prompt-slug>/, materialized +
+        // claimed by its hidden marker — defaultWorkspace.ts; the
+        // root's AGENTS.md still applies, OpenCode loads instructions
+        // upward toward home), falling back to the workspace ROOT when
+        // the folder cannot be resolved (today's behavior — a prompt
+        // must never hand the server's bash a directory that doesn't
+        // exist). DEV requires an explicit project (the "default
+        // directory" escape hatch is gone; the UI disables sending
+        // until one is picked, so a bare dev send here is a raced
+        // button — refuse it rather than fall back to home).
+        let directory: string | undefined;
+        if (mode === "daily") {
+            const workspace = await resolveDefaultWorkspace(api);
+            if (workspace) {
+                await ensureDefaultWorkspace(api, workspace); // best-effort, never throws
+                const sessionDir = await resolveSessionDirectory(api, workspace, text);
+                if (sessionDir) directory = sessionDir;
+                else directory = workspace; // root fallback — the panel then sees the whole root
+            }
+        } else {
+            if (!pendingDirectory) {
+                warn("dev-mode send without a staged project directory; refusing").catch(() => {});
+                return;
+            }
+            directory = pendingBranch
+                ? await resolveBranchDirectory(api, pendingDirectory, pendingBranch)
+                : pendingDirectory;
+        }
+        const created = await create(directory, mode);
         if (!created) return;
         if (pendingModel) {
             await api.switchModel(created.id, pendingModel).catch((e) => {
                 error(`Failed to switch model: ${e}`).catch(() => {});
             });
         }
-        if (pendingAgent) {
-            await api.switchAgent(created.id, pendingAgent).catch((e) => {
+        // The staged pick, else the MODE's default agent (daily sessions
+        // start on lumina-daily — the daily half of the harness). "build"
+        // needs no switch: it is the server's default for a new session.
+        const startAgent = pendingAgent ?? modeDefaultAgent;
+        if (startAgent && startAgent !== "build") {
+            await api.switchAgent(created.id, startAgent).catch((e) => {
                 error(`Failed to switch agent: ${e}`).catch(() => {});
             });
         }
@@ -269,7 +405,7 @@ export function useSessionFlow(): {
         const deliveredText = note ? `${text}\n\n${note}` : text;
         const promptFiles = [
             ...inline.map((f) => ({uri: f.uri, name: f.name})),
-            ...fileRefs.map((r) => OpencodeApi.fileRefToPromptFile(r)),
+            ...fileRefs.map((r) => fileRefToPromptFile(r)),
         ];
         // Stamp the compact form BEFORE the request: the server enqueues
         // (and emits the confirming event) before the response arrives,
@@ -291,13 +427,32 @@ export function useSessionFlow(): {
         })();
         await deliver.catch((e) => {
             error(`Failed to send prompt: ${e}`).catch(() => {});
+            undoPending?.();
+            // Keep the first message as a FAILED row in the new session's
+            // transcript (retry affordance there) — the composer is gone
+            // (the view already switched off the welcome screen) and a
+            // dropped first message reads as "it vanished".
+            appendFailedPrompt(created.id, {
+                text: deliveredText,
+                files: [
+                    ...inline.map((f) => ({name: f.name, mime: f.mime, uri: f.uri})),
+                    ...fileRefs.map((r) => fileRefToPromptFile(r)),
+                ],
+                ...(command ? {command} : {}),
+            });
         });
-    }, [api, create, models, pendingAgent, pendingBranch, pendingDirectory, pendingModel]);
+    }, [api, create, mode, models, modeDefaultAgent, pendingAgent, pendingBranch, pendingDirectory, pendingModel]);
 
     const deleteSession = useCallback((id: string) => {
         void remove(id);
         setActiveId((cur) => (cur === id ? null : cur));
     }, [remove]);
+
+    // DEV's "no default directory" rule, as a single derived flag the
+    // composer chain renders from (the button's disabled hint and the
+    // Enter-key intercept). Only the welcome screen can be blocked — an
+    // open session already carries its directory.
+    const sendBlocked = mode === "dev" && activeId === null && pendingDirectory === null;
 
     // Drop a restored session id the server no longer lists (deleted while we
     // were away), once the first session list has actually landed.
@@ -308,15 +463,25 @@ export function useSessionFlow(): {
     }, [sessionsLoaded, sessions, activeId]);
 
     // Persist what a restart should land on: the open session (or the welcome
-    // screen's staged project), plus the model / thinking depth / mode in use.
+    // screen's staged project), plus the model / thinking depth / mode in use
+    // and each mode's last-open session (mode switches restore them; the
+    // current mode's entry is always settled by the sync effect above by the
+    // time this runs — mode-switch renders update activeId first).
+    // The AGENT deliberately persists only the user's EXPLICIT staged pick
+    // (stagedAgent), never the derived default: the default is re-derived
+    // per mode on load, and persisting it would freeze an upgrade's
+    // daily user onto whatever "build" was saved before lumina-daily
+    // existed.
     useEffect(() => {
         saveState({
             sessionId: activeId,
+            dailySessionId: modeSessionsRef.current.daily,
+            devSessionId: modeSessionsRef.current.dev,
             model: effectiveModel,
-            agent: effectiveAgent,
+            agent: stagedAgent,
             directory: pendingDirectory,
         });
-    }, [activeId, effectiveModel, effectiveAgent, pendingDirectory]);
+    }, [mode, activeId, effectiveModel, stagedAgent, pendingDirectory]);
 
     return {
         sessions,
@@ -327,6 +492,10 @@ export function useSessionFlow(): {
         activeSession,
         effectiveModel,
         effectiveAgent,
+        /** Agent a plan approval switches the ACTIVE session into
+         *  (build / lumina-daily by the session's mode) — ChatView →
+         *  useGateCards. */
+        approveAgent,
         pendingDirectory,
         pendingBranch,
         changeModel,
@@ -336,5 +505,6 @@ export function useSessionFlow(): {
         changeDirectory,
         sendFirst,
         deleteSession,
+        sendBlocked,
     };
 }

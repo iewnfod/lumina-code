@@ -1,22 +1,18 @@
 import {info} from "@tauri-apps/plugin-log";
 import {motion} from "framer-motion";
-import {useEffect, useState, type CSSProperties} from "react";
+import {Button as HeroUIButton, ButtonGroup} from "@heroui/react";
+import {type CSSProperties} from "react";
+import type {OpencodeApi} from "../../opencode/api.ts";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n, useLanguageChoice, setLanguage, type Language} from "../../hooks/i18n.tsx";
 import {setThemePreference, useThemePreference, type ThemePreference} from "../../hooks/useThemePreference.ts";
+import {setMobileLayoutMode, useMobileLayoutMode} from "../../hooks/useLayoutMode.ts";
 import {setStatsPanelMode, useStatsPanelMode} from "../../hooks/useStatsPanelMode.ts";
 import {setNotificationSettings, useNotificationSettings} from "../../hooks/useNotificationMode.ts";
 import {setWindowOutline, useWindowOutline} from "../../hooks/useWindowOutline.ts";
-import {
-    addToBmsWhitelist,
-    probeBms,
-    setCompositorBlurEnabled,
-    useBmsStatus,
-    useCompositorBlurEnabled,
-} from "../../hooks/useBlurMyShell.ts";
 import {setTypography, useTypography} from "../../hooks/useTypography.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
-import {isLinux} from "../../lib/platform.ts";
+import {isLinux, isMobileApp} from "../../lib/platform.ts";
 import {
     CODE_SIZE_MAX,
     CODE_SIZE_MIN,
@@ -29,21 +25,27 @@ import Button from "../ui/Button.tsx";
 import SettingRow from "./SettingRow.tsx";
 import Switch from "./Switch.tsx";
 import TextInput from "./TextInput.tsx";
+import SectionHeader from "./SectionHeader.tsx";
+import BlurMyShellSettings from "./BlurMyShellSettings.tsx";
+import SystemPromptSection from "./SystemPromptSection.tsx";
 
 /**
  * The settings modal's General pane: language, appearance, desktop
  * notifications (three tiers + focus mute), the Linux window outline,
- * and a Typography section (one control per row — family input, size
- * stepper). Everything acts
+ * a Typography section (one control per row — family input, size
+ * stepper), and the custom system prompt section (a server-config
+ * editor — see SystemPromptSection below). Everything else acts
  * immediately (module stores persist the choice and notify their
  * subscribers — the whole chrome re-renders through useI18n /
  * useThemePreference / useWindowOutline / useTypography), so there is no
  * draft/save footer here.
  */
 
-/** A SettingRow whose control is a segmented control. The visual language
- *  is the modal's own tab row (active pill on activeOverlay, idle labels
- *  in inactiveText) so settings controls and modal chrome read as one. */
+/** A SettingRow whose control is a segmented control — the HeroUI
+ * ButtonGroup (ghost, sm): the selected option carries the same
+ * lavender accent as the rail's selected tab, idle labels in
+ * inactiveText. The group's own tokens (--accent, --focus) are pinned
+ * to the brand palette in main.css. */
 function OptionRow({
     label,
     description,
@@ -60,33 +62,46 @@ function OptionRow({
     const colors = useColors();
     return (
         <SettingRow label={label} description={description}>
-            <div className="flex items-center gap-1">
-                {options.map((option) => {
+            {/* The segmented look: the group itself carries the neutral-fill
+             * pill container (the buttons' own edge radii form its shape)
+             * and a Separator hairline between the options. */}
+            <ButtonGroup
+                variant="ghost"
+                size="sm"
+                aria-label={label}
+                className="rounded-[var(--radius-md)]"
+                style={{background: "var(--lum-neutral-fill)"}}
+            >
+                {options.map((option, index) => {
                     const active = option.value === selected;
-                    return (
-                        <motion.button
+                    // NOTE: an ARRAY, not a Fragment — ButtonGroup injects its
+                    // variant/size into DIRECT children only (Children.map +
+                    // cloneElement); a Fragment would swallow the injection and
+                    // the buttons would fall back to the primary variant (an
+                    // all-cinnabar group). Children.map flattens arrays, so the
+                    // separator and the button both register as direct children.
+                    return [
+                        ...(index > 0 ? [<ButtonGroup.Separator key={`${option.value}-sep`}/>] : []),
+                        <HeroUIButton
                             key={option.value}
-                            type="button"
-                            onClick={() => onSelect(option.value)}
-                            {...whileHoverTap}
-                            className={`h-7 px-2.5 rounded-[var(--radius-sm)] text-xs font-medium cursor-pointer transition-colors duration-[var(--duration-fast)] ${
-                                active ? "" : "hover:bg-[var(--lum-seg-hover)]"
-                            }`}
+                            onPress={() => onSelect(option.value)}
                             style={
                                 active
-                                    // Same lavender accent as the sidebar's selected session.
-                                    ? {background: colors.accentOverlay}
-                                    : {
-                                        "--lum-seg-hover": colors.hoverOverlay,
-                                        color: colors.inactiveText,
+                                    ? {
+                                        // Same lavender accent as the sidebar's selected session.
+                                        "--button-bg": colors.accentOverlay,
+                                        "--button-bg-hover": colors.accentOverlay,
+                                        "--button-bg-pressed": colors.accentOverlay,
+                                        "--button-fg": colors.textPrimary,
                                     } as CSSProperties
+                                    : {"--button-fg": colors.inactiveText} as CSSProperties
                             }
                         >
                             {option.text}
-                        </motion.button>
-                    );
+                        </HeroUIButton>,
+                    ];
                 })}
-            </div>
+            </ButtonGroup>
         </SettingRow>
     );
 }
@@ -115,7 +130,7 @@ function SizeStepper({
             title={hint}
             onClick={() => onChange(value + delta)}
             {...whileHoverTap}
-            className={`h-7 w-7 shrink-0 rounded-[var(--radius-sm)] text-xs font-medium transition-colors duration-[var(--duration-fast)] ${
+            className={`h-9 w-9 shrink-0 rounded-[var(--radius-sm)] text-sm font-medium transition-colors duration-[var(--duration-fast)] ${
                 disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:bg-[var(--lum-step-hover)]"
             }`}
             style={{"--lum-step-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
@@ -124,9 +139,9 @@ function SizeStepper({
         </motion.button>
     );
     return (
-        <div className="flex items-center gap-1" role="group" aria-label={t["Font size"]}>
+        <div className="flex items-center gap-1.5" role="group" aria-label={t["Font size"]}>
             {step(-1, "−", t["Decrease font size"], value <= min)}
-            <span className="w-10 text-center text-xs tabular-nums" style={{color: colors.inactiveText}}>
+            <span className="w-12 text-center text-sm tabular-nums" style={{color: colors.inactiveText}}>
                 {value}px
             </span>
             {step(1, "+", t["Increase font size"], value >= max)}
@@ -134,7 +149,7 @@ function SizeStepper({
     );
 }
 
-export default function GeneralSettings() {
+export default function GeneralSettings({api}: {api: OpencodeApi | null}) {
     const t = useI18n();
     // Reactive read (NOT currentLanguage-style one-shot): the choice can
     // change while the resolved dictionary stays identical (explicit
@@ -143,20 +158,10 @@ export default function GeneralSettings() {
     const language = useLanguageChoice();
     const theme = useThemePreference();
     const outline = useWindowOutline();
+    const layoutMode = useMobileLayoutMode();
     const panelMode = useStatsPanelMode();
     const notifications = useNotificationSettings();
     const typography = useTypography();
-    const bms = useBmsStatus();
-    const blurEnabled = useCompositorBlurEnabled();
-    const [joining, setJoining] = useState(false);
-
-    // Opening the settings pane refreshes the Blur my Shell snapshot:
-    // the user may have installed/enabled/configured the extension since
-    // our last probe (startup / focus-regain). Off-Linux the probe
-    // short-circuits to "unsupported" without spawning anything.
-    useEffect(() => {
-        if (isLinux()) probeBms();
-    }, []);
 
     // Language names stay in their own language regardless of the active
     // one (same convention as the old title-bar language menu); the
@@ -170,6 +175,15 @@ export default function GeneralSettings() {
         {value: "system", text: t["Follow System"]},
         {value: "light", text: t["Light"]},
         {value: "dark", text: t["Dark"]},
+    ];
+    // The mobile app's LAYOUT (tablet mode — hooks/useLayoutMode.ts):
+    // auto resolves by the Material 600px shortest-side breakpoint, the
+    // other two pin the layout. Mobile-only row (the desktop app has
+    // no layout choice to make).
+    const layoutOptions = [
+        {value: "auto", text: t["Automatic"]},
+        {value: "phone", text: t["Phone"]},
+        {value: "desktop", text: t["Desktop"]},
     ];
     const panelOptions = [
         {value: "auto", text: t["Auto collapse"]},
@@ -211,6 +225,25 @@ export default function GeneralSettings() {
                         setThemePreference(value as ThemePreference);
                     }}
                 />
+                {/* The mobile app's layout (tablet mode): phone chrome vs
+                    the desktop layout (docked sidebar, tab-rail settings,
+                    centered modals — the remote opencode connection is
+                    layout-independent either way). The connection stays
+                    remote; only the chrome changes. */}
+                {isMobileApp() && (
+                    <OptionRow
+                        label={t["Layout"]}
+                        description={t["Which layout the app uses on this device"]}
+                        options={layoutOptions}
+                        selected={layoutMode}
+
+                        onSelect={(value) => {
+                            const mode = value === "phone" || value === "desktop" ? value : "auto";
+                            info(`Mobile layout mode set to ${mode} from settings`).catch(() => {});
+                            setMobileLayoutMode(mode);
+                        }}
+                    />
+                )}
                 {/* The session-activity panel's expansion mode: auto
                     collapses on outside clicks/Escape; always mounts it
                     expanded and keeps it open (a manual collapse lasts
@@ -279,82 +312,12 @@ export default function GeneralSettings() {
                         />
                     </SettingRow>
                 )}
-                {/* Linux + GNOME: Blur my Shell window blur. The extension
-                    has no API — Lumina renders translucent pixels, gets
-                    its wm_class into the extension's whitelist (the
-                    button writes it via gsettings, src-tauri/src/blur.rs)
-                    and reads the state back to decide translucency
-                    (hooks/useBlurMyShell.ts). The rows below guide
-                    through the extension's own gates; "unsupported" (no
-                    GNOME / no gsettings) hides the block entirely. */}
-                {isLinux() && bms.state === "active" && (
-                    <SettingRow
-                        label={t["Window blur"]}
-                        description={
-                            <>
-                                {t["Blur the desktop behind the window via the Blur my Shell extension"]}
-                                {bms.opacity < 255 && (
-                                    <>
-                                        {" "}
-                                        {t["Tip: set Blur my Shell's window opacity to 100% — Lumina Code draws its own translucency"]}
-                                    </>
-                                )}
-                                {bms.staticBlur && (
-                                    <>
-                                        {" "}
-                                        {t["Static (wallpaper) blur is enabled in Blur my Shell"]}
-                                    </>
-                                )}
-                            </>
-                        }
-                    >
-                        <Switch
-                            checked={blurEnabled}
-                            label={blurEnabled ? t["Enabled"] : t["Disabled"]}
-                            onChange={(next) => {
-                                info(`Compositor blur set to ${next} from settings`).catch(() => {});
-                                setCompositorBlurEnabled(next);
-                            }}
-                        />
-                    </SettingRow>
-                )}
-                {isLinux() && ["notInstalled", "extensionDisabled", "disabled", "notListed", "blacklisted"].includes(bms.state) && (
-                    <SettingRow
-                        label={t["Window blur"]}
-                        description={
-                            bms.state === "notInstalled"
-                                ? t["Install the Blur my Shell extension, then reopen settings"]
-                                : bms.state === "extensionDisabled"
-                                    ? t["Enable the Blur my Shell extension in GNOME's extension manager, then reopen settings"]
-                                    : bms.state === "disabled"
-                                        ? t["Turn on Applications blur in Blur my Shell's preferences, then reopen settings"]
-                                        : bms.state === "blacklisted"
-                                            ? t["Blur my Shell blurs all windows; remove Lumina Code from its blacklist"]
-                                            : t["Blur my Shell is running — add Lumina Code to its blur whitelist"]
-                        }
-                    >
-                        {bms.state === "notListed" && (
-                            <Button
-                                primary
-                                disabled={joining}
-                                label={joining ? t["Adding…"] : t["Add to Blur my Shell"]}
-                                onClick={() => {
-                                    setJoining(true);
-                                    addToBmsWhitelist().finally(() => {
-                                        setJoining(false);
-                                    });
-                                }}
-                            />
-                        )}
-                    </SettingRow>
-                )}
+                <BlurMyShellSettings/>
                 {/* Typography section — one control per row (family input,
                     size stepper), preview + reset at the bottom. Same
                     header style as AboutSettings' Dependencies group. */}
                 <div className="flex flex-col gap-4">
-                    <div className="text-xs font-medium uppercase tracking-wide pb-1 opacity-55">
-                        {t["Fonts"]}
-                    </div>
+                    <SectionHeader label={t["Fonts"]}/>
                     <SettingRow label={t["Interface font"]}>
                         <div className="w-48">
                             <TextInput
@@ -406,6 +369,11 @@ export default function GeneralSettings() {
                         />
                     </div>
                 </div>
+                {/* Custom system prompt — the only server-backed row here
+                 * (the value lives in the global opencode.json's plugin
+                 * options, not a module store), so it owns its draft/save
+                 * flow; hidden while disconnected. */}
+                {api && <SystemPromptSection api={api}/>}
             </div>
         </div>
     );

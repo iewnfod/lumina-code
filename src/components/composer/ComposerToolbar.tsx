@@ -1,5 +1,6 @@
 import {ArrowUp, Blocks, Brain, Cpu, Paperclip, Settings2, Square} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
+import {useAppMode} from "../../opencode/appMode.ts";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import type {
@@ -47,14 +48,22 @@ function agentLabel(id: string, name: string | null | undefined, t: Record<Trans
  * thinking depth and send/stop on the right. Extracted from ChatInput so
  * the composer shell reads as layout and this file as picker wiring.
  *
- * Catalog-derived state (the effective model entry, its variants, the
- * provider grouping, the usage ring's context limit) resolves here — it
- * exists only to feed these controls.
+ * The settings controls (mode + project/branch pickers) and the selectors
+ * cluster live in their own exported components
+ * (ComposerSettingsControls / ComposerSelectors) because MOBILE's welcome
+ * screen hosts them OUTSIDE the composer: a phone row cannot fit five
+ * labeled controls, so the box keeps only attach + send (`minimal`) and
+ * the whole cluster renders below it (WelcomeScreen). In-session toolbars
+ * stay full. `minimal` also drops the `.lum-tb-selectors` wrapper (an
+ * empty one would still claim a full row in the narrow tier) and wears
+ * `.lum-toolbar-plain` so the send button keeps its right-edge spring at
+ * any width (main.css).
  */
 export default function ComposerToolbar({
     disabled,
     busy,
     canSend,
+    sendBlocked = false,
     onAttach,
     onSend,
     onInterrupt,
@@ -70,12 +79,17 @@ export default function ComposerToolbar({
     onOpenModelConfig,
     usage = null,
     contextUsage = null,
+    minimal = false,
 }: {
     /** No connection yet. */
     disabled: boolean;
     busy: boolean;
     /** The editor holds non-empty content (send enabled). */
     canSend: boolean;
+    /** DEV's no-default-directory rule: the welcome composer has no
+     *  project staged yet — the send button shows the "choose a project
+     *  directory" hint instead of sending. */
+    sendBlocked?: boolean;
     onAttach: () => void;
     onSend: () => void;
     onInterrupt: () => void;
@@ -99,12 +113,244 @@ export default function ComposerToolbar({
     usage?: SessionUsage | null;
     /** The session's current context reading (last measured step). */
     contextUsage?: ContextUsage | null;
+    /** Reduce the toolbar to attach + send — MOBILE's welcome screen
+     *  hosts ComposerSettingsControls + ComposerSelectors below the
+     *  composer instead (five labeled controls cannot fit a phone row).
+     *  The in-session toolbar always stays full. */
+    minimal?: boolean;
+}) {
+    const t = useI18n();
+
+    /** Left cluster: attachments, plus (full toolbars) mode and the
+     *  pre-session project/branch pickers. */
+    const actions = (
+        <>
+            <ToolbarButton
+                icon={<Paperclip size={14}/>}
+                title={t["Add attachment"]}
+                disabled={disabled}
+                onClick={onAttach}
+            />
+            {!minimal && (
+                <ComposerSettingsControls
+                    agent={agent}
+                    onAgentChange={onAgentChange}
+                    conversationStarted={conversationStarted}
+                    directory={directory}
+                    onDirectoryChange={onDirectoryChange}
+                    stagedBranch={stagedBranch}
+                    onStagedBranchChange={onStagedBranchChange}
+                />
+            )}
+        </>
+    );
+
+    {/* One send/stop slot: text ready → SEND (mid-run it QUEUES —
+     * promptQueue.ts — instead of steering the turn; the title
+     * says so), no text while running → STOP, idle and empty →
+     * send stays disabled. A BLOCKED send (dev without a project)
+     * renders the disabled button with the choose-a-directory hint. */}
+    const sendSlot = !disabled && canSend && !sendBlocked ? (
+        <ToolbarButton
+            icon={<ArrowUp size={14}/>}
+            title={busy ? t["Queue message"] : t["Send"]}
+            onClick={onSend}
+        />
+    ) : busy ? (
+        <ToolbarButton
+            icon={<Square size={14}/>}
+            title={t["Stop"]}
+            onClick={onInterrupt}
+        />
+    ) : (
+        <ToolbarButton
+            icon={<ArrowUp size={14}/>}
+            title={sendBlocked ? t["Choose a project directory first"] : t["Send"]}
+            disabled
+            onClick={onSend}
+        />
+    );
+
+    // The toolbar's row count is WIDTH-DRIVEN, not device-driven: the
+    // toolbar is its own inline-size container and main.css retiers it —
+    // wide: one row (actions | spring | selectors | send); narrow
+    // (< 30rem, narrow desktop windows): the selectors claim the top
+    // line right-aligned, actions + send share the bottom one (send
+    // keeps the thumb zone). MOBILE is one row at EVERY width
+    // (mobile.css neutralizes the tier; labels truncate instead). A
+    // minimal toolbar (mobile welcome) has no selectors, so
+    // `.lum-toolbar-plain` pins the send spring at every width instead.
+    // See the .lum-toolbar block in main.css (the §3.7 container-query
+    // doctrine, same as .lum-column).
+    return (
+        <div
+            className={`flex flex-wrap items-center gap-0.5 px-2 pb-2 pt-0.5 lum-toolbar${
+                minimal ? " lum-toolbar-plain" : ""
+            }`}
+        >
+            <div className="lum-tb-actions flex items-center gap-0.5 min-w-0">{actions}</div>
+            {!minimal && (
+                <div className="lum-tb-selectors flex items-center gap-0.5 min-w-0">
+                    <ComposerSelectors
+                        model={model}
+                        onModelChange={onModelChange}
+                        onOpenModelConfig={onOpenModelConfig}
+                        conversationStarted={conversationStarted}
+                        usage={usage}
+                        contextUsage={contextUsage}
+                    />
+                </div>
+            )}
+            <div className="lum-tb-send">{sendSlot}</div>
+        </div>
+    );
+}
+
+/**
+ * The composer's pre-send SETTINGS controls: the agent/mode picker plus
+ * (until the conversation starts) the project-directory and branch
+ * pickers. Extracted from the toolbar alongside ComposerSelectors so
+ * MOBILE's welcome screen can host the whole settings cluster below the
+ * composer — the toolbar there reduces to attach + send (`minimal`).
+ * The full toolbar embeds this component as its actions row's tail: one
+ * source, two hosts.
+ */
+export function ComposerSettingsControls({
+    agent,
+    onAgentChange,
+    conversationStarted,
+    directory,
+    onDirectoryChange,
+    stagedBranch,
+    onStagedBranchChange,
+    align = "start",
+}: {
+    /** Effective agent (mode) selection. */
+    agent: string;
+    onAgentChange: (agent: string) => void;
+    /** False until the conversation has its first message — gates the
+     *  project/branch pickers (welcome screen and freshly created
+     *  sessions). */
+    conversationStarted: boolean;
+    directory: string | null;
+    onDirectoryChange: (directory: string | null) => void;
+    /** Staged branch binding for the not-yet-created session (null = the
+     *  project's main worktree); see DirectoryPicker. */
+    stagedBranch: string | null;
+    onStagedBranchChange: (branch: string | null) => void;
+    /** PopoverMenu panel alignment for every picker here — MOBILE's
+     *  welcome cluster passes "auto" (its centered, wrapping chips have
+     *  no stable screen side, so panels clamp into the viewport; see
+     *  PopoverMenu). */
+    align?: "start" | "auto";
+}) {
+    const t = useI18n();
+    const {agents} = useCatalog();
+    const agentName = agentLabel(agent, agents.find((a) => a.id === agent)?.name, t);
+    // The directory/branch pickers are DEV's: the daily mode owns one
+    // fixed workspace (defaultWorkspace.ts) and hides both — git-flavored
+    // controls are exactly the clutter a non-developer should never see.
+    const mode = useAppMode();
+
+    return (
+        <>
+            <PopoverMenu
+                align={align}
+                trigger={({open, toggle}) => (
+                    <ToolbarButton
+                        icon={<Blocks size={14}/>}
+                        label={agentName}
+                        active={open}
+                        onClick={toggle}
+                    />
+                )}
+            >
+                {(close) => (
+                    <div className="w-52">
+                        <MenuLabel>{t["Mode"]}</MenuLabel>
+                        {agents.map((a) => (
+                            <div key={a.id}>
+                                <MenuItem
+                                    selected={a.id === agent}
+                                    onClick={() => {
+                                        onAgentChange(a.id);
+                                        close();
+                                    }}
+                                >
+                                    {agentLabel(a.id, a.name, t)}
+                                </MenuItem>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </PopoverMenu>
+            {mode === "dev" && !conversationStarted && (
+                <DirectoryPicker
+                    directory={directory}
+                    onChange={onDirectoryChange}
+                    align={align}
+                />
+            )}
+            {mode === "dev" && !conversationStarted && (
+                <BranchPicker
+                    directory={directory}
+                    branch={stagedBranch}
+                    onBranchChange={onStagedBranchChange}
+                    align={align}
+                />
+            )}
+        </>
+    );
+}
+
+/**
+ * The selectors cluster of the composer toolbar — the session context
+ * ring, the model picker and the thinking-depth picker — with all of its
+ * catalog wiring: the provider grouping, the disabled-model filter, the
+ * context-limit resolution and the variant-preserving model switch all
+ * exist only to feed these controls (moved out of ComposerToolbar when
+ * the cluster gained a second host).
+ *
+ * The second host is MOBILE's welcome screen: rather than crushing into
+ * the composer's narrow toolbar there, the cluster renders BELOW the
+ * composer in the centered settings cluster (WelcomeScreen, alongside
+ * ComposerSettingsControls) while the in-session toolbar keeps its own
+ * copy inside the composer. `align` exists for that site: its triggers
+ * sit centered with no stable screen side, so the welcome cluster passes
+ * "auto" and PopoverMenu clamps each panel into the viewport (a fixed
+ * alignment there would clip past the phone's edge sooner or later).
+ */
+export function ComposerSelectors({
+    model,
+    onModelChange,
+    onOpenModelConfig,
+    conversationStarted,
+    usage = null,
+    contextUsage = null,
+    align = "end",
+}: {
+    /** Effective model selection (session-bound once a session exists). */
+    model: SessionModelRef | null;
+    onModelChange: (model: SessionModelRef) => void;
+    /** Opens the settings modal on its Model tab (model/provider config). */
+    onOpenModelConfig: () => void;
+    /** False until the conversation has its first message — gates the
+     *  context ring (fresh sessions and the welcome screen show nothing). */
+    conversationStarted: boolean;
+    /** Session cumulative usage — tooltip reference lines only. */
+    usage?: SessionUsage | null;
+    /** The session's current context reading (last measured step). */
+    contextUsage?: ContextUsage | null;
+    /** PopoverMenu panel alignment (the toolbar's selectors sit right:
+     *  "end"; the centered welcome cluster wants "auto" — viewport-
+     *  clamped). */
+    align?: "start" | "end" | "auto";
 }) {
     const colors = useColors();
     const t = useI18n();
     // Picker catalog + server handle from the context split.
     const {api} = useConnection();
-    const {agents, models, catalogOnly} = useCatalog();
+    const {models, catalogOnly} = useCatalog();
 
     /** The picker's empty-state entry shows when the user has no model
      *  provider of their own — either nothing authenticated at all (empty
@@ -117,7 +363,7 @@ export default function ComposerToolbar({
         onOpenModelConfig();
     };
 
-    // Resolved catalog entries for the current selections.
+    // Resolved catalog entry for the current selection.
     const currentModel = model
         ? models.find((m) => m.providerID === model.providerID && m.modelID === model.id) ?? null
         : null;
@@ -131,7 +377,6 @@ export default function ComposerToolbar({
     const usageContextLimit = usageModel?.limit?.context ?? currentModel?.limit?.context;
     const variants = currentModel?.variants ?? [];
     const currentVariant = model?.variant ?? variants[0]?.id;
-    const agentName = agentLabel(agent, agents.find((a) => a.id === agent)?.name, t);
 
     // Group the catalog by provider for the model picker, hiding models
     // the user switched off in the model settings (a client-side
@@ -159,64 +404,7 @@ export default function ComposerToolbar({
     };
 
     return (
-        <div className="flex items-center gap-0.5 px-2 pb-2 pt-0.5">
-            {/* Left: attachments, mode, and (pre-session) directory. */}
-            <ToolbarButton
-                icon={<Paperclip size={14}/>}
-
-                title={t["Add attachment"]}
-                disabled={disabled}
-                onClick={onAttach}
-            />
-            <PopoverMenu
-
-                align="start"
-                trigger={({open, toggle}) => (
-                    <ToolbarButton
-                        icon={<Blocks size={14}/>}
-                        label={agentName}
-                        active={open}
-
-                        onClick={toggle}
-                    />
-                )}
-            >
-                {(close) => (
-                    <div className="w-52">
-                        <MenuLabel>{t["Mode"]}</MenuLabel>
-                        {agents.map((a) => (
-                            <div key={a.id}>
-                                <MenuItem
-
-                                    selected={a.id === agent}
-                                    onClick={() => {
-                                        onAgentChange(a.id);
-                                        close();
-                                    }}
-                                >
-                                    {agentLabel(a.id, a.name, t)}
-                                </MenuItem>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </PopoverMenu>
-            {!conversationStarted && (
-                <DirectoryPicker
-                    directory={directory}
-                    onChange={onDirectoryChange}
-                />
-            )}
-            {!conversationStarted && (
-                <BranchPicker
-                    directory={directory}
-                    branch={stagedBranch}
-                    onBranchChange={onStagedBranchChange}
-                />
-            )}
-
-            <div className="flex-1"/>
-
+        <>
             {/* Session context ring — only once the conversation is real
              * (first message landed) AND a step has reported usage;
              * fresh sessions and the welcome screen show nothing. */}
@@ -225,21 +413,16 @@ export default function ComposerToolbar({
                     tokens={contextUsage?.tokens}
                     sessionUsage={usage}
                     contextLimit={usageContextLimit}
-
                 />
             )}
-
-            {/* Right: model, thinking depth, send/stop. */}
             <PopoverMenu
-
-                align="end"
+                align={align}
                 panelClassName="w-60"
                 trigger={({open, toggle}) => (
                     <ToolbarButton
                         icon={<Cpu size={14}/>}
                         label={currentModel?.name ?? model?.id ?? t["Model"]}
                         active={open}
-
                         onClick={toggle}
                     />
                 )}
@@ -296,8 +479,7 @@ export default function ComposerToolbar({
             </PopoverMenu>
             {variants.length > 0 && currentVariant !== undefined && (
                 <PopoverMenu
-
-                    align="end"
+                    align={align}
                     trigger={({open, toggle}) => (
                         <ToolbarButton
                             icon={<Brain size={14}/>}
@@ -313,7 +495,6 @@ export default function ComposerToolbar({
                             {variants.map((v) => (
                                 <MenuItem
                                     key={v.id}
-
                                     selected={v.id === currentVariant}
                                     onClick={() => {
                                         if (model) onModelChange({...model, variant: v.id});
@@ -327,33 +508,6 @@ export default function ComposerToolbar({
                     )}
                 </PopoverMenu>
             )}
-            {/* One send/stop slot: text ready → SEND (mid-run it QUEUES —
-             * promptQueue.ts — instead of steering the turn; the title
-             * says so), no text while running → STOP, idle and empty →
-             * send stays disabled. */}
-            {!disabled && canSend ? (
-                <ToolbarButton
-                    icon={<ArrowUp size={14}/>}
-
-                    title={busy ? t["Queue message"] : t["Send"]}
-                    onClick={onSend}
-                />
-            ) : busy ? (
-                <ToolbarButton
-                    icon={<Square size={14}/>}
-
-                    title={t["Stop"]}
-                    onClick={onInterrupt}
-                />
-            ) : (
-                <ToolbarButton
-                    icon={<ArrowUp size={14}/>}
-
-                    title={t["Send"]}
-                    disabled
-                    onClick={onSend}
-                />
-            )}
-        </div>
+        </>
     );
 }

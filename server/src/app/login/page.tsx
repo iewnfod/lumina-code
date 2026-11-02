@@ -14,7 +14,7 @@ export default async function LoginPage({
   const {error} = await searchParams;
   return (
     <main className="auth">
-      <h1>lumina-server</h1>
+      <h1>lumina-code-server</h1>
       <p className="muted">Sign in to the management console.</p>
       {error ? <p className="error">{error}</p> : null}
       <form action={loginAction} className="card">

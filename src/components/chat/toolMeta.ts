@@ -1,9 +1,11 @@
 import {
     BadgeCheck,
+    Bot,
     ClipboardCheck,
     ClipboardList,
     FilePen,
     FilePlus,
+    FileText,
     FolderOpen,
     FolderSearch,
     Globe,
@@ -64,6 +66,13 @@ export const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon;
     // The question tool — the "AI asks the user" surface. Distinct from the
     // generic wrench so its FoldRow reads as a question, not a tool call.
     question: {title: "Question", icon: MessageCircleQuestion},
+    // The subagent spawn tool ("task" on older servers) — MessageItem/
+    // ActivityGroup route its parts to SubagentCard, but ActivityGroup's
+    // tool-name summary (toolDisplayName) still resolves the NAME; without
+    // this entry it leaked the untranslated raw "Subagent"/"Task" there.
+    // Bot icon matches SubagentCard and the stats panel's rows.
+    subagent: {title: "Subagent", icon: Bot},
+    task: {title: "Subagent", icon: Bot},
     skill: {title: "Skill", icon: Sparkles},
     // Lumina Code's tools plugin (see src/plugins/luminaTools.js): image
     // inspection via a vision-capable helper model, and the model
@@ -77,6 +86,12 @@ export const TOOL_META: Record<string, {title: TranslationKey; icon: LucideIcon;
     task_complete: {title: "Task complete", icon: SquareCheck},
     plan_amend: {title: "Plan amend", icon: ListChecks},
     work_submit: {title: "Work submission", icon: BadgeCheck},
+    // The office-tools plugin (see src/plugins/officeTools.js):
+    // deterministic Word/PPT production and content extraction. Its
+    // read_document OUTPUT is plain markdown text by construction —
+    // rendered through the Markdown component like vision's answer.
+    write_document: {title: "Write document", icon: FilePlus},
+    read_document: {title: "Read document", icon: FileText, markdown: true},
 };
 
 /** Display title for a tool name (used by ActivityGroup's summary too).
@@ -123,6 +138,20 @@ export function inputStr(o: Record<string, unknown>, ...keys: string[]): string 
 export function inputFilePath(part: AssistantToolPart): string | undefined {
     const o = inputObject(part);
     return o ? inputStr(o, "filePath", "file_path", "path") : undefined;
+}
+
+/** Whether a read tool part's output is a DIRECTORY listing: the server
+ * renders directory reads with a leading "Read directory <path>, entries
+ * …" (or ", 0 entries") line — binary-verified against v2.0.11's ReadTool
+ * content renderer. Drives the folder icon in ToolCard's detail line;
+ * false while the call is still running (no output yet — the plain file
+ * icon shows until it settles, then swaps). */
+export function readOutputIsDirectory(part: AssistantToolPart): boolean {
+    if (part.name !== "read") return false;
+    const first = (part.state.content ?? []).find(
+        (c) => typeof c.text === "string" && c.text.length > 0,
+    );
+    return first != null && first.text.startsWith("Read directory ");
 }
 
 /** Human text of a tool error payload — `{type, message}` objects carry

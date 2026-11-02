@@ -1,4 +1,4 @@
-name: CI - lumina-server
+name: CI - lumina-code-server
 
 # Verifies the self-hosted companion server (server/ — a pnpm workspace
 # member): vitest over its pure lib (auth/sync/transcript/db) plus a
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   server:
-    name: lumina-server (vitest + next build)
+    name: lumina-code-server (vitest + next build)
     runs-on: ubuntu-latest
 
     steps:

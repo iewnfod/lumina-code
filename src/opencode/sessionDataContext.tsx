@@ -4,7 +4,8 @@ import {useSessions} from "./useSessions.ts";
 import {useSessionRequests} from "./useSessionRequests.ts";
 import {useSessionMessages, useSessionSeeded} from "./useSessionMessages.ts";
 import {useSessionActivity, useWorkspaceDiff} from "./useSessionActivity.ts";
-import type {FormAnswer, FormRequest, PermissionDecision, PermissionRequest} from "./types.ts";
+import {useWorkspaceDocuments} from "./workspaceDocuments.ts";
+import type {FormAnswer, FormRequest, OpencodeSession, PermissionDecision, PermissionRequest} from "./types.ts";
 
 /**
  * The session-data context — the SESSION-domain third of the context
@@ -35,6 +36,12 @@ interface SessionDataContextValue {
     createSession: ReturnType<typeof useSessions>["create"];
     removeSession: ReturnType<typeof useSessions>["remove"];
     patchSession: ReturnType<typeof useSessions>["patch"];
+    /** Root sessions on the server but NOT in the registry — the import
+     *  candidates (sessions created by the TUI/CLI/other instances in
+     *  the shared storage). */
+    foreignSessions: OpencodeSession[];
+    /** Grant whitelist membership to existing server sessions (import). */
+    importSessions: (ids: string[]) => void;
     /** Pending server→user asks across ALL sessions (permission
      *  requests + forms) — a pending ask blocks that session's
      *  execution server-side. */
@@ -51,7 +58,7 @@ const SessionDataContext = createContext<SessionDataContextValue | null>(null);
 
 export function SessionDataProvider({children}: {children: ReactNode}) {
     const {api, subscribe} = useConnection();
-    const {sessions, loaded, busyIds, create, remove, patch} = useSessions(api, subscribe);
+    const {sessions, loaded, busyIds, create, remove, patch, foreignSessions, importSessions} = useSessions(api, subscribe);
     const {
         permissions,
         forms,
@@ -69,6 +76,8 @@ export function SessionDataProvider({children}: {children: ReactNode}) {
             createSession: create,
             removeSession: remove,
             patchSession: patch,
+            foreignSessions,
+            importSessions,
             permissions,
             forms,
             pendingCounts,
@@ -83,6 +92,8 @@ export function SessionDataProvider({children}: {children: ReactNode}) {
             create,
             remove,
             patch,
+            foreignSessions,
+            importSessions,
             permissions,
             forms,
             pendingCounts,
@@ -132,6 +143,13 @@ export function usePendingRequests(sessionId: string | null): {
 export function useWorkspaceDiffOf(directory: string | null) {
     const {api, subscribe} = useConnection();
     return useWorkspaceDiff(api, subscribe, directory);
+}
+
+/** The daily twin of {@link useWorkspaceDiffOf}: the directory's
+ *  document inventory (opencode/workspaceDocuments.ts). */
+export function useWorkspaceDocumentsOf(directory: string | null) {
+    const {api, subscribe} = useConnection();
+    return useWorkspaceDocuments(api, subscribe, directory);
 }
 
 export function useSessionActivityOf(

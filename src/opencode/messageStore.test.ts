@@ -1,13 +1,14 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {applyEvent, applyOlderPage, applySeedPage, dropFromBoundary} from "./messageStore.ts";
-import type {MessagesPage} from "./api.ts";
-import {MESSAGES_PAGE_SIZE} from "./types.ts";
-import {recordPendingCommand} from "./pendingCommands.ts";
+import {appendUserMessage, applyEvent, applyOlderPage, applySeedPage, backfillSubagentLink, dropFromBoundary, needsSubagentBackfill} from "./messageStore.ts";
+import {MESSAGES_PAGE_SIZE, type MessagesPage} from "./types.ts";
+import {recordPendingCommand, takePendingCommand} from "./pendingCommands.ts";
 import type {OpencodeEvent} from "./eventStream.ts";
 import type {ChatAssistantMessage, ChatMessage, ChatUserMessage} from "./types.ts";
 import {isUserMessage} from "./types.ts";
 import type {AssistantToolPart} from "./types.ts";
+import type {OpencodeSession} from "./types.ts";
+import {collectSessionSubagents} from "./sessionActivity.ts";
 
 /**
  * Pure-logic tests for the per-session message store: the event reducer
@@ -194,6 +195,221 @@ test("seed merge prefers the more advanced tool state from either side", () => {
     assert.ok(tool && tool.type === "tool");
     assert.equal(tool.state.status, "completed");
     assert.deepEqual(tool.state.content, [{type: "text", text: "ok"}]);
+});
+
+test("tool.progress links a running subagent part to its child session (live-verified v2.0.11)", () => {
+    // The ONLY bus signal carrying the child sessionID while a subagent
+    // runs (fires at spawn; tool.called has no metadata and the server
+    // persists the running part with an empty one). Without merging it,
+    // the stats panel can't count a running foreground subagent until it
+    // finishes.
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_1", name: "subagent"}));
+    list = applyEvent(list, ev("session.tool.called", {assistantMessageID: MID, id: "tool_1", input: {agent: "explore", description: "find auth"}}));
+    list = applyEvent(list, ev("session.tool.progress", {
+        assistantMessageID: MID,
+        id: "tool_1",
+        metadata: {sessionID: "ses_child_1", status: "running"},
+    }));
+    const part = asst(list).content.find((p) => p.type === "tool") as AssistantToolPart;
+    assert.equal(part.state.status, "running", "progress must not settle the part");
+    assert.equal((part.state.metadata as Record<string, unknown>).sessionID, "ses_child_1");
+});
+
+test("tool.progress metadata stays scoped to subagent parts (foreground shells must not flash into the terminals list)", () => {
+    // A foreground shell's progress carries a shellID its settled state
+    // will NOT keep (only background shells keep one) — merging it would
+    // list the command as a background terminal mid-run and drop it at
+    // completion.
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_1", name: "shell"}));
+    list = applyEvent(list, ev("session.tool.called", {assistantMessageID: MID, id: "tool_1", input: {command: "curl …"}}));
+    list = applyEvent(list, ev("session.tool.progress", {
+        assistantMessageID: MID,
+        id: "tool_1",
+        metadata: {shellID: "sh_1"},
+    }));
+    const part = asst(list).content.find((p) => p.type === "tool") as AssistantToolPart;
+    assert.equal(part.state.metadata, undefined, "non-subagent parts keep progress metadata out");
+});
+
+test("a late tool.progress never regresses settled subagent metadata", () => {
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_1", name: "subagent"}));
+    list = applyEvent(list, ev("session.tool.called", {assistantMessageID: MID, id: "tool_1", input: {agent: "explore"}}));
+    list = applyEvent(list, ev("session.tool.progress", {
+        assistantMessageID: MID,
+        id: "tool_1",
+        metadata: {sessionID: "ses_child_1", status: "running"},
+    }));
+    list = applyEvent(list, ev("session.tool.success", {
+        assistantMessageID: MID,
+        id: "tool_1",
+        content: [{type: "text", text: "done"}],
+        metadata: {sessionID: "ses_child_1", status: "completed", truncated: false},
+    }));
+    const settled = applyEvent(list, ev("session.tool.progress", {
+        assistantMessageID: MID,
+        id: "tool_1",
+        metadata: {sessionID: "ses_child_1", status: "running"},
+    }));
+    const part = asst(settled).content.find((p) => p.type === "tool") as AssistantToolPart;
+    assert.equal(part.state.status, "completed");
+    assert.equal((part.state.metadata as Record<string, unknown>).status, "completed");
+});
+
+test("equal-rank seed merge keeps a progress-merged child link over the server's empty running metadata", () => {
+    // The server persists a RUNNING tool part with metadata:{} (verified
+    // live) — a re-seed mid-run must not wipe the sessionID merged from
+    // the progress event, or the subagent vanishes from the stats panel
+    // until the run ends.
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, stepStarted());
+    list = applyEvent(list, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_1", name: "subagent"}));
+    list = applyEvent(list, ev("session.tool.called", {assistantMessageID: MID, id: "tool_1", input: {agent: "explore"}}));
+    list = applyEvent(list, ev("session.tool.progress", {
+        assistantMessageID: MID,
+        id: "tool_1",
+        metadata: {sessionID: "ses_child_1", status: "running"},
+    }));
+    const page: MessagesPage = {
+        data: [{
+            id: MID,
+            type: "assistant",
+            content: [{type: "tool", id: "tool_1", name: "subagent", state: {status: "running", input: {agent: "explore"}, metadata: {}}}],
+        }],
+    };
+    const seeded = applySeedPage(list, page);
+    const tool = asst(seeded.messages).content.find((p) => p.type === "tool");
+    assert.ok(tool && tool.type === "tool");
+    assert.equal(tool.state.status, "running");
+    assert.equal((tool.state.metadata as Record<string, unknown>).sessionID, "ses_child_1");
+});
+
+// --- Subagent child-link backfill (seed-time) --------------------------------
+// The missed-`tool.progress` recovery for remote/mobile clients: a running
+// subagent part with no child link is paired with the session list's
+// parentID reverse lookup. Every case asserts the conservative rule:
+// one unlinked part + one candidate ⇒ link; anything ambiguous ⇒ no-op.
+
+/** A list holding one RUNNING subagent part with NO progress event —
+ *  the exact state a mobile client seeds after an SSE gap / cold start
+ *  into a running session (the server persists metadata:{}). The
+ *  message's created time is 1000 so the time-bound cases below have a
+ *  real lower bound to work against. */
+function unlinkedSubagentList(): ChatMessage[] {
+    let list: ChatMessage[] = [];
+    list = applyEvent(list, ev("session.step.started", {assistantMessageID: MID, agent: "build", model: {id: "m"}, started: 1000}));
+    list = applyEvent(list, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_1", name: "subagent"}));
+    list = applyEvent(list, ev("session.tool.called", {assistantMessageID: MID, id: "tool_1", input: {agent: "explore", description: "find auth"}}));
+    return list;
+}
+
+function childSession(over: Partial<OpencodeSession>): OpencodeSession {
+    return {id: "ses_child_new", projectID: "p", time: {created: 1200, updated: 1200}, ...over};
+}
+
+test("needsSubagentBackfill: true only for an unlinked running subagent part", () => {
+    const running = unlinkedSubagentList();
+    assert.equal(needsSubagentBackfill(running), true);
+
+    // Settled parts carry their child link — no backfill needed.
+    const settled = applyEvent(running, ev("session.tool.success", {
+        assistantMessageID: MID,
+        id: "tool_1",
+        content: [{type: "text", text: "done"}],
+        metadata: {sessionID: "ses_child_1", status: "completed"},
+    }));
+    assert.equal(needsSubagentBackfill(settled), false);
+
+    // Non-subagent running tools never trigger it.
+    let shell: ChatMessage[] = [];
+    shell = applyEvent(shell, stepStarted());
+    shell = applyEvent(shell, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_1", name: "shell"}));
+    shell = applyEvent(shell, ev("session.tool.called", {assistantMessageID: MID, id: "tool_1", input: {command: "ls"}}));
+    assert.equal(needsSubagentBackfill(shell), false);
+});
+
+test("backfillSubagentLink links one unlinked part to one parentID match, collectible by the stats fold", () => {
+    const list = unlinkedSubagentList();
+    const out = backfillSubagentLink(list, SID, [
+        childSession({id: "ses_child_new", parentID: SID}),
+    ]);
+    assert.notEqual(out, list, "the linked list must be a new array");
+    const part = asst(out).content.find((p) => p.type === "tool") as AssistantToolPart;
+    assert.equal(part.state.metadata?.["sessionID"], "ses_child_new");
+    // The whole point: the stats panel can see the RUNNING subagent.
+    assert.deepEqual(collectSessionSubagents(out).map((s) => s.id), ["ses_child_new"]);
+});
+
+test("backfillSubagentLink rejects candidates from other parents, helpers and already-referenced children", () => {
+    const list = unlinkedSubagentList();
+    // A settled EARLIER subagent turn referencing ses_child_old.
+    let withHistory: ChatMessage[] = [];
+    withHistory = applyEvent(withHistory, ev("session.step.started", {assistantMessageID: "msg_asst_0", agent: "build", model: {id: "m"}}));
+    withHistory = applyEvent(withHistory, ev("session.tool.input.started", {assistantMessageID: "msg_asst_0", id: "tool_0", name: "task"}));
+    withHistory = applyEvent(withHistory, ev("session.tool.success", {
+        assistantMessageID: "msg_asst_0",
+        id: "tool_0",
+        content: [],
+        metadata: {sessionID: "ses_child_old", status: "completed"},
+    }));
+    withHistory = [...withHistory, ...list];
+
+    const out = backfillSubagentLink(withHistory, SID, [
+        childSession({id: "ses_other_parent", parentID: "ses_elsewhere"}), // wrong parent
+        childSession({id: "ses_child_old", parentID: SID}), // already referenced by the settled part
+        childSession({id: "ses_helper", parentID: SID, metadata: {source: "lumina-tools"}}), // vision helper
+        childSession({id: "ses_child_new", parentID: SID}), // the one true candidate
+    ]);
+    const msg = out.find((x) => x.type === "assistant" && x.id === MID) as ChatAssistantMessage;
+    const part = msg.content.find((p) => p.type === "tool" && (p as AssistantToolPart).id === "tool_1") as AssistantToolPart;
+    assert.equal(part.state.metadata?.["sessionID"], "ses_child_new");
+});
+
+test("backfillSubagentLink drops a pre-message child via the time bound (error-part leftovers)", () => {
+    // An earlier subagent call ERRORED — error settle carries no
+    // metadata, so its child stays unreferenced in the list; only the
+    // time bound (child can't predate the calling message) rejects it.
+    const list = unlinkedSubagentList();
+    const out = backfillSubagentLink(list, SID, [
+        childSession({id: "ses_child_stale", parentID: SID, time: {created: 500, updated: 500}}),
+        childSession({id: "ses_child_new", parentID: SID}),
+    ]);
+    const part = asst(out).content.find((p) => p.type === "tool") as AssistantToolPart;
+    assert.equal(part.state.metadata?.["sessionID"], "ses_child_new");
+});
+
+test("backfillSubagentLink stays a no-op on any ambiguity", () => {
+    const list = unlinkedSubagentList();
+
+    // Two equally-valid candidates — never a coin flip.
+    assert.equal(backfillSubagentLink(list, SID, [
+        childSession({id: "ses_child_a", parentID: SID}),
+        childSession({id: "ses_child_b", parentID: SID}),
+    ]), list);
+
+    // No candidate at all.
+    assert.equal(backfillSubagentLink(list, SID, []), list);
+
+    // Two unlinked running parts (parallel subagents) — pairing would
+    // be a guess, so keep the list unchanged.
+    let two = applyEvent(list, ev("session.tool.input.started", {assistantMessageID: MID, id: "tool_2", name: "subagent"}));
+    two = applyEvent(two, ev("session.tool.called", {assistantMessageID: MID, id: "tool_2", input: {agent: "general"}}));
+    assert.equal(backfillSubagentLink(two, SID, [
+        childSession({id: "ses_child_a", parentID: SID}),
+        childSession({id: "ses_child_b", parentID: SID}),
+    ]), two);
+});
+
+test("backfillSubagentLink is idempotent: a linked list needs nothing", () => {
+    const list = unlinkedSubagentList();
+    const linked = backfillSubagentLink(list, SID, [childSession({id: "ses_child_new", parentID: SID})]);
+    assert.equal(needsSubagentBackfill(linked), false);
+    assert.equal(backfillSubagentLink(linked, SID, [childSession({id: "ses_child_new", parentID: SID})]), linked);
 });
 
 test("step.ended stamps the step's usage onto the message", () => {
@@ -427,6 +643,79 @@ test("rapid double-send adopts each bubble in place, never duplicates", () => {
         "local-2",
         "localKey carried onto the second adopted message",
     );
+});
+
+// --- Inbox cancellation (the interrupt sweep's ghost cleanup) ---
+
+test("inbox cancelled drops the ghost bubble by inboxID, others untouched", () => {
+    // Steered prompt rendered at enqueued time under its inboxID; the
+    // interrupt sweep cancels the pending row server-side → the ghost
+    // must leave without disturbing its neighbors (identity kept for
+    // the memoized rows).
+    let list: ChatMessage[] = [
+        {id: "msg_user_prev", type: "user", text: "earlier"},
+    ];
+    list = applyEvent(list, enqueue("do A", "msg_user_a"));
+    list = applyEvent(list, enqueue("do B", "msg_user_b"));
+    assert.equal(list.length, 3);
+    const prev = list[0];
+    const next = applyEvent(list, ev("session.inbox.cancelled", {inboxID: "msg_user_a"}));
+    assert.deepEqual(
+        next.map((m) => m.id),
+        ["msg_user_prev", "msg_user_b"],
+        "only the cancelled ghost leaves",
+    );
+    assert.equal(next[0], prev, "untouched rows keep identity (clone-on-write)");
+    // A second cancel of the same id is a no-op.
+    const again = applyEvent(next, ev("session.inbox.cancelled", {inboxID: "msg_user_a"}));
+    assert.equal(again, next, "no-op keeps the array identity");
+    // Cancelling an unknown id changes nothing.
+    assert.equal(applyEvent(next, ev("session.inbox.cancelled", {inboxID: "msg_nope"})), next);
+});
+
+test("inbox cancelled does not touch a local optimistic bubble still awaiting adoption", () => {
+    // The cancel event names the SERVER inboxID; an unadopted `local-*`
+    // bubble can never match it (adoption happens at enqueued time,
+    // strictly before any cancel of the same row).
+    const list: ChatMessage[] = [
+        {id: "local-1", type: "user", text: "hi", localKey: "local-1"},
+    ];
+    const out = applyEvent(list, ev("session.inbox.cancelled", {inboxID: "msg_user_x"}));
+    assert.equal(out, list, "unrelated cancel is a no-op");
+    assert.equal(out.length, 1);
+});
+
+// --- Server-native queued prompts (delivery:"queue") ---
+
+test("a queued enqueue never renders in the transcript", () => {
+    // Queue rows live above the composer (promptQueue.ts); the
+    // transcript only sees them at `session.inbox.delivered` time (the
+    // appendUserMessage path below). The pending-command stamp stays
+    // unconsumed for the queue fold to take.
+    recordPendingCommand(SID, {name: "init", arguments: ""});
+    let list: ChatMessage[] = [{id: "msg_user_prev", type: "user", text: "earlier"}];
+    list = applyEvent(
+        list,
+        ev("session.inbox.enqueued", {
+            inboxID: "msg_q1",
+            item: {type: "user", delivery: "queue", payload: {text: "parked prompt"}},
+        }),
+    );
+    assert.equal(list.length, 1, "queue row skipped");
+    assert.equal(list[0].id, "msg_user_prev");
+    // The stamp survived for the queue fold (the transcript took nothing).
+    assert.deepEqual(takePendingCommand(SID), {name: "init", arguments: ""});
+});
+
+test("appendUserMessage appends a delivered queue row, idempotent by id", () => {
+    let list: ChatMessage[] = [{id: "msg_user_prev", type: "user", text: "earlier"}];
+    list = appendUserMessage(list, {id: "msg_q1", type: "user", text: "parked prompt"});
+    assert.deepEqual(
+        list.map((m) => m.id),
+        ["msg_user_prev", "msg_q1"],
+    );
+    const again = appendUserMessage(list, {id: "msg_q1", type: "user", text: "parked prompt"});
+    assert.equal(again, list, "duplicate append keeps the array identity");
 });
 
 test("adoption replaces a bubble even when a later assistant shell raced it", () => {

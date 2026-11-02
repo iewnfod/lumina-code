@@ -1,5 +1,22 @@
 @import "tailwindcss";
+/* Explicit content root: Tailwind v4's automatic detection follows the
+ * VITE ROOT, which for the mobile build is mobile/ — the desktop tree
+ * (src/App.tsx, src/components/**) would never be scanned and its
+ * utilities (h-screen, text-sm, …) silently drop out of the bundle
+ * (live-observed: the desktop tree mounted at 36px tall). @source is
+ * resolved relative to THIS file, so both entries scan the same src
+ * tree. */
+@source "./**/*.{ts,tsx}";
 @import "@heroui/styles";
+/* KaTeX's stylesheet is imported in main.tsx (the ENTRY js), not here:
+ * a bare-specifier @import on this sheet gets inlined through the
+ * Tailwind v4 plugin's own expansion cache, which went STALE across a
+ * katex version change (live-observed 2026-11: kept serving the old
+ * build's rules until the dev server restarted). The entry-level js
+ * import rides vite's standard css-module pipeline instead — always
+ * the installed package's bytes — and an entry css change triggers a
+ * full reload, unlike the component-level import that once failed to
+ * reach a long-lived dev webview (see Markdown.tsx's note). */
 
 /*
  * Bundled fonts — the app ships its own faces so typography (and text
@@ -64,11 +81,15 @@
     --font-mono: "Maple Mono NF CN", ui-monospace, "Noto Sans Mono CJK SC",
         Consolas, monospace;
 
-    /* Type scale — the app's four-step rhythm. 2xs (11px) is the micro
+    /* Type scale — the app's step rhythm. 2xs (11px) is the micro
      * tier: dense rows and uppercase labels (the old unnamed
-     * text-[10px]/text-[11px] arbitrary values collapsed into it). */
+     * text-[10px]/text-[11px] arbitrary values collapsed into it).
+     * 2sm (13px) is the xs/sm halfway step (added for the sidebar's
+     * folder headers — 12 read too small, 14 too large). */
     --text-2xs: 11px;
     --text-2xs--line-height: 1rem;
+    --text-2sm: 13px;
+    --text-2sm--line-height: 1.125rem;
 
     /* Radii — soft, modern. Match the macOS Sequoia / Arc feel.
      * Semantic mapping (the unified scale; see AGENTS.md §3.8):
@@ -152,6 +173,15 @@
  * surfaces: .lum-md code below and the chat cards' MONO spans. */
 :root {
     --lum-code-size: 12px;
+
+    /* HeroUI theme pin: the library's accent hue drives its Switch
+     * checked track, focus tints and accent-variant surfaces — pin it
+     * to OUR brand cinnabar (the @theme tokens above) instead of
+     * heroui's default blue-violet. Everything derived from --accent
+     * (--accent-hover's color-mix, --focus) follows automatically;
+     * unlayered rules beat heroui's @layer base definitions. */
+    --accent: var(--color-brand-cinnabar);
+    --accent-foreground: #fff;
 
     /* Neutral gray ladder — the ONLY grays allowed in stylesheets. The
      * ~15 ad-hoc rgba(128,128,128,x) values that used to be scattered
@@ -457,6 +487,33 @@ body {
     white-space: nowrap;
 }
 
+/*
+ * The BUTTON form of .lum-file-mention — an office-document link in
+ * assistant markdown ([文档.docx](./文档.docx), rendered by Markdown.tsx's
+ * MdLink): same chrome as the user bubble's @-file tokens, plus the
+ * affordances a button owes (hand cursor, hover wash reading the
+ * provider-seeded --lum-wash var, focus ring for keyboard users). The
+ * background-image (file-type icon) comes from MdLink's inline style.
+ */
+button.lum-md-doc {
+    border: none;
+    background-color: transparent;
+    color: inherit;
+    font: inherit;
+    line-height: inherit;
+    cursor: pointer;
+    border-radius: var(--radius-xs);
+}
+
+button.lum-md-doc:hover {
+    background-color: var(--lum-wash);
+}
+
+button.lum-md-doc:focus-visible {
+    outline: 2px solid var(--lum-wash);
+    outline-offset: 1px;
+}
+
 
 /*
  * Markdown inside chat messages. Scoped under .lum-md (components/chat/
@@ -517,11 +574,32 @@ body {
     padding: 0.15em 0.4em;
     border-radius: var(--radius-xs);
 }
+/* The MdPre host span (Markdown.tsx) — the block-level wrapper carrying
+ * the position context for the floating copy chip, plus the block's
+ * margin. The margin deliberately lives HERE, not on the pre: a child's
+ * vertical margins collapse out of an unpadded host and would skew the
+ * chip's absolute anchor. */
+.lum-md .lum-md-pre-host {
+    display: block;
+    position: relative;
+    margin: 0.6em 0;
+}
+/* The copy chip's Hint trigger wrapper (HeroUI's Tooltip.Trigger div) rides
+ * AFTER the pre inside this block host, and HeroUI's global stylesheet
+ * (heroui.min.css) makes every .tooltip__trigger display: inline-block.
+ * A zero-height INLINE-LEVEL box in a block container still generates an
+ * anonymous line box whose strut is the host's line-height (14px × 1.65 ≈
+ * 23px) — one blank text line hanging under EVERY code block (live-measured
+ * in WebKit2-4.1: hostPreGap=23.1). Forcing block layout removes the line
+ * box; the wrapper stays 0-tall (its only child, the copy button, is
+ * position: absolute), and the tooltip's anchor position is unchanged. */
+.lum-md .lum-md-pre-host [data-slot="tooltip-trigger"] {
+    display: block;
+}
 .lum-md pre {
     background: var(--lum-neutral-fill);
     padding: 0.75em 1em;
     border-radius: var(--radius-md);
-    margin: 0.6em 0;
 }
 /* The span (display: block — a div would be invalid inside pre) inserted
  * by Markdown.tsx's MdPre override is the horizontal scroller wearing
@@ -537,6 +615,44 @@ body {
     background: transparent;
     padding: 0;
     font-size: var(--lum-code-size);
+}
+/* The code-block COPY chip (Markdown.tsx's MdPre) — floats over the
+ * pre's top-right corner, anchored to the host span. It rides the
+ * Elevated family (§3.8): a SOLID --color-elevated surface with a
+ * hairline border, so it occludes the code underneath it instead of
+ * tinting over it (the pre's translucent wash can't cut the text out).
+ * Deliberately NOT .lum-wash: the wash replaces `background` wholesale
+ * and would turn the chip translucent on hover. Reveal ladder matches
+ * the quiet copy affordances (MessageItem/RunFooter): hidden until the
+ * block hovers, half-lit on block hover, full on its own hover, pinned
+ * full while the ✓ lingers (.copied). */
+.lum-md .lum-md-copy {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    height: 24px;
+    width: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--lum-neutral-hairline);
+    border-radius: var(--radius-xs);
+    background: var(--color-elevated);
+    cursor: pointer;
+    user-select: none;
+    opacity: 0;
+    transform: translateZ(0);
+    transition:
+        opacity var(--duration-fast) var(--ease-glass),
+        border-color var(--duration-fast) var(--ease-glass);
+}
+.lum-md .lum-md-pre-host:hover .lum-md-copy {
+    opacity: 0.5;
+}
+.lum-md .lum-md-copy:hover,
+.lum-md .lum-md-copy.copied {
+    opacity: 1;
+    border-color: var(--lum-neutral-divider);
 }
 .lum-md blockquote {
     border-left: 2px solid var(--lum-neutral-divider);
@@ -605,6 +721,21 @@ body {
 .lum-md img {
     max-width: 100%;
     border-radius: var(--radius-sm);
+}
+
+/*
+ * KaTeX math (remark-math + rehype-katex wired in Markdown.tsx; the
+ * engine CSS itself is imported by that component). Only LAYOUT is
+ * adapted here — colors inherit currentColor, so light/dark both work
+ * untouched: a wide display formula scrolls inside the bubble instead
+ * of stretching it, and the engine's 1em display margins are tightened
+ * to the rhythm of the surrounding blocks.
+ */
+.lum-md .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+    margin: 0.75em 0;
+    padding: 0.125em 0;
 }
 
 /*
@@ -679,6 +810,17 @@ body {
  * hooks/useExitPresence while it holds the element mounted). */
 .lum-pop {
     animation: lum-pop var(--duration-base) var(--ease-spring) both;
+}
+
+/* Center-aligned PopoverMenu panels (align="center"): left-1/2 positions
+ * the panel's LEFT edge at the trigger's midpoint; this shifts it back by
+ * half the PANEL's width. Deliberately the independent `translate`
+ * PROPERTY, not a transform utility — the lum-pop/-exit keyframes animate
+ * `transform` with fill both, whose `transform: none` end state would
+ * clobber transform-based centering; `translate` composes with it. Support
+ * floor is below the container queries this file already relies on. */
+.lum-pop-center {
+    translate: -50% 0;
 }
 
 @keyframes lum-pop {
@@ -881,7 +1023,16 @@ body {
     animation: lum-queue-enter-track var(--duration-base) var(--ease-glass) both;
 }
 
+/* overflow:hidden on the CHILD is load-bearing (the .lum-row-enter/
+ * .lum-row-exit recipe): an auto grid track sizes to the item's
+ * max-content unless the item clamps it, and the row's max-content
+ * includes the nowrap preview text — without the clip the track blows
+ * past the column, the flex truncate never engages and the row's
+ * action buttons land outside the visible box (live-reproduced in
+ * headless Chromium: plain min-height:0 pushes the buttons out,
+ * child overflow:hidden keeps them in). */
 .lum-queue-enter > * {
+    overflow: hidden;
     min-height: 0;
 }
 
@@ -909,7 +1060,11 @@ body {
     pointer-events: none;
 }
 
+/* Same child clip as .lum-row-exit: keeps the held row's content
+ * inside the collapsing track, and prevents the auto column from
+ * sizing to the row's max-content (see .lum-queue-enter > *). */
 .lum-queue-exit > * {
+    overflow: hidden;
     min-height: 0;
 }
 
@@ -1035,6 +1190,49 @@ body {
 }
 
 /*
+ * The composer toolbar's adaptive row count — the toolbar is its own
+ * inline-size container and retiers itself by AVAILABLE WIDTH (not by
+ * device): WIDE, one row (actions | spring | selectors | send — the
+ * selectors' auto margin is the spring); NARROW (below 30rem — narrow
+ * desktop windows; MOBILE neutralizes this tier in mobile.css for a
+ * one-row toolbar that truncates instead), the selectors claim the top
+ * line right-aligned (order -1 + full basis) and send gains the spring
+ * on the bottom line, keeping the thumb-zone placement. DOM is
+ * single-source — only CSS retiers.
+ */
+.lum-toolbar {
+    container-type: inline-size;
+    row-gap: 4px;
+}
+
+.lum-tb-selectors {
+    margin-left: auto;
+}
+
+/* Minimal toolbars (mobile welcome: the settings cluster is hosted
+ * below the composer, ComposerToolbar's `minimal` prop adds the class).
+ * The wide tier's send spring normally comes from .lum-tb-selectors'
+ * margin-left:auto above; without the cluster, pin it here so the send
+ * button stays in the thumb zone at EVERY width — a landscape tablet
+ * phone would otherwise hug the actions cluster. */
+.lum-toolbar-plain .lum-tb-send {
+    margin-left: auto;
+}
+
+@container (width < 30rem) {
+    .lum-tb-selectors {
+        order: -1;
+        flex-basis: 100%;
+        justify-content: flex-end;
+        margin-left: 0;
+    }
+
+    .lum-tb-send {
+        margin-left: auto;
+    }
+}
+
+/*
  * The stats panel's position rule (statsLayout's successor). A
  * COLLAPSED pill always floats (absolute, out of the row — the
  * conversation keeps full width). An EXPANDED panel floats on narrow
@@ -1131,6 +1329,56 @@ body {
 
 /*
  * =====================================================================
+ * HeroUI Tabs focus-ring scrub (components/SessionBar.tsx's mode
+ * switcher, components/settings/SettingsPage.tsx's vertical rail,
+ * settings/UsageSettings.tsx's range switch and settings/
+ * ModelSettings.tsx's sub-tab row).
+ *
+ * These are the app's HeroUI Tabs, and heroui's global stylesheet
+ * paints a 2px var(--focus) (blue) ring on every .tabs__tab:focus-
+ * visible / [data-focus-visible=true] — a foreign blue circle on the
+ * chrome glass. Drop it (the sliding indicator already shows
+ * selection); the scope classes live on each switcher's wrapper so
+ * any future Tabs stay on HeroUI's default.
+ * =====================================================================
+ */
+.lum-mode-tabs .tabs__tab:focus-visible,
+.lum-mode-tabs .tabs__tab[data-focus-visible="true"],
+.lum-settings-tabs .tabs__tab:focus-visible,
+.lum-settings-tabs .tabs__tab[data-focus-visible="true"],
+.lum-usage-tabs .tabs__tab:focus-visible,
+.lum-usage-tabs .tabs__tab[data-focus-visible="true"],
+.lum-model-tabs .tabs__tab:focus-visible,
+.lum-model-tabs .tabs__tab[data-focus-visible="true"] {
+    box-shadow: none;
+}
+
+/* The HORIZONTAL segmented tabs: taller than heroui's default h-8
+ * (h-9 — the settings page's roomier sizing) and their labels never
+ * wrap (a squeezed flex row folds CJK labels first — CJK min-content
+ * is a single character): force the single line; the surrounding
+ * row's other end takes the squeeze instead. */
+.lum-usage-tabs .tabs__tab,
+.lum-model-tabs .tabs__tab {
+    height: 2.25rem;
+    white-space: nowrap;
+}
+
+/* The settings rail's tabs: a FLEXIBLE height (min-h-9 — labels WRAP
+ * to a second line rather than truncating, long English titles like
+ * "Plugins & MCP Servers" stay readable) one size up from heroui's
+ * fixed h-8 rows; the indicator measures the real height per tab.
+ * Scoped here rather than classNames on each Tab — heroui's cx is
+ * plain concatenation (no tailwind-merge), so utility classes would
+ * fight .tabs__tab's own in stylesheet order; the scope selector
+ * always wins. */
+.lum-settings-tabs .tabs__tab {
+    height: auto;
+    min-height: 2.25rem;
+}
+
+/*
+ * =====================================================================
  * Sidebar resize seam (components/SidebarResizer.tsx).
  *
  * An invisible OVERLAY sash straddling the sidebar/conversation boundary:
@@ -1179,3 +1427,4 @@ body {
 body[data-lum-sidebar-resizing] {
     user-select: none;
 }
+

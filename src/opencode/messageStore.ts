@@ -1,6 +1,6 @@
-import type {MessagesPage} from "./api.ts";
 import type {OpencodeEvent} from "./eventStream.ts";
 import {takePendingCommand} from "./pendingCommands.ts";
+import {isSubagentToolName, metaString} from "./sessionActivity.ts";
 import {
     isAssistantMessage,
     isUserMessage,
@@ -11,8 +11,12 @@ import {
     type ChatMessage,
     type ChatUserMessage,
     type EventMap,
+    type MessagesPage,
+    type OpencodeSession,
     type ToolState,
 } from "./types.ts";
+
+/**
 
 /**
  * Pure message-list logic for ONE session: the event-bus reducer and the
@@ -37,6 +41,12 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
         case "session.inbox.enqueued": {
             const d = data as EventMap["session.inbox.enqueued"];
             if (d.item?.type !== "user") return list;
+            // A QUEUED prompt renders ABOVE THE COMPOSER (promptQueue.ts),
+            // never in the transcript — its `session.inbox.delivered` frame
+            // is what appends the user message (see appendUserMessage +
+            // useSessionMessages' handler). The pending-command stamp is
+            // the queue fold's to take on the same frame.
+            if (d.item.delivery === "queue") return list;
             const text = d.item.payload?.text ?? "";
             const files = d.item.payload?.files;
             // Already held (seed race or another handler pass)?
@@ -72,6 +82,18 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
             }
             // …or append when the prompt came from another client.
             return [...list, incoming];
+        }
+        case "session.inbox.cancelled": {
+            // The interrupt sweep (see useSessionMessages) or another
+            // client cancelled a pending inbox row: the ghost bubble the
+            // enqueued case rendered under the inboxID must leave the
+            // transcript — the server will never promote it. A message
+            // that WAS promoted never fires this event (delivery consumes
+            // the row inside an uninterruptible transaction, so cancel
+            // and delivery are mutually exclusive server-side).
+            const d = data as EventMap["session.inbox.cancelled"];
+            if (!list.some((m) => m.id === d.inboxID)) return list;
+            return list.filter((m) => m.id !== d.inboxID);
         }
         case "session.step.started": {
             const d = data as EventMap["session.step.started"];
@@ -121,6 +143,27 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
                 t.state = {status: "running", input: d.input};
             });
         }
+        case "session.tool.progress": {
+            // Mid-run metadata: the ONLY bus signal carrying a subagent's
+            // child sessionID while the parent's part is still running
+            // (fires at spawn, foreground and background — verified live
+            // on v2.0.11; tool.called carries no metadata and the server
+            // persists the running part with an EMPTY one, so without
+            // this the stats panel can't see a running foreground
+            // subagent until it finishes). Scoped to subagent parts and
+            // to unsettled states: a foreground SHELL's progress also
+            // carries a shellID its settled state will NOT keep (only
+            // background shells do), so merging it would flash foreground
+            // commands through the terminals list — and a late progress
+            // must never regress already-settled metadata (its embedded
+            // status:"running" would overwrite "completed").
+            const d = data as EventMap["session.tool.progress"];
+            return mutateTool(list, d.assistantMessageID, d.id, (t) => {
+                if (!d.metadata || !isSubagentToolName(t.name)) return;
+                if (t.state.status !== "running" && t.state.status !== "pending") return;
+                t.state.metadata = {...t.state.metadata, ...d.metadata};
+            });
+        }
         case "session.tool.success": {
             const d = data as EventMap["session.tool.success"];
             return mutateTool(list, d.assistantMessageID, d.id, (t) => {
@@ -147,20 +190,14 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
             // events' re-attach below).
             return mutateAssistant(list, d.assistantMessageID, (m) => {
                 m.error = d.error;
-                m.time = {...(m.time ?? {}), completed: Date.now()};
-                // A failed step still burned what it burned — keep the
-                // usage the server managed to report.
-                if (d.cost !== undefined) m.cost = d.cost;
-                if (d.tokens !== undefined) m.tokens = d.tokens;
+                settleStepMeta(m, d);
             }, true);
         }
         case "session.step.ended": {
             const d = data as EventMap["session.step.ended"];
             return mutateAssistant(list, d.assistantMessageID, (m) => {
                 m.finish = d.finish;
-                m.time = {...(m.time ?? {}), completed: Date.now()};
-                if (d.cost !== undefined) m.cost = d.cost;
-                if (d.tokens !== undefined) m.tokens = d.tokens;
+                settleStepMeta(m, d);
             });
         }
         case "session.revert.committed": {
@@ -183,6 +220,27 @@ export function applyEvent(list: ChatMessage[], event: OpencodeEvent): ChatMessa
         default:
             return list;
     }
+}
+
+/** step.failed / step.ended share the completion tail: stamp the step
+ *  finished and keep whatever usage the server reported — a failed step
+ *  still burned what it burned. */
+function settleStepMeta(m: ChatAssistantMessage, d: {cost?: number; tokens?: ChatAssistantMessage["tokens"]}): void {
+    m.time = {...(m.time ?? {}), completed: Date.now()};
+    if (d.cost !== undefined) m.cost = d.cost;
+    if (d.tokens !== undefined) m.tokens = d.tokens;
+}
+
+/** Append a delivered user message to a session's list — the QUEUED
+ * prompt's `session.inbox.delivered` frame (the row's content rides no
+ * wire: useSessionMessages' handler rebuilds the message from the queued
+ * row it holds, with the row's id — the promoted message KEEPS the
+ * inboxID, live-verified, so the later server page merges over it in
+ * place). Idempotent by id: a seed that already landed the message, or
+ * a duplicate frame, leaves the list untouched. */
+export function appendUserMessage(list: ChatMessage[], message: ChatUserMessage): ChatMessage[] {
+    if (list.some((m) => m.id === message.id)) return list;
+    return [...list, message];
 }
 
 /** Drop the revert boundary message and everything after it (server
@@ -324,7 +382,7 @@ function appendStreamPart(
     kind: "text" | "reasoning",
 ): ChatMessage[] {
     return mutateAssistant(list, messageId, (m) => {
-        if (nthPart(m, kind, ordinal)) return;
+        if (nthPart(m, ordinal, kind)) return;
         m.content = [...m.content, kind === "text"
             ? {type: "text", text: ""}
             : {type: "reasoning", text: ""}];
@@ -339,7 +397,7 @@ function appendStreamDelta(
     delta: string,
 ): ChatMessage[] {
     return mutateAssistant(list, messageId, (m) => {
-        const part = nthPart(m, kind, ordinal);
+        const part = nthPart(m, ordinal, kind);
         if (part) part.text = part.text + delta;
         else {
             m.content = [...m.content, kind === "text"
@@ -357,25 +415,21 @@ function settleStreamPart(
     text: string,
 ): ChatMessage[] {
     return mutateAssistant(list, messageId, (m) => {
-        const part = nthPart(m, kind, ordinal);
+        const part = nthPart(m, ordinal, kind);
         if (part) part.text = text;
     }, true);
 }
 
-/** The nth part of a given kind (stream `ordinal`s are per-kind). */
+/** The nth text/reasoning part (stream `ordinal`s are per-kind) — a
+ *  typed view over {@link partOfType} for the stream handlers, which
+ *  only ever deal in text-bearing parts. */
 function nthPart(
     m: ChatAssistantMessage,
-    kind: "text" | "reasoning",
     ordinal: number,
+    kind: "text" | "reasoning",
 ): {text: string} | undefined {
-    let seen = -1;
-    for (const part of m.content) {
-        if (part.type === kind) {
-            seen += 1;
-            if (seen === ordinal) return part;
-        }
-    }
-    return undefined;
+    const part = partOfType(m, ordinal, kind);
+    return part !== undefined && (part.type === "text" || part.type === "reasoning") ? part : undefined;
 }
 
 // --- Clone-on-write helpers. Each produces new arrays/objects so React
@@ -497,5 +551,121 @@ function mergePart(local: AssistantPart | undefined, page: AssistantPart): Assis
         toolRank(local.state.status) > toolRank(page.state.status)) {
         return {...page, state: local.state, executed: local.executed ?? page.executed};
     }
+    // Equal-rank tool merge takes the page's state — but the server's
+    // running projection persists an EMPTY metadata (verified live on
+    // v2.0.11), which would wipe a child sessionID merged from a
+    // session.tool.progress event on every re-seed. Keep the local
+    // metadata whenever the page's is empty; settled pages carry their
+    // own full metadata, so this only rescues mid-run links.
+    if (
+        page.type === "tool" && local.type === "tool" && local.id === page.id &&
+        isEmptyRecord(page.state.metadata) && !isEmptyRecord(local.state.metadata)
+    ) {
+        return {...page, state: {...page.state, metadata: local.state.metadata}};
+    }
     return page;
+}
+
+/** No keys (or absent) — see mergePart's metadata rescue. */
+function isEmptyRecord(o: Record<string, unknown> | undefined): boolean {
+    return !o || Object.keys(o).length === 0;
+}
+
+// --- Subagent child-link backfill (seed-time) --------------------------------
+
+/** A tool part's linked child session id, under either wire key (the
+ *  settled metadata uses `sessionID`; `session_id` kept for older
+ *  servers — same dual read as collectSessionSubagents). */
+function toolChildId(part: AssistantToolPart): string | undefined {
+    return part.state.metadata ? metaString(part.state.metadata, "sessionID", "session_id") : undefined;
+}
+
+/**
+ * Does the list hold a running subagent part with NO child session link?
+ * The link normally arrives via the one-shot `session.tool.progress`
+ * frame at spawn; a client that missed it (remote SSE gap, cold start
+ * into a session that is already running — the mobile norm) finds only
+ * the server's EMPTY running metadata in every seed. True ⇒ the caller
+ * should consult the session list (backfillSubagentLink) — cheap scan,
+ * so requestSeed gates its extra request on it.
+ */
+export function needsSubagentBackfill(list: ChatMessage[]): boolean {
+    for (const m of list) {
+        if (!isAssistantMessage(m)) continue;
+        for (const part of m.content) {
+            if (part.type !== "tool" || !isSubagentToolName(part.name)) continue;
+            if (part.state.status !== "running" && part.state.status !== "pending") continue;
+            if (!toolChildId(part)) return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Link an unlinked running subagent part to its child session via the
+ * SESSION LIST (parentID reverse lookup) — the seed-time fallback for a
+ * missed `session.tool.progress` frame (see needsSubagentBackfill).
+ * Deliberately conservative, one-to-one and never a guess:
+ *
+ *  - exactly ONE unlinked running/pending subagent part, and
+ *  - exactly ONE candidate child: `parentID === sessionId`, not already
+ *    referenced by ANY tool part's metadata (settled parts carry their
+ *    child ids — including the vision tool's helper links; an error
+ *    part settles WITHOUT metadata, so its orphaned child stays a
+ *    candidate and the time bound below must reject it), not a
+ *    lumina-tools helper (those carry {source:"lumina-tools"}), and
+ *    created at/after the part itself (a child cannot predate the call
+ *    that spawned it — the bound that disambiguates an earlier turn's
+ *    leftover child from the current one).
+ *
+ * Anything ambiguous returns the list UNCHANGED — the visible cost of a
+ * wrong pairing (drilling into the wrong child transcript) far exceeds
+ * the invisible cost of staying unlinked until settle. Idempotent: once
+ * linked, the part no longer counts as unlinked.
+ */
+export function backfillSubagentLink(
+    list: ChatMessage[],
+    sessionId: string,
+    sessions: OpencodeSession[],
+): ChatMessage[] {
+    // Every child id any tool part already references — subagent AND
+    // other tools (the vision tool's helper links ride the same key).
+    const referenced = new Set<string>();
+    let unlinked: {messageId: string; partId: string; lowerBound: number} | null = null;
+    let unlinkedCount = 0;
+    for (const m of list) {
+        if (!isAssistantMessage(m)) continue;
+        for (const part of m.content) {
+            if (part.type !== "tool") continue;
+            const child = toolChildId(part);
+            if (child) {
+                referenced.add(child);
+                continue;
+            }
+            if (!isSubagentToolName(part.name)) continue;
+            if (part.state.status !== "running" && part.state.status !== "pending") continue;
+            unlinkedCount += 1;
+            if (unlinkedCount > 1) break;
+            unlinked = {
+                messageId: m.id,
+                partId: part.id,
+                lowerBound: part.time?.created ?? m.time?.created ?? 0,
+            };
+        }
+        if (unlinkedCount > 1) break;
+    }
+    if (unlinkedCount !== 1 || !unlinked) return list;
+
+    const candidates = sessions.filter((s) =>
+        s.parentID === sessionId &&
+        !referenced.has(s.id) &&
+        s.metadata?.["source"] !== "lumina-tools" &&
+        (s.time?.created === undefined || s.time.created >= unlinked.lowerBound),
+    );
+    if (candidates.length !== 1) return list;
+
+    const childId = candidates[0].id;
+    return mutateTool(list, unlinked.messageId, unlinked.partId, (t) => {
+        t.state = {...t.state, metadata: {...t.state.metadata, sessionID: childId}};
+    });
 }

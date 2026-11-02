@@ -1,5 +1,6 @@
 import {useEffect, useSyncExternalStore} from "react";
 import {debug as logDebug} from "@tauri-apps/plugin-log";
+import {createKeyedStore} from "../lib/moduleStore.ts";
 import type {OpencodeApi} from "./api.ts";
 import {parseGitHead, shortSha} from "./gitInfo.ts";
 import {
@@ -38,29 +39,14 @@ interface BranchEntry {
     seq: number;
 }
 
-const entries = new Map<string, BranchEntry>();
-const listeners = new Set<() => void>();
+const entries = createKeyedStore<string, BranchEntry>(() => ({branch: null, loading: false, seq: 0}));
 
 function entryOf(directory: string): BranchEntry {
-    let entry = entries.get(directory);
-    if (!entry) {
-        entry = {branch: null, loading: false, seq: 0};
-        entries.set(directory, entry);
-    }
-    return entry;
+    return entries.entryOf(directory);
 }
 
-function notify() {
-    for (const listener of listeners) listener();
-}
-
-function subscribe(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-}
-
-function snapshot(): ReadonlyMap<string, BranchEntry> {
-    return entries;
+function notify(): void {
+    entries.notify();
 }
 
 /** Resolve one directory's branch into the store (idempotent; safe to
@@ -130,7 +116,7 @@ export function useDirectoryBranch(
     api: OpencodeApi | null,
     directory: string | null,
 ): string | null {
-    useSyncExternalStore(subscribe, snapshot);
+    useSyncExternalStore(entries.subscribe, entries.snapshot, entries.snapshot);
 
     useEffect(() => {
         if (!api || !directory) return;
@@ -147,5 +133,5 @@ export function useDirectoryBranch(
         };
     }, [api, directory]);
 
-    return directory ? entries.get(directory)?.branch ?? null : null;
+    return directory ? entries.peek(directory)?.branch ?? null : null;
 }

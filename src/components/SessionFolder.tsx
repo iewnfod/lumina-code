@@ -4,15 +4,20 @@ import {ChevronRight, Plus, X} from "lucide-react";
 import {useColors} from "../hooks/colors.tsx";
 import {whileHoverTap} from "../lib/motion.ts";
 import ExitPresence, {ExitList} from "./ui/ExitPresence.tsx";
-import {folderGroupLabel} from "./sessionGrouping.ts";
+import {folderLabel} from "../lib/path.ts";
 import {useWorktreeDirs} from "../opencode/worktreeSessions.ts";
 import {useI18n} from "../hooks/i18n.tsx";
+import {isMobileApp} from "../lib/platform.ts";
 import {relativeAge, type SessionInfo} from "./sessionGrouping.ts";
 import SessionTitle from "./SessionTitle.tsx";
 import Hint from "./ui/Hint.tsx";
 
 /** Sessions shown per folder before the "Show more" expander. */
 export const MAX_VISIBLE_SESSIONS = 5;
+/** The DAILY half's flat list cap — everything visible by default; the
+ *  cap (and its expander) exists purely as a DOM-size guard for a
+ *  future with hundreds of sessions. */
+export const MAX_PLAIN_VISIBLE_SESSIONS = 50;
 
 /**
  * One folder group in the sidebar: collapsible header (label + per-folder
@@ -20,6 +25,12 @@ export const MAX_VISIBLE_SESSIONS = 5;
  * "Show more / Show less" expander. The parent (SessionBar) owns which
  * folders are collapsed and how far each is expanded; this component
  * renders the state it's handed.
+ *
+ * `plain` strips the folder chrome (header + collapse) for the DAILY
+ * half: it owns exactly ONE workspace, so a directory header naming it
+ * is noise — the rows render flat, always expanded, with a much higher
+ * reveal cap (`maxVisible`, 50 vs the dev folders' 5), keeping the
+ * busy dots, badges, ages and the show more/less expander.
  *
  * Motion is CSS: the folder body folds through .lum-fold (grid rows —
  * the browser animates the real height), the chevron rotates via a
@@ -44,8 +55,12 @@ export default function SessionFolder({
     onNewInFolder,
     onShowMore,
     onShowLess,
+    plain = false,
+    maxVisible = MAX_VISIBLE_SESSIONS,
 }: {
-    /** The group's working directory ("" = the no-directory bucket). */
+    /** The group's PROJECT directory — branch-worktree sessions arrive
+     * merged into their main repo's folder ("" = the no-directory
+     * bucket). */
     directory: string;
     /** Every session in the folder. */
     sessions: SessionInfo[];
@@ -69,27 +84,43 @@ export default function SessionFolder({
     onShowMore: (directory: string, visibleCount: number) => void;
     /** Collapse back to the initial cap ("Show less"). */
     onShowLess: (directory: string) => void;
+    /** Flat mode (the DAILY half): no header, no collapse — rows only.
+     *  The `directory` prop then only keys the show more/less state. */
+    plain?: boolean;
+    /** The initial reveal cap ("Show more" grows past it in the same
+     *  batch size). The DAILY half passes the higher flat-list guard. */
+    maxVisible?: number;
 }) {
     const colors = useColors();
     const t = useI18n();
-    // Branch-worktree directories relabel as "<repo> · <branch>"
-    // (their own last segment is a server codename).
+    // MOBILE has no real hover: a finger press synthesizes hover first,
+    // which would reveal the row's delete X mid-tap — the tap meant to
+    // OPEN the session lands on the just-revealed X and deletes it. So
+    // mobile rows carry NO delete affordance at all (deleting lives in
+    // the title-bar ⋯ menu, App → TitleBar's onDeleteSession), and the
+    // age/badge never hover-fade (the fade existed only to cross-fade
+    // INTO the X). Desktop keeps the hover pattern unchanged.
+    const mobile = isMobileApp();
+    // Branch-worktree bindings feed the per-row branch chips — the
+    // group is the PROJECT (the parent already grouped by main repo),
+    // the branch is per-session metadata.
     const worktreeDirs = useWorktreeDirs();
     const visibleCount = visibleSessions.length;
 
     return (
         <div>
-            <div
-                className="group/folder w-full flex items-center gap-1 px-3 pt-2.5 pb-1 text-2xs font-medium uppercase tracking-wider cursor-pointer transition-opacity duration-[var(--duration-fast)] ease-[var(--ease-glass)] hover:opacity-70"
-                style={{color: colors.inactiveText}}
-                onClick={() => onToggleFolder(directory)}
-            >
-                {/* The header shows the directory's last segment — a
-                 * branch worktree shows "<repo> · <branch>" instead — the
-                 * hint carries the full path. */}
+            {!plain && (
+                <div
+                    className="group/folder w-full flex items-center gap-1 px-3 pt-1.5 pb-1 text-2sm tracking-wider cursor-pointer transition-opacity duration-[var(--duration-fast)] ease-[var(--ease-glass)] hover:opacity-70"
+                    style={{color: colors.inactiveText}}
+                    onClick={() => onToggleFolder(directory)}
+                >
+                {/* The header shows the project directory's last segment
+                  * (branch sessions share this folder; their branch is
+                  * the row chip below) — the hint carries the full path. */}
                 <Hint label={directory || undefined} className="min-w-0 flex-1">
                     <span className="block truncate text-left">
-                        {directory ? folderGroupLabel(directory, worktreeDirs) : t["Other Sessions"]}
+                        {directory ? folderLabel(directory) : t["Other Sessions"]}
                     </span>
                 </Hint>
                 <Hint label={t["New Session"]}>
@@ -111,6 +142,7 @@ export default function SessionFolder({
                     <ChevronRight size={12} />
                 </span>
             </div>
+            )}
             {/* The folder body folds via .lum-fold (grid rows) and its
                 rows mount only while open (held through the collapse
                 transition — the exit engine): collapsed folders keep NO
@@ -118,14 +150,16 @@ export default function SessionFolder({
                 ExitList: a deleted row (user close, helper-session
                 sweep) collapses in place, budget-limited so bulk sweeps
                 don't stack twenty animations at once. */}
-            <div className="lum-fold -mx-1.5" data-open={!collapsed}>
+            <div className="lum-fold -mx-1.5" data-open={plain || !collapsed}>
                 {/* Breathing room inside the animated clip: horizontal
                     padding (with the matching negative margin above) keeps
                     row hover washes from being cut off at the sides, bottom
                     padding gives entering rows' rise room — all on an inner
-                    layer so collapsing to 0fr clips it away too. */}
-                <div className="px-1.5 pt-0.5 pb-2">
-                    <ExitPresence present={!collapsed} exitMs={300} budget={false}>
+                    layer so collapsing to 0fr clips it away too. PLAIN mode
+                    has no header above, so the top padding stands in for
+                    the header's breathing room. */}
+                <div className={plain ? "px-1.5 pt-1 pb-2" : "px-1.5 pt-0.5 pb-2"}>
+                    <ExitPresence present={plain || !collapsed} exitMs={300} budget={false}>
                         {() => (<>
                     <ExitList
                         items={visibleSessions}
@@ -137,6 +171,11 @@ export default function SessionFolder({
                         {(session) => {
                             const isActive = session.id === activeId;
                             const pendingCount = pendingCounts?.get(session.id);
+                            // The session's branch binding — present only
+                            // for branch-worktree sessions (rows of the
+                            // merged project folder).
+                            const worktreeBinding =
+                                session.directory != null ? worktreeDirs[session.directory] : undefined;
                             return (
                                 <div className="lum-enter relative -mx-1.5 px-1.5 cursor-pointer">
                                     <div
@@ -166,16 +205,32 @@ export default function SessionFolder({
                                                 }}
                                             />
                                         </div>
+                                        {/* A branch-worktree session wears its branch
+                                         * as a quiet chip — the folder is the PROJECT,
+                                         * the branch is per-session metadata; the hint
+                                         * carries the worktree's full (codename) path. */}
+                                        {worktreeBinding && (
+                                            <Hint label={session.directory ?? undefined} className="shrink-0">
+                                                <span
+                                                    className="text-2xs px-1.5 py-px rounded-[var(--radius-xs)]"
+                                                    style={{background: "var(--lum-neutral-fill)", color: "var(--lum-neutral-text)"}}
+                                                >
+                                                    {worktreeBinding.branch}
+                                                </span>
+                                            </Hint>
+                                        )}
                                         {/* Pending badge, age and the delete button
                                             share one fixed-width slot; hover cross-fades
                                             to the delete button so the title never shifts.
                                             A pending count (permissions + questions) takes
-                                            the slot over from the age. */}
+                                            the slot over from the age. MOBILE renders the
+                                            badge/age without the fade and NO delete button
+                                            (see `mobile` above). */}
                                         <div className="relative shrink-0 ml-1 w-5 h-4">
                                             {pendingCount != null && (
                                                 <Hint label={t["Permission request"]} className="absolute inset-0">
                                                     <span
-                                                        className="w-full h-full flex items-center justify-end transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
+                                                        className={`w-full h-full flex items-center justify-end${mobile ? "" : " transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"}`}
                                                     >
                                                         <span
                                                             className="min-w-4 h-4 px-1 rounded-full text-2xs font-semibold leading-4 text-center select-none"
@@ -188,27 +243,29 @@ export default function SessionFolder({
                                             )}
                                             {pendingCount == null && session.updatedAt != null && (
                                                 <span
-                                                    className="absolute inset-0 flex items-center justify-end text-2xs tabular-nums transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"
+                                                    className={`absolute inset-0 flex items-center justify-end text-2xs tabular-nums${mobile ? "" : " transition-opacity duration-[var(--duration-fast)] group-hover:opacity-0"}`}
                                                     style={{color: colors.inactiveText}}
                                                 >
                                                     {relativeAge(session.updatedAt, now)}
                                                 </span>
                                             )}
-                                            <Hint label={t["Delete session"]} className="absolute inset-0">
-                                                <button
-                                                    className="w-full h-full flex items-center justify-center cursor-pointer opacity-0 rounded-[var(--radius-xs)] lum-wash transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100"
-                                                    style={{
-                                                        "--lum-wash": colors.activeOverlay,
-                                                        color: isActive ? foregroundColor : colors.inactiveText,
-                                                    } as CSSProperties}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        onClose(session.id);
-                                                    }}
-                                                >
-                                                    <X size={12} />
-                                                </button>
-                                            </Hint>
+                                            {!mobile && (
+                                                <Hint label={t["Delete session"]} className="absolute inset-0">
+                                                    <button
+                                                        className="w-full h-full flex items-center justify-center cursor-pointer opacity-0 rounded-[var(--radius-xs)] lum-wash transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100"
+                                                        style={{
+                                                            "--lum-wash": colors.activeOverlay,
+                                                            color: isActive ? foregroundColor : colors.inactiveText,
+                                                        } as CSSProperties}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            onClose(session.id);
+                                                        }}
+                                                    >
+                                                        <X size={12} />
+                                                    </button>
+                                                </Hint>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -216,11 +273,12 @@ export default function SessionFolder({
                         }}
                     </ExitList>
                     {/* Expanded: split into two halves — left keeps
-                        revealing batches of 5, right collapses back
-                        to the initial cap. Fully expanded → collapse
-                        only. */}
-                    {sessions.length > MAX_VISIBLE_SESSIONS && (
-                        visibleCount > MAX_VISIBLE_SESSIONS ? (
+                        revealing another batch (sized by the cap),
+                        right collapses back to the initial cap. Fully
+                        expanded → collapse only. The DAILY half rides
+                        the same expander past its higher cap. */}
+                    {sessions.length > maxVisible && (
+                        visibleCount > maxVisible ? (
                             <div className="flex flex-row w-full gap-1">
                                 {visibleCount < sessions.length && (
                                     <motion.button

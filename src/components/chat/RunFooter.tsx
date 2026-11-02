@@ -11,15 +11,27 @@ import {fileIconUrl} from "../../lib/fileIcons.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 
 import {MONO_STYLE} from "./RequestCardChrome.tsx";
+import {formatCost, formatTokens} from "./usageStats.ts";
+import type {TurnUsage} from "./runFooters.ts";
 import Hint from "../ui/Hint.tsx";
+import PopoverMenu, {MenuDivider, MenuLabel, MenuRow} from "../ui/PopoverMenu.tsx";
 import ExitPresence from "../ui/ExitPresence.tsx";
 
 /**
  * The quiet footer under a finished run: a copy affordance for the run's
  * whole answer (markdown source, joined across steps) and — when the
- * timestamps are known — how long the task took, wall-clock. Both read
- * as metadata, not content: dimmed rest opacity, lit on hover; the
- * duration stays passive and never lights up.
+ * timestamps are known — how long the task took, wall-clock, plus the
+ * turn's TOKEN READOUT (the harness-performance observability seat):
+ * ↑ the context footprint (the LAST step's prompt side — input + cache
+ * read/write; each step's input contains the whole prior context, so
+ * this snapshot is what the next turn inherits) and ↓ what this turn
+ * produced (output + reasoning, summed across steps), with cost when
+ * the server reports one; CLICKING the readout opens the details card
+ * (the UsageRing presentation) decomposing the numbers — comparing the
+ * ↑ readout across agents/modes is how prompt-shrink wins are measured.
+ * All of it reads as metadata, not content: dimmed rest opacity, lit on
+ * hover; the duration stays passive while the readout turns
+ * interactive (copy-button affordances).
  *
  * A turn that EDITED files additionally gets the TURNS-EDITS CARD below
  * the row (TurnEditsCard): a bordered summary "N files changed +A −D"
@@ -27,11 +39,13 @@ import ExitPresence from "../ui/ExitPresence.tsx";
  * truth (useTurnEdits; subagent/bash edits included, which no
  * client-side fold over tool inputs can promise).
  */
-export default function RunFooter({text, durationMs, enter, sessionId, turnUserId, directory}: {
+export default function RunFooter({text, durationMs, usage, enter, sessionId, turnUserId, directory}: {
     /** Copyable answer text (markdown source). */
     text: string;
     /** Wall-clock run duration, if start and completion are known. */
     durationMs: number | null;
+    /** The turn's token readout; null when no step carried usage. */
+    usage: TurnUsage | null;
     /** True when this footer appeared live (its run just finished while
      *  the user watched). Footers bulk-mounted with session history render
      *  without an entrance — see TranscriptList's gating. */
@@ -49,6 +63,12 @@ export default function RunFooter({text, durationMs, enter, sessionId, turnUserI
     const {copied, copy} = useCopy();
     const {api} = useConnection();
     const edits = useTurnEdits(api, sessionId ?? null, turnUserId ?? null);
+    // Token readout numbers: ↑ the context footprint (last step's prompt
+    // side), ↓ the turn's production (output + reasoning summed).
+    const contextTokens = usage !== null ? usage.input + usage.cacheRead + usage.cacheWrite : 0;
+    const outputTokens = usage !== null ? usage.output + usage.reasoning : 0;
+    const costLabel = usage !== null && usage.cost > 0 ? formatCost(usage.cost) : null;
+    const num = (n: number) => n.toLocaleString();
 
     return (
         <div className={enter ? "lum-enter" : undefined}>
@@ -76,6 +96,66 @@ export default function RunFooter({text, durationMs, enter, sessionId, turnUserI
                             space drags them low under items-center. */}
                         <span className="leading-none -translate-y-[0.5px]">{formatDuration(durationMs)}</span>
                     </span>
+                )}
+                {usage !== null && (
+                    // PORTAL: the footer sits inside the transcript's scrolling
+                    // container — an in-root absolute panel would be clipped at
+                    // the scroller's edge (and its z-index trapped by the mask's
+                    // stacking context), so the card lives under <body> with
+                    // fixed placement, following the row on scroll.
+                    <PopoverMenu
+                        portal
+                        panelClassName="w-64"
+                        trigger={({open, toggle}) => (
+                            <Hint label={open ? null : t["Turn usage"]}>
+                                <button
+                                    type="button"
+                                    onClick={toggle}
+                                    aria-label={t["Turn usage"]}
+                                    aria-expanded={open}
+                                    // The readout's rest state stays passive
+                                    // metadata (dimmed mono text); the affordances
+                                    // match the copy button beside it — hover
+                                    // lights it up, lum-wash marks the hit area.
+                                    // transform-gpu: same WebKitGTK compositing
+                                    // reason as the copy button (opacity crossing
+                                    // the 1.0 boundary under the transcript mask).
+                                    className="inline-flex items-center gap-1 h-6 px-1 -mx-1 rounded-[var(--radius-xs)] cursor-pointer select-none opacity-45 hover:opacity-100 lum-wash transition-opacity duration-[var(--duration-fast)] transform-gpu text-xs"
+                                    style={MONO_STYLE}
+                                >
+                                    <span className="leading-none -translate-y-[0.5px]">
+                                        ↑{formatTokens(contextTokens)} ↓{formatTokens(outputTokens)}
+                                    </span>
+                                    {costLabel !== null && (
+                                        <span className="leading-none -translate-y-[0.5px]">· {costLabel}</span>
+                                    )}
+                                </button>
+                            </Hint>
+                        )}
+                    >
+                        {() => (
+                            <div className="py-0.5">
+                                <MenuLabel>{t["Turn usage"]}</MenuLabel>
+                                <MenuRow
+                                    label={t["Context after this turn"]}
+                                    value={formatTokens(contextTokens)}
+                                />
+                                <MenuRow label={t["Input"]} value={num(usage.input)}/>
+                                <MenuRow label={t["Cache read"]} value={num(usage.cacheRead)}/>
+                                <MenuRow label={t["Cache write"]} value={num(usage.cacheWrite)}/>
+                                <MenuRow label={t["Output this turn"]} value={formatTokens(outputTokens)}/>
+                                {usage.reasoning > 0 && (
+                                    <MenuRow label={t["Reasoning"]} value={num(usage.reasoning)}/>
+                                )}
+                                {costLabel !== null && (
+                                    <>
+                                        <MenuDivider/>
+                                        <MenuRow label={t["Cost"]} value={costLabel}/>
+                                    </>
+                                )}
+                            </div>
+                        )}
+                    </PopoverMenu>
                 )}
             </div>
             {edits.status === "ready" && edits.files.length > 0 && (

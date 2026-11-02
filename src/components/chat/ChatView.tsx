@@ -1,29 +1,20 @@
-import {memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
-import {createPortal} from "react-dom";
-import {warn as logWarn} from "@tauri-apps/plugin-log";
-import {debug as logDebug} from "@tauri-apps/plugin-log";
-import {GripVertical} from "lucide-react";
-import {useColors} from "../../hooks/colors.tsx";
+import {memo, useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {Bot} from "lucide-react";
+import {info as logInfo} from "@tauri-apps/plugin-log";
 import {useTranscriptScroll} from "../../hooks/useTranscriptScroll.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {collectSessionSubagents, type SessionSubagentRef} from "../../opencode/sessionActivity.ts";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {usePendingRequests, useSessionData, useSessionTranscript} from "../../opencode/sessionDataContext.tsx";
 import {useSessionStopping} from "../../opencode/sessionStopping.ts";
 import {
-    clearSessionQueue,
-    enqueuePrompt,
-    moveQueuedPrompt,
-    removeQueuedPrompt,
-    takeQueuedPrompt,
+    dropQueuedRow,
+    expediteQueuedRow,
+    queuedRowToDraft,
+    takeExpeditedBatch,
     useQueuedPrompts,
 } from "../../opencode/promptQueue.ts";
-import {type GateContext, planApprovalPending, workApprovalPending} from "../../opencode/sessionActivity.ts";
-import {
-    getGateDecisionsSnapshot,
-    recordGateDecision,
-    subscribeGateDecisions,
-} from "../../opencode/gateDecisions.ts";
 import {divertAttachmentsForSend, modelAcceptsImages} from "../../opencode/visionAttachments.ts";
 import type {
     ChatMessage,
@@ -34,13 +25,16 @@ import type {
     SessionModelRef,
     SessionUsage,
 } from "../../opencode/types.ts";
-import {isUserMessage} from "../../opencode/types.ts";
+import {appendExpeditedBubble, dropOptimisticBubble, settleExpeditedBubble} from "../../opencode/useSessionMessages.ts";
+import {filesFromMessage} from "../composer/composerAttachments.ts";
 import {lastContextMessage, type ContextUsage} from "./usageStats.ts";
 import TranscriptList from "./TranscriptList.tsx";
 import {ExitList} from "../ui/ExitPresence.tsx";
 import ExitPresence from "../ui/ExitPresence.tsx";
 import ChatInput from "../composer/ChatInput.tsx";
-import QueuedPromptRow, {queuedRowDisplay} from "./QueuedPromptRow.tsx";
+import QueuedPromptList from "./QueuedPromptList.tsx";
+import {useGateCards} from "./useGateCards.ts";
+import {useEditLastMessage} from "./useEditLastMessage.ts";
 import {PermissionCard} from "./PermissionCard.tsx";
 import {groupPermissionRequests, groupReplyPlan} from "./permissionGroups.ts";
 import {PlanApprovalCard} from "./PlanApprovalCard.tsx";
@@ -70,25 +64,6 @@ import {QuestionCard} from "./QuestionCard.tsx";
 /** How many transcript entries mount initially / per expansion. */
 const RENDER_LIMIT = 60;
 
-/** Wake prompts for restart-ORPHANED gates (see handlePlanDecision /
- * handleWorkDecision): the blocked executor died with the app, so its
- * result never reached the model — the user's verdict must arrive as a
- * message. English protocol text, like the plugin's own (visible as a
- * user bubble; it IS the user's instruction). */
-const PLAN_WAKE_APPROVE = (todos: string[]) =>
-    "(resume) This plan was APPROVED by the user — an app restart interrupted the approval wait, so the gate's result never reached you. " +
-    "Treat the plan as approved and continue: execute the tasks strictly in order and report each via task_complete with its EXACT title. Task list:\n" +
-    todos.map((t, i) => `${i + 1}. ${t}`).join("\n");
-const PLAN_WAKE_REJECT =
-    "(resume) This plan was REJECTED by the user (an app restart interrupted the approval wait). " +
-    "Do not execute it. Revise the plan and call plan_submit again.";
-const WORK_WAKE_ACCEPT =
-    "(resume) The completion report was ACCEPTED by the user (an app restart interrupted the wait) — the plan is complete and archival happens host-side. " +
-    "Acknowledge briefly and stop; no further work is needed.";
-const WORK_WAKE_REJECT =
-    "(resume) The completion report was REJECTED by the user (an app restart interrupted the wait). " +
-    "Fix the issues they report, then call work_submit again with an updated report.";
-
 const ChatView = memo(function ChatView({
     sessionId,
     busy,
@@ -103,6 +78,7 @@ const ChatView = memo(function ChatView({
     onStagedBranchChange,
     onOpenModelConfig,
     usage,
+    approveAgent,
 }: {
     sessionId: string;
     busy: boolean;
@@ -125,14 +101,30 @@ const ChatView = memo(function ChatView({
      *  composer's context ring (which itself reads the transcript's last
      *  measured step; null on the welcome screen). */
     usage: SessionUsage | null;
+    /** Agent a plan approval switches this session into — build for dev
+     *  sessions, lumina-daily for daily ones (useSessionFlow derives it
+     *  from the session's mode; switching a daily session to build would
+     *  strand it on the developer persona + full toolset). */
+    approveAgent: string;
 }) {
     const t = useI18n();
-    const colors = useColors();
     const {api} = useConnection();
     const {models} = useCatalog();
-    const {replyPermission, replyForm, cancelForm} = useSessionData();
-    const {messages, hasMore, loadingOlder, loadOlder, send, editResend, interrupt} =
-        useSessionTranscript(sessionId);
+    const {permissions: allPermissions, forms: allForms, replyPermission, replyForm, cancelForm} = useSessionData();
+    const {
+        messages,
+        hasMore,
+        loadingOlder,
+        loadOlder,
+        send,
+        editResend,
+        interrupt,
+        sendQueued,
+        retryQueued,
+        removeQueued,
+        deliverQueuedRows,
+        rewriteQueuedOrder,
+    } = useSessionTranscript(sessionId);
     const {permissions: pendingPermissions, forms: pendingForms} = usePendingRequests(sessionId);
     // Identical asks (same action + resources) merge into ONE card: the
     // server fires one permission assert per tool invocation with no
@@ -143,6 +135,41 @@ const ChatView = memo(function ChatView({
     const permissionGroups = useMemo(
         () => groupPermissionRequests(pendingPermissions),
         [pendingPermissions],
+    );
+    // Subagent children's asks: a child session blocked on the server
+    // (its permission/question waiting) surfaces HERE, in the
+    // conversation the user is watching — the sidebar lists root
+    // sessions only, so the child has no row to badge or open. The
+    // child link (spawn part metadata.sessionID) is in the store before
+    // the child's first ask can arrive, so this derivation is never
+    // late. Same collector + identity discipline as the stats panel
+    // (useSessionActivity re-runs it per frame too).
+    const subagentChildren = useMemo(
+        () => collectSessionSubagents(messages as ChatMessage[]),
+        [messages],
+    );
+    const childById = useMemo(
+        () => new Map(subagentChildren.map((child) => [child.id, child])),
+        [subagentChildren],
+    );
+    const childPermissionGroups = useMemo(() => {
+        if (subagentChildren.length === 0) return [];
+        return groupPermissionRequests(allPermissions.filter((p) => childById.has(p.sessionID))).map(
+            (group) => ({
+                key: `${group.requests[0].sessionID}:${group.key}`,
+                group,
+                child: childById.get(group.requests[0].sessionID)!,
+            }),
+        );
+    }, [allPermissions, subagentChildren, childById]);
+    const childForms = useMemo(
+        () =>
+            subagentChildren.length === 0
+                ? []
+                : allForms
+                      .filter((f) => childById.has(f.sessionID))
+                      .map((form) => ({form, child: childById.get(form.sessionID)!})),
+        [allForms, subagentChildren, childById],
     );
     // Stop pressed, run not yet unwound — the tail's indicator says
     // "Stopping" through the interrupt latency window (sessionStopping.ts).
@@ -157,15 +184,6 @@ const ChatView = memo(function ChatView({
     const [renderLimit, setRenderLimit] = useState(RENDER_LIMIT);
     useEffect(() => {
         setRenderLimit(RENDER_LIMIT);
-    }, [sessionId]);
-
-    // --- Edit-last-message state ---
-    // Which message's text the COMPOSER is editing (the pencil on the
-    // last user bubble loads it there); cleared on submit success or
-    // cancel (never on failure — the user's edit must not be lost).
-    const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-    useEffect(() => {
-        setEditingMessageId(null);
     }, [sessionId]);
 
     const {scrollRef, onScroll, onWheel, pinAnchor, snapToBottom} = useTranscriptScroll({
@@ -231,6 +249,40 @@ const ChatView = memo(function ChatView({
         },
         [send, api, models, model, snapToBottom],
     );
+    /** Retry a FAILED prompt row (sendFailed): drop the row, re-deliver
+     *  its text + attachments through the one send path. The divert note
+     *  (text-only model) already rides the stored text — the re-divert
+     *  pass finds no images left to divert (they are on disk) and never
+     *  appends a second note; a slash-command row retries as a command
+     *  (with the plain-prompt fallback send() already provides). */
+    const handleRetrySend = useCallback(
+        (message: ChatUserMessage) => {
+            dropOptimisticBubble(sessionId, message.id);
+            deliver(message.text, filesFromMessage(message), [], message.command ?? null);
+        },
+        [sessionId, deliver],
+    );
+    /** The queue's send path — `deliver`'s twin for the busy branch:
+     *  same vision divert, then a server-native `queue` POST (the row
+     *  parks in the persistent inbox instead of steering the run; every
+     *  client of this server sees it — see promptQueue.ts). */
+    const deliverQueued = useCallback(
+        (
+            text: string,
+            files: ComposerAttachment[],
+            fileRefs: ComposerFileRef[],
+            command: PendingCommand | null,
+        ) => {
+            void divertAttachmentsForSend({
+                api,
+                attachments: files,
+                acceptsImages: modelAcceptsImages(models, model),
+            }).then(({inline, note}) => {
+                void sendQueued(note ? `${text}\n\n${note}` : text, inline, fileRefs, command);
+            });
+        },
+        [api, models, model, sendQueued],
+    );
     const handleSend = useCallback(
         (
             text: string,
@@ -239,31 +291,36 @@ const ChatView = memo(function ChatView({
             command: PendingCommand | null,
         ) => {
             // Mid-run the prompt QUEUES instead of steering the current
-            // turn — it renders as a row above the composer and goes out
-            // through `deliver` when the run ends (the flush effect).
+            // turn — server-side (`delivery:"queue"`), so the row is
+            // visible on every client and the server itself flushes it
+            // when the run ends.
             if (busy) {
-                enqueuePrompt(sessionId, {text, files, fileRefs, command});
+                deliverQueued(text, files, fileRefs, command);
                 return;
             }
             deliver(text, files, fileRefs, command);
         },
-        [busy, sessionId, deliver],
+        [busy, deliver, deliverQueued],
     );
     const handleInterrupt = useCallback(() => {
-        // Stopping means STOP: the queue clears too, so the aborted work
-        // is not immediately restarted by the next queued prompt (the
-        // rows collapse away with their exit animation).
-        clearSessionQueue(sessionId);
+        // Stopping means STOP: the interrupt's inbox sweep cancels every
+        // pending row server-side (queue rows included — same doctrine as
+        // the old local clear, now enforced where the rows live); the
+        // `cancelled` frames collapse the rows away with their exit
+        // animation.
         void interrupt();
-    }, [sessionId, interrupt]);
+    }, [interrupt]);
 
-    // --- Queued-prompt flush + row actions ---
-    // Exactly ONE queued prompt delivers per idle window (the guard ref):
-    // after `deliver` the queue shrinks, which re-runs this effect while
-    // `busy` is still false (execution.started arrives a beat later) —
-    // without the guard the whole queue would flush at once instead of
-    // one-prompt-per-run. busy turning true re-arms the guard; so does a
-    // session switch (the ref outlives it otherwise).
+    // --- "Stop and send" flush (the queue's regular flush is the
+    //     SERVER's: the run's natural end drains its queue rows) ---
+    // The expedited batch is the one client-driven delivery left: the
+    // rows' content was snapshotted at expedite time (the sweep deletes
+    // the server rows right after), and once the interrupted run settles
+    // (busy turning false) the batch re-POSTs in order — expedited first
+    // (click order), the rest in queue order. The guard ref keeps this to
+    // ONE batch per idle window (the re-run while busy is still false
+    // would otherwise re-enter on every row mutation); busy turning true
+    // re-arms it, so does a session switch.
     const flushedIdleRef = useRef(false);
     useEffect(() => {
         flushedIdleRef.current = false;
@@ -273,357 +330,108 @@ const ChatView = memo(function ChatView({
             flushedIdleRef.current = false;
             return;
         }
-        if (flushedIdleRef.current || queued.length === 0) return;
-        const head = takeQueuedPrompt(sessionId);
-        if (!head) return;
+        if (flushedIdleRef.current) return;
+        const batch = takeExpeditedBatch(sessionId);
+        if (batch.length === 0) {
+            // The batch evaporated (pruned empty — the row was naturally
+            // drained before the stop, or the snapshot was never taken):
+            // the ⚡ bubble must not linger beside the real message.
+            settleExpeditedBubble(sessionId, "abandoned");
+            return;
+        }
         flushedIdleRef.current = true;
-        deliver(head.text, head.files, head.fileRefs, head.command);
-    }, [busy, queued, sessionId, deliver]);
-    // "Send now" pulls one row out of the queue and delivers it
-    // immediately — the server accepts prompts mid-run (they join the
-    // running turn), so this is a deliberate steer, not a queue jump.
+        logInfo(`Stop-and-send flush: ${batch.length} row(s) [${batch.map((r) => r.id).join(", ")}]`).catch(() => {});
+        void deliverQueuedRows(batch);
+    }, [busy, sessionId, deliverQueuedRows]);
+    // "Stop and send" pulls one row out of the queue's waiting line:
+    // idle it delivers immediately; mid-run it NEVER steers the running
+    // turn (parked steers are what made interrupts unreliable — they
+    // survive the stop server-side, see useSessionMessages' sweep).
+    // Instead the row is expedited (content snapshotted — the sweep is
+    // about to cancel the server rows) and the current run interrupted;
+    // the flush effect above re-POSTs the batch once it settles.
     const handleSendQueuedNow = useCallback(
         (id: string) => {
+            if (busy) {
+                const row = queued.find((q) => q.id === id);
+                const leading = expediteQueuedRow(sessionId, id);
+                // INSTANT feel: the leading row's message flies into the
+                // transcript the moment ⚡ is pressed (optimistic bubble —
+                // the flush effect's immediate POST adopts it), and the
+                // queue row leaves in the same breath (the sweep owns the
+                // server-side cancel). Later ⚡ rows re-park as queue rows
+                // in the fresh run instead.
+                if (row && leading) {
+                    appendExpeditedBubble(sessionId, row);
+                    dropQueuedRow(sessionId, id);
+                }
+                void interrupt();
+                return;
+            }
+            // Idle with a leftover row (a sweep that failed, or the app
+            // died mid-queue): cancel it and deliver through the normal
+            // path — `deliver` keeps the optimistic-bubble transcript
+            // treatment, and the draft rebuild (note stripped, file://
+            // refs kept) round-trips the attachments.
             const entry = queued.find((q) => q.id === id);
             if (!entry) return;
-            removeQueuedPrompt(sessionId, id);
-            deliver(entry.text, entry.files, entry.fileRefs, entry.command);
+            const draft = queuedRowToDraft(entry);
+            void removeQueued(id);
+            deliver(draft.text, draft.files, [], entry.command);
         },
-        [queued, sessionId, deliver],
+        [busy, queued, sessionId, interrupt, removeQueued, deliver],
     );
     // Edit: the row's text + attachments load back into the composer
     // (ChatInput's draftLoad prop) and the entry leaves the queue;
-    // resubmitting re-enqueues while the session still runs.
+    // resubmitting re-enqueues while the session still runs. The draft
+    // rebuilds from the row's wire content (divert note stripped, the
+    // saved images re-referenced as file:// chips).
     const [queueEdit, setQueueEdit] = useState<{token: number; text: string; files: ComposerAttachment[]} | null>(null);
     useEffect(() => {
         setQueueEdit(null);
-        setQueueDrag(null);
     }, [sessionId]);
     const handleEditQueued = useCallback(
         (id: string) => {
             const entry = queued.find((q) => q.id === id);
             if (!entry) return;
-            removeQueuedPrompt(sessionId, id);
-            setQueueEdit({token: Date.now(), text: entry.text, files: entry.files});
+            void removeQueued(id);
+            setQueueEdit({token: Date.now(), ...queuedRowToDraft(entry)});
         },
-        [queued, sessionId],
+        [queued, removeQueued],
     );
     const handleDraftLoaded = useCallback(() => setQueueEdit(null), []);
 
-    // --- Queue-row reorder (pointer drag; HTML5 DnD proved unreliable
-    // in the WebKitGTK webview) ---
-    // The grip's pointerdown opens the session; window-level listeners
-    // resolve the row under the pointer via elementFromPoint (each row
-    // root carries data-queued-id) and pointerup commits the move.
-    // Esc / pointercancel / releasing outside the rows cancels.
-    const [queueDrag, setQueueDrag] = useState<{draggedId: string; overId: string | null} | null>(null);
-    const queueDragRef = useRef(queueDrag);
-    queueDragRef.current = queueDrag;
-    const queueDragActive = queueDrag !== null;
-    // The GHOST follows the pointer imperatively (transform writes in
-    // the move handler — no per-move re-render): grab offset + width
-    // are captured from the row's rect at drag start, lastPointer
-    // carries the position into the ghost's mount effect.
-    const ghostRef = useRef<HTMLDivElement | null>(null);
-    const ghostGeomRef = useRef<{grabX: number; grabY: number; width: number} | null>(null);
-    const lastPointerRef = useRef<{x: number; y: number} | null>(null);
-    useEffect(() => {
-        if (!queueDragActive) return;
-        const rowAt = (x: number, y: number): string | null => {
-            const el = document.elementFromPoint(x, y)?.closest("[data-queued-id]");
-            return el instanceof HTMLElement ? (el.dataset.queuedId ?? null) : null;
-        };
-        const onMove = (e: PointerEvent) => {
-            lastPointerRef.current = {x: e.clientX, y: e.clientY};
-            const g = ghostRef.current;
-            const geom = ghostGeomRef.current;
-            if (g && geom) {
-                g.style.transform = `translate(${e.clientX - geom.grabX}px, ${e.clientY - geom.grabY}px)`;
-            }
-            const overId = rowAt(e.clientX, e.clientY);
-            setQueueDrag((d) => (d ? (d.overId === overId ? d : {...d, overId}) : d));
-        };
-        const onFinish = (e: PointerEvent) => {
-            const d = queueDragRef.current;
-            setQueueDrag(null);
-            if (!d) return;
-            const overId = rowAt(e.clientX, e.clientY);
-            // Drop = insert BEFORE the target row (the pinned stack
-            // grows upward; both directions work).
-            if (overId && overId !== d.draggedId) moveQueuedPrompt(sessionId, d.draggedId, overId);
-        };
-        const onCancel = () => setQueueDrag(null);
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setQueueDrag(null);
-        };
-        document.body.style.cursor = "grabbing";
-        window.addEventListener("pointermove", onMove);
-        window.addEventListener("pointerup", onFinish);
-        window.addEventListener("pointercancel", onCancel);
-        window.addEventListener("keydown", onKey);
-        return () => {
-            document.body.style.cursor = "";
-            window.removeEventListener("pointermove", onMove);
-            window.removeEventListener("pointerup", onFinish);
-            window.removeEventListener("pointercancel", onCancel);
-            window.removeEventListener("keydown", onKey);
-        };
-    }, [queueDragActive, sessionId]);
-    // Place the ghost under the pointer BEFORE its first paint.
-    useLayoutEffect(() => {
-        const g = ghostRef.current;
-        const geom = ghostGeomRef.current;
-        const pt = lastPointerRef.current;
-        if (!queueDragActive || !g || !geom || !pt) return;
-        g.style.transform = `translate(${pt.x - geom.grabX}px, ${pt.y - geom.grabY}px)`;
-    }, [queueDragActive]);
-    const startQueueDrag = useCallback((e: React.PointerEvent, id: string) => {
-        if (e.button !== 0) return;
-        // No text selection / focus steal from the composer.
-        e.preventDefault();
-        const row = (e.currentTarget as HTMLElement).closest("[data-queued-id]");
-        const rect = row instanceof HTMLElement ? row.getBoundingClientRect() : null;
-        ghostGeomRef.current = rect
-            ? {grabX: e.clientX - rect.left, grabY: e.clientY - rect.top, width: rect.width}
-            : {grabX: 0, grabY: 0, width: 0};
-        lastPointerRef.current = {x: e.clientX, y: e.clientY};
-        setQueueDrag({draggedId: id, overId: null});
-    }, []);
+    // The plan workflow's two gates (Route A) — derivation + decisions
+    // + restart-orphan recovery, see useGateCards.ts.
+    const {
+        pendingPlan, pendingWork, waitingForUser, onPlanDecision, onWorkDecision,
+    } = useGateCards({
+        api,
+        sessionId,
+        directory,
+        busy,
+        agent,
+        /** The agent a plan approval switches this session INTO (build
+         *  for dev sessions, lumina-daily for daily ones) — computed by
+         *  useSessionFlow from the ACTIVE session's mode. */
+        approveAgent,
+        messages,
+        pendingPermissions,
+        pendingForms,
+        interrupt,
+        snapToBottom,
+    });
 
-    // --- Edit-last-message wiring ---
-    // Only the session's LAST user message is editable (and it needs a
-    // connection). The pencil is hover-revealed like copy even while
-    // the session runs — hiding it made the feature undiscoverable —
-    // but it is DISABLED mid-run (a revert needs an idle session, the
-    // server enforces it with 409). A slash-command submission is not
-    // editable: the stored text is the EXPANDED template, not what the
-    // user typed. An optimistic local bubble can't be it either (it
-    // only exists mid-send).
-    const lastEditableId = useMemo(() => {
-        if (disabled) return null;
-        for (let i = messages.length - 1; i >= 0; i--) {
-            const m = messages[i];
-            if (!isUserMessage(m)) continue;
-            return m.command || m.id.startsWith("local-") ? null : m.id;
-        }
-        return null;
-    }, [messages, disabled]);
-    const handleStartEdit = useCallback((message: ChatUserMessage) => {
-        setEditingMessageId(message.id);
-    }, []);
-    const handleCancelEdit = useCallback(() => {
-        setEditingMessageId(null);
-    }, []);
-    const handleSubmitEdit = useCallback(
-        async (message: ChatUserMessage, text: string, files: ComposerAttachment[]): Promise<boolean> => {
-            const ok = await editResend(message, text, files);
-            if (ok) {
-                setEditingMessageId(null);
-                // The resent message (and its rerun) lands at the tail —
-                // follow it like a fresh send.
-                snapToBottom();
-            }
-            return ok;
-        },
-        [editResend, snapToBottom],
-    );
-    // The message whose text the COMPOSER is editing (null = normal send
-    // mode). Identity-stable across streaming frames — clone-on-write
-    // keeps untouched message objects referentially equal, so ChatInput's
-    // memo holds and its edit-mode effect only fires on real transitions.
-    const editMessage = useMemo(
-        () =>
-            editingMessageId == null
-                ? null
-                : (messages.find((m) => m.id === editingMessageId && isUserMessage(m)) as ChatUserMessage | undefined) ??
-                  null,
-        [messages, editingMessageId],
-    );
-    // One identity-stable bundle per (flags, handlers) change so the
-    // memoized transcript rows skip re-renders across streaming frames.
-    const editProps = useMemo(
-        () => ({
-            editableMessageId: lastEditableId,
-            editingMessageId,
-            // Mid-run the pencil renders DISABLED (revert needs idle).
-            editDisabled: busy,
-            onStartEdit: handleStartEdit,
-        }),
-        [lastEditableId, editingMessageId, busy, handleStartEdit],
-    );
-
-    // Plan-workflow approval (Route A): the plan_submit executor BLOCKS
-    // inside its tool call, so a still-running part IS the pending
-    // decision — the card renders from that derivation, not from the
-    // permission-request pipeline (v2.0.11 has no permission gate for
-    // plugin tools). Approving = switching the session to build — the
-    // agent change IS what the executor's poll waits for — plus a
-    // best-effort save of the plan document (the transcript keeps the
-    // content whatever happens). Rejecting = interrupting the session,
-    // which aborts the executor → it returns a revision prompt.
-    //
-    // RESTART ORPHANS: the server persists a tool part as "running" at
-    // call start and never settles it when the app dies mid-gate — after
-    // a restart the part is still running but its executor is GONE (no
-    // busy run), so the switch/interrupt the live path relies on finds
-    // nobody listening and the card would sit forever. The folds below
-    // take the agent + any LOCALLY RECORDED verdicts (gateDecisions.ts)
-    // so a decided orphan collapses; an undecided one renders the card
-    // in recovery mode (the !busy interrupted variant) whose decisions
-    // DELIVER the verdict as a wake prompt — the session resumes.
-    const gateDecisions = useSyncExternalStore(subscribeGateDecisions, getGateDecisionsSnapshot);
-    const gateCtx = useMemo<GateContext>(
-        () => ({
-            agent,
-            decided: new Map(Object.entries(gateDecisions[sessionId] ?? {})),
-        }),
-        [agent, gateDecisions, sessionId],
-    );
-    const pendingPlan = useMemo(
-        () => planApprovalPending(messages as ChatMessage[], gateCtx),
-        [messages, gateCtx],
-    );
-    // The work-acceptance gate (Route A twin): the work_submit executor
-    // blocks inside its call awaiting the user's VERDICT on the tested
-    // work — a still-running part in the transcript is the pending card.
-    const pendingWork = useMemo(
-        () => workApprovalPending(messages as ChatMessage[], gateCtx),
-        [messages, gateCtx],
-    );
-    // The tail's working dots stand down while a decision is pending —
-    // a permission/question/plan-approval/work-acceptance card is the
-    // session waiting on the USER, not work in progress.
-    const waitingForUser =
-        pendingPermissions.length > 0 || pendingForms.length > 0 || pendingPlan !== null || pendingWork !== null;
-    const handlePlanDecision = useCallback(
-        (approve: boolean) => {
-            if (!pendingPlan) return;
-            if (!busy) {
-                // Restart orphan: the blocked executor is gone — the
-                // verdict travels as a WAKE PROMPT (the model never saw
-                // the gate's result) and lands in the local record so
-                // the card collapses; the frozen part itself is
-                // unreadable forever, the folds interpret it.
-                if (approve) {
-                    snapToBottom();
-                    void (async () => {
-                        try {
-                            await api?.switchAgent(sessionId, "build");
-                        } catch (e) {
-                            logWarn(`Failed to switch agent for plan recovery: ${e}`).catch(() => {});
-                        }
-                        try {
-                            await api?.sendPrompt(sessionId, PLAN_WAKE_APPROVE(pendingPlan.todos));
-                        } catch (e) {
-                            logWarn(`Failed to wake the session after plan approval: ${e}`).catch(() => {});
-                        }
-                    })();
-                } else {
-                    recordGateDecision(sessionId, pendingPlan.partId, "rejected");
-                    snapToBottom();
-                    api?.sendPrompt(sessionId, PLAN_WAKE_REJECT).catch((e) => {
-                        logWarn(`Failed to wake the session after plan rejection: ${e}`).catch(() => {});
-                    });
-                }
-                return;
-            }
-            if (!approve) {
-                void interrupt();
-                return;
-            }
-            // Approving resumes execution at the tail — follow it down even
-            // if the reader had scrolled up through the plan text. The plan
-            // DOCUMENT is not written here anymore: the plan_submit
-            // executor itself persists the submission + (on approval)
-            // tasks.md into .lumina/tasks/ — see src/plugins/luminaTools.js.
-            snapToBottom();
-            void api?.switchAgent(sessionId, "build");
-        },
-        [pendingPlan, api, sessionId, interrupt, snapToBottom, busy],
-    );
-
-    // The acceptance gate's decision: approval is DELIVERED as the marker
-    // file the blocked executor polls (.lumina/review/{sessionID}.json —
-    // a fixed path both sides derive without knowing the task directory's
-    // collision suffix; the executor pre-creates the folder and cleans
-    // stale markers). A failed write keeps the card up (the executor is
-    // still blocked) — the user can simply click again. Rejection is the
-    // session interrupt, aborting the executor into a revision prompt.
-    // RESTART ORPHANS (!busy): the executor that would consume the
-    // marker (or react to the interrupt) is gone — record the verdict
-    // locally, still write the marker (the plugin's session-hook janitor
-    // archives on the next model call) and wake the session so the
-    // workflow closes.
-    const handleWorkDecision = useCallback(
-        (approve: boolean) => {
-            if (!pendingWork) return;
-            if (!busy) {
-                recordGateDecision(sessionId, pendingWork.partId, approve ? "accepted" : "rejected");
-                snapToBottom();
-                if (!approve) {
-                    api?.sendPrompt(sessionId, WORK_WAKE_REJECT).catch((e) => {
-                        logWarn(`Failed to wake the session after work rejection: ${e}`).catch(() => {});
-                    });
-                    return;
-                }
-                if (!directory || !api) return;
-                api.writeTextFile(
-                    `${directory.replace(/\/+$/, "")}/.lumina/review/${sessionId}.json`,
-                    JSON.stringify({approved: true, at: new Date().toISOString()}),
-                ).catch((e) => {
-                    logWarn(`Failed to deliver the work-acceptance marker: ${e}`).catch(() => {});
-                });
-                api.sendPrompt(sessionId, WORK_WAKE_ACCEPT).catch((e) => {
-                    logWarn(`Failed to wake the session after work acceptance: ${e}`).catch(() => {});
-                });
-                return;
-            }
-            if (!approve) {
-                void interrupt();
-                return;
-            }
-            if (!directory || !api) return;
-            snapToBottom();
-            api.writeTextFile(
-                `${directory.replace(/\/+$/, "")}/.lumina/review/${sessionId}.json`,
-                JSON.stringify({approved: true, at: new Date().toISOString()}),
-            ).catch((e) => {
-                logWarn(`Failed to deliver the work-acceptance marker: ${e}`).catch(() => {});
-            });
-        },
-        [pendingWork, directory, api, sessionId, interrupt, snapToBottom, busy],
-    );
-
-    // Work-gate ZOMBIE probe: a work_submit frozen running whose
-    // acceptance marker is ALREADY on disk (delivered by an earlier
-    // run's decision — the executor that would have consumed it died
-    // with the app; the local record usually covers this, but it is a
-    // separate medium that can lag) must not re-render as a pending
-    // card. The marker is the acceptance protocol's durable truth
-    // (verified live: the nested relative path reads fine through
-    // api.readTextFile), so probe it once per orphaned gate and mirror
-    // an existing marker into the record. Read failures are treated as
-    // absence — on this server generation a MISSING directory 500s
-    // instead of 404ing, so "absent" is the normal outcome (a false
-    // absence merely keeps the recovery card up; the user decides
-    // again).
-    useEffect(() => {
-        if (!pendingWork || busy || !directory || !api) return;
-        if (gateCtx.decided?.has(pendingWork.partId)) return;
-        let cancelled = false;
-        api.readTextFile(directory.replace(/\/+$/, ""), `.lumina/review/${sessionId}.json`)
-            .then((raw) => {
-                if (!cancelled && raw !== null) {
-                    recordGateDecision(sessionId, pendingWork.partId, "accepted");
-                }
-            })
-            .catch((e) => {
-                logDebug(`Work-acceptance marker probe treated as absent: ${e}`).catch(() => {});
-            });
-        return () => {
-            cancelled = true;
-        };
-    }, [pendingWork, busy, directory, api, sessionId, gateCtx]);
+    // Edit-last-message wiring (the pencil on the last user bubble loads
+    // it into the composer), see useEditLastMessage.ts.
+    const {editProps, editMessage, onCancelEdit, onSubmitEdit} = useEditLastMessage({
+        sessionId,
+        disabled,
+        busy,
+        messages,
+        editResend,
+        snapToBottom,
+    });
 
     // Grow the render window / fetch an older page (both directions of
     // "earlier": in-memory tail first, then the server cursor).
@@ -706,6 +514,7 @@ const ChatView = memo(function ChatView({
                         waitingForUser={waitingForUser}
                         stopping={stopping}
                         edit={editProps}
+                        onRetrySend={handleRetrySend}
                     />
                 </div>
             </div>
@@ -718,29 +527,16 @@ const ChatView = memo(function ChatView({
                  * of the composer), and the exit is a pure fade. The
                  * composer below stays live for the next queued
                  * prompt. */}
-                <ExitList
-                    items={queuedItems}
-                    keyOf={(q) => q.id}
-                    enter
-                    enterClassName="lum-queue-enter"
-                    exitMs={250}
-                    exit={{animation: "lum-queue-exit"}}
-                    exitClassName="lum-queue-exit"
-                >
-                    {(q, _closing, _bind, entering) => (
-                        <QueuedPromptRow
-                            entry={q}
-                            entering={entering}
-                            dragging={queueDrag?.draggedId === q.id}
-                            dropTarget={queueDrag !== null && queueDrag.draggedId !== q.id && queueDrag.overId === q.id}
-                            onSendNow={handleSendQueuedNow}
-                            onEdit={handleEditQueued}
-                            onRemove={(id) => removeQueuedPrompt(sessionId, id)}
-                            onGripPointerDown={(e) => startQueueDrag(e, q.id)}
-                            editLocked={editMessage !== null}
-                        />
-                    )}
-                </ExitList>
+                <QueuedPromptList
+                    sessionId={sessionId}
+                    queued={queuedItems}
+                    editLocked={editMessage !== null}
+                    onSendNow={handleSendQueuedNow}
+                    onEdit={handleEditQueued}
+                    onRemove={(id) => void removeQueued(id)}
+                    onRetry={(id) => void retryQueued(id)}
+                    onRewriteOrder={(draggedId, overId) => void rewriteQueuedOrder(draggedId, overId)}
+                />
                 {/* The plan workflow's approval card — pinned here while
                  * the plan_submit executor blocks on the user's decision
                  * (a still-running part in the transcript; see
@@ -754,8 +550,8 @@ const ChatView = memo(function ChatView({
                             <PlanApprovalCard
                                 payload={pendingPlan}
                                 interrupted={!busy}
-                                onApprove={() => handlePlanDecision(true)}
-                                onReject={() => handlePlanDecision(false)}
+                                onApprove={() => onPlanDecision(true)}
+                                onReject={() => onPlanDecision(false)}
                                 {...bind}
                             />
                         )
@@ -773,8 +569,8 @@ const ChatView = memo(function ChatView({
                             <WorkReviewCard
                                 payload={pendingWork}
                                 interrupted={!busy}
-                                onApprove={() => handleWorkDecision(true)}
-                                onReject={() => handleWorkDecision(false)}
+                                onApprove={() => onWorkDecision(true)}
+                                onReject={() => onWorkDecision(false)}
                                 {...bind}
                             />
                         )
@@ -826,6 +622,54 @@ const ChatView = memo(function ChatView({
                         />
                     )}
                 </ExitList>
+                {/* The SAME pinned treatment for SUBAGENT children's asks:
+                 *  a child blocked on the server hangs its parent's run
+                 *  too, and the child itself has no sidebar row — without
+                 *  these cards the whole chain stalls invisibly. Cards
+                 *  render under a source label naming the waiting child;
+                 *  replies go through the same session-addressed
+                 *  endpoints as the session's own asks. */}
+                <ExitList
+                    items={childPermissionGroups}
+                    keyOf={(item) => item.key}
+                    exitMs={250}
+                    exit={{animation: "lum-row-exit"}}
+                >
+                    {(item) => (
+                        <div className="flex flex-col gap-1">
+                            <SubagentAskSource sub={item.child}/>
+                            <PermissionCard
+                                request={item.group.requests[0]}
+                                onDecision={(_, decision) => {
+                                    snapToBottom();
+                                    for (const reply of groupReplyPlan(item.group.requests, decision)) {
+                                        void replyPermission(reply.request, reply.decision);
+                                    }
+                                }}
+                            />
+                        </div>
+                    )}
+                </ExitList>
+                <ExitList
+                    items={childForms}
+                    keyOf={(item) => item.form.id}
+                    exitMs={250}
+                    exit={{animation: "lum-row-exit"}}
+                >
+                    {(item) => (
+                        <div className="flex flex-col gap-1">
+                            <SubagentAskSource sub={item.child}/>
+                            <QuestionCard
+                                form={item.form}
+                                onReply={(f, answer) => {
+                                    snapToBottom();
+                                    void replyForm(f, answer);
+                                }}
+                                onCancel={cancelForm}
+                            />
+                        </div>
+                    )}
+                </ExitList>
                 {/* The composer stays mounted while requests pend (see
                  * the comment above): busy still swaps its send button
                  * for stop per the usual run flow. */}
@@ -850,53 +694,35 @@ const ChatView = memo(function ChatView({
                     usage={usage}
                     contextUsage={contextUsage}
                     editMessage={editMessage}
-                    onCancelEdit={handleCancelEdit}
-                    onSubmitEdit={handleSubmitEdit}
+                    onCancelEdit={onCancelEdit}
+                    onSubmitEdit={onSubmitEdit}
                 />
             </div>
-            {/* The reorder DRAG GHOST: a fixed-position lifted copy of the
-             * dragged row following the pointer (imperative transform —
-             * see the drag session above). Portaled to document.body:
-             * `fixed` inside the tree would be caught by an ancestor's
-             * containment (the conversation row's container-type: size
-             * makes it the containing block) and offset from the cursor.
-             * pointer-events:none is LOAD-BEARING: it keeps the ghost out
-             * of elementFromPoint so the drop target resolves to the row
-             * BENEATH it. */}
-            {queueDrag && (ghostGeomRef.current?.width ?? 0) > 0 &&
-                createPortal(
-                    <div
-                        ref={ghostRef}
-                        className="fixed left-0 top-0 z-50 pointer-events-none"
-                        style={{width: ghostGeomRef.current?.width}}
-                    >
-                        <div
-                            className="flex items-center gap-2 rounded-[var(--radius-lg)] px-3 py-2 select-none"
-                            style={{
-                                background: colors.recessedBg,
-                                border: `1px solid ${colors.glassBorder}`,
-                                boxShadow: colors.elevationShadow,
-                                transform: "scale(1.02)",
-                            }}
-                        >
-                            <GripVertical size={14} className="shrink-0" style={{color: colors.inactiveText}}/>
-                            <span className="flex-1 min-w-0 truncate text-xs" style={{color: colors.textPrimary}}>
-                                {queuedRowDisplay(
-                                    queued.find((q) => q.id === queueDrag.draggedId) ?? {
-                                        text: "",
-                                        files: [],
-                                        fileRefs: [],
-                                        command: null,
-                                        id: queueDrag.draggedId,
-                                    },
-                                )}
-                            </span>
-                        </div>
-                    </div>,
-                    document.body,
-                )}
         </div>
     );
 });
 
 export default ChatView;
+
+/** Source label above a subagent child's pinned ask card — names the
+ *  child that is waiting ("子代理 · Explore · find auth code"), so the
+ *  card below reads as belonging to that child, not this conversation.
+ *  Module-level on purpose (an inline definition would churn identity
+ *  per render). */
+function SubagentAskSource({sub}: {sub: SessionSubagentRef}) {
+    const t = useI18n();
+    const agent = sub.agent
+        ? sub.agent.charAt(0).toUpperCase() + sub.agent.slice(1)
+        : null;
+    const text = agent === null
+        ? t["Subagent"]
+        : sub.label
+            ? `${t["Subagent"]} · ${agent} · ${sub.label}`
+            : `${t["Subagent"]} · ${agent}`;
+    return (
+        <div className="flex items-center gap-1.5 text-2xs opacity-60 pl-1">
+            <Bot size={12} className="shrink-0"/>
+            <span className="min-w-0 truncate">{text}</span>
+        </div>
+    );
+}

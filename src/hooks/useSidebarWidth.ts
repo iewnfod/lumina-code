@@ -1,4 +1,5 @@
 import {useSyncExternalStore} from "react";
+import {createModuleStore} from "../lib/moduleStore.ts";
 import {createPersistedStore} from "../lib/persistedStore.ts";
 
 /**
@@ -53,26 +54,14 @@ export function setSidebarWidth(width: number): void {
 
 // --- The in-flight drag flag (module store, deliberately NOT persisted) ---
 
-let resizing = false;
-const resizingListeners = new Set<() => void>();
-
-function getResizing(): boolean {
-    return resizing;
-}
-
-function subscribeResizing(listener: () => void): () => void {
-    resizingListeners.add(listener);
-    return () => resizingListeners.delete(listener);
-}
+const resizingStore = createModuleStore<boolean>(false);
 
 /** True while the user is dragging the sidebar's resize seam. */
 export function useSidebarResizing(): boolean {
-    return useSyncExternalStore(subscribeResizing, getResizing);
+    return useSyncExternalStore(resizingStore.subscribe, resizingStore.get, resizingStore.get);
 }
 
 /** Flip the in-flight drag flag (SidebarResizer's private writer). */
 export function setSidebarResizing(active: boolean): void {
-    if (resizing === active) return;
-    resizing = active;
-    for (const listener of resizingListeners) listener();
+    resizingStore.set(active);
 }

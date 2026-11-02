@@ -1,28 +1,74 @@
-# lumina-server — one container + one data volume.
+# lumina-code-server — 生产用 compose：拉取 CI 发布的镜像直接运行。
 #
-#   docker compose up -d
+#   docker compose up -d                                # 首次运行自动创建 ./data/
+#   docker compose pull && docker compose up -d          # 更新到新版 :latest
 #
-# Then open http://<host>:4600/ and register the FIRST account (it
-# becomes admin). Put TLS in front for anything past the LAN (see
-# server/README.md).
+# 打开 http://<host>:14600/ 注册第一个账号（自动成为 admin）。数据就是
+# ./data/lumina.db 一个文件（bind mount，备份即拷贝）。TLS/组网见
+# server/README.md。
+#
+# 镜像由 .github/workflows/docker-server.yml 自动构建推送：
+# master 推送 → :edge；GitHub Release → :<版本号> + :latest。
+# 想锁定版本就把下面的 tag 换成具体版本号（如 0.5.0）。
+#
+# 从源码自建镜像？见 server/README.md 的构建段
+# （docker build -f server/Dockerfile -t lumina-code-server .）。
 
 services:
-  lumina-server:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
-    # image: ghcr.io/iewnfod/lumina-server:latest   # once published
+  lumina-code-server:
+    container_name: lumina-code-server
+    image: iewnfod/lumina-code-server:latest
     ports:
-      - "4600:3000"
+      - "14600:3000"
     environment:
-      LUMINA_DATA_DIR: /data
       # Set to "false" to close registration after everyone joined.
       LUMINA_ALLOW_REGISTRATION: "true"
       # "1" only when this port is TLS itself (no reverse proxy).
       LUMINA_COOKIE_SECURE: "0"
+      # frp 远程访问：必须与 frps.toml 的 auth.token 一致
+      # （留空 = 服务器不提供远程访问）。
+      #
+      # LUMINA_FRPS_CONTROL（控制信道走 WebSocket，推荐）：
+      # wss://<你的域名> —— frpc 经 nginx 的 `/~!frp` location 拨
+      # wss（frps 原生接受 ws，TLS 由 wss 承担）。适用于一切
+      # HTTP 反代前置的部署，【必须】用于 Cloudflare 橙云代理 ——
+      # CF 只转 HTTP(S) 端口，frp 的裸 TCP 控制协议过不去。设置后
+      # 下方 frps 的 14601 无需公网发布（nginx 回环转发）。
+      # 留空 = 传统直连模式：frpc 连 `<登录域名>:LUMINA_FRPS_BIND_PORT`
+      # 的裸 TCP（此时 14601 必须公网发布）。
+      LUMINA_FRPS_TOKEN: "CHANGE_ME_TOO"
+      LUMINA_FRPS_BIND_PORT: "14601"
+      LUMINA_FRPS_CONTROL: "wss://lumina-code-server.iewnfod.com"
+    # LUMINA_DATA_DIR 不在这里设：镜像已烘焙 /data（Dockerfile 的
+    # ENV），容器内路径对宿主机无意义 —— 外部可见性完全由这个 bind
+    # mount 决定，SQLite 落在 compose 文件旁的 ./data/lumina.db。
     volumes:
-      - lumina-data:/data
+      - ./data:/data
     restart: unless-stopped
 
-volumes:
-  lumina-data:
+  # frp 服务端：桌面 frpc 的出站信道 + 移动端直连的 vhost 路由。
+  # 配置见 frps.toml（改 auth.token）。镜像用社区维护的 snowdreamtech/frps
+  # —— 官方 fatedier/frps 的 Docker Hub 仓库已停止发布新版本标签。
+  # 挂载目标必须是 /etc/frp/frps.toml（镜像默认路径，不带 s）：其
+  # entrypoint 会吞掉自定义 -c、只认自己的默认文件 —— 挂到别处的
+  # 配置静默不生效（live-observed：frps 以内置的最小配置启动，token
+  # 校验永远失败，且 vhost 根本没监听）。
+  frps:
+    container_name: lumina-code-frps
+    # 钉 0.71.0-alpine（实测运行的版本）：Docker Hub 上这个仓库滞后，
+    # fatedier 已发 0.71.1 但 Hub 尚无对应 tag。桌面侧 fetch-frp.mjs
+    # 分发的 frpc 是 0.71.1 —— 0.71.1 客户端 ↔ 0.71.0 服务端已实测
+    # 兼容（本地全链路 + 生产 wss 均验证）；Hub 出新 tag 后两边再同步。
+    image: snowdreamtech/frps:0.71.0-alpine
+    restart: unless-stopped
+    volumes:
+      - ./frps.toml:/etc/frp/frps.toml:ro
+    ports:
+      # 端口连排：14600 web / 14601 frps 控制信道 / 14602 frps vhost。
+      # 默认（LUMINA_FRPS_CONTROL 已设置，控制信道走 wss 经 nginx）
+      # 14601 与 vhost 一样只发布到宿主机回环 —— 唯一入口是 nginx
+      # （/~!frp 控制信道 + /t/ vhost，TLS 都在那终结）。传统直连
+      # 部署（无反代 / 未设 LUMINA_FRPS_CONTROL）把 14601 改回
+      # "14601:7000" 公网发布（frpc 侧 transport.tls.enable 加密）。
+      - "127.0.0.1:14601:7000"
+      - "127.0.0.1:14602:7100"

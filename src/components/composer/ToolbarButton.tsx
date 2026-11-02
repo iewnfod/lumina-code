@@ -44,8 +44,10 @@ export default function ToolbarButton({
              * hardcoded -translate-y-px compensated the DEFAULT font's
              * baseline droop, but overcorrected on custom fonts (the
              * same double-counting class ToolCard's comments warn
-             * about); centering is predictable across font stacks. */}
-            {label != null && <span className="text-xs font-medium truncate leading-normal max-w-44">{label}</span>}
+             * about); centering is predictable across font stacks.
+             * lum-tb-label is mobile.css's hook for the tighter label
+             * cap (the selectors cluster must fit a phone row). */}
+            {label != null && <span className="lum-tb-label text-xs font-medium truncate leading-normal max-w-44">{label}</span>}
         </button>
     );
     return title ? <Hint label={title}>{button}</Hint> : button;

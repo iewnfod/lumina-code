@@ -4,8 +4,10 @@ import type {
     PendingCommand,
     SessionModelRef,
 } from "../opencode/types.ts";
+import {usePhoneLayout} from "../hooks/useLayoutMode.ts";
 import ChatPlaceholder from "./ChatPlaceholder.tsx";
 import ChatInput from "./composer/ChatInput.tsx";
+import {ComposerSelectors, ComposerSettingsControls} from "./composer/ComposerToolbar.tsx";
 import {WELCOME_DRAFT_KEY} from "./composer/composerDrafts.ts";
 
 /**
@@ -19,6 +21,7 @@ export default function WelcomeScreen({
     subtitle,
     disabled,
     onSend,
+    sendBlocked = false,
     agent,
     model,
     onAgentChange,
@@ -35,6 +38,9 @@ export default function WelcomeScreen({
     /** No connection yet. */
     disabled: boolean;
     onSend: (text: string, files: ComposerAttachment[], fileRefs: ComposerFileRef[], command: PendingCommand | null) => void;
+    /** DEV's no-default-directory rule (useSessionFlow): the send stays
+     *  refused until a project directory is staged. */
+    sendBlocked?: boolean;
     agent: string;
     model: SessionModelRef | null;
     onAgentChange: (agent: string) => void;
@@ -48,6 +54,14 @@ export default function WelcomeScreen({
     /** Opens the settings modal on its Model tab (model/provider config). */
     onOpenModelConfig: () => void;
 }) {
+    // PHONE LAYOUT: the composer's settings controls — mode, project/
+    // branch pickers, model, thinking depth — move OUT of the input box
+    // (five labeled controls cannot fit one phone row) into a centered,
+    // wrap-friendly cluster BELOW the box; the toolbar keeps only
+    // attach + send. Tablet mode (hooks/useLayoutMode.ts) keeps the
+    // standard desktop toolbar instead. The in-session composer (and
+    // the whole desktop tree) is untouched.
+    const mobile = usePhoneLayout();
     return (
         <div className="lum-enter h-full min-w-0 flex-1">
             {/* No horizontal padding here — the composer column's shared
@@ -70,6 +84,7 @@ export default function WelcomeScreen({
                     <ChatInput
                         disabled={disabled}
                         busy={false}
+                        sendBlocked={sendBlocked}
                         draftKey={WELCOME_DRAFT_KEY}
                         onSend={onSend}
                         onInterrupt={() => {}}
@@ -83,7 +98,43 @@ export default function WelcomeScreen({
                         stagedBranch={stagedBranch}
                         onStagedBranchChange={onStagedBranchChange}
                         onOpenModelConfig={onOpenModelConfig}
+                        toolbarMinimal={mobile}
                     />
+                    {mobile && (
+                        /* The settings cluster: everything that left the
+                         * toolbar — mode + project/branch pickers
+                         * (ComposerSettingsControls) and model + thinking
+                         * depth (ComposerSelectors) — centered under the
+                         * box. flex-wrap lets the chips flow onto a second
+                         * centered row instead of crushing: wrapping IS the
+                         * layout here. lum-m-welcome-controls is
+                         * mobile.css's hook for the tighter label cap. No
+                         * context ring — there is no conversation yet.
+                         * Panels open align="auto": the wrapping chips sit
+                         * at a different horizontal offset every render,
+                         * so each panel clamps itself into the viewport
+                         * (PopoverMenu measures at open) instead of
+                         * always extending right off a phone's edge. */
+                        <div className="lum-m-welcome-controls flex flex-wrap items-center justify-center gap-1.5 pt-2">
+                            <ComposerSettingsControls
+                                agent={agent}
+                                onAgentChange={onAgentChange}
+                                conversationStarted={false}
+                                directory={directory}
+                                onDirectoryChange={onDirectoryChange}
+                                stagedBranch={stagedBranch}
+                                onStagedBranchChange={onStagedBranchChange}
+                                align="auto"
+                            />
+                            <ComposerSelectors
+                                model={model}
+                                onModelChange={onModelChange}
+                                onOpenModelConfig={onOpenModelConfig}
+                                conversationStarted={false}
+                                align="auto"
+                            />
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

@@ -1,5 +1,5 @@
 import {memo, useCallback, useEffect, useRef, useState} from "react";
-import {Pencil, X} from "lucide-react";
+import {AlertCircle, Pencil, X} from "lucide-react";
 import {LexicalComposer} from "@lexical/react/LexicalComposer";
 import {error} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
@@ -14,7 +14,8 @@ import type {
     SessionUsage,
 } from "../../opencode/types.ts";
 import type {ContextUsage} from "../chat/usageStats.ts";
-import {fileIconUrl} from "../../lib/fileIcons.ts";
+import {compressImageFile} from "../../lib/imageCompress.ts";
+import {isMobileApp} from "../../lib/platform.ts";
 import {splitAttachmentNote} from "../../opencode/visionAttachments.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import ComposerCore, {type ComposerHandle} from "./ComposerCore.tsx";
@@ -24,6 +25,7 @@ import {saveDraftAttachments, saveDraftEditorState, takeInitialDraft} from "./co
 import {FileMentionNode} from "./FileMentionNode.tsx";
 import {CommandMentionNode} from "./CommandMentionNode.tsx";
 import Hint from "../ui/Hint.tsx";
+import {AttachmentChipIcon, ATTACHMENT_CHIP_CLASS} from "../ui/AttachmentChip.tsx";
 
 /**
  * The prompt composer shell: staged attachments (chips above the editor),
@@ -50,6 +52,7 @@ const ChatInput = memo(function ChatInput({
     busy,
     onSend,
     onInterrupt,
+    sendBlocked = false,
     agent,
     model,
     onAgentChange,
@@ -71,12 +74,17 @@ const ChatInput = memo(function ChatInput({
     editMessage = null,
     onCancelEdit,
     onSubmitEdit,
+    toolbarMinimal = false,
 }: {
     /** No connection yet. */
     disabled: boolean;
     busy: boolean;
     onSend: (text: string, files: ComposerAttachment[], fileRefs: ComposerFileRef[], command: PendingCommand | null) => void;
     onInterrupt: () => void;
+    /** DEV's no-default-directory rule (see ComposerToolbar): also
+     *  intercepts the Enter-key submit path so a raced send keeps the
+     *  buffer (ComposerCore retains it on a false return). */
+    sendBlocked?: boolean;
     /** Effective selections (session-bound once a session exists). */
     agent: string;
     model: SessionModelRef | null;
@@ -116,6 +124,12 @@ const ChatInput = memo(function ChatInput({
     /** Submit the edit; resolves false when the revert failed (the
      *  composer keeps the edited text and attachments for a retry). */
     onSubmitEdit?: (message: ChatUserMessage, text: string, files: ComposerAttachment[]) => Promise<boolean>;
+    /** Reduce the bottom toolbar to attach + send — MOBILE's welcome
+     *  screen hosts the settings controls (mode/project/branch) and the
+     *  selectors cluster (model/thinking depth) BELOW the composer
+     *  instead (WelcomeScreen); five labeled controls cannot fit one
+     *  phone row. The in-session composer never passes it. */
+    toolbarMinimal?: boolean;
 }) {
     const colors = useColors();
     const t = useI18n();
@@ -126,6 +140,15 @@ const ChatInput = memo(function ChatInput({
     // (both were saved into the draft store on every change); a submit
     // clears the entry, so a fresh mount after sending starts empty.
     const [attachments, setAttachments] = useState<ComposerAttachment[]>(() => takeInitialDraft(draftKey)?.attachments ?? []);
+    // Attachments the size cap/read path rejected on the last addFiles —
+    // surfaced as a short-lived notice instead of the silent drop the
+    // mobile path made unfelt (big camera picks hit the cap regularly).
+    const [skippedAttachments, setSkippedAttachments] = useState(0);
+    const skipNoticeTimer = useRef<number | null>(null);
+    useEffect(() => () => {
+        if (skipNoticeTimer.current !== null) clearTimeout(skipNoticeTimer.current);
+    }, []);
+
     // Mirror staged attachments into the draft store (the editor half is
     // ComposerCore's concern — it owns the EditorState).
     useEffect(() => {
@@ -235,8 +258,22 @@ const ChatInput = memo(function ChatInput({
     }, [api, directory]);
 
     const addFiles = useCallback(async (files: File[]) => {
-        const staged = await Promise.all(files.map(readAttachment));
+        // MOBILE: camera photos are multi-MB and ride the prompt POST as
+        // base64 over the frp route — re-encode images first (longest-edge
+        // cap + JPEG). The desktop's loopback upload is insensitive, so it
+        // keeps the originals. Undecodable/failed inputs pass through
+        // unchanged (compression never gates sending).
+        const prepared = isMobileApp()
+            ? await Promise.all(files.map((f) => compressImageFile(f)))
+            : files;
+        const staged = await Promise.all(prepared.map(readAttachment));
         const fresh = staged.filter((f): f is ComposerAttachment => f !== null);
+        const skipped = staged.length - fresh.length;
+        if (skipped > 0) {
+            setSkippedAttachments(skipped);
+            if (skipNoticeTimer.current !== null) clearTimeout(skipNoticeTimer.current);
+            skipNoticeTimer.current = window.setTimeout(() => setSkippedAttachments(0), 6000);
+        }
         if (fresh.length === 0) return;
         setAttachments((prev) => {
             const held = new Set(prev.map((a) => a.id));
@@ -268,11 +305,13 @@ const ChatInput = memo(function ChatInput({
                     return ok;
                 });
             }
+            if (sendBlocked) return false; // dev + no project staged: the
+            // buffer stays (the disabled button's hint says why)
             onSend(text, attachments, fileRefs, command);
             setAttachments([]);
             return true;
         },
-        [editMessage, onSubmitEdit, onSend, attachments],
+        [editMessage, onSubmitEdit, onSend, sendBlocked, attachments],
     );
 
     const initialConfig = {
@@ -326,19 +365,24 @@ const ChatInput = memo(function ChatInput({
                 </div>
             )}
 
+            {skippedAttachments > 0 && (
+                <div className="flex items-center gap-1.5 px-3 pt-2.5 text-xs select-none" style={{color: "var(--color-danger-text)"}}>
+                    <AlertCircle size={12} className="shrink-0"/>
+                    <span className="truncate">
+                        {t["Some attachments were not added (too large or unreadable)"]} ({skippedAttachments})
+                    </span>
+                </div>
+            )}
+
             {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
                     {attachments.map((a) => (
                         <span
                             key={a.id}
-                            className="inline-flex items-center gap-1.5 h-7 pl-1.5 pr-1 rounded-[var(--radius-sm)] max-w-64"
+                            className={ATTACHMENT_CHIP_CLASS}
                             style={{background: colors.activeOverlay}}
                         >
-                            {a.mime.startsWith("image/") ? (
-                                <img src={a.uri} alt="" className="w-5 h-5 rounded-[var(--radius-xs)] object-cover shrink-0"/>
-                            ) : (
-                                <img src={fileIconUrl(a.name)} alt="" className="w-4 h-4 shrink-0"/>
-                            )}
+                            <AttachmentChipIcon thumb={a.mime.startsWith("image/") ? a.uri : null} name={a.name}/>
                             <span className="text-xs truncate">{a.name}</span>
                             <Hint label={t["Remove attachment"]}>
                                 <button
@@ -382,6 +426,7 @@ const ChatInput = memo(function ChatInput({
                 disabled={disabled}
                 busy={busy}
                 canSend={canSend}
+                sendBlocked={sendBlocked}
                 onAttach={() => fileInputRef.current?.click()}
                 onSend={() => composerApiRef.current?.submit()}
                 onInterrupt={onInterrupt}
@@ -397,6 +442,7 @@ const ChatInput = memo(function ChatInput({
                 onOpenModelConfig={onOpenModelConfig}
                 usage={usage}
                 contextUsage={contextUsage}
+                minimal={toolbarMinimal}
             />
         </div>
     );

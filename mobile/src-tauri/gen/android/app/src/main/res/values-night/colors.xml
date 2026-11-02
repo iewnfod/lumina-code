@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark twin of values/colors.xml's lumina_window_bg — the whole
+         day/night difference lives in this qualifier (both themes.xml
+         reference the SAME color name). Glass-surface equivalent of
+         src/lib/theme.ts DARK_BG (#1a1a1a) via src/lib/glass.ts's
+         glassSurfaceEquivalent (+6% white tint); see the day file for
+         the full rationale. -->
+    <color name="lumina_window_bg">#282828</color>
+</resources>

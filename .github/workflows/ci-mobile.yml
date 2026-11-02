@@ -2,16 +2,28 @@ name: CI - Mobile
 
 # The mobile client's web bundle (second vite entry, reusing the desktop
 # components) plus a HOST-target `cargo check` of the mobile Tauri crate
-# — the crate pins tauri =2.11.5 and patches tauri/wry/tao to the
-# feat/open-harmony branches, so this catches patch/version drift early
-# (the classic trap: crates.io publishing a newer version that silently
-# bypasses the patch). Full ohos HAP builds need the HarmonyOS SDK +
-# DevEco toolchain and stay a LOCAL/release concern (see
-# mobile/README.md).
+# (stable crates.io tauri 2 — the same version line as the webkit shell,
+# so this catches dependency drift into mobile-incompatible shapes).
+# Full Android/iOS builds need the SDK toolchains / macOS and stay a
+# LOCAL/release concern (see mobile/README.md).
 
 on:
   push:
+    paths:
+      - "mobile/**"
+      - "src/mobile/**"
+      - "src/i18n/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/ci-mobile.yml"
   pull_request:
+    paths:
+      - "mobile/**"
+      - "src/mobile/**"
+      - "src/i18n/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/ci-mobile.yml"
 
 concurrency:
   group: ci-mobile-${{ github.head_ref || github.ref_name }}
@@ -51,6 +63,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The mobile crate's `tauri` dep carries the DEFAULT `wry` feature, so
+      # a HOST-target check compiles the same WebKitGTK / GTK / libsoup stack
+      # as the webkit shell (the Android/iOS targets swap in their own
+      # runtime and never pull it) — the dev headers must be present for
+      # glib-sys & co. to resolve. Same list as ci-backend.yml's Linux leg.
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            xdg-utils
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -64,5 +94,7 @@ jobs:
           mkdir -p dist-mobile
           echo '<!doctype html><title>Lumina Code Mobile</title>' > dist-mobile/index.html
 
+      # `--locked` matches ci-backend.yml: the committed mobile Cargo.lock
+      # is enforced, a silent resolve drift fails here instead.
       - name: cargo check
-        run: cargo check --manifest-path mobile/src-tauri/Cargo.toml
+        run: cargo check --locked --manifest-path mobile/src-tauri/Cargo.toml

@@ -1,4 +1,5 @@
-import {error as logError, info as logInfo} from "@tauri-apps/plugin-log";
+import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
+import {createPersistedStore} from "../lib/persistedStore.ts";
 import type {OpencodeApi} from "./api.ts";
 import {globalConfigTarget} from "./configFiles.ts";
 import type {ComposerAttachment, OpencodeModel, SessionModelRef} from "./types.ts";
@@ -165,21 +166,59 @@ export function dataUriToBytes(uri: string): Uint8Array<ArrayBuffer> | null {
     }
 }
 
-/** Memoized global-config directory (the divert target's parent). The
- * lookup is one cheap local GET; memoizing keeps every send from
- * repeating it, and a failure simply skips the memo. */
-let cachedConfigDirectory: string | null = null;
+/** Device-local remembrance of the server's global-config directory (the
+ * divert target's parent), persisted through the factory. The live probe
+ * is one cheap local GET on the desktop but a full round-trip on the
+ * MOBILE frp route — and a transient failure there used to degrade a
+ * text-only model's images to inline, which the provider then rejects
+ * (live-observed with glm-5.3: "this model does not support image
+ * input"). A remembered directory from any earlier successful probe now
+ * rides every failed probe across cold starts; a stale value is
+ * self-correcting — experimental/fs/write creates parents, the desktop's
+ * vision tool reads the path it just wrote, and the next successful
+ * probe re-pins the store. */
+const configDirStore = createPersistedStore<string | null>({
+    key: "lumina-code:config-directory",
+    label: "config directory",
+    read: (raw) => (typeof raw === "string" && raw !== "" ? raw : null),
+    write: (value) => value,
+});
+
+/** Resolve the divert target's parent directory: probe the server once
+ * per app run (one retry — a transient drop is the mobile-route failure
+ * this exists for), remember every success durably, and fall back to the
+ * last remembered directory when both attempts die. null only when
+ * nothing is known at all (the caller then keeps attachments inline). */
+let sessionConfigDirectory: string | null = null;
 
 async function configDirectory(api: OpencodeApi): Promise<string | null> {
-    if (cachedConfigDirectory) return cachedConfigDirectory;
-    try {
-        const entries = await api.listConfigEntries();
-        const target = globalConfigTarget(entries ?? []);
-        if (target) cachedConfigDirectory = target.directory;
-    } catch (e) {
-        logError(`Failed to locate config directory for attachments: ${e}`).catch(() => {});
+    if (sessionConfigDirectory) return sessionConfigDirectory;
+    const remembered = configDirStore.get();
+    for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+            const entries = await api.listConfigEntries();
+            const target = globalConfigTarget(entries ?? []);
+            const directory = target?.directory ?? null;
+            if (directory != null) {
+                if (directory !== remembered) configDirStore.set(directory);
+                sessionConfigDirectory = directory;
+                return directory;
+            }
+            break; // a healthy probe with no global target — retrying can't help
+        } catch (e) {
+            // First failure retries silently; the second logs and falls
+            // through to the remembered value below.
+            if (attempt > 0) {
+                logError(`Failed to locate config directory for attachments: ${e}`).catch(() => {});
+            }
+        }
     }
-    return cachedConfigDirectory;
+    if (remembered != null) {
+        logWarn(`Config directory probe failed; using the remembered ${remembered}`).catch(() => {});
+        sessionConfigDirectory = remembered;
+        return remembered;
+    }
+    return null;
 }
 
 /**

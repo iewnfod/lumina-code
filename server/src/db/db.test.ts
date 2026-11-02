@@ -9,7 +9,7 @@ import {SCHEMA_VERSION} from "./schema.ts";
 
 /** A throwaway on-disk database (exercises the dir-creation path too). */
 function tempDb(): {db: Db; dir: string} {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lumina-server-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lumina-code-server-"));
   const db = createDatabase(path.join(dir, "sub", "lumina.db"));
   return {db, dir};
 }

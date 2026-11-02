@@ -11,6 +11,11 @@
  *   ("origin") and remote branches ("origin/master") interleaved. The
  *   bare remote names are exactly the prefixes of the remote refs and are
  *   shaped away by {@link shapeBranchList} for a picker.
+ * - there is no "default branch" endpoint either — the repo's default
+ *   branch is read from the remote's own HEAD symref file
+ *   (`.git/refs/remotes/<remote>/HEAD`, written by `git clone`), with the
+ *   conventional main/master names as the fallback
+ *   ({@link pickDefaultBranch}).
  */
 
 /** What `.git/HEAD` says about a checkout. */
@@ -51,11 +56,15 @@ export interface BranchList {
     local: string[];
     /** Remote-tracking ref names (`origin/master`), sorted. */
     remote: string[];
+    /** Bare remote NAMES ("origin"), sorted — the default-branch probe's
+     * candidates (`.git/refs/remotes/<remote>/HEAD`). */
+    remoteNames: string[];
 }
 
 /**
  * Shape a raw `/api/vcs/branch` list into local vs remote branches,
- * dropping the bare remote names. A bare entry like "origin" is a remote
+ * keeping the bare remote names apart in `remoteNames`. A bare entry
+ * like "origin" is a remote
  * NAME, not a branch: it is detectable purely structurally — some other
  * entry begins with `origin/` (live sample: `["master","origin",
  * "origin/master","cef","origin/cef"]`). Local branch names may themselves
@@ -84,5 +93,46 @@ export function shapeBranchList(entries: readonly string[]): BranchList {
     return {
         local: [...local].sort(),
         remote: [...remote].sort(),
+        remoteNames: [...remoteNames].sort(),
     };
+}
+
+/**
+ * Parse the raw text of a `.git/refs/remotes/<remote>/HEAD` symref
+ * (`ref: refs/remotes/origin/main`) into the remote's DEFAULT branch
+ * name. The branch is everything after the remote name's single `/` —
+ * branch names may contain slashes (`feature/x`), remote names may not.
+ * Symrefs are always loose files (packed-refs cannot express them), so
+ * the fs read is reliable when the file exists; missing (404 → null
+ * text) or malformed input reads as null rather than guessing.
+ */
+export function parseRemoteHead(text: string | null | undefined): string | null {
+    if (typeof text !== "string") return null;
+    const trimmed = text.trim();
+    const prefix = "ref: refs/remotes/";
+    if (!trimmed.startsWith(prefix)) return null;
+    const rest = trimmed.slice(prefix.length);
+    const slash = rest.indexOf("/");
+    if (slash <= 0) return null; // no remote name or no branch part
+    const name = rest.slice(slash + 1);
+    if (name === "" || name.includes("..")) return null;
+    return name;
+}
+
+/**
+ * The repo's DEFAULT branch for the 「主分支」chip: the remote's own HEAD
+ * branch when it also exists locally (a clone always has it; partial
+ * checkouts may not), else the conventional `main`/`master` when
+ * present, else null — a repo with neither (e.g. only `develop`) gets
+ * NO chip rather than a guess. `remoteHeadBranch` is the parsed
+ * `.git/refs/remotes/<remote>/HEAD` symref when one was readable.
+ */
+export function pickDefaultBranch(
+    local: readonly string[],
+    remoteHeadBranch: string | null,
+): string | null {
+    if (remoteHeadBranch !== null && local.includes(remoteHeadBranch)) return remoteHeadBranch;
+    if (local.includes("main")) return "main";
+    if (local.includes("master")) return "master";
+    return null;
 }

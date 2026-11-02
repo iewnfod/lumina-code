@@ -29,21 +29,25 @@ const storage = new MemoryStorage();
 const {
     registerSession,
     unregisterSession,
-    isSessionRegistered,
     registeredSessionIds,
     adoptSessions,
     missingRegisteredIds,
     parseRegistryRaw,
+    isRootSession,
+    importableSessions,
+    unionMembership,
+    isClientSession,
+    autoRegisterClientSessions,
 } = await import("./sessionRegistry.ts");
 
 test("fresh storage reads as not adopted; adopt then register/unregister roundtrip", () => {
     // Absent key = null (not adopted).
     assert.equal(registeredSessionIds(), null);
-    assert.equal(isSessionRegistered("ses_1"), false);
+    assert.equal(unionMembership(registeredSessionIds(), []).has("ses_1"), false);
 
     adoptSessions(["ses_1", "ses_2"]);
     assert.deepEqual(registeredSessionIds(), ["ses_1", "ses_2"]);
-    assert.equal(isSessionRegistered("ses_1"), true);
+    assert.equal(unionMembership(registeredSessionIds(), []).has("ses_1"), true);
     // Persisted as JSON under the fixed key.
     assert.equal(storage.dump(), JSON.stringify(["ses_1", "ses_2"]));
 
@@ -95,4 +99,86 @@ test("missingRegisteredIds: intersection gap, with the empty-list guard", () => 
     assert.deepEqual(missingRegisteredIds(["ses_1", "ses_2"], []), []);
     assert.deepEqual(missingRegisteredIds(["ses_1", "ses_2", "ses_3"], ["ses_1", "ses_3"]), ["ses_2"]);
     assert.deepEqual(missingRegisteredIds(["ses_1"], ["ses_1"]), []);
+});
+
+test("isRootSession: subagent children and lumina-tools helpers are not roots", () => {
+    const base = {id: "ses_1", projectID: "prj"};
+    assert.equal(isRootSession({...base}), true);
+    assert.equal(isRootSession({...base, parentID: "ses_parent"}), false);
+    assert.equal(isRootSession({...base, metadata: {source: "lumina-tools"}}), false);
+});
+
+test("importableSessions: non-member roots only, server order; null registry imports nothing", () => {
+    const root = (id: string) => ({id, projectID: "prj"});
+    // Not adopted yet → nothing to import (the seed adopts first).
+    assert.deepEqual(importableSessions([root("ses_1")], null), []);
+    assert.deepEqual(
+        importableSessions(
+            [
+                root("ses_1"),
+                root("ses_2"),
+                {...root("ses_3"), parentID: "ses_0"},
+                {...root("ses_4"), metadata: {source: "lumina-tools"}},
+            ],
+            ["ses_2"],
+        ),
+        [root("ses_1")],
+    );
+    // A registered id missing from the server list is the prune's
+    // concern, not the import set's.
+    assert.deepEqual(importableSessions([root("ses_1")], ["ses_gone"]), [root("ses_1")]);
+});
+
+test("importableSessions + unionMembership: the SHARED half suppresses candidates on every device", () => {
+    const root = (id: string) => ({id, projectID: "prj"});
+    // A session registered only in the shared file (another client's
+    // import) is a member here too — the candidate lists converge.
+    assert.deepEqual(
+        importableSessions([root("ses_1"), root("ses_2")], ["ses_1"], ["ses_2"]),
+        [],
+    );
+    assert.deepEqual(importableSessions([root("ses_1"), root("ses_2")], [], ["ses_2"]), [root("ses_1")]);
+    // The union set itself: local order, shared additions appended,
+    // null registry still unions (shared-only membership).
+    assert.deepEqual([...unionMembership(["ses_1", "ses_2"], ["ses_2", "ses_3"])], ["ses_1", "ses_2", "ses_3"]);
+    assert.deepEqual([...unionMembership(null, ["ses_s"])], ["ses_s"]);
+    assert.deepEqual([...unionMembership(null, [])], []);
+});
+
+test("isClientSession: only the lumina-code stamp counts", () => {
+    const base = {id: "ses_1", projectID: "prj"};
+    assert.equal(isClientSession({...base, metadata: {source: "lumina-code"}}), true);
+    // Not the plugin's helper marker, not arbitrary metadata.
+    assert.equal(isClientSession({...base, metadata: {source: "lumina-tools"}}), false);
+    assert.equal(isClientSession({...base, metadata: {}}), false);
+    assert.equal(isClientSession({...base}), false);
+});
+
+test("autoRegisterClientSessions: adopts stamped roots, in server order", () => {
+    const root = (id: string, metadata?: Record<string, unknown>) => ({id, projectID: "prj", ...(metadata ? {metadata} : {})});
+    // Reset through the API, never raw storage — the factory caches its
+    // value, so a behind-its-back removeItem is invisible. (The
+    // unadopted/null guard of autoRegisterClientSessions mirrors
+    // importableSessions's and only exists before the first adoption;
+    // it cannot be re-reached in-process after the tests above.)
+    for (const id of [...(registeredSessionIds() ?? [])]) unregisterSession(id);
+    registerSession("ses_own");
+
+    const added = autoRegisterClientSessions([
+        root("ses_m1", {source: "lumina-code"}),
+        root("ses_m2", {source: "lumina-code"}),
+        root("ses_tui"), // no stamp — stays foreign (manual import)
+        root("ses_helper", {source: "lumina-tools"}), // helper — never
+        {...root("ses_child", {source: "lumina-code"}), parentID: "ses_0"}, // subagent child — never
+        root("ses_own", {source: "lumina-code"}), // already registered
+    ]);
+    assert.deepEqual(added, ["ses_m1", "ses_m2"]);
+    assert.deepEqual(registeredSessionIds(), ["ses_own", "ses_m1", "ses_m2"]);
+    // Idempotent: the second pass registers nothing.
+    assert.deepEqual(autoRegisterClientSessions([root("ses_m1", {source: "lumina-code"})]), []);
+    // And the stamped sessions are no longer import candidates.
+    assert.deepEqual(
+        importableSessions([root("ses_m1", {source: "lumina-code"}), root("ses_tui")], registeredSessionIds()),
+        [root("ses_tui")],
+    );
 });

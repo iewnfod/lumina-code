@@ -9,14 +9,19 @@ import {
     anchorComment,
     buildStoredZip,
     claimGate,
+    collectStallSignals,
     composePlanDoc,
     composeReportDoc,
     composeTasksDoc,
+    configGuideFor,
+    customSystemPrompt,
+    errorFingerprint,
     gateIsCurrent,
     historyFileName,
     planDirName,
     planFileSlug,
     planStateFromEntries,
+    renderStallWarning,
 } from "./luminaTools.js";
 
 const NOW = new Date(2026, 8, 25, 14, 30); // 2026-09-25, local fields only
@@ -34,6 +39,19 @@ test("planFileSlug caps long titles without trailing dashes", () => {
     const slug = planFileSlug("a".repeat(100));
     assert.equal(slug.length, 60);
     assert.match(slug, /^a+$/);
+});
+
+test("customSystemPrompt trims, tolerates junk, off on empty", () => {
+    assert.equal(customSystemPrompt({systemPrompt: "  Be terse.  "}), "Be terse.");
+    // Multiline prose survives verbatim (inner whitespace untouched).
+    assert.equal(customSystemPrompt({systemPrompt: "Line one\nLine two"}), "Line one\nLine two");
+    // Off states: absent, non-string, whitespace-only.
+    assert.equal(customSystemPrompt({}), "");
+    assert.equal(customSystemPrompt(undefined), "");
+    assert.equal(customSystemPrompt({systemPrompt: "   \n\t "}), "");
+    assert.equal(customSystemPrompt({systemPrompt: 42}), "");
+    // Other options (per-tool namespaces) coexist untouched.
+    assert.equal(customSystemPrompt({vision: {model: "x/y"}, systemPrompt: " hi "}), "hi");
 });
 
 test("planDirName slugs and disambiguates collisions", async () => {
@@ -407,4 +425,146 @@ test("sweepOrphanAcceptance archives on an unconsumed marker and never touches a
         assert.equal(tasks.includes("sweep-plan"), true, "the claimed gate's directory was not archived");
         await assert.doesNotReject(() => readFile(marker), "the claimed gate's marker was not consumed");
     });
+});
+
+// --- stall detection (the anti-loop runtime half) ---
+
+/** One assistant message with tool parts, the session.context shape. */
+function step(parts) {
+    return {info: {role: "assistant"}, parts};
+}
+function toolPart(name, status, error) {
+    return {type: "tool", name, state: status ? {status, error} : {status}};
+}
+
+test("errorFingerprint folds numbers/hex/dirs but keeps file names", () => {
+    assert.equal(
+        errorFingerprint("ENOENT: no such file /home/me/src/a.ts at line 42"),
+        errorFingerprint("ENOENT: no such file /you/other/place/src/a.ts at line 97"),
+    );
+    // Different file names stay different errors.
+    assert.notEqual(
+        errorFingerprint("File not found: /x/a.ts"),
+        errorFingerprint("File not found: /x/b.ts"),
+    );
+    assert.equal(errorFingerprint(null), "");
+    assert.equal(errorFingerprint("  "), "");
+});
+
+test("collectStallSignals flags the same error twice", () => {
+    const messages = [
+        step([toolPart("bash", "error", "exit 1: make error at /src/a.ts:10")]),
+        step([toolPart("edit", "completed")]),
+        step([toolPart("bash", "error", "exit 1: make error at /src/a.ts:99")]),
+    ];
+    const signals = collectStallSignals(messages);
+    assert.ok(signals.repeatedError);
+    // A DIFFERENT error after the first resets the pair.
+    const varied = [
+        step([toolPart("bash", "error", "make error /src/a.ts:1")]),
+        step([toolPart("bash", "error", "make error /src/b.ts:1")]),
+    ];
+    assert.equal(collectStallSignals(varied).repeatedError, null);
+});
+
+test("collectStallSignals flags inspection-only loops, not prose or fresh reads", () => {
+    // Three trailing read-only steps with calls → stagnant.
+    const looping = [
+        step([toolPart("edit", "completed")]),
+        step([toolPart("read", "completed")]),
+        step([toolPart("grep", "completed")]),
+        step([toolPart("read", "completed")]),
+    ];
+    assert.equal(collectStallSignals(looping).stagnantSteps, 3);
+    // Pure prose answers are conversations, not loops.
+    const prose = [step([]), step([]), step([]), step([])];
+    assert.equal(collectStallSignals(prose).stagnantSteps, 0);
+    // Trailing steps without tool calls break the streak.
+    const mixed = [step([toolPart("read", "completed")]), step([]), step([])];
+    assert.equal(collectStallSignals(mixed).stagnantSteps, 0);
+    // An edit anywhere in the trailing run resets the count.
+    const resolved = [
+        step([toolPart("read", "completed")]),
+        step([toolPart("read", "completed")]),
+        step([toolPart("edit", "completed")]),
+    ];
+    assert.equal(collectStallSignals(resolved).stagnantSteps, 0);
+});
+
+test("renderStallWarning gates the inspection warning to build only", () => {
+    const signals = {repeatedError: null, stagnantSteps: 4};
+    assert.ok(renderStallWarning(signals, "build"));
+    assert.equal(renderStallWarning(signals, "lumina-daily"), null);
+    // Repeated errors warn on every execution agent.
+    const err = {repeatedError: "make error a.ts:n", stagnantSteps: 0};
+    assert.ok(renderStallWarning(err, "build"));
+    assert.ok(renderStallWarning(err, "lumina-daily"));
+    assert.equal(renderStallWarning({repeatedError: null, stagnantSteps: 0}, "build"), null);
+});
+
+// --- tool discovery (search_tools' pure halves) ---
+
+test("filterToolGuides matches tokens and falls back to the catalog", async () => {
+    const {filterToolGuides, TOOL_GUIDES} = await import("./luminaTools.js");
+    // A terminal-ish query finds the bash guide.
+    assert.equal(filterToolGuides(TOOL_GUIDES, "run a command").length, 1);
+    assert.equal(filterToolGuides(TOOL_GUIDES, "terminal").length, 1);
+    // Unmatched query → no guides.
+    assert.equal(filterToolGuides(TOOL_GUIDES, "pdf").length, 0);
+    // Empty query → the whole catalog.
+    assert.equal(filterToolGuides(TOOL_GUIDES, "").length, TOOL_GUIDES.length);
+    assert.equal(filterToolGuides(TOOL_GUIDES, null).length, TOOL_GUIDES.length);
+});
+
+// --- configGuideFor (on-demand MCP/plugin guides) -------------------------
+
+/** A session.context-shaped transcript: {info: {role}, parts: [{type, text}]}. */
+const transcript = (...turns) =>
+    turns.map(([role, text]) => ({info: {role}, parts: [{type: "text", text}]}));
+
+test("configGuideFor injects the MCP guide on MCP asks (zh + en)", () => {
+    const zh = transcript(["user", "帮我加一个天气 MCP 服务器"], ["assistant", "好的"]);
+    const en = transcript(["user", "can you set up an MCP server for search?"]);
+    assert.match(configGuideFor(zh), /mcp\.servers/);
+    assert.match(configGuideFor(en), /mcp\.servers/);
+    // The full protocol name counts too.
+    assert.match(
+        configGuideFor(transcript(["user", "how do I use Model Context Protocol here?"])),
+        /mcp\.servers/,
+    );
+});
+
+test("configGuideFor needs an action verb for plugin asks", () => {
+    // Bare plugin chatter (development talk) → no guide.
+    assert.equal(configGuideFor(transcript(["user", "the plugin system in this codebase is neat"])), "");
+    // With an action verb → the plugin guide.
+    assert.match(configGuideFor(transcript(["user", "帮我安装一个翻译插件"])), /"plugins" array/);
+    assert.match(configGuideFor(transcript(["user", "install the github plugin please"])), /"plugins" array/);
+    // 扩展 counts as the plugin term.
+    assert.match(configGuideFor(transcript(["user", "配置一个扩展"])), /"plugins" array/);
+});
+
+test("configGuideFor short-circuits expanded managed commands and quiet topics", () => {
+    // An expanded /mcp command message: starts with the managed mark —
+    // the template already carries the full manual, no duplicate guide.
+    const expanded = transcript(["user", "<!-- managed by Lumina Code -->\nCurrent global config…"]);
+    assert.equal(configGuideFor(expanded), "");
+    // Unrelated topic → "".
+    assert.equal(configGuideFor(transcript(["user", "写一份周报"])), "");
+    // Only the LATEST user message decides (an earlier MCP ask has ended).
+    const movedOn = transcript(
+        ["user", "add an mcp server"],
+        ["assistant", "done"],
+        ["user", "thanks, now write a summary"],
+    );
+    assert.equal(configGuideFor(movedOn), "");
+});
+
+test("configGuideFor tolerates empty and degraded transcripts", () => {
+    assert.equal(configGuideFor([]), "");
+    assert.equal(configGuideFor(null), "");
+    assert.equal(configGuideFor([{info: {role: "assistant"}, parts: []}]), "");
+    // Degraded shapes (no parts / non-array) never throw.
+    assert.equal(configGuideFor([{info: {role: "user"}}]), "");
+    assert.equal(configGuideFor([{info: {role: "user"}, parts: null}]), "");
 });

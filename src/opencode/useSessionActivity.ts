@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
 import {debug as logDebug, error as logError, info as logInfo} from "@tauri-apps/plugin-log";
+import {createKeyedStore, createListeners} from "../lib/moduleStore.ts";
 import type {OpencodeApi} from "./api.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {ChatMessage, WorkspaceDiffEntry} from "./types.ts";
@@ -88,38 +89,32 @@ interface SessionEntry {
 }
 
 const EMPTY_SHELLS: ReadonlySet<string> = new Set();
-const directories = new Map<string, DirectoryEntry>();
-const sessions = new Map<string, SessionEntry>();
+const directories = createKeyedStore<string, DirectoryEntry>(
+    (key) => ({directory: key === "" ? null : key, diff: null, diffLoading: false, seq: 0, debounce: null}),
+);
+const sessions = createKeyedStore<string, SessionEntry>(() => ({
+    runningShellIds: EMPTY_SHELLS,
+    directory: null,
+    signature: "",
+    signatureMessages: null,
+    shellsSeeded: false,
+}));
+// Diff subscriptions carry the directory KEY (an "any change" subscriber
+// filters for its own key) — a payload shape createListeners does not
+// model, so this one broadcast stays hand-rolled.
 const diffListeners = new Set<(key: string) => void>();
-const shellListeners = new Set<() => void>();
+const shellBus = createListeners();
 
 function directoryKey(directory: string | null): string {
     return directory ?? "";
 }
 
 function directoryEntryOf(directory: string | null): DirectoryEntry {
-    const key = directoryKey(directory);
-    let entry = directories.get(key);
-    if (!entry) {
-        entry = {directory, diff: null, diffLoading: false, seq: 0, debounce: null};
-        directories.set(key, entry);
-    }
-    return entry;
+    return directories.entryOf(directoryKey(directory));
 }
 
 function sessionEntryOf(sessionId: string): SessionEntry {
-    let entry = sessions.get(sessionId);
-    if (!entry) {
-        entry = {
-            runningShellIds: EMPTY_SHELLS,
-            directory: null,
-            signature: "",
-            signatureMessages: null,
-            shellsSeeded: false,
-        };
-        sessions.set(sessionId, entry);
-    }
-    return entry;
+    return sessions.entryOf(sessionId);
 }
 
 function notifyDiff(directory: string | null) {
@@ -128,7 +123,7 @@ function notifyDiff(directory: string | null) {
 }
 
 function notifyShellChange() {
-    for (const listener of shellListeners) listener();
+    shellBus.notify();
 }
 
 /** Snapshot the workspace hook renders from (cached by reference — the
@@ -137,7 +132,7 @@ function diffSnapshotOf(directory: string | null): {
     diff: WorkspaceDiffEntry[] | null;
     diffLoading: boolean;
 } {
-    const entry = directories.get(directoryKey(directory));
+    const entry = directories.peek(directoryKey(directory));
     return {
         diff: entry?.diff ?? null,
         diffLoading: entry?.diffLoading ?? false,
@@ -160,7 +155,7 @@ let busUnsubscribe: (() => void) | null = null;
  *  mutation signature moved (edits landed — backgrounded sessions
  *  included, keeping their directory's numbers fresh). */
 function watchSignature(sessionId: string) {
-    const entry = sessions.get(sessionId);
+    const entry = sessions.peek(sessionId);
     const messages = peekSessionMessages(sessionId);
     if (!entry || !messages || entry.signatureMessages === messages) return;
     const next = mutationSignature(messages);
@@ -176,7 +171,7 @@ function watchSignature(sessionId: string) {
 }
 
 function scheduleDiffLoad(directory: string | null) {
-    const entry = directories.get(directoryKey(directory));
+    const entry = directories.peek(directoryKey(directory));
     if (!entry) return;
     if (entry.debounce) clearTimeout(entry.debounce);
     entry.debounce = setTimeout(() => {
@@ -187,7 +182,7 @@ function scheduleDiffLoad(directory: string | null) {
 
 async function loadWorkspaceDiff(directory: string | null): Promise<void> {
     const api = apiSingleton;
-    const entry = directories.get(directoryKey(directory));
+    const entry = directories.peek(directoryKey(directory));
     if (!api || !entry) return;
     const seq = ++entry.seq;
     entry.diffLoading = true;
@@ -228,11 +223,11 @@ async function loadWorkspaceDiff(directory: string | null): Promise<void> {
  *  once per prefetch). Location-scoped — the entry's directory rides along. */
 function seedRunningShells(sessionId: string): void {
     const api = apiSingleton;
-    const entry = sessions.get(sessionId);
+    const entry = sessions.peek(sessionId);
     if (!api || !entry) return;
     entry.shellsSeeded = true;
     api.listShells(entry.directory).then((list) => {
-        const current = sessions.get(sessionId);
+        const current = sessions.peek(sessionId);
         if (!current) return; // session dropped while the request was out
         current.runningShellIds = new Set(
             list
@@ -251,7 +246,7 @@ function seedRunningShells(sessionId: string): void {
  *  restores server truth (the optimistic flip must be undoable — §3.3). */
 function stopShell(sessionId: string, shellId: string): void {
     const api = apiSingleton;
-    const entry = sessions.get(sessionId);
+    const entry = sessions.peek(sessionId);
     if (!api || !entry || !entry.runningShellIds.has(shellId)) return;
     entry.runningShellIds = new Set([...entry.runningShellIds].filter((id) => id !== shellId));
     notifyShellChange();
@@ -262,7 +257,7 @@ function stopShell(sessionId: string, shellId: string): void {
         logError(`Failed to stop terminal ${shellId}: ${e}`).catch(() => {});
         api.getShell(shellId, directory).then((shell) => {
             if (shell.status !== "running") return;
-            const current = sessions.get(sessionId);
+            const current = sessions.peek(sessionId);
             if (!current || current.runningShellIds.has(shellId)) return;
             current.runningShellIds = new Set([...current.runningShellIds, shellId]);
             notifyShellChange();
@@ -290,14 +285,14 @@ function ensureWiring(
             const sid = info?.id ? (info.metadata?.sessionID ?? undefined) : undefined;
             const id = info?.id;
             if (typeof sid !== "string" || !id) return;
-            const entry = sessions.get(sid);
+            const entry = sessions.peek(sid);
             if (!entry || entry.runningShellIds.has(id)) return;
             entry.runningShellIds = new Set([...entry.runningShellIds, id]);
             notifyShellChange();
         } else if (event.type === "shell.exited") {
             const {id} = event.data as {id?: string};
             if (!id) return;
-            for (const entry of sessions.values()) {
+            for (const entry of sessions.snapshot().values()) {
                 if (!entry.runningShellIds.has(id)) continue;
                 entry.runningShellIds = new Set([...entry.runningShellIds].filter((x) => x !== id));
                 notifyShellChange();
@@ -370,7 +365,7 @@ export function useWorkspaceDiff(
     }, [api, directory]);
 
     const refreshDiff = useCallback(() => {
-        if (directories.has(directoryKey(directory))) void loadWorkspaceDiff(directory);
+        if (directories.peek(directoryKey(directory)) !== undefined) void loadWorkspaceDiff(directory);
     }, [directory]);
 
     const diffTotals = useMemo(() => {
@@ -417,12 +412,9 @@ export function useSessionActivity(
     const messages = useSessionMessagesSnapshot(sessionId);
 
     // Follow the session entry's running-set changes (bus + seeding).
-    const subscribeShells = useCallback((notify: () => void) => {
-        shellListeners.add(notify);
-        return () => shellListeners.delete(notify);
-    }, []);
+    const subscribeShells = useCallback((notify: () => void) => shellBus.subscribe(notify), []);
     const getRunningShellIds = useCallback(
-        () => (sessionId !== null ? sessions.get(sessionId)?.runningShellIds ?? EMPTY_SHELLS : EMPTY_SHELLS),
+        () => (sessionId !== null ? sessions.peek(sessionId)?.runningShellIds ?? EMPTY_SHELLS : EMPTY_SHELLS),
         [sessionId],
     );
     const runningShellIds = useSyncExternalStore(subscribeShells, getRunningShellIds, getRunningShellIds);
@@ -448,40 +440,33 @@ export function useSessionActivity(
     );
 
     const shellRefs = useMemo(() => collectSessionShells(messages as ChatMessage[]), [messages]);
-    // Identity-stable derived arrays: `messages` changes identity on every
-    // streamed frame, and the card subtree must not re-render per frame —
-    // when the computed key is unchanged, the previous array is returned.
-    // CURRENT-TURN FILTER: completed shells from earlier turns are hidden
-    // (research/test leftovers of a long session); RUNNING ones stay
-    // whatever their age — a dev server started turns ago is still live,
-    // killable activity. A turn-anchored shell that finishes is dropped
-    // by the same rule on its next recompute.
-    const shellsCacheRef = useRef<{key: string; value: (SessionShellRef & {running: boolean})[]} | null>(null);
-    const shells = useMemo(() => {
-        const visible = shellRefs.filter((s) => s.currentTurn || runningShellIds.has(s.id));
-        const key = visible
+    // Identity-stable derived arrays (useIdentityCached below): `messages`
+    // changes identity on every streamed frame, and the card subtree must
+    // not re-render per frame. CURRENT-TURN FILTER: completed shells from
+    // earlier turns are hidden (research/test leftovers of a long
+    // session); RUNNING ones stay whatever their age — a dev server
+    // started turns ago is still live, killable activity. A turn-anchored
+    // shell that finishes is dropped by the same rule on its recompute.
+    const shells = useIdentityCached(
+        () => shellRefs.filter((s) => s.currentTurn || runningShellIds.has(s.id)),
+        (visible) => visible
             .map((s) => `${s.id}:${s.command}:${s.finished ? "f" : ""}:${s.state ?? ""}:${s.exit ?? ""}:${s.finalText?.length ?? ""}:${runningShellIds.has(s.id) ? "r" : ""}`)
-            .join("|");
-        if (shellsCacheRef.current?.key === key) return shellsCacheRef.current.value;
-        const value = visible.map((ref) => ({...ref, running: !ref.finished && runningShellIds.has(ref.id)}));
-        shellsCacheRef.current = {key, value};
-        return value;
-    }, [shellRefs, runningShellIds]);
+            .join("|"),
+        (visible) => visible.map((ref) => ({...ref, running: !ref.finished && runningShellIds.has(ref.id)})),
+        [shellRefs, runningShellIds],
+    );
 
     const subagentRefs = useMemo(() => collectSessionSubagents(messages as ChatMessage[]), [messages]);
-    const subagentsCacheRef = useRef<{key: string; value: (SessionSubagentRef & {running: boolean})[]} | null>(null);
-    const subagents = useMemo(() => {
-        // Same current-turn rule as shells: finished children of earlier
-        // turns are hidden, running ones (busy set) always stay.
-        const visible = subagentRefs.filter((s) => s.currentTurn || busyIds.has(s.id));
-        const key = visible
+    // Same current-turn rule as shells: finished children of earlier
+    // turns are hidden, running ones (busy set) always stay.
+    const subagents = useIdentityCached(
+        () => subagentRefs.filter((s) => s.currentTurn || busyIds.has(s.id)),
+        (visible) => visible
             .map((s) => `${s.id}:${s.agent ?? ""}:${s.label ?? ""}:${busyIds.has(s.id) ? "r" : ""}`)
-            .join("|");
-        if (subagentsCacheRef.current?.key === key) return subagentsCacheRef.current.value;
-        const value = visible.map((ref) => ({...ref, running: busyIds.has(ref.id)}));
-        subagentsCacheRef.current = {key, value};
-        return value;
-    }, [subagentRefs, busyIds]);
+            .join("|"),
+        (visible) => visible.map((ref) => ({...ref, running: busyIds.has(ref.id)})),
+        [subagentRefs, busyIds],
+    );
 
     // The plan-workflow todo list is a PURE transcript derivation (no
     // endpoints, no running-set store) — same identity-cache discipline
@@ -503,21 +488,45 @@ export function useSessionActivity(
         }),
         [agent, gateDecisions, sessionId],
     );
-    const todosCacheRef = useRef<{key: string; value: SessionTodos | null} | null>(null);
-    const todos = useMemo(() => {
-        const derived = collectSessionTodos(messages as ChatMessage[], gateCtx);
-        const key = derived
+    const todos = useIdentityCached(
+        () => collectSessionTodos(messages as ChatMessage[], gateCtx),
+        (derived) => derived
             ? `${derived.title}|${derived.pendingApproval ? "p" : ""}|${derived.archived ? "a" : ""}|${derived.reportSubmitted ? "r" : ""}|${derived.items
                   .map((i) => `${i.title}:${i.status}:${i.reason ?? ""}`)
                   .join("|")}`
-            : "";
-        if (todosCacheRef.current?.key === key) return todosCacheRef.current.value;
-        todosCacheRef.current = {key, value: derived};
-        return derived;
-    }, [messages, gateCtx]);
+            : "",
+        (derived) => derived,
+        [messages, gateCtx],
+    );
 
     return useMemo(
         () => ({shells, subagents, todos, stopShell: stopShellCb}),
         [shells, subagents, todos, stopShellCb],
     );
+}
+
+/** Identity-cache for a derived value: `messages` changes identity on
+ *  every streamed frame, and consumers (memoized card rows) must not
+ *  re-render per frame — when `keyOf(derive())` is unchanged, the
+ *  previously returned value is returned again. The key must cover
+ *  EVERY field consumers read (a missing field once froze a stale
+ *  "awaiting review" chip after archival — see the todos note). Local
+ *  to this file (three call sites; not a general API). */
+function useIdentityCached<T, V>(
+    derive: () => T,
+    keyOf: (derived: T) => string,
+    shape: (derived: T) => V,
+    deps: unknown[],
+): V {
+    const cacheRef = useRef<{key: string; value: V} | null>(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return useMemo(() => {
+        const derived = derive();
+        const key = keyOf(derived);
+        if (cacheRef.current?.key === key) return cacheRef.current.value;
+        const value = shape(derived);
+        cacheRef.current = {key, value};
+        return value;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, deps);
 }

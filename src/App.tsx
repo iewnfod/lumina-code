@@ -1,43 +1,47 @@
-import {useCallback, useEffect, useRef, useState} from "react";
-import type {ReactNode} from "react";
-import {getCurrentWindow} from "@tauri-apps/api/window";
-import {error} from "@tauri-apps/plugin-log";
+import {useCallback, useState} from "react";
 import TitleBar from "./components/TitleBar.tsx";
+import SessionSurface from "./components/SessionSurface.tsx";
+import StatsCardSwap from "./components/StatsCardSwap.tsx";
 import SessionBar from "./components/SessionBar.tsx";
 import SidebarResizer from "./components/SidebarResizer.tsx";
 import WelcomeScreen from "./components/WelcomeScreen.tsx";
+import BootScreen from "./components/BootScreen.tsx";
 import ChatView from "./components/chat/ChatView.tsx";
 import WorkspaceStatsCard from "./components/stats/WorkspaceStatsCard.tsx";
-import SettingsModal, {type SettingsTab} from "./components/settings/SettingsModal.tsx";
+import SettingsPage, {type SettingsTab} from "./components/settings/SettingsPage.tsx";
+import ImportSessionsModal from "./components/ImportSessionsModal.tsx";
 import MaskedSurface from "./components/ui/MaskedSurface.tsx";
 import {useMaximized} from "./hooks/maximized.ts";
 import {usePaddingOffset} from "./hooks/paddingOffset.ts";
 import {useDragRegionDoubleClick} from "./hooks/useDragRegionDoubleClick.ts";
 import {useGlass} from "./hooks/useGlass.ts";
 import {useI18n} from "./hooks/i18n.tsx";
+import {usePhoneLayout} from "./hooks/useLayoutMode.ts";
 import {useSystemTheme} from "./hooks/useSystemTheme.ts";
 import {useThemePreference} from "./hooks/useThemePreference.ts";
 import {useSurfaceColors} from "./hooks/surfaceColors.ts";
 import {ColorsProvider, useColors} from "./hooks/colors.tsx";
 import {useWindowOutline} from "./hooks/useWindowOutline.ts";
-import {probeBms, useBmsFocusRefresh, useCompositorBlurActive} from "./hooks/useBlurMyShell.ts";
+import {useBmsFocusRefresh, useCompositorBlurActive} from "./hooks/useBlurMyShell.ts";
+import {useWindowFirstShow} from "./hooks/useWindowFirstShow.ts";
+import {useChromeThemeSync} from "./hooks/useChromeThemeSync.ts";
 import {useNotifications} from "./hooks/useNotifications.ts";
-import {useServerSync} from "./hooks/useServerSync.ts";
-import {useServerRelay} from "./hooks/useServerRelay.ts";
+import {useServerFrp} from "./hooks/useServerFrp.ts";
+import {useBackLevel} from "./hooks/useBackLevel.ts";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {isColorDark, withAlpha} from "./lib/color.ts";
-import {isLinux, isCefRuntime} from "./lib/platform.ts";
+import {isLinux, isCefRuntime, isMobileApp} from "./lib/platform.ts";
 import {appThemeFor, type ChromeTheme} from "./lib/theme.ts";
-import {liveSurfaceKey, nextSurfacePhase, type SurfacePhase} from "./lib/surfacePhases.ts";
-import {matchesAnimationEvent} from "./lib/exitGate.ts";
 import {useOpencode} from "./opencode/useOpencode.ts";
+import {sessionMode, useGitProbe} from "./opencode/appMode.ts";
 import {useSessionFlow} from "./opencode/useSessionFlow.ts";
 import {useDirectoryBranch} from "./opencode/useDirectoryBranch.ts";
 import {useLuminaToolsInstall} from "./opencode/useLuminaTools.ts";
+import {useOfficeToolsInstall} from "./opencode/useOfficeTools.ts";
 import {CatalogProvider} from "./opencode/catalogContext.tsx";
 import {ConnectionProvider, useConnection} from "./opencode/connectionContext.tsx";
 import {SessionDataProvider, useSessionData} from "./opencode/sessionDataContext.tsx";
-import {ensureSessionSeeded, useSessionSeeded} from "./opencode/useSessionMessages.ts";
+import {ensureSessionSeeded} from "./opencode/useSessionMessages.ts";
 import {prefetchSessionActivity} from "./opencode/useSessionActivity.ts";
 import type {SessionUsage} from "./opencode/types.ts";
 
@@ -60,226 +64,6 @@ import type {SessionUsage} from "./opencode/types.ts";
  * ColorsProvider (hooks/colors.tsx) plus the --lum-wash CSS vars seeded
  * on the root.
  */
-
-/** The exit key the loading/entrance phases hand off through. */
-const SURFACE_EXIT_ANIMATION = "lum-surface-exit";
-/** Fallback for a canceled exit animation (display:none, tab hidden) —
- *  matches the CSS duration of .lum-surface-exit plus slack. */
-const SURFACE_EXIT_MS = 400;
-
-/**
- * The session ↔ welcome surface choreography — SEQUENTIAL, replacing the
- * old crossfading SurfaceSwap. A switch plays in strict phases:
- *
- *   1. retarget: the leaving surface starts its exit IMMEDIATELY (the
- *      fetch for the successor starts in the same tick, in parallel);
- *   2. the exit plays to completion — the leaving surface is alone on
- *      stage, so it may travel (rise out) where the old crossfade had
- *      to stay opacity-only (two glass surfaces translating against
- *      each other smeared);
- *   3. once the exit ends: a ready successor enters right away; an
- *      unready one shows the looping loading dots until its seed
- *      lands, then enters.
- *
- * "Ready" = the successor's newest message page has landed in the store
- * (useSessionSeeded), so the entering surface's FIRST FRAME already
- * carries its content — the entrance animation starts exactly when
- * there is something to reveal, which is what makes it cover the load
- * whatever the latency (a fixed-duration animation played at click time
- * always finished before the data arrived; the content then popped in
- * bare — the bug this choreography exists to fix).
- *
- * The phase logic lives in lib/surfacePhases.ts (pure, tested); this
- * component only feeds it events: render-time retarget edges (React's
- * derived-state pattern — the re-render lands before commit, so the
- * flipped commit already paints the exit layer), the exit layer's
- * animationend (name+target matched via exitGate, with a timer
- * fallback for canceled animations), and readiness flips. The exit
- * layer renders a frozen ReactNode snapshot captured AT retarget time
- * — the element keeps the props it was built with, so the leaving
- * session's view renders untouched for the exit's duration — and it is
- * absolutely positioned (out of flow): the successor only mounts in
- * phase 3, so nothing ever overlaps.
- */
-function SessionSurface({targetKey, render}: {targetKey: string; render: (key: string) => ReactNode}) {
-    const t = useI18n();
-    const {api} = useConnection();
-    // Readiness of the TARGET surface: welcome (null session) is always
-    // ready; a session is ready once its newest page has seeded.
-    const targetSessionId = targetKey === "welcome" ? null : targetKey.replace(/^session-/, "");
-    const targetReady = useSessionSeeded(targetSessionId);
-    const readyRef = useRef(targetReady);
-    readyRef.current = targetReady;
-
-    const [phase, setPhase] = useState<SurfacePhase>(() => ({kind: "shown", key: targetKey}));
-    // The exit layer's frozen snapshot (captured during the retarget
-    // render, before prevNode is cleared for the successor).
-    const [held, setHeld] = useState<{key: string; node: ReactNode} | null>(null);
-    const prevKeyRef = useRef(targetKey);
-    const prevNodeRef = useRef<ReactNode>(null);
-    const timerRef = useRef(0);
-
-    if (prevKeyRef.current !== targetKey) {
-        const prevKey = prevKeyRef.current;
-        const prevNode = prevNodeRef.current;
-        prevKeyRef.current = targetKey;
-        prevNodeRef.current = null;
-        if (prevKey !== targetKey) {
-            // Only a shown→exiting transition mounts a new exit layer
-            // (mid-exit re-aims keep the current one playing).
-            const next = nextSurfacePhase(phase, {type: "retarget", key: targetKey, ready: targetReady});
-            setPhase(next);
-            if (phase.kind === "shown" && next.kind === "exiting" && prevNode !== null) {
-                setHeld({key: prevKey, node: prevNode});
-            }
-        }
-    }
-
-    // Warm the target's store at switch time (in parallel with the
-    // exit). For an already-seeded session this is a no-op; for the
-    // welcome surface there is nothing to warm.
-    useEffect(() => {
-        if (api && targetSessionId !== null) ensureSessionSeeded(api, targetSessionId);
-    }, [api, targetSessionId]);
-
-    // A readiness flip ends the waiting phase (idempotent otherwise).
-    useEffect(() => {
-        if (targetReady) setPhase((p) => nextSurfacePhase(p, {type: "becameReady"}));
-    }, [targetReady]);
-
-    // End-of-exit: the animationend event when it fires on the exit
-    // host itself (bubbled child events never match), with a fallback
-    // timer — canceled animations (hidden window, display:none) never
-    // send events, and the phase machine treats duplicates as no-ops.
-    // Armed per exit-layer mount; a mid-exit re-aim keeps the same
-    // layer (and timer) running.
-    const exitEnded = useCallback(() => {
-        setPhase((p) => nextSurfacePhase(p, {type: "exitEnded", ready: readyRef.current}));
-        setHeld(null);
-    }, []);
-    const exiting = phase.kind === "exiting" && held !== null;
-    useEffect(() => {
-        if (!exiting) return;
-        window.clearTimeout(timerRef.current);
-        timerRef.current = window.setTimeout(exitEnded, SURFACE_EXIT_MS);
-        return () => window.clearTimeout(timerRef.current);
-    }, [exiting, exitEnded]);
-    useEffect(() => () => window.clearTimeout(timerRef.current), []);
-
-    const liveKey = liveSurfaceKey(phase);
-    const node = liveKey !== null ? render(liveKey) : null;
-    if (liveKey !== null) prevNodeRef.current = node;
-
-    return (
-        <>
-            {/* The live slot keeps its flex geometry through every phase
-                so the stats panel beside it never shifts; BOTH the frozen
-                exit layer and the entering content are absolutely
-                positioned INSIDE it — the exit layer must never span the
-                whole row (.lum-row), or the frozen view would re-layout
-                at full width and its centered column would visibly jump
-                under the stats panel the frame the exit starts. During
-                the exit phase the slot renders ONLY the frozen layer —
-                the leaving surface is alone on stage (the dots cover
-                just the waiting phase, after the exit completes). */}
-            <div className="relative h-full min-w-0 flex-1">
-                {exiting && (
-                    <div
-                        key={`exit-${held.key}`}
-                        aria-hidden
-                        className={`absolute inset-0 overflow-hidden ${SURFACE_EXIT_ANIMATION} pointer-events-none`}
-                        onAnimationEnd={(e) => {
-                            if (matchesAnimationEvent(e, {animation: SURFACE_EXIT_ANIMATION})) {
-                                window.clearTimeout(timerRef.current);
-                                exitEnded();
-                            }
-                        }}
-                    >
-                        {held.node}
-                    </div>
-                )}
-                {liveKey !== null ? (
-                    <div key={liveKey} className="absolute inset-0 lum-enter">
-                        {node}
-                    </div>
-                ) : phase.kind === "waiting" ? (
-                    <div
-                        key="loading"
-                        role="status"
-                        aria-label={t["Loading conversation…"]}
-                        className="lum-loading absolute inset-0"
-                    >
-                        <span/>
-                        <span/>
-                        <span/>
-                    </div>
-                ) : null}
-            </div>
-        </>
-    );
-}
-
-/** The stats-card swap fade duration — matches lum-fade-exit (fast). */
-const STATS_CARD_SWAP_MS = 150;
-
-/**
- * The stats-card KEYED-SWAP layer (the surface swap's little sibling).
- * The card is keyed by DIRECTORY, and a cross-directory session switch
- * REMOUNTS it — a plain keyed unmount pops with no animation (the
- * conversation's SessionSurface swap covers only ITS own column, not
- * this flex sibling). This layer holds the PREVIOUS card mounted for a
- * short fade while the successor mounts: in float mode the two overlap
- * at the top-right and read as a crossfade; in the wide-container mode
- * the successor takes the flex slot immediately (the conversation
- * reflows at once, matching the surface swap's cadence) while the
- * ghost fades out floating over the same corner.
- *
- * The exit layer is a frozen ReactNode snapshot captured at the flip
- * (SessionSurface's pattern): the element keeps the props it was built
- * with — the OLD directory's diff and the OLD session's terminals — so
- * the leaving card renders untouched for the fade's duration instead
- * of flipping to the new session's data mid-fade. The ghost mounts
- * FRESH, so .lum-card-hold (main.css) pins it top-right out of flow
- * and suppresses the card's own entrance animation — the two fades
- * must never fight. Dropping to the welcome screen (no active session)
- * fades the last card the same way.
- */
-function StatsCardSwap({swapKey, render}: {swapKey: string | null; render: (key: string) => ReactNode}) {
-    const [held, setHeld] = useState<{key: string; node: ReactNode} | null>(null);
-    const prevKeyRef = useRef(swapKey);
-    const prevNodeRef = useRef<ReactNode>(null);
-
-    const node = swapKey !== null ? render(swapKey) : null;
-    if (prevKeyRef.current !== swapKey) {
-        const from = prevKeyRef.current;
-        const fromNode = prevNodeRef.current;
-        prevKeyRef.current = swapKey;
-        // Snapshot the leaving card BEFORE the successor's node replaces
-        // prevNodeRef below (the derived-state edge — idempotent under
-        // StrictMode's second pass, which sees no key edge).
-        if (from !== null && fromNode !== null) setHeld({key: from, node: fromNode});
-    }
-    if (swapKey !== null) prevNodeRef.current = node;
-
-    // Timer-only teardown (the wrapper's own fade): simple hold, no
-    // animationend matching — one element, no budget accounting.
-    useEffect(() => {
-        if (held === null) return;
-        const timer = window.setTimeout(() => setHeld(null), STATS_CARD_SWAP_MS);
-        return () => window.clearTimeout(timer);
-    }, [held]);
-
-    return (
-        <>
-            {node}
-            {held !== null && held.key !== swapKey && (
-                <div key={`ghost-${held.key}`} aria-hidden className="lum-card-hold lum-fade-exit">
-                    {held.node}
-                </div>
-            )}
-        </>
-    );
-}
 
 function InnerApp({isMaximized}: {isMaximized: boolean}) {
     const themePreference = useThemePreference();
@@ -309,29 +93,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     // --- OpenCode connection (the context split's base layer) ---
     const {status: connectionStatus, api, subscribe} = useOpencode();
 
-    // The window is created hidden (tauri.conf.json `visible: false`) and
-    // shown once the first paint is ready — same pattern as lumina-terminal.
-    // The Blur my Shell probe runs BEFORE the show so a BMS-enabled
-    // system paints its first visible frame already translucent (no
-    // opaque→translucent flash); the race caps the wait so a stuck
-    // gsettings can never keep the window hidden, and a failed probe
-    // degrades to the opaque fallback.
-    useEffect(() => {
-        const win = getCurrentWindow();
-        const ready = Promise.race([
-            probeBms(),
-            new Promise<void>((resolve) => {
-                setTimeout(resolve, 400);
-            }),
-        ]);
-        ready.then(() => {
-            win.show().then(() => {
-                win.setFocus().catch(() => {});
-            }).catch((e) => {
-                error(`Failed to show window: ${e}`).catch(() => {});
-            });
-        });
-    }, []);
+    useWindowFirstShow();
 
     // The user may toggle Blur my Shell (or its applications component)
     // in GNOME's UI while Lumina is unfocused — re-probe on focus regain
@@ -339,14 +101,7 @@ function InnerApp({isMaximized}: {isMaximized: boolean}) {
     // blur. No-op off Linux.
     useBmsFocusRefresh();
 
-    // Sync the HeroUI light/dark class on <html> with the resolved theme so
-    // framework controls (tooltips, …) match the chrome.
-    useEffect(() => {
-        const root = document.documentElement;
-        root.classList.toggle("dark", dark);
-        root.classList.toggle("light", !dark);
-        root.setAttribute("data-theme", dark ? "dark" : "light");
-    }, [dark]);
+    useChromeThemeSync(effectiveBg, dark, systemTheme);
 
     // The chrome glass layer is derived per connection state (supportsGlass
     // flips only on platform; compositorBlur on the BMS probe), so
@@ -397,7 +152,7 @@ function AppBody({
     const t = useI18n();
     const colors = useColors();
     const {api, subscribe, status: connectionStatus} = useConnection();
-    const {pendingCounts} = useSessionData();
+    const {pendingCounts, foreignSessions} = useSessionData();
     const {
         sessions,
         busyIds,
@@ -406,6 +161,7 @@ function AppBody({
         activeSession,
         effectiveModel,
         effectiveAgent,
+        approveAgent,
         pendingDirectory,
         pendingBranch,
         changeModel,
@@ -415,6 +171,7 @@ function AppBody({
         changeDirectory,
         sendFirst,
         deleteSession,
+        sendBlocked,
     } = useSessionFlow();
     const busy = activeId !== null && busyIds.has(activeId);
     // The active session's working directory — scopes the stats card's
@@ -443,44 +200,109 @@ function AppBody({
     // current; failures only log.
     useLuminaToolsInstall();
 
+    // The office-tools plugin (write_document / read_document) rides the
+    // same connect-time install discipline; its config writes share the
+    // lock with the installer above.
+    useOfficeToolsInstall();
+
     // Desktop notifications (Settings → General → Notifications): watches
     // run ends and user-attention events across every root session, gated
     // by the stored mode + focus mute. Pure decisions live in
     // opencode/notificationTriggers.ts.
     useNotifications(activeId);
 
-    // The self-hosted lumina-server mirror (Settings → Server): when a
-    // connection is configured AND enabled, mirrors the session list +
-    // message snapshots up to it. Pure shaping lives in
-    // opencode/serverSync.ts; the local app never depends on the mirror.
-    useServerSync();
+    // REMOTE ACCESS (frp direct route): while the server connection is
+    // configured AND remote-enabled, registers the local opencode
+    // password with the server and supervises the frpc sidecar — mobile
+    // clients then hit this machine's opencode directly through
+    // /t/<routeId>/ on the server (see hooks/useServerFrp.ts +
+    // src-tauri/src/frp.rs). No-op on mobile.
+    useServerFrp();
 
-    // The relay's forward path: consumes prompts queued by mobile
-    // clients for this desktop's sessions and injects them into the
-    // local OpenCode (at-least-once, deduped; see opencode/relay.ts).
-    useServerRelay();
+    // The dev-mode GIT GATE's probe (opencode/appMode.ts), mounted at
+    // the CONNECTION level: the phone layout's SessionBar (the old
+    // mount point) is lazily mounted inside the drawer, and the boot
+    // gate (BootScreen) now WAITS on the probe's settlement — mounting
+    // it there too would leave a closed drawer's boot waiting on a
+    // probe that never starts. Once per connection; a settled verdict
+    // short-circuits re-probes.
+    useGitProbe(api);
 
-    // The settings modal: the title-bar gear opens it, and the model
-    // picker's "Configure models…" deep-links to its Model tab. App owns
-    // open + tab so entry points can preselect the pane.
-    const [settings, setSettings] = useState<{open: boolean; tab: SettingsTab}>({open: false, tab: "general"});
-    const openSettings = useCallback((tab: SettingsTab = "general") => {
+    // The settings PAGE (the sidebar's bottom-left gear toggles it, and
+    // the model picker's "Configure models…" deep-links to its Model
+    // tab): a full-area surface OVER the conversation canvas — the
+    // conversation stays mounted underneath, its transcripts and
+    // streamed deltas untouched. App owns open + tab so entry points
+    // can preselect the pane. A NULL tab is the mobile root (the
+    // settings CATEGORY LIST — the second-level page navigation); the
+    // desktop page reads it as "general".
+    const [settings, setSettings] = useState<{open: boolean; tab: SettingsTab | null}>({open: false, tab: null});
+    const openSettings = useCallback((tab: SettingsTab | null = null) => {
         setSettings({open: true, tab});
     }, []);
+
+    // The MOBILE chrome splits along the device/layout line (see
+    // hooks/useLayoutMode.ts — tablet mode): `mobile` keeps the DEVICE
+    // semantics that never change with the layout (the TitleBar ⋯
+    // delete entry below — touch has no hover, SessionFolder's row X
+    // stays off), while `phoneLayout` drives the LAYOUT branches — the
+    // sidebar as a DRAWER (TitleBar hamburger, the only session
+    // navigation on a phone) vs DOCKED, the stats resize seam, the
+    // corner cutaways. In tablet mode (layout pinned/auto-resolved to
+    // "desktop") the sidebar docks like the desktop's, the resize seam
+    // mounts, and the stats panel's flex-sibling container-query tier
+    // becomes reachable (a wide row) with no further gating here.
+    const mobile = isMobileApp();
+    const phoneLayout = usePhoneLayout();
+    const [drawerOpen, setDrawerOpen] = useState(false);
+    const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+    // SYSTEM BACK closes the drawer (phone layout): it is the top page
+    // level while open — same as tapping the scrim.
+    useBackLevel(phoneLayout && drawerOpen, closeDrawer);
     const closeSettings = useCallback(() => {
         setSettings((prev) => ({...prev, open: false}));
     }, []);
-    const changeSettingsTab = useCallback((tab: SettingsTab) => {
+    // The sidebar gear's toggle: opening RESUMES the last-viewed pane
+    // (the tab survives a close; only a deep-link overrides it).
+    const toggleSettings = useCallback(() => {
+        setSettings((prev) => (prev.open ? {...prev, open: false} : {open: true, tab: prev.tab}));
+    }, []);
+    // Sidebar navigation LEAVES the settings surface: clicking a session
+    // (or new-session) is an explicit intent to view the conversation —
+    // the settings page is a PEER surface of the session/welcome swap,
+    // and the gear row is what swaps back to it.
+    const selectSession = useCallback((id: string) => {
+        setActiveId(id);
+        closeSettings();
+    }, [setActiveId, closeSettings]);
+    // Forwards the folder's directory (a folder-header "+") into the
+    // flow's newSession — dropping it here left the welcome composer's
+    // staged directory untouched when composing with no active session.
+    const startNewSession = useCallback((directory?: string) => {
+        newSession(directory);
+        closeSettings();
+    }, [newSession, closeSettings]);
+    const changeSettingsTab = useCallback((tab: SettingsTab | null) => {
         setSettings((prev) => (prev.tab === tab ? prev : {...prev, tab}));
     }, []);
     // Stable so the memoized ChatView/ChatInput subtree skips re-rendering.
     const openModelConfig = useCallback(() => openSettings("model"), [openSettings]);
+
+    // The session-import picker (the sidebar's Import row): external
+    // OpenCode sessions (TUI/CLI/other instances) joining the whitelist.
+    // The modal consumes the session-data context itself; App owns only
+    // the open flag, like the settings modal. (The Plugins & MCP manager
+    // moved INTO the settings page — the extensions tab.)
+    const [importOpen, setImportOpen] = useState(false);
+    const openImportPicker = useCallback(() => setImportOpen(true), []);
+    const closeImportPicker = useCallback(() => setImportOpen(false), []);
 
     const sessionInfos = sessions.map((s) => ({
         id: s.id,
         name: s.title?.trim() || t["Untitled"],
         directory: s.directory ?? s.location?.directory,
         updatedAt: s.time?.updated,
+        mode: sessionMode(s),
     }));
 
     // Sidebar hover prefetch: warm a session's activity stats AND its
@@ -499,6 +321,15 @@ function AppBody({
         : connectionStatus.state === "error"
             ? connectionStatus.message
             : null;
+
+    // While the settings page is the live surface, the chrome reads like
+    // the WELCOME screen: no selected session in the sidebar, no session
+    // title or branch chip in the title bar — the settings page is a peer
+    // surface, never a second tab coexisting with the session. The real
+    // activeId is untouched underneath (closing the settings surface
+    // returns to it); only the PRESENTATION is blanked.
+    const surfaceSession = settings.open ? null : activeSession;
+    const surfaceActiveId = settings.open ? null : activeId;
 
     return (
         <div
@@ -524,27 +355,77 @@ function AppBody({
                 "--lum-glass-border": colors.glassBorder,
             } as React.CSSProperties}
         >
-            <SessionBar
-                sessions={sessionInfos}
-                activeId={activeId}
-                onSelect={setActiveId}
-                onClose={deleteSession}
-                onNew={newSession}
-                onSessionHover={hoverPrefetchSession}
-                backgroundColor={effectiveBg}
-                foregroundColor={effectiveFg}
-                collapsed={false}
-                brandTitle="Lumina Code"
-                busyIds={busyIds}
-                pendingCounts={pendingCounts}
-            />
+            {/* The sidebar: DOCKED (desktop + tablet mode) or the phone
+             * layout's DRAWER (TitleBar hamburger, the only session
+             * navigation on a phone). The props are identical — only the
+             * three action callbacks wrap closeDrawer in the drawer — so
+             * they are built once here. */}
+            {(() => {
+                const sidebar = (
+                    <SessionBar
+                        sessions={sessionInfos}
+                        activeId={surfaceActiveId}
+                        onSelect={phoneLayout ? (id: string) => {
+                            selectSession(id);
+                            closeDrawer();
+                        } : selectSession}
+                        onClose={deleteSession}
+                        onNew={phoneLayout ? (directory?: string) => {
+                            startNewSession(directory);
+                            closeDrawer();
+                        } : startNewSession}
+                        onImport={phoneLayout ? () => {
+                            openImportPicker();
+                            closeDrawer();
+                        } : openImportPicker}
+                        onSettings={phoneLayout ? () => {
+                            toggleSettings();
+                            closeDrawer();
+                        } : toggleSettings}
+                        settingsOpen={settings.open}
+                        importableCount={foreignSessions.length}
+                        onSessionHover={hoverPrefetchSession}
+                        backgroundColor={effectiveBg}
+                        foregroundColor={effectiveFg}
+                        collapsed={false}
+                        brandTitle="Lumina Code"
+                        busyIds={busyIds}
+                        pendingCounts={pendingCounts}
+                    />
+                );
+                if (!phoneLayout) return sidebar;
+                return drawerOpen ? (
+                    <div className="lum-m-drawer-scrim" onClick={closeDrawer}>
+                        <div
+                            className="lum-m-drawer"
+                            onClick={(e) => e.stopPropagation()}
+                            // The glass base: SessionBar's surface is TRANSLUCENT glass,
+                            // which on desktop composites over the app's opaque base. In
+                            // the drawer it would composite over the scrim (this div is
+                            // the scrim's child) — glass over 40% black = a much darker
+                            // sidebar than desktop. Painting the app base here restores
+                            // the desktop composite: glass tint over effectiveBg.
+                            style={{background: effectiveBg}}
+                        >
+                            {sidebar}
+                        </div>
+                    </div>
+                ) : null;
+            })()}
             <div className="flex-1 flex flex-col min-w-0">
                 <TitleBar
                     theme={effectiveTheme}
-                    title={activeSession ? activeSession.title?.trim() || t["Untitled"] : null}
-                    branch={shownBranch}
-                    onOpenSettings={() => openSettings()}
+                    title={surfaceSession ? surfaceSession.title?.trim() || t["Untitled"] : null}
+                    branch={settings.open ? null : shownBranch}
                     isMaximized={isMaximized}
+                    onMenu={phoneLayout ? () => setDrawerOpen(true) : undefined}
+                    // MOBILE delete entry: only while a session is open
+                    // (TitleBar renders the ⋯ menu only when this is
+                    // passed — desktop never does, its sidebar row X
+                    // stays). Hidden on the settings surface too: there
+                    // is no "current session" while settings is live
+                    // (the welcome-screen reading).
+                    onDeleteSession={mobile && activeId && !settings.open ? () => deleteSession(activeId) : undefined}
                 />
                 <div className="flex-1 relative overflow-hidden">
                     {/* Chrome glass layer filling the content area. The
@@ -562,7 +443,18 @@ function AppBody({
                         className="absolute inset-0"
                         style={{...chromeGlass, zIndex: 0}}
                     />
-                    <MaskedSurface className="absolute inset-0" style={{zIndex: 1}}>
+                    <MaskedSurface
+                        className="absolute inset-0"
+                        style={{zIndex: 1}}
+                        // Phone layout: square corners — the rounded
+                        // cutaways (the desktop 拼接倒角 seam aesthetic)
+                        // read as window chrome and have no place on a
+                        // fullscreen phone. Tablet mode keeps them: they
+                        // are IN-PAGE chrome (they expose the glass layer
+                        // below, never the desktop) and read as the
+                        // desktop layout's aesthetic, not window chrome.
+                        radius={phoneLayout ? 0 : undefined}
+                    >
                         {/* The conversation canvas — its own opaque bg in
                             light mode, distinct from the chrome glass frame
                             around it. Dark mode stays transparent so the
@@ -582,22 +474,37 @@ function AppBody({
                                 the panel layer itself — the surface swap
                                 covers the transition. */}
                             <div className="lum-row relative flex h-full w-full">
-                                {/* Session ↔ welcome-screen swap THROUGH
+                                {/* Session ↔ welcome ↔ settings swap THROUGH
                                     SessionSurface: SEQUENTIAL phases —
                                     exit plays out, a loading loop covers
                                     the successor's fetch, and the
                                     entrance starts only once the
                                     successor's first frame is
-                                    renderable (see SessionSurface). */}
+                                    renderable (see SessionSurface). The
+                                    settings PAGE is a PEER surface of
+                                    the other two (the sidebar gear swaps
+                                    to it like a session switch — the
+                                    leaving surface unloads completely);
+                                    it is always-ready, so it enters
+                                    right after the exit with no loading
+                                    phase. */}
                                 <SessionSurface
-                                    targetKey={activeSession ? `session-${activeSession.id}` : "welcome"}
+                                    targetKey={settings.open ? "settings" : activeSession ? `session-${activeSession.id}` : "welcome"}
                                     render={(key) =>
-                                        key === "welcome" ? (
+                                        key === "settings" ? (
+                                            <SettingsPage
+                                                tab={settings.tab}
+                                                onTabChange={changeSettingsTab}
+                                                onClose={closeSettings}
+                                                api={api}
+                                            />
+                                        ) : key === "welcome" ? (
                                             <WelcomeScreen
                                                 foregroundColor={effectiveFg}
                                                 subtitle={placeholderSubtitle ?? undefined}
                                                 disabled={!connected}
                                                 onSend={(text, files, fileRefs, command) => void sendFirst(text, files, fileRefs, command)}
+                                                sendBlocked={sendBlocked}
                                                 agent={effectiveAgent}
                                                 model={effectiveModel}
                                                 onAgentChange={changeAgent}
@@ -619,6 +526,7 @@ function AppBody({
                                                 onModelChange={changeModel}
                                                 directory={activeDirectory}
                                                 onDirectoryChange={changeDirectory}
+                                                approveAgent={approveAgent}
                                                 stagedBranch={pendingBranch}
                                                 onStagedBranchChange={(branch) => {
                                                     // A branch pick on an EXISTING (empty) session
@@ -649,14 +557,25 @@ function AppBody({
                                     StatsCardSwap: the previous card fades out
                                     (frozen snapshot) while the successor
                                     mounts. Never rendered on the welcome
-                                    screen. */}
+                                    screen. On the MOBILE app the panel mounts
+                                    too — on the phone layout it is always an
+                                    overlay over the conversation (mobile.css
+                                    widens the expanded panel to span the row;
+                                    a phone row can never reach the wide-row
+                                    flex-sibling tier), while tablet mode
+                                    (hooks/useLayoutMode.ts) lets the
+                                    container-query tiers decide exactly like
+                                    a desktop window. */}
                                 <StatsCardSwap
-                                    swapKey={activeSession ? (activeDirectory ?? "") : null}
+                                    swapKey={settings.open || !activeSession ? null : (activeDirectory ?? "")}
                                     render={(dir) => (
                                         <WorkspaceStatsCard
                                             key={dir}
                                             sessionId={activeSession!.id}
                                             directory={activeDirectory}
+                                            // The ACTIVE session's mode picks the card's
+                                            // workspace scope (git diff vs documents).
+                                            mode={sessionMode(activeSession!)}
                                             busyIds={busyIds}
                                             agent={effectiveAgent}
                                         />
@@ -671,17 +590,15 @@ function AppBody({
                 area: an invisible overlay sash over the boundary — drag
                 to resize (persisted), double-click to reset. Rendered
                 AFTER the content column so its absolute box (main.css)
-                paints above it; hidden with the sidebar when collapsed. */}
-            <SidebarResizer collapsed={false}/>
-            {/* The settings modal (title-bar gear; the model picker
-                deep-links to its Model tab). */}
-            <SettingsModal
-                open={settings.open}
-                tab={settings.tab}
-                onTabChange={changeSettingsTab}
-                onClose={closeSettings}
-                api={api}
-                serverVersion={connected ? connectionStatus.version : null}
+                paints above it; hidden with the sidebar when collapsed.
+                Off the PHONE layout only — tablet mode docks the
+                sidebar and the seam (pointer-capture drag) works on
+                touch. */}
+            {!phoneLayout && <SidebarResizer collapsed={false}/>}
+            {/* The session-import picker (the sidebar's Import row). */}
+            <ImportSessionsModal
+                open={importOpen}
+                onClose={closeImportPicker}
             />
             {/* Linux window outline: some desktop environments draw no
                 compositor shadow, so the borderless window's edge is
@@ -702,6 +619,16 @@ function AppBody({
                     }}
                 />
             )}
+            {/* The boot gate (see components/BootScreen.tsx): a full-screen
+                overlay covering the whole chrome until the app is genuinely
+                usable — connection + session list + model catalog + the
+                dev-mode git probe + the restored session's seed all
+                landed. Mobile shows it from the
+                first frame (the remote route's latency is the norm there);
+                desktop only intervenes past a grace period, so the local
+                fast path never sees it. Renders null permanently once
+                revealed. */}
+            <BootScreen activeId={activeId} bg={effectiveBg} fg={effectiveFg}/>
         </div>
     );
 }
@@ -719,7 +646,11 @@ function App() {
                 background: "transparent",
             }}
         >
-            <div className={`w-full h-full overflow-hidden ${isMaximized ? "" : "rounded-[var(--radius-lg)]"}`}>
+            {/* The rounded window frame is DESKTOP chrome — the mobile app
+             * IS the screen (fullscreen activity), where the rounding cuts
+             * the title bar's top corners open against the transparent
+             * html behind. Mobile stays square. */}
+            <div className={`w-full h-full overflow-hidden ${isMaximized || isMobileApp() ? "" : "rounded-[var(--radius-lg)]"}`}>
                 <InnerApp isMaximized={isMaximized}/>
             </div>
         </div>

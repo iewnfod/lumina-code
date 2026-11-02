@@ -176,7 +176,10 @@ fn data_dirs() -> Vec<PathBuf> {
 fn discover_schema_dir() -> Option<PathBuf> {
     for base in data_dirs() {
         for uuid in EXTENSION_UUIDS {
-            let dir = base.join("gnome-shell/extensions").join(uuid).join("schemas");
+            let dir = base
+                .join("gnome-shell/extensions")
+                .join(uuid)
+                .join("schemas");
             if dir.join("gschemas.compiled").is_file() {
                 return Some(dir);
             }
@@ -225,8 +228,7 @@ fn read_bool(key: &str, source: &SchemaSource) -> bool {
 }
 
 fn read_int(key: &str, source: &SchemaSource) -> i32 {
-    match get_key(key, source)
-        .and_then(|v| v.parse::<i32>().map_err(|e| format!("parse {v}: {e}")))
+    match get_key(key, source).and_then(|v| v.parse::<i32>().map_err(|e| format!("parse {v}: {e}")))
     {
         Ok(v) => v,
         Err(e) => {
@@ -258,7 +260,8 @@ fn extension_enabled() -> bool {
     match out {
         Ok(out) if out.status.success() => {
             let text = String::from_utf8_lossy(&out.stdout);
-            text.lines().any(|line| EXTENSION_UUIDS.contains(&line.trim()))
+            text.lines()
+                .any(|line| EXTENSION_UUIDS.contains(&line.trim()))
         }
         _ => true,
     }
@@ -384,7 +387,10 @@ pub async fn blur_my_shell_set_whitelist(entries: Vec<String>) -> Result<(), Str
         let args = ["set", APP_SCHEMA, "whitelist", &value];
         match run_gsettings(&args, Some(&source)) {
             Ok(_) => {
-                log::info!("blur-my-shell: whitelist written ({} entries)", entries.len());
+                log::info!(
+                    "blur-my-shell: whitelist written ({} entries)",
+                    entries.len()
+                );
                 Ok(())
             }
             Err(e) => {

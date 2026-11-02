@@ -50,7 +50,10 @@ export async function loginAction(formData: FormData): Promise<void> {
     back("/login", "too many attempts, try again later");
   }
   try {
-    const {token} = await login(getDb(), username, password);
+    // Label "web": this is the web console's own session cookie (the
+    // registerAction's twin — the account page groups API clients by
+    // their device labels, the browser sign-ins read as "web").
+    const {token} = await login(getDb(), username, password, "web");
     await setSessionCookie(token);
   } catch (e) {
     back("/login", e instanceof Error ? e.message : "login failed");

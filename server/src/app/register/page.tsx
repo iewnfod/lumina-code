@@ -13,7 +13,7 @@ export default async function RegisterPage({
   const disabled = process.env.LUMINA_ALLOW_REGISTRATION === "false";
   return (
     <main className="auth">
-      <h1>lumina-server</h1>
+      <h1>lumina-code-server</h1>
       <p className="muted">
         Create an account. The <strong>first</strong> registered user becomes
         the server admin.

@@ -1,16 +1,21 @@
 import {useSyncExternalStore} from "react";
-import {info as logInfo} from "@tauri-apps/plugin-log";
+import {invoke} from "@tauri-apps/api/core";
+import {hostname} from "@tauri-apps/plugin-os";
+import {info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
+import {isMobileApp} from "../lib/platform.ts";
 import {createPersistedStore} from "../lib/persistedStore.ts";
 
 /**
- * The desktop's self-hosted lumina-server connection (Settings → Server):
+ * The desktop's self-hosted lumina-code-server connection (Settings → Server):
  * the credential store + the small typed REST client for its API.
  *
- * Relay model: the agent ALWAYS runs locally; when a connection is
- * configured AND enabled, the sync engine (opencode/serverSync.ts)
- * mirrors the local session list and message snapshots UP to this
- * server so other devices can browse them. Nothing here touches the
- * local OpenCode connection.
+ * The server is the CREDENTIAL EXCHANGE for remote access (frp direct
+ * route): when a connection is configured AND remote access is enabled,
+ * the engine (hooks/useServerFrp.ts) registers the local opencode
+ * password + route id with it; mobile clients fetch both and connect
+ * straight to this machine's opencode through the server's frps. No
+ * session content is mirrored anymore — the agent, transcripts and
+ * files stay on this machine.
  *
  * The token is the server's opaque credential (`lum_…`) stored in the
  * webview's localStorage (Tauri app-data dir, on this machine only) —
@@ -25,8 +30,15 @@ export interface ServerConnection {
     token: string;
     /** Account username (display + diagnostics). */
     username: string;
-    /** Sync active. Connection stays configured when switched off. */
-    enabled: boolean;
+    /** Remote access (frp direct route for mobile clients). Opt-in:
+     * it publishes this machine's opencode password to the server.
+     * Absent on legacy entries = false (an old `tunnelEnabled: true`
+     * carried the same intent and migrates in). */
+    remoteEnabled: boolean;
+    /** This desktop's frp route id (minted by the server on first
+     * registration, persisted so re-registration keeps the route).
+     * Absent until the first successful register. */
+    frpRouteId?: string;
 }
 
 /** Normalize a user-entered server address: require http(s), take the
@@ -50,13 +62,21 @@ function parseConnection(raw: string | null): ServerConnection | null {
         if (
             typeof parsed.url !== "string" ||
             typeof parsed.token !== "string" ||
-            typeof parsed.username !== "string" ||
-            typeof parsed.enabled !== "boolean"
+            typeof parsed.username !== "string"
         ) {
             return null;
         }
         if (normalizeServerUrl(parsed.url) === null) return null;
-        return parsed as ServerConnection;
+        // Legacy entries predate the remote-access flag — read as off
+        // (the old `tunnelEnabled` carried the same intent, so it
+        // migrates in the merge).
+        return {
+            url: parsed.url,
+            token: parsed.token,
+            username: parsed.username,
+            remoteEnabled: parsed.remoteEnabled === true || (parsed as {tunnelEnabled?: unknown}).tunnelEnabled === true,
+            frpRouteId: typeof parsed.frpRouteId === "string" ? parsed.frpRouteId : undefined,
+        };
     } catch {
         return null;
     }
@@ -82,13 +102,22 @@ export function setServerConnection(next: ServerConnection): void {
     }
 }
 
-/** Flip the sync enablement (connection stays configured). No-op when
- * not configured. */
-export function setServerSyncEnabled(enabled: boolean): void {
+/** Flip the remote-access route (mobile clients connecting directly to
+ * this machine's opencode through the server's frps). No-op when not
+ * configured. */
+export function setServerRemoteEnabled(enabled: boolean): void {
     const current = store.get();
-    if (!current || current.enabled === enabled) return;
-    store.set({...current, enabled});
-    logInfo(`Server sync ${enabled ? "enabled" : "disabled"} (${current.url})`).catch(() => {});
+    if (!current || current.remoteEnabled === enabled) return;
+    store.set({...current, remoteEnabled: enabled});
+    logInfo(`Remote access ${enabled ? "enabled" : "disabled"} (${current.url})`).catch(() => {});
+}
+
+/** Persist the frp route id the server assigned (called by the remote
+ * engine after a successful registration). */
+export function setServerFrpRouteId(routeId: string): void {
+    const current = store.get();
+    if (!current || current.frpRouteId === routeId) return;
+    store.set({...current, frpRouteId: routeId});
 }
 
 /** Forget the connection locally (call after revoking server-side). */
@@ -98,28 +127,130 @@ export function clearServerConnection(): void {
     }
 }
 
-/** Read the current connection outside React (the sync engine runs from
- * event handlers, not render). */
-export function peekServerConnection(): ServerConnection | null {
-    return store.get();
-}
-
-/** Extract the error message a lumina-server reply carries
- * (`{error: "…"}`), falling back to the status line. Pure. */
-export async function serverErrorMessage(res: Response): Promise<string> {
-    const detail = await res
-        .json()
-        .then((body: {error?: unknown}) =>
-            typeof body?.error === "string" ? body.error : "",
-        )
-        .catch(() => "");
-    return detail || `${res.status} ${res.statusText}`;
+/**
+ * Extract the error message a lumina-code-server reply carries
+ * (`{error: "…"}`), falling back to a status line. Pure.
+ */
+function serverErrorMessage(status: number, body: string): string {
+    try {
+        const parsed = JSON.parse(body) as {error?: unknown};
+        if (typeof parsed?.error === "string" && parsed.error) return parsed.error;
+    } catch {
+        // non-JSON body — fall through to the status line
+    }
+    return `${status}`;
 }
 
 /**
- * Typed client for lumina-server's REST API (the OpencodeApi pattern:
- * hand-rolled fetch, envelope-free — lumina-server returns plain JSON).
- * Errors carry the HTTP `status` on the thrown Error, like OpencodeApi.
+ * One wire call → {status, body}. TRANSPORT is platform-split:
+ *
+ * - DESKTOP: the Rust `lumina_request` command (src-tauri/src/
+ *   lumina_http.rs — reqwest, proxies disabled). The desktop↔server
+ *   channel must not ride the webview's network stack, whose
+ *   libsoup/GnuTLS path proved unreliable on proxy-fronted networks
+ *   (live-observed 2026-10-18: every webview fetch to the server failed
+ *   with an opaque `TypeError: Load failed` while curl/bare-libsoup
+ *   succeeded on the same host).
+ * - MOBILE: the webview's own fetch. There the webview stack IS the OS
+ *   network stack (Chromium on Android / NSURLSession on iOS — proxy-
+ *   and TLS-sane, no libsoup in sight) and already carries ALL the
+ *   app's opencode traffic through this very server origin
+ *   (useOpencode's remote branch); the mobile crate deliberately
+ *   registers no HTTP command. The server's middleware answers the
+ *   cross-origin preflight for exactly these webview origins.
+ */
+async function serverExchange(
+    baseUrl: string,
+    token: string,
+    method: string,
+    path: string,
+    body: string | null,
+): Promise<{status: number; body: string}> {
+    if (isMobileApp()) {
+        let res: Response;
+        try {
+            res = await fetch(`${baseUrl}${path}`, {
+                method,
+                headers: {
+                    Accept: "application/json",
+                    ...(token ? {Authorization: `Bearer ${token}`} : {}),
+                    ...(body !== null ? {"Content-Type": "application/json"} : {}),
+                },
+                body: body ?? undefined,
+            });
+        } catch (e) {
+            // Transport-level failure (network/TLS) — no HTTP status.
+            throw new Error(String(e));
+        }
+        return {status: res.status, body: await res.text()};
+    }
+    try {
+        return await invoke("lumina_request", {baseUrl, token, method, path, body});
+    } catch (e) {
+        // Transport-level failure (network/proxy/TLS) — no HTTP status.
+        throw new Error(String(e));
+    }
+}
+
+/** Shared non-2xx mapping: a `{error}` body becomes the message, the
+ * HTTP `status` rides the thrown Error (same contract as OpencodeApi). */
+function httpError(status: number, body: string): Error {
+    const err = new Error(serverErrorMessage(status, body));
+    (err as Error & {status?: number}).status = status;
+    return err;
+}
+
+/** Hostname readings that carry no identity — Android's gethostname
+ * resolves to "localhost" and build images report placeholders; those
+ * read as "no device name" so the label falls back to the bare kind. */
+const MEANINGLESS_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "android-build"]);
+
+let deviceLoginLabelCache: string | null = null;
+
+/**
+ * THIS device's label for a lumina-code-server login token: the client kind
+ * (desktop/mobile) plus the device name when one can be read — mobile
+ * asks the Android bridge (Build.MODEL via MainActivity's
+ * __luminaNative), everything else probes the OS hostname
+ * (plugin-os). No name → the bare kind ("desktop"/"mobile"). Cached:
+ * one probe per app run.
+ */
+export async function deviceLoginLabel(): Promise<string> {
+    if (deviceLoginLabelCache !== null) return deviceLoginLabelCache;
+    const kind = isMobileApp() ? "mobile" : "desktop";
+    let host = "";
+    if (isMobileApp()) {
+        // The Android bridge's synchronous return is a REAL device
+        // name; installs older than the method throw here (and the
+        // hostname probe below answers "localhost" — filtered after).
+        try {
+            host =
+                (window as unknown as {__luminaNative?: {deviceName?: () => string}})
+                    .__luminaNative?.deviceName?.() ?? "";
+        } catch {
+            host = "";
+        }
+    }
+    if (!host) {
+        try {
+            host = (await hostname()) ?? "";
+        } catch {
+            host = "";
+        }
+    }
+    host = host.trim();
+    if (!host || MEANINGLESS_HOSTS.has(host.toLowerCase())) host = "";
+    deviceLoginLabelCache = host ? `${kind} (${host})` : kind;
+    if (!host) {
+        logWarn("Device name unavailable; server login token uses the bare kind label").catch(
+            () => {},
+        );
+    }
+    return deviceLoginLabelCache;
+}
+
+/** Typed client for lumina-code-server's REST API. Errors carry the HTTP
+ * `status` on the thrown Error, like OpencodeApi.
  */
 export class LuminaServerApi {
     constructor(
@@ -127,43 +258,47 @@ export class LuminaServerApi {
         private token: string,
     ) {}
 
-    private async request<T>(path: string, init?: RequestInit): Promise<T> {
-        const res = await fetch(this.baseUrl + path, {
-            ...init,
-            headers: {
-                Accept: "application/json",
-                ...(init?.body !== undefined ? {"Content-Type": "application/json"} : {}),
-                Authorization: `Bearer ${this.token}`,
-                ...init?.headers,
-            },
-        });
-        if (!res.ok) {
-            const err = new Error(await serverErrorMessage(res));
-            (err as Error & {status?: number}).status = res.status;
-            throw err;
+    private async request<T>(
+        path: string,
+        init?: {method?: string; body?: string},
+    ): Promise<T> {
+        const reply = await serverExchange(
+            this.baseUrl,
+            this.token,
+            init?.method ?? "GET",
+            path,
+            // Callers pass the pre-serialized body (the old fetch
+            // RequestInit semantics) — send it through untouched.
+            init?.body !== undefined ? init.body : null,
+        );
+        if (reply.status < 200 || reply.status >= 300) {
+            throw httpError(reply.status, reply.body);
         }
-        if (res.status === 204) return undefined as T;
-        return (await res.json()) as T;
+        if (reply.status === 204) return undefined as T;
+        return JSON.parse(reply.body) as T;
     }
 
     /** Exchange credentials for a device token. Static: called before a
-     * client instance exists. Throws with `.status` on failure. */
+     * client instance exists. `label` names the token on the server's
+     * account page (see {@link deviceLoginLabel}). Throws with
+     * `.status` on failure. */
     static async login(
         url: string,
         username: string,
         password: string,
+        label?: string,
     ): Promise<{token: string; username: string}> {
-        const res = await fetch(`${url}/api/auth/login`, {
-            method: "POST",
-            headers: {"Content-Type": "application/json", Accept: "application/json"},
-            body: JSON.stringify({username, password}),
-        });
-        if (!res.ok) {
-            const err = new Error(await serverErrorMessage(res));
-            (err as Error & {status?: number}).status = res.status;
-            throw err;
+        const reply = await serverExchange(
+            url,
+            "",
+            "POST",
+            "/api/auth/login",
+            JSON.stringify({username, password, ...(label ? {label} : {})}),
+        );
+        if (reply.status < 200 || reply.status >= 300) {
+            throw httpError(reply.status, reply.body);
         }
-        const body = (await res.json()) as {token?: string; user?: {username?: string}};
+        const body = JSON.parse(reply.body) as {token?: string; user?: {username?: string}};
         if (typeof body.token !== "string" || !body.token) {
             throw new Error("server sent no token");
         }
@@ -182,33 +317,38 @@ export class LuminaServerApi {
         return this.request("/api/auth/logout", {method: "POST"});
     }
 
-    /** Push the desktop's FULL session list (idempotent upsert; the
-     * server tombstones this account's sessions missing from the list). */
-    pushSessions(
-        sessions: {
-            id: string;
-            title: string;
-            directory: string;
-            model: string;
-            agent: string;
-            updatedAt: string;
-        }[],
-    ): Promise<{upserted: number; tombstoned: number}> {
-        return this.request("/api/sync/sessions", {
-            method: "POST",
-            body: JSON.stringify({sessions}),
+    /** What the desktop needs to point frpc at the server's frps:
+     * the control-channel bind port + shared token. `enabled: false`
+     * means the operator did not configure LUMINA_FRPS_TOKEN.
+     * `control`, when present (LUMINA_FRPS_CONTROL set server-side):
+     * the WebSocket ride — frpc dials `wss://host:port/~!frp` through
+     * nginx instead of raw TCP (Cloudflare-fronted deployments; the
+     * dial path is FIXED in frp 0.71.x). Absent = legacy direct
+     * `host:bindPort`. */
+    frpConfig(): Promise<{
+        enabled: boolean;
+        bindPort?: number;
+        token?: string;
+        control?: {host: string; port: number; secure: boolean};
+    }> {
+        return this.request("/api/frp/config");
+    }
+
+    /** Publish the CURRENT opencode password (registration +
+     * heartbeat). Re-using the previously assigned routeId keeps the
+     * route stable; the server mints a fresh one otherwise. */
+    frpRegister(password: string, routeId?: string): Promise<{routeId: string}> {
+        return this.request("/api/frp/routes", {
+            method: "PUT",
+            body: JSON.stringify({password, routeId}),
         });
     }
 
-    /** Replace one session's message snapshot. */
-    pushSessionMessages(
-        sessionId: string,
-        messages: unknown[],
-    ): Promise<{count: number}> {
-        return this.request(`/api/sync/sessions/${encodeURIComponent(sessionId)}/messages`, {
-            method: "POST",
-            body: JSON.stringify({messages}),
-        });
+    /** The mobile's direct-access credential: the account's current
+     * desktop route + password (404 with `.status` when the account
+     * never registered a desktop). */
+    frpConnect(): Promise<{routeId: string; password: string; updatedAt: string}> {
+        return this.request("/api/frp/connect");
     }
 
     /** The live session mirror (mobile's session list source). */
@@ -278,11 +418,4 @@ export class LuminaServerApi {
             body: JSON.stringify({sessionId, text}),
         });
     }
-}
-
-/** A convenience factory over the CURRENT stored connection (the sync
- * engine's entry point); null when not configured. */
-export function serverApiFromStore(): LuminaServerApi | null {
-    const conn = store.get();
-    return conn ? new LuminaServerApi(conn.url, conn.token) : null;
 }

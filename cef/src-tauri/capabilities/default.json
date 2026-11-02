@@ -2,14 +2,19 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "opener:default",
+    "opener:allow-open-path",
     "os:default",
+    "os:allow-hostname",
     "log:default",
     "dialog:default",
     "notification:default",
+    "store:default",
     "core:window:allow-minimize",
     "core:window:allow-maximize",
     "core:window:allow-unmaximize",

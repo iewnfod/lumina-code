@@ -11,7 +11,6 @@ import {
     $createTextNode,
     $getNodeByKey,
     $getRoot,
-    $isElementNode,
     $isTextNode,
     COMMAND_PRIORITY_HIGH,
     KEY_ARROW_DOWN_COMMAND,
@@ -26,7 +25,7 @@ import {
 } from "lexical";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
-import {isMacOS} from "../../lib/platform.ts";
+import {isMacOS, isMobileApp} from "../../lib/platform.ts";
 import {clearDraft, saveDraftEditorState} from "./composerDrafts.ts";
 import type {
     ComposerFileRef,
@@ -36,6 +35,7 @@ import type {
 import {useI18n} from "../../hooks/i18n.tsx";
 import InputSuggestions, {type SuggestionItem} from "./InputSuggestions.tsx";
 import {$createFileMentionNode, $isFileMentionNode} from "./FileMentionNode.tsx";
+import {readSubmitPayload} from "./composerSerialize.ts";
 import {$createCommandMentionNode} from "./CommandMentionNode.tsx";
 import {
     $detectTrigger,
@@ -50,7 +50,7 @@ import {
  *  classes): one text line = 20px, vertical padding = 12 + 6, growth
  *  capped at 5 lines. */
 const LINE_HEIGHT = 20;
-const MAX_LINES = 5;
+const MAX_LINES = 8;
 
 /** Imperative handle into the editor (ChatInput's composerApiRef). */
 export interface ComposerHandle {
@@ -134,8 +134,10 @@ export default function ComposerCore({
     // remounts the composer, and the user's next keystroke should land in it.
     // A restored draft must also recompute canSend (onChange only fires on
     // CHANGES, and the initialEditorState hydration is not one).
+    // Mobile skips the FOCUS only: the soft keyboard must not pop on a
+    // session switch / the welcome screen — tapping the composer focuses it.
     useEffect(() => {
-        if (!disabled) editor.focus();
+        if (!disabled && !isMobileApp()) editor.focus();
         onCanSendChange(editor.getEditorState().read(() => $getRoot().getTextContent().trim().length > 0));
     }, [editor, disabled, onCanSendChange]);
 
@@ -280,27 +282,7 @@ export default function ComposerCore({
     const submit = useCallback(() => {
         const live = liveRef.current;
         if (live.disabled || submitInFlightRef.current) return;
-        const payload = editor.getEditorState().read(() => {
-            let text = "";
-            const paths: string[] = [];
-            $getRoot().getChildren().forEach((block, bi) => {
-                if (bi > 0) text += "\n";
-                for (const child of $isElementNode(block) ? block.getChildren() : []) {
-                    if ($isFileMentionNode(child)) {
-                        paths.push(child.getAbsolute());
-                        // The token displays icon + bare file name; the
-                        // SENT text re-prefixes the "@" so the server
-                        // resolves the "@relative" mention form.
-                        text += `@${child.getRelative()}`;
-                        continue;
-                    }
-                    // LineBreakNodes (Shift+Enter) contribute "\n" via
-                    // getTextContent.
-                    text += child.getTextContent();
-                }
-            });
-            return {text, paths};
-        });
+        const payload = editor.getEditorState().read(readSubmitPayload);
         const trimmed = payload.text.trim();
         if (!trimmed) return;
         let command: PendingCommand | null = null;
@@ -526,7 +508,11 @@ export default function ComposerCore({
                         // the pt-3/pb-1.5 padding rhythm — a derived
                         // floor, kept literal because it must track the
                         // padding, not the spacing scale.
-                        className={`block w-full resize-none bg-transparent outline-none px-4 pt-3 pb-1.5 text-sm leading-5 whitespace-pre-wrap break-words overflow-y-auto min-h-[38px] lum-fade-md ${disabled ? "opacity-50" : ""}${inputEdges.top ? " lum-fade-top" : ""}${inputEdges.bottom ? " lum-fade-bottom" : ""}`}
+                        // lum-composer-input / lum-composer-placeholder
+                        // are the STABLE hooks mobile.css sizes the
+                        // resting box from (Tailwind's generated class
+                        // names are not a contract).
+                        className={`lum-composer-input block w-full resize-none bg-transparent outline-none px-4 pt-3 pb-1.5 text-sm leading-5 whitespace-pre-wrap break-words overflow-y-auto min-h-[38px] lum-fade-md ${disabled ? "opacity-50" : ""}${inputEdges.top ? " lum-fade-top" : ""}${inputEdges.bottom ? " lum-fade-bottom" : ""}`}
                         style={{maxHeight: MAX_LINES * LINE_HEIGHT + 18}}
                         readOnly={disabled}
                         spellCheck={false}

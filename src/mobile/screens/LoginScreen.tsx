@@ -1,12 +1,14 @@
 import {useState} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
+import Icon from "../../assets/icon.svg";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {
     LuminaServerApi,
+    deviceLoginLabel,
     normalizeServerUrl,
 } from "../../opencode/serverConnection.ts";
-import {setMobileConnection} from "../connection.ts";
+import {setMobileConnection} from "../../opencode/mobileConnection.ts";
 
 /**
  * The mobile sign-in screen: server address + credentials → the device
@@ -36,7 +38,12 @@ export default function LoginScreen() {
         setBusy(true);
         setErrorText(null);
         try {
-            const login = await LuminaServerApi.login(normalized, username, password);
+            const login = await LuminaServerApi.login(
+                normalized,
+                username,
+                password,
+                await deviceLoginLabel(),
+            );
             setMobileConnection({url: normalized, token: login.token, username: login.username});
         } catch (e) {
             setErrorText(String(e));
@@ -69,10 +76,8 @@ export default function LoginScreen() {
     return (
         <div className="lum-m-login">
             <div className="lum-m-brand">
+                <img src={Icon} alt="" className="w-14 h-14 mb-2"/>
                 <h1>Lumina Code</h1>
-                <p style={{color: colors.inactiveText}}>
-                    {t["The agent runs on this machine; sessions are mirrored to your server for other devices."]}
-                </p>
             </div>
             <div
                 className="lum-m-card"

@@ -66,7 +66,7 @@ export default function TailWorking({
                     // closing class never flips the content's layout.
                     <div className={closing ? "lum-row-exit" : undefined} {...bind}>
                         <div className="lum-enter flex items-center gap-2 text-xs opacity-60 select-none">
-                            <span className="pb-0.5">{t[label]}</span>
+                            <span>{t[label]}</span>
                             <span className="lum-loading lum-loading-tail" aria-hidden="true">
                                 <span/><span/><span/>
                             </span>
@@ -77,6 +77,7 @@ export default function TailWorking({
         </ExitPresence>
     );
 }
+
 
 /** The quiet-tail state machine: when to show the dots. */
 function useTailWorking(messages: ChatMessage[], busy: boolean, waiting: boolean, stopping: boolean): boolean {

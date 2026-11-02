@@ -23,9 +23,10 @@ dnf copr enable iewnfod/lumina-code
 dnf install lumina-code
 ```
 * Other platforms — download an installer from [releases](https://github.com/iewnfod/lumina-code/releases):
-  * Linux: `.deb`, `.rpm` and AppImage (x86_64 & arm64)
+  * Linux: `.deb`, `.rpm` and AppImage (x86_64 & arm64) — plus a parallel-installable CEF/Chromium flavor (`.deb`/`.rpm`) for setups where WebKitGTK misbehaves
   * Windows: NSIS installer (x64)
   * macOS: `.dmg` (Apple silicon & Intel)
+  * Android: arm64 APK — pair it with the [remote-access setup](#mobile--remote-access) below
 
 ## Features
 
@@ -44,14 +45,16 @@ dnf install lumina-code
 * Plan documents live under `.lumina/tasks/` in the project (plan, report, checklist, versioned history); accepting archives them into `.lumina/archived/`
 
 ### Sessions & projects
-* Sidebar groups sessions by project directory, with busy dots, pending-answer badges and relative ages
-* Pick the working directory before the first message; composer drafts, model and mode survive session switches
-* Sessions live in the shared OpenCode store, so conversations started in the CLI show up here too
+* Sidebar groups sessions by project directory, with busy dots, pending-answer badges, relative ages and per-session branch chips
+* Pick the working directory before the first message — or pin the session to a git branch and it runs in an isolated worktree while your main checkout stays untouched; the title bar always shows the current branch
+* Composer drafts, model and mode survive session switches
+* Sessions live in the shared OpenCode store: ones started by other `opencode` clients (TUI, CLI) import with one click, and ones created by your other Lumina Code windows or the mobile app join the sidebar automatically
 
 ### Composer
 * `@` file mentions and `/` commands (including your own custom OpenCode commands) with autocomplete
 * Attach images even to text-only models — they are routed through a vision model you configure
 * Model picker across all configured providers and variants, thinking-depth control, and a build/plan mode switch
+* Prompts typed while a run is in flight are queued server-side — reorder them by drag, edit or remove them, or stop the run and send them at once; the queue survives restarts and syncs across your devices
 
 ### Staying in control
 * Permission cards for sensitive actions — shell commands, file edits, web access, folders outside the project — with allow-once / always-allow / reject
@@ -61,11 +64,20 @@ dnf install lumina-code
 
 ### Workspace activity panel
 * One panel beside the conversation: plan progress, the project's working-copy git diff (drill into per-file diffs), background terminals with live output, and subagents with their streaming transcripts
+* Branch-bound sessions add a sync section: commits-ahead and dirty-file drift, plus a one-click fast-forward write-back to your local branch (divergence is detected and left to you)
 
 ### Models & preferences
 * Connect providers via API key or browser OAuth (device-flow verification codes shown in-app); add custom OpenAI-compatible providers; hide models you don't use
+* Toggle plugins and MCP servers on and off in-app — the server hot-reloads — and read any MCP server's recent log without leaving the app
+* A custom system prompt, set once in General settings, rides every request
 * English / 简体中文 following the system, light & dark themes, custom interface and code fonts with independent sizes
 * On GNOME, join the Blur my Shell whitelist for a translucent window with real compositor blur; other desktops fall back to opaque automatically
+
+### Mobile & remote access
+* Self-host the companion [lumina-code-server](./server/README.md): one Docker Compose stack — user accounts, a web console and the routing end of the tunnel
+* Flip on remote access in the desktop's Server settings; the desktop then holds an outbound route — nothing of yours listens on the public internet
+* The Android app (arm64 APK in releases) signs into the same server and connects straight to your desktop: the full desktop UI, real streaming, phone or tablet layout
+* The agent never leaves your machine — code, model credentials and git repos stay on the desktop, and the server only brokers the connection
 
 ## The bundled OpenCode server
 
@@ -89,11 +101,14 @@ pnpm tauri dev
 | Unit tests (pure frontend logic) | `pnpm test` |
 | Release bundle | `pnpm tauri build` |
 | Release bundle (CEF shell) | `pnpm build:cef` |
+| Companion server dev / build / test | `pnpm server:dev` / `pnpm server:build` / `pnpm server:test` |
+| Mobile web bundle dev / build | `pnpm dev:mobile` / `pnpm build:mobile` |
 | Backend check | `cargo check --manifest-path src-tauri/Cargo.toml` |
 | Regenerate file-type icons | `pnpm gen:icons` |
 
-* `pnpm fetch:opencode` is a **prerequisite** for `tauri dev` / `tauri build` — and even for `cargo check`: the server ships as a Tauri resource (`src-tauri/binaries/opencode`) that must exist or the build script fails.
+* `pnpm fetch:opencode` is a **prerequisite** for `tauri dev` / `tauri build` — and even for `cargo check`: the server ships as a Tauri resource (`src-tauri/binaries/opencode`) that must exist or the build script fails. `pnpm fetch:frp` feeds the same mechanism for the bundled `frpc` (remote access) and is equally required before local bundles.
 * The CEF shell is a second app crate (`cef/`) running the same frontend on Tauri v3 alpha with bundled Chromium — for Linux setups where WebKitGTK misbehaves. It needs the shared CEF distribution under `~/.local/share/cef/`.
+* The mobile app reuses the repo's frontend as a second Vite entry (`mobile/`); Android builds need the SDK/NDK — see [mobile/README.md](./mobile/README.md).
 * Point dev at a different server binary: `OPENCODE_BIN=/path/to/opencode pnpm tauri dev`.
 * The server version is pinned in three places that must move together: `OPENCODE_VERSION` in `scripts/fetch-opencode.mjs`, `EXPECTED_OPENCODE_VERSION` in `src-tauri/src/opencode/mod.rs`, and the exact-pinned `@opencode-ai/sdk` in `package.json`.
 * See [AGENTS.md](./AGENTS.md) for the full architecture guide.

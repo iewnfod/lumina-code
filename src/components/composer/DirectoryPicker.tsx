@@ -3,8 +3,10 @@ import {Folder, FolderSearch, GitBranch} from "lucide-react";
 import {open as openDialog} from "@tauri-apps/plugin-dialog";
 import {warn} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
+import {sessionMode} from "../../opencode/appMode.ts";
 import {useConnection} from "../../opencode/connectionContext.tsx";
-import {isSessionRegistered} from "../../opencode/sessionRegistry.ts";
+import {registeredSessionIds, unionMembership} from "../../opencode/sessionRegistry.ts";
+import {serverWhitelistIds} from "../../opencode/sessionWhitelistSync.ts";
 import type {OpencodeProject} from "../../opencode/types.ts";
 import {folderLabel} from "../../lib/path.ts";
 import PopoverMenu, {MenuItem, MenuLabel} from "../ui/PopoverMenu.tsx";
@@ -15,17 +17,26 @@ import {useI18n} from "../../hooks/i18n.tsx";
 /**
  * Project-directory picker for the not-yet-started session: quick picks
  * from the server's known projects, plus the native folder picker
- * (Tauri dialog plugin). Choosing `null` keeps the server's default (home).
- * The BRANCH binding is its own sibling button (BranchPicker) — a branch
- * is a first-class choice, not a sub-item of the folder menu.
+ * (Tauri dialog plugin). DEV ONLY — the daily mode owns one fixed
+ * workspace and never shows this picker; there is deliberately NO
+ * "default directory" item either (dev sessions must name a real
+ * project, so the unset state shows the plain "Project" label and the
+ * send button stays blocked until a choice is made — useSessionFlow's
+ * sendBlocked). The BRANCH binding is its own sibling button
+ * (BranchPicker) — a branch is a first-class choice, not a sub-item of
+ * the folder menu.
  */
 export default function DirectoryPicker({
     directory,
     onChange,
+    align = "start",
 }: {
     /** Absolute working directory for the next session; null = server default. */
     directory: string | null;
     onChange: (directory: string | null) => void;
+    /** PopoverMenu panel alignment — MOBILE's welcome cluster passes
+     *  "auto" so the panel clamps into the viewport (see PopoverMenu). */
+    align?: "start" | "auto";
 }) {
     const colors = useColors();
     const t = useI18n();
@@ -36,7 +47,8 @@ export default function DirectoryPicker({
     // (probe runs, deleted sessions, the root, the home itself) and can hold
     // duplicates under different ids. Keep only directories that are real
     // quick-picks: non-root, not the server home, deduped by canonical path,
-    // and still hosting at least one root session.
+    // and still hosting at least one whitelisted DEV root session (see the
+    // liveDirs note below for why daily sessions don't count).
     useEffect(() => {
         if (!api) return;
         let cancelled = false;
@@ -49,13 +61,23 @@ export default function DirectoryPicker({
                 ]);
                 if (cancelled) return;
                 const home = location?.directory;
-                // Same whitelist as the sidebar (sessionRegistry.ts): a
-                // directory only stays a quick-pick if one of OUR
-                // registered sessions lives in it — strangers (TUI/other
-                // instances) must not seed the picker.
+                // Same whitelist as the sidebar (sessionRegistry.ts ∪
+                // sessionWhitelistSync.ts): a directory only stays a
+                // quick-pick if one of OUR whitelisted sessions lives
+                // in it — strangers (TUI/other instances) must not
+                // seed the picker. DEV sessions only: daily sessions
+                // each auto-create a folder under LuminaWorkspace/
+                // Sessions/, and those are not code projects to
+                // suggest (the same rule as useSessionFlow's preselect
+                // effect). This picker is dev-only, so no dev session
+                // anywhere → an empty list + "Browse…" (never a
+                // fallback to every known project, which would list
+                // the daily folders wholesale).
+                const members = unionMembership(registeredSessionIds(), serverWhitelistIds());
                 const liveDirs = new Set(
                     (sessions ?? [])
-                        .filter((s) => !s.parentID && isSessionRegistered(s.id))
+                        .filter((s) =>
+                            !s.parentID && members.has(s.id) && sessionMode(s) === "dev")
                         .map((s) => s.directory ?? s.location?.directory)
                         .filter((d): d is string => !!d),
                 );
@@ -65,7 +87,7 @@ export default function DirectoryPicker({
                         p.canonical && p.canonical !== "/" && p.canonical !== "." &&
                         p.canonical !== home)
                     .sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0))) {
-                    if (liveDirs.size > 0 && !liveDirs.has(p.canonical)) continue;
+                    if (!liveDirs.has(p.canonical)) continue;
                     if (!byCanonical.has(p.canonical)) byCanonical.set(p.canonical, p);
                 }
                 setProjects([...byCanonical.values()].slice(0, 8));
@@ -97,7 +119,7 @@ export default function DirectoryPicker({
 
     return (
         <PopoverMenu
-            align="start"
+            align={align}
             trigger={({open, toggle}) => (
                 // The trigger shows only the folder's last segment — the
                 // hint carries the full path (nothing to add for the
@@ -114,15 +136,6 @@ export default function DirectoryPicker({
         >
             {(close) => (
                 <div className="w-64">
-                    <MenuItem
-                        selected={directory === null}
-                        onClick={() => {
-                            onChange(null);
-                            close();
-                        }}
-                    >
-                        {t["Default project directory"]}
-                    </MenuItem>
                     {projects.length > 0 && <MenuLabel>{t["Recent Projects"]}</MenuLabel>}
                     {projects.map((p) => (
                         <div key={p.id}>

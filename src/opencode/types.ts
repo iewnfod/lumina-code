@@ -3,6 +3,7 @@
  * (the npm SDK's generated types drift from the installed server; these are
  * the shapes actually on the wire, kept loose where the server is loose).
  */
+import type {ChatAssistantMessage, ChatMessage} from "./chatMessages.ts";
 
 /** Page size the client requests for `GET /api/session/{id}/message` (the
  *  endpoint caps `limit` at 200, 400 above that). A wire fact, so it lives
@@ -14,6 +15,13 @@ export const MESSAGES_PAGE_SIZE = 200;
 export interface SessionTime {
     created: number;
     updated: number;
+}
+
+/** GET /api/info response (live-verified v2.0.11): the server's own
+ *  identity report — the About pane's version source. The endpoint also
+ *  carries pid/urls/paths; only the version is consumed. */
+export interface OpencodeServerInfo {
+    version: string;
 }
 
 export interface SessionModelRef {
@@ -161,6 +169,42 @@ export type OpencodeConfigEntry =
     | {type: "document"; path: string; info?: unknown}
     | {type: "directory"; path: string};
 
+/** `GET /api/plugin` data entry — one LOADED plugin (server v2.0.11,
+ *  curl-verified). `opencode.*` ids with source.type "builtin" are the
+ *  server's own machinery (never user-toggleable); "local" is a plugin
+ *  auto-discovered from a config root's `plugins/` directory (path points
+ *  at its entry file), "package" one declared by a config document
+ *  (npm name or local path in `target`). A plugin that FAILED to load
+ *  carries state.status "failed" and may have NO id at all (the module
+ *  never exported one) — such rows are display-only (the remove
+ *  directive matches by id). A plugin disabled via a `plugins` remove
+ *  directive simply does not appear here (see pluginsMcp.ts). */
+export interface OpencodePluginInfo {
+    /** The plugin's own declared id (its default export); absent when
+     *  the module failed before exporting. */
+    id?: string;
+    source:
+        | {type: "builtin"}
+        | {type: "local"; path?: string}
+        | {type: "package"; target?: string; version?: string; outdated?: boolean; updating?: boolean};
+    state: {status: "active" | "failed"; error?: string; ref?: string};
+}
+
+/** `GET /api/mcp` data entry — one MCP server from the effective config
+ *  (server v2.0.11; DISABLED servers are listed too, as status
+ *  "disabled" — curl-verified). The config-level toggle is
+ *  `mcp.servers.<name>.disabled` (legacy shape: `mcp.<name>.enabled`),
+ *  hot-reloaded on write. */
+export interface McpServerInfo {
+    name: string;
+    status: {
+        status: "connected" | "pending" | "disabled" | "failed" | "needs_auth";
+        error?: string;
+    };
+    /** Remote servers registered as OAuth integrations. */
+    integrationID?: string;
+}
+
 /** An attachment staged in the composer (data-URI form). */
 export interface ComposerAttachment {
     id: string;
@@ -264,6 +308,34 @@ export interface UserMessageFile {
     [key: string]: unknown;
 }
 
+/** Raw shape of `GET /api/session/{id}/message` — NOT envelope-unwrapped
+ *  (the `data` here is the payload itself; unwrapping would lose `cursor`).
+ *  The server nulls (not omits) spent cursor fields on the wire. */
+export interface MessagesPage {
+    data?: ChatMessage[];
+    cursor?: {previous?: string | null; next?: string | null};
+}
+
+/** One PENDING row of `GET /api/session/{id}/inbox` (server v2.0.11): a
+ *  prompt parked as `steer` or `queue` that no step boundary has promoted
+ *  into the live turn yet. `type` is "user" | "synthetic" | "compaction" |
+ *  "move"; `delivery` is "steer" | "queue". Rows are PERSISTED (the
+ *  `session_pending` sqlite table, ordered by `enqueued_seq` — the wire
+ *  list arrives in send order), which is what makes the queue visible to
+ *  every client of the server (desktop windows + the mobile app): the
+ *  queued-prompt store is a mirror of these rows, see promptQueue.ts.
+ *  `payload` (user rows: text + files) was curl-verified live — the POST
+ *  response carries the SAME row shape (including `id` + `delivery`), so
+ *  the optimistic queue row can adopt the server id straight from it. */
+export interface SessionInboxItem {
+    id: string;
+    sessionID?: string;
+    type: string;
+    delivery: string;
+    time?: {created?: number};
+    payload?: {text?: string; files?: UserMessageFile[]};
+}
+
 // --- Workspace activity (stats card) — verified against server v2.0.11 ---
 //
 // The stats card's Changes section is WORKSPACE truth, not session truth:
@@ -352,6 +424,51 @@ export interface SessionUsage {
     cost?: number;
 }
 
+// --- Session stats (`GET /api/experimental/session/stats`, v2.0.11) ---
+
+/** Token totals of one stats bucket (same shape as
+ *  `OpencodeSession.tokens`). */
+export interface StatTokens {
+    input: number;
+    output: number;
+    reasoning: number;
+    cache: {read: number; write: number};
+}
+
+/** One model's share of a stats window — an entry of
+ *  `SessionStatsInfo.models`. */
+export interface ModelUsageStat {
+    model: SessionModelRef;
+    steps: number;
+    tokens: StatTokens;
+    cost: number;
+}
+
+/** The stats endpoint's payload (curl-verified against server v2.0.11):
+ *  aggregate local session activity + usage for a `from`/`to` window,
+ *  grouped per model in `models[]` (the pie/line charts' source — see
+ *  settings/usageOverview.ts). `activity[]` carries whole-range steps
+ *  per DAY with NO model split, so a per-model time series is assembled
+ *  client-side from day-window queries. Experimental route — re-verify
+ *  the shape on server bumps. */
+export interface SessionStatsInfo {
+    range: {from: number; to: number};
+    sessions: number;
+    subagents: number;
+    prompts: number;
+    steps: number;
+    tokens: StatTokens;
+    cost: number;
+    tools: {
+        mode: "none" | "summary" | "detail";
+        totals?: {calls: number; succeeded: number; failed: number; unfinished: number};
+    };
+    activeDays: number;
+    streak: number;
+    activity: {date: string; steps: number}[];
+    models: ModelUsageStat[];
+}
+
 /** One text piece of a tool result (`content: [{type:"text", text}]`). */
 export interface ToolContentPiece {
     type: string;
@@ -370,111 +487,14 @@ export interface ToolState {
     error?: unknown;
 }
 
-/** A tool invocation inside an assistant message's content array. */
-export interface AssistantToolPart {
-    type: "tool";
-    id: string;
-    name: string;
-    executed?: boolean;
-    state: ToolState;
-    time?: {created?: number; ran?: number; completed?: number};
-}
 
-/** A streamed text block inside an assistant message's content array. */
-export interface AssistantTextPart {
-    type: "text";
-    text: string;
-}
-
-/** A reasoning-model thinking block inside an assistant message. */
-export interface AssistantReasoningPart {
-    type: "reasoning";
-    text: string;
-}
-
-export type AssistantPart = AssistantTextPart | AssistantReasoningPart | AssistantToolPart;
-
-export interface ChatUserMessage {
-    id: string;
-    type: "user";
-    text: string;
-    files?: UserMessageFile[];
-    /** Present when this message came from a slash-command submission:
-     *  `text` carries the EXPANDED template the server stores (there is no
-     *  server-side command metadata), while the transcript renders the
-     *  compact `{name} {arguments}` form. Stamped client-side from the
-     *  pending-command registry in messageStore.ts. */
-    command?: {name: string; arguments: string};
-    /** Stable React key across the optimistic→server id swap: send()
-     *  appends a `local-*` bubble and the confirming enqueued event
-     *  replaces its id (messageStore.ts carries this key onto the
-     *  adopted message). Keying the transcript row by id would remount
-     *  it and REPLAY the entrance animation — a double opacity
-     *  animation under the transcript mask churns compositing layers,
-     *  which flashes the whole conversation area on WebKitGTK (same
-     *  class as FoldRow's transform-gpu note). */
-    localKey?: string;
-    time?: {created?: number};
-}
-
-export interface ChatAssistantMessage {
-    id: string;
-    type: "assistant";
-    agent?: string;
-    model?: SessionModelRef;
-    content: AssistantPart[];
-    finish?: string;
-    cost?: number;
-    tokens?: {
-        input: number;
-        output: number;
-        reasoning: number;
-        cache: {read: number; write: number};
-    };
-    time?: {created?: number; completed?: number; streamed?: number};
-    error?: unknown;
-}
-
-/** Turn separator emitted between assistant turns ("idle"/…). Not rendered. */
-export interface ChatMarkerMessage {
-    id: string;
-    type: string; // "idle" | "system" | "synthetic" | "shell" | …
-    time?: {created?: number};
-    /** Present on shell-tool notifications: `{source: "shell", shellID,
-     *  state, exit?}` marks the background command's completion. */
-    metadata?: Record<string, unknown>;
-    [key: string]: unknown;
-}
-
-/** The server's persisted model-switch marker (one per `POST
- *  /api/session/{id}/model`, the switch's commit). The transcript renders
- *  it as one divider between the old and new model; `previous` is absent
- *  on the session's very first selection. Deliberately a type alias, not
- *  an interface: aliases satisfy `ChatMarkerMessage`'s implicit index
- *  signature, which is what the {@link isModelSwitched} predicate needs. */
-export type ChatModelSwitchedMessage = {
-    id: string;
-    type: "model-switched";
-    model: SessionModelRef;
-    previous?: SessionModelRef;
-    time?: {created?: number};
-};
-
-export type ChatMessage = ChatUserMessage | ChatAssistantMessage | ChatMarkerMessage;
-
-/** Narrow a marker message to the persisted model-switch shape (see
- *  ChatModelSwitchedMessage). */
-export function isModelSwitched(m: ChatMessage): m is ChatModelSwitchedMessage {
-    return m.type === "model-switched";
-}
-
-export function isUserMessage(m: ChatMessage): m is ChatUserMessage {
-    return m.type === "user";
-}
-
-export function isAssistantMessage(m: ChatMessage): m is ChatAssistantMessage {
-    return m.type === "assistant";
-}
+/**
+ * The transcript's message view model (ChatMessage family, part types,
+ * type guards) lives in chatMessages.ts — split out because it carries
+ * LOCAL-ONLY optimistic-UI fields; re-exported here so the 30+ existing
+ * `from "./types.ts"` imports keep working unchanged.
+ */
+export * from "./chatMessages.ts";
 
 /**
  * Payload shapes of the live `/api/event` frames we consume (payload under
@@ -496,11 +516,38 @@ export interface EventMap {
     "session.model.selected": {sessionID: string; model: SessionModelRef; previous?: SessionModelRef};
     "session.deleted": {sessionID: string};
     "session.renamed": {sessionID: string; title: string};
+    /** A prompt was admitted to the session's PERSISTED inbox (fires at POST
+     *  time — parking, not delivery). `item.delivery` (curl-verified on the
+     *  wire; absent only on servers older than the field) splits the UI:
+     *  `"queue"` rows are the QUEUED prompts — they render above the
+     *  composer (promptQueue.ts) and are EXCLUDED from the transcript;
+     *  `"steer"` rows (the server's default for a delivery-less POST, i.e.
+     *  this client's normal sends while idle, or another client steering)
+     *  render as the transcript's ghost bubble under the inboxID. */
     "session.inbox.enqueued": {
         sessionID: string;
         inboxID: string;
-        item: {type: string; payload?: {text?: string; files?: UserMessageFile[]}};
+        item: {type: string; delivery?: string; payload?: {text?: string; files?: UserMessageFile[]}};
     };
+    /** A pending inbox row was DELIVERED — promoted into the transcript as
+     * a real message (server v2.0.11; curl-verified wire shape). For queue
+     * rows this is the moment the parked prompt starts executing: the run
+     * that consumed it opens its first step right after. The persisted
+     * message keeps the row's id (the inboxID), so a client that rendered
+     * the row (queue list or ghost bubble) can adopt it in place. No
+     * content rides the event — readers take the text/files from the row
+     * they already hold (the queued-prompt store) or re-pull the newest
+     * message page. A delivered row never fires `session.inbox.cancelled`
+     * (delivery consumes the row inside an uninterruptible transaction). */
+    "session.inbox.delivered": {sessionID: string; inboxID: string};
+    /** A pending inbox row was cancelled (server v2.0.11: the interrupt
+     * sweep's DELETE, or another client's cancel). The row's ghost bubble
+     * — rendered at enqueued time under the inboxID — must leave the
+     * transcript (messageStore drops it by id). A PROMOTED (delivered)
+     * message never fires this: delivery consumes the row inside an
+     * uninterruptible transaction, so cancellation and delivery are
+     * mutually exclusive server-side. */
+    "session.inbox.cancelled": {sessionID: string; inboxID: string};
     "session.execution.started": {sessionID: string};
     "session.execution.succeeded": {sessionID: string};
     "session.execution.failed": {sessionID: string};
@@ -529,7 +576,13 @@ export interface EventMap {
     "session.tool.input.started": {sessionID: string; assistantMessageID: string; id: string; name: string};
     "session.tool.input.ended": {sessionID: string; assistantMessageID: string; id: string; text: string};
     "session.tool.called": {sessionID: string; assistantMessageID: string; id: string; input?: unknown};
-    "session.tool.progress": {sessionID: string; assistantMessageID: string; id: string};
+    /** Mid-run metadata nudge — verified live on v2.0.11: the ONLY bus
+     *  signal carrying a subagent's child `metadata.sessionID` while the
+     *  parent's tool part is still running (fires at spawn; foreground
+     *  and background). A foreground shell's progress also carries
+     *  `metadata.shellID` its settled state will NOT keep (only
+     *  background shells do) — see messageStore's scoped merge. */
+    "session.tool.progress": {sessionID: string; assistantMessageID: string; id: string; metadata?: Record<string, unknown>};
     "session.tool.success": {
         sessionID: string;
         assistantMessageID: string;
@@ -597,6 +650,13 @@ export interface EventMap {
     /** A config document changed and was hot-reloaded (providers, models,
      *  agents…). Payload is EMPTY — re-fetch whatever reads config. */
     "config.updated": Record<string, never>;
+    /** The plugin registry changed (server v2.0.11; fires after a config
+     *  write reloads plugins). Payload is EMPTY — re-fetch /api/plugin. */
+    "plugin.updated": Record<string, never>;
+    /** One MCP server's status flipped (connected/pending/disabled/
+     *  failed/needs_auth — including via a config write's hot reload).
+     * `server` is the config name; re-fetch or patch /api/mcp. */
+    "mcp.status.changed": {server: string};
     /** A shell command spawned (GLOBAL event — no sessionID envelope;
      * `info.metadata.sessionID` ties it to its session). */
     "shell.created": {info: ShellInfo};

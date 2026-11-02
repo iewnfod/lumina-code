@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
 
-import {parseGitHead, shapeBranchList, shortSha} from "./gitInfo.ts";
+import {parseGitHead, parseRemoteHead, pickDefaultBranch, shapeBranchList, shortSha} from "./gitInfo.ts";
 
 test("parseGitHead: branch checkout", () => {
     assert.deepEqual(parseGitHead("ref: refs/heads/master\n"), {kind: "branch", name: "master"});
@@ -42,24 +42,62 @@ test("shapeBranchList: live v2.0.11 sample", () => {
     // branches, the bare remote name, and remote branches interleaved.
     assert.deepEqual(
         shapeBranchList(["master", "origin", "origin/master", "cef", "origin/cef"]),
-        {local: ["cef", "master"], remote: ["origin/cef", "origin/master"]},
+        {local: ["cef", "master"], remote: ["origin/cef", "origin/master"], remoteNames: ["origin"]},
     );
 });
 
 test("shapeBranchList: slashed local branches stay local", () => {
     assert.deepEqual(
         shapeBranchList(["main", "feature/x", "upstream", "upstream/main", "upstream/feature/y"]),
-        {local: ["feature/x", "main"], remote: ["upstream/feature/y", "upstream/main"]},
+        {local: ["feature/x", "main"], remote: ["upstream/feature/y", "upstream/main"], remoteNames: ["upstream"]},
     );
 });
 
 test("shapeBranchList: dedupe, trim, empty tolerance", () => {
     assert.deepEqual(
         shapeBranchList(["main", "main", " main ", ""]),
-        {local: ["main"], remote: []},
+        {local: ["main"], remote: [], remoteNames: []},
     );
-    assert.deepEqual(shapeBranchList([]), {local: [], remote: []});
+    assert.deepEqual(shapeBranchList([]), {local: [], remote: [], remoteNames: []});
     // A bare "origin" with NO origin/* refs is indistinguishable from a
     // local branch named origin — kept as local (no false drop).
-    assert.deepEqual(shapeBranchList(["origin"]), {local: ["origin"], remote: []});
+    assert.deepEqual(shapeBranchList(["origin"]), {local: ["origin"], remote: [], remoteNames: []});
+});
+
+test("parseRemoteHead: remote default-branch symref", () => {
+    assert.equal(parseRemoteHead("ref: refs/remotes/origin/main\n"), "main");
+    // Branch names may contain slashes; the remote name itself may not.
+    assert.equal(parseRemoteHead("ref: refs/remotes/origin/feature/x"), "feature/x");
+    assert.equal(parseRemoteHead("ref: refs/remotes/upstream/master"), "master");
+});
+
+test("parseRemoteHead: unreadable shapes read as null", () => {
+    assert.equal(parseRemoteHead(null), null);
+    assert.equal(parseRemoteHead(undefined), null);
+    assert.equal(parseRemoteHead(""), null);
+    assert.equal(parseRemoteHead("   \n"), null);
+    // A local-branch or garbage ref target is not a remote HEAD.
+    assert.equal(parseRemoteHead("ref: refs/heads/main"), null);
+    assert.equal(parseRemoteHead("55f9bfb8c85452d5b0404340018e7d7a0d6603c7"), null);
+    // Remote name present but no branch part (or vice versa).
+    assert.equal(parseRemoteHead("ref: refs/remotes/origin"), null);
+    assert.equal(parseRemoteHead("ref: refs/remotes//main"), null);
+    assert.equal(parseRemoteHead("ref: refs/remotes/origin/"), null);
+});
+
+test("pickDefaultBranch: remote HEAD wins when local", () => {
+    assert.equal(pickDefaultBranch(["main", "dev"], "main"), "main");
+    assert.equal(pickDefaultBranch(["dev", "trunk"], "trunk"), "trunk");
+    // Slashed remote-HEAD branches resolve like any other name.
+    assert.equal(pickDefaultBranch(["feature/x", "main"], "feature/x"), "feature/x");
+});
+
+test("pickDefaultBranch: conventional fallback", () => {
+    // Remote HEAD names a branch that has no local copy → heuristic.
+    assert.equal(pickDefaultBranch(["main", "dev"], "trunk"), "main");
+    assert.equal(pickDefaultBranch(["master", "dev"], null), "master");
+    assert.equal(pickDefaultBranch(["master", "main"], null), "main");
+    // Neither conventional name exists → no chip.
+    assert.equal(pickDefaultBranch(["develop", "release"], null), null);
+    assert.equal(pickDefaultBranch([], "main"), null);
 });

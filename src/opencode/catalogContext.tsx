@@ -24,16 +24,20 @@ interface CatalogContextValue {
     /** No authenticated provider of the user's own — the model picker
      *  shows its "nothing configured" entry above the free catalog. */
     catalogOnly: boolean;
+    /** True once the initial catalog load has settled for the current
+     *  connection (see useModelCatalog) — the boot gate's readiness
+     *  input. */
+    catalogLoaded: boolean;
 }
 
 const CatalogContext = createContext<CatalogContextValue | null>(null);
 
 export function CatalogProvider({children}: {children: ReactNode}) {
     const {api, subscribe} = useConnection();
-    const {models, agents, defaultModel, catalogOnly} = useModelCatalog(api, subscribe);
+    const {models, agents, defaultModel, catalogOnly, loaded} = useModelCatalog(api, subscribe);
     const value = useMemo(
-        () => ({agents, models, defaultModel, catalogOnly}),
-        [agents, models, defaultModel, catalogOnly],
+        () => ({agents, models, defaultModel, catalogOnly, catalogLoaded: loaded}),
+        [agents, models, defaultModel, catalogOnly, loaded],
     );
     return <CatalogContext.Provider value={value}>{children}</CatalogContext.Provider>;
 }

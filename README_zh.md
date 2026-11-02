@@ -23,9 +23,10 @@ dnf copr enable iewnfod/lumina-code
 dnf install lumina-code
 ```
 * 其他平台 —— 从 [releases](https://github.com/iewnfod/lumina-code/releases) 下载安装包：
-  * Linux：`.deb`、`.rpm` 与 AppImage（x86_64 与 arm64）
+  * Linux：`.deb`、`.rpm` 与 AppImage（x86_64 与 arm64）——另有可并行安装的 CEF/Chromium 变体（`.deb`/`.rpm`），面向 WebKitGTK 表现异常的环境
   * Windows：NSIS 安装器（x64）
   * macOS：`.dmg`（Apple silicon 与 Intel）
+  * Android：arm64 APK —— 配合下方的[远程访问](#移动端与远程访问)使用
 
 ## 功能
 
@@ -44,14 +45,16 @@ dnf install lumina-code
 * 计划文档存放在项目的 `.lumina/tasks/` 下（计划、报告、任务清单与带版本的历史），验收后打包归档到 `.lumina/archived/`
 
 ### 会话与项目
-* 侧栏按项目目录分组，带忙碌指示、待答复角标与相对时间
-* 发送第一条消息前即可选择工作目录；输入框草稿、模型与模式在会话切换间保留
-* 会话存放在共享的 OpenCode 存储中，CLI 里开始的对话在这里也能看到
+* 侧栏按项目目录分组，带忙碌指示、待答复角标、相对时间与会话级分支角标
+* 发送第一条消息前即可选择工作目录 —— 也可以把会话钉到某个 git 分支：它将运行在隔离的 worktree 中，主检出不受任何影响；标题栏始终显示当前分支
+* 输入框草稿、模型与模式在会话切换间保留
+* 会话存放在共享的 OpenCode 存储中：其他 `opencode` 客户端（TUI、CLI）开始的对话一键导入即可加入侧栏，你的其他 Lumina Code 窗口或移动端创建的会话则自动出现
 
 ### 输入框
 * `@` 文件提及与 `/` 命令（包括你自己定义的 OpenCode 命令），带自动补全
 * 纯文本模型也能处理图片附件 —— 图片会经由你配置的视觉模型代为识别
 * 覆盖全部已配置提供商及变体的模型选择器、思考深度调节、构建/规划模式切换
+* 运行中输入的提示词会排队到服务器端 —— 可拖拽重排、编辑或移除，也可停止当前运行立即发送；队列跨重启留存，并在你的各设备间同步
 
 ### 全程可控
 * 敏感操作弹出权限卡片 —— Shell 命令、文件编辑、网络访问、项目外目录 —— 可选仅此一次 / 始终允许 / 拒绝
@@ -61,11 +64,20 @@ dnf install lumina-code
 
 ### 工作区活动面板
 * 对话旁侧的单一面板：计划进度、项目工作区 git diff（可下钻到单文件差异）、带实时输出的后台终端，以及可查看流式转录的子代理
+* 分支会话附带同步区：领先提交数与脏文件数一目了然，一键快进写回本地分支（检测到分叉则交由你手动处理）
 
 ### 模型与偏好
 * 通过 API key 或浏览器 OAuth 接入提供商（设备码流程的校验码会直接显示在应用内）；添加自定义 OpenAI 兼容提供商；隐藏不用的模型
+* 在应用内即可开关插件与 MCP 服务器 —— 服务器热重载生效 —— 并能直接查看各 MCP 服务器的近期日志
+* 在通用设置中配置一次自定义系统提示词，它会附加到每次请求
 * English / 简体中文 跟随系统，明暗双主题，界面字体与代码字体可分别自定义字号
 * GNOME 下可一键加入 Blur my Shell 白名单，获得带合成器模糊的半透明窗口；其他桌面自动回退为不透明
+
+### 移动端与远程访问
+* 自部署配套的 [lumina-code-server](./server/README.md)：一套 Docker Compose —— 用户系统、Web 管理界面与隧道路由的一端
+* 在桌面端的服务器设置中打开远程访问，桌面会持有一条出站路由 —— 你的机器不在公网监听任何端口
+* Android 应用（releases 中的 arm64 APK）登录同一服务器即可直连你的桌面：完整的桌面 UI、真流式输出，手机与平板布局自适应
+* Agent 永远不离开你的电脑 —— 代码、模型凭证与 git 仓库都留在桌面，服务器只负责牵线搭桥
 
 ## 内置的 OpenCode 服务器
 
@@ -89,11 +101,14 @@ pnpm tauri dev
 | 单元测试（纯前端逻辑） | `pnpm test` |
 | 发布打包 | `pnpm tauri build` |
 | 发布打包（CEF 壳） | `pnpm build:cef` |
+| 配套服务器 开发 / 构建 / 测试 | `pnpm server:dev` / `pnpm server:build` / `pnpm server:test` |
+| 移动端 Web 包 开发 / 构建 | `pnpm dev:mobile` / `pnpm build:mobile` |
 | 后端检查 | `cargo check --manifest-path src-tauri/Cargo.toml` |
 | 重新生成文件类型图标 | `pnpm gen:icons` |
 
-* `pnpm fetch:opencode` 是 `tauri dev` / `tauri build` 的**前置条件** —— 连 `cargo check` 也需要：服务器以 Tauri 资源形式打包（`src-tauri/binaries/opencode`），文件缺失时构建脚本直接失败。
+* `pnpm fetch:opencode` 是 `tauri dev` / `tauri build` 的**前置条件** —— 连 `cargo check` 也需要：服务器以 Tauri 资源形式打包（`src-tauri/binaries/opencode`），文件缺失时构建脚本直接失败。`pnpm fetch:frp` 以同样机制打包内置的 `frpc`（远程访问），本地打包前同样需要。
 * CEF 壳是 `cef/` 下的第二个应用 crate，将同一前端跑在 Tauri v3 alpha + 内置 Chromium 上 —— 面向 WebKitGTK 表现异常的 Linux 环境。需要 `~/.local/share/cef/` 下的共享 CEF 发行版。
+* 移动端复用仓库前端作为第二个 Vite 入口（`mobile/`）；Android 构建需要 SDK/NDK —— 详见 [mobile/README.md](./mobile/README.md)。
 * 让开发环境指向其他服务器二进制：`OPENCODE_BIN=/path/to/opencode pnpm tauri dev`。
 * 服务器版本钉扎在三处，必须一同变更：`scripts/fetch-opencode.mjs` 的 `OPENCODE_VERSION`、`src-tauri/src/opencode/mod.rs` 的 `EXPECTED_OPENCODE_VERSION`、以及 `package.json` 中精确钉扎的 `@opencode-ai/sdk`。
 * 完整架构指南见 [AGENTS.md](./AGENTS.md)。

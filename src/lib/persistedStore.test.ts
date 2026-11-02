@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {createPersistedStore} from "./persistedStore.ts";
+import {
+    __resetPersistedBackendForTests,
+    createPersistedStore,
+    initPersistedState,
+    type PersistedTransport,
+} from "./persistedStore.ts";
 
 /**
  * node:test coverage for the persistence factory. localStorage does not
@@ -29,6 +34,15 @@ class MemoryStorage {
     removeItem(key: string): void {
         if (this.throwOn === "removeItem") throw new Error("storage unavailable");
         this.map.delete(key);
+    }
+
+    /** The migration harvest iterates via length + key(i). */
+    key(index: number): string | null {
+        return [...this.map.keys()][index] ?? null;
+    }
+
+    get length(): number {
+        return this.map.size;
     }
 
     peek(key: string): string | null {
@@ -178,4 +192,170 @@ test("unsubscribe stops notifications", () => {
     stop();
     store.set(2);
     assert.equal(n, 1);
+});
+
+// ---------------------------------------------------------------------------
+// File mode (initPersistedState) + the one-time localStorage migration.
+// Each test resets the backend and drives init with a fake transport.
+
+/** A recording transport: entries() from a fixture, set()/flush() captured
+ *  (flushes in a holder — a bare counter would be captured by value). */
+function fakeTransport(entries: [string, string][]): {
+    transport: PersistedTransport;
+    sets: Array<[string, string | null]>;
+    counters: {flushes: number};
+} {
+    const sets: Array<[string, string | null]> = [];
+    const counters = {flushes: 0};
+    return {
+        transport: {
+            entries: async () => entries,
+            set: async (key, value) => {
+                sets.push([key, value]);
+            },
+            flush: async () => {
+                counters.flushes += 1;
+            },
+        },
+        sets,
+        counters,
+    };
+}
+
+test("file mode: init seeds the map; stores read seeded values and write through", async () => {
+    storage.reset();
+    __resetPersistedBackendForTests();
+    const {transport, sets, counters} = fakeTransport([["f:seeded", "1"]]);
+    await initPersistedState(transport);
+    const store = createPersistedStore<number>({
+        key: "f:seeded",
+        label: "seeded",
+        read: (raw) => (raw === null ? 0 : Number(raw)),
+        write: String,
+    });
+    assert.equal(store.get(), 1);
+    assert.equal(store.set(2), true);
+    assert.deepEqual(sets, [["f:seeded", "2"]]);
+    // autoSave owns flushing — an ordinary set never forces one.
+    assert.equal(counters.flushes, 0);
+});
+
+test("file mode: write() returning null deletes through the transport", async () => {
+    storage.reset();
+    __resetPersistedBackendForTests();
+    const {transport, sets} = fakeTransport([["f:temp", "x"]]);
+    await initPersistedState(transport);
+    const store = createPersistedStore<string | null>({
+        key: "f:temp",
+        label: "temp",
+        read: (raw) => raw,
+        write: (v) => v,
+    });
+    assert.equal(store.set(null), true);
+    assert.deepEqual(sets, [["f:temp", null]]);
+    // And a store created afterwards reads the deletion (absence).
+    const again = createPersistedStore<string | null>({
+        key: "f:temp",
+        label: "temp again",
+        read: (raw) => raw,
+        write: (v) => v,
+    });
+    assert.equal(again.get(), null);
+});
+
+test("migration: lumina-code:* keys are harvested, flushed, then removed from localStorage", async () => {
+    storage.reset();
+    __resetPersistedBackendForTests();
+    storage.setItem("lumina-code:legacy", "\"kept\"");
+    storage.setItem("unrelated:key", "stays");
+    const {transport, sets, counters} = fakeTransport([]);
+    await initPersistedState(transport);
+    assert.deepEqual(sets, [["lumina-code:legacy", "\"kept\""]]);
+    // The flush happened BEFORE the legacy key was dropped.
+    assert.equal(counters.flushes, 1);
+    assert.equal(storage.peek("lumina-code:legacy"), null);
+    assert.equal(storage.peek("unrelated:key"), "stays");
+    const store = createPersistedStore<string>({
+        key: "lumina-code:legacy",
+        label: "legacy",
+        read: (raw) => JSON.parse(raw ?? '""'),
+        write: (v) => JSON.stringify(v),
+    });
+    assert.equal(store.get(), "kept");
+});
+
+test("migration: the file value wins a collision; the stale local copy still drops", async () => {
+    storage.reset();
+    __resetPersistedBackendForTests();
+    storage.setItem("lumina-code:both", "from-local");
+    const {transport, sets, counters} = fakeTransport([["lumina-code:both", "from-file"]]);
+    await initPersistedState(transport);
+    assert.deepEqual(sets, []); // no write needed — the file already wins
+    assert.equal(counters.flushes, 1);
+    assert.equal(storage.peek("lumina-code:both"), null);
+});
+
+test("migration: a failing file write keeps the localStorage copy for the next launch", async () => {
+    storage.reset();
+    __resetPersistedBackendForTests();
+    storage.setItem("lumina-code:doomed", "\"v\"");
+    const sets: Array<[string, string | null]> = [];
+    const transport: PersistedTransport = {
+        entries: async () => [],
+        set: async () => {
+            throw new Error("disk full");
+        },
+        flush: async () => {},
+    };
+    await initPersistedState(transport);
+    // The key stays put in localStorage (retried next launch) and the
+    // in-memory map does not hold the unwritten value.
+    assert.equal(storage.peek("lumina-code:doomed"), "\"v\"");
+    const store = createPersistedStore<string>({
+        key: "lumina-code:doomed",
+        label: "doomed",
+        read: (raw) => raw ?? "absent",
+        write: (v) => v,
+    });
+    assert.equal(store.get(), "absent");
+    assert.equal(sets.length, 0);
+});
+
+test("init failure degrades to localStorage (the pre-plugin medium)", async () => {
+    storage.reset();
+    __resetPersistedBackendForTests();
+    storage.setItem("d:local", "x");
+    const transport: PersistedTransport = {
+        entries: async () => {
+            throw new Error("no ipc");
+        },
+        set: async () => {},
+    };
+    await initPersistedState(transport);
+    const store = createPersistedStore<string>({
+        key: "d:local",
+        label: "local fallback",
+        read: (raw) => raw ?? "absent",
+        write: (v) => v,
+    });
+    assert.equal(store.get(), "x");
+    assert.equal(store.set("y"), true);
+    assert.equal(storage.peek("d:local"), "y");
+});
+
+test("init is idempotent: a second call (even with another transport) is a no-op", async () => {
+    storage.reset();
+    __resetPersistedBackendForTests();
+    const first = fakeTransport([["i:once", "1"]]);
+    await initPersistedState(first.transport);
+    const second = fakeTransport([["i:twice", "2"]]);
+    await initPersistedState(second.transport);
+    assert.deepEqual(second.sets, []);
+    const store = createPersistedStore<number>({
+        key: "i:once",
+        label: "once",
+        read: (raw) => (raw === null ? 0 : Number(raw)),
+        write: String,
+    });
+    assert.equal(store.get(), 1);
 });

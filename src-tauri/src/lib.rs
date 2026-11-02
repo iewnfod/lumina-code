@@ -1,6 +1,8 @@
 mod blur;
-mod opencode;
+mod frp;
+mod lumina_http;
 mod notify;
+mod opencode;
 mod system;
 
 use tauri_plugin_log::TargetKind;
@@ -34,17 +36,14 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
-                .target(tauri_plugin_log::Target::new(
-                    TargetKind::LogDir {
-                        file_name: Some("lumina-code".to_string()),
-                    },
-                ))
-                .target(tauri_plugin_log::Target::new(
-                    TargetKind::Webview,
-                ))
+                .target(tauri_plugin_log::Target::new(TargetKind::LogDir {
+                    file_name: Some("lumina-code".to_string()),
+                }))
+                .target(tauri_plugin_log::Target::new(TargetKind::Webview))
                 .build(),
         )
         .plugin(tauri_plugin_os::init())
@@ -52,9 +51,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .manage(opencode::OpencodeState::default())
+        .manage(frp::FrpState::default())
         .invoke_handler(tauri::generate_handler![
             system::is_wayland,
             opencode::opencode_start,
+            frp::frp_start,
+            frp::frp_stop,
+            lumina_http::lumina_request,
             notify::desktop_notify,
             blur::blur_my_shell_probe,
             blur::blur_my_shell_set_whitelist
@@ -64,8 +67,12 @@ pub fn run() {
         .run(|app_handle, event| {
             // Kill the app-owned OpenCode server when the app goes away,
             // otherwise it would be orphaned on the user's machine.
-            if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
                 opencode::shutdown(app_handle);
+                frp::shutdown(app_handle);
             }
         });
 }

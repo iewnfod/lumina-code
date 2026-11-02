@@ -18,11 +18,10 @@ export default async function ProtectedLayout({
   return (
     <div>
       <nav className="nav">
-        <span className="brand">lumina-server</span>
+        <span className="brand">lumina-code-server</span>
         <span className="links">
           <Link href="/">Overview</Link>
-          <Link href="/sessions">Sessions</Link>
-          <Link href="/users">Users</Link>
+          {ctx.user.role === "admin" ? <Link href="/users">Users</Link> : null}
           <Link href="/account">Account</Link>
         </span>
         <span className="who">

@@ -91,6 +91,13 @@ export function previewKind(name: string | undefined, mime: string | undefined):
     return null;
 }
 
+/** Whether a bare PATH names a previewable image (the extension rule
+ *  above, mime-less) — for callers that hold only a path, e.g. the
+ *  workspace panel's document rows. */
+export function isImagePath(path: string): boolean {
+    return previewKind(path, undefined) === "image";
+}
+
 /** Split an absolute path (or a `file://` URI) into fs/read's location
  * + relative name — the flat read shape the config editor uses. null
  * when there is no slash or the name segment is empty. */

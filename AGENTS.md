@@ -28,14 +28,18 @@ or ask the user to enter the plan mode for you.
 | Install | `pnpm install` |
 | Fetch pinned OpenCode server sidecar (~200 MB, once per version bump) | `pnpm fetch:opencode` (also: `--all` for every target / explicit Rust triples) |
 | Fetch the sidecar into the CEF shell's binaries/ | `pnpm fetch:opencode:cef` (same args; sets `LUMINA_BINARIES_DIR`) |
+| Fetch the pinned frpc resource sidecar (~13 MB, remote access) | `pnpm fetch:frp` (same args as fetch:opencode; `FRP_MIRROR=<prefix>` pins a GitHub mirror, mirror chain otherwise; `:cef` variant too) |
 | Run the app (default webkit shell) | `pnpm tauri dev` |
 | Run the app (CEF/Chromium shell, Linux) | `pnpm dev:cef` — needs `~/.local/share/cef/cef_linux_x86_64` (the shared CEF binary distribution; the first cold build downloads it into OUT_DIR otherwise — through a proxy if the direct route stalls) |
 | Release-build the webkit shell | `pnpm tauri build` |
 | Release-build the CEF shell | `pnpm build:cef` |
+| Mobile web bundle dev / build (second vite entry, port 1421) | `pnpm dev:mobile` / `pnpm build:mobile` |
+| Android release APK (local, arm64; needs SDK/NDK, see mobile/README.md) | `cd mobile && pnpm exec tauri android build --apk --target aarch64` |
 | Typecheck + build frontend | `pnpm build` (`tsc && vite build`) |
 | Unit tests (pure frontend logic) | `pnpm test` (`node --test "src/**/*.test.ts" "src/**/*.test.js"`) |
 | Point dev at a different server binary | `OPENCODE_BIN=/path/to/opencode pnpm tauri dev` |
 | Regenerate Material file-type icons (after bumping `material-icon-theme`) | `pnpm gen:icons` (output is committed) |
+| Rebuild the office-tools plugin's vendored engines (after bumping `docx`/`pptxgenjs`/`pdfjs-dist`) | `pnpm gen:office-vendor` (esbuild bundles into `src/plugins/officeToolsVendor/`, committed — CI never runs it) |
 
 - `pnpm fetch:opencode` is a **prerequisite** for `tauri dev`/`tauri build`:
   the `resources` maps in `tauri.linux/macos/windows.conf.json` reference
@@ -43,7 +47,14 @@ or ask the user to enter the plan mode for you.
   file must exist or the bundle step — even `cargo check` — fails. Binaries
   are gitignored. The sidecar is also a hard
   dependency of the BUILD SCRIPT — `cargo check` alone fails without it, and
-  every CI job fetches it first.
+  every CI job fetches it first. `pnpm fetch:frp` feeds the SAME
+  mechanism for `binaries/frpc` (remote access) — same CI prerequisite.
+  Version note: the frpc pin (FRP_VERSION, GitHub releases) and the
+  compose frps image tag MAY briefly differ — snowdreamtech's Docker
+  Hub repository lags fatedier's releases (0.71.1 era: Hub had no
+  0.71.1, compose pinned 0.71.0-alpine while frpc shipped 0.71.1);
+  the cross-version login/auth is verified compatible (local
+  end-to-end + production wss), resync both when the Hub catches up.
 - There is no lint/format config; `pnpm build` is the
   guardrail — tsconfig is strict with `noUnusedLocals` /
   `noUnusedParameters` / `noFallthroughCasesInSwitch`, so unused imports and
@@ -71,12 +82,35 @@ Mirrors lumina-terminal's pipeline (keep the two in sync when fixing one):
   matrix target first, and attaches bundles to the release. Hand-written
   release notes are snapshotted and echoed back so the concurrent matrix
   never overwrites them. No updater signing (the Tauri updater is not
-  configured for this app).
+  configured for this app). The `publish-android` job adds the mobile APK
+  (`Lumina.Code_<ver>_android-arm64.apk`, arm64-only, version-synced via
+  bump-version.sh) built with the CLI directly (tauri-action has no
+  android mode) and signed through the four `ANDROID_KEYSTORE_*` secrets
+  feeding the conditional signingConfig in
+  mobile/src-tauri/gen/android/app/build.gradle.kts — the job fails fast
+  with setup instructions when the secrets are missing rather than
+  uploading an uninstallable unsigned APK; see mobile/README.md for the
+  one-time keystore/secret setup.
 - **pkg-trigger.yml → aur.yml / copr.yml** — after Release succeeds,
   republish the .deb/.rpm assets as `lumina-code-bin` (AUR) and `lumina-code`
   (Fedora COPR) from the `.aur/PKGBUILD` / `.copr/lumina-code.spec`
   templates. One-time repo secrets: `AUR_SSH_PRIVATE_KEY`, `COPR_CONFIG`
   (plus a manually created COPR project `iewnfod/lumina-code`).
+- **docker-server.yml** — builds the lumina-code-server image and pushes it
+  to Docker Hub (`docker.io/iewnfod/lumina-code-server`, multi-arch
+  amd64+arm64 via QEMU — better-sqlite3 ships prebuilt musl bindings,
+  the cross-build never compiles). The server rides the repo's ONE
+  version line: `scripts/bump-version.sh` bumps `server/package.json`
+  in lockstep with the app (twelve files total; the image tag itself
+  still derives from the release tag). Two lanes: master pushes touching
+  the image's inputs (server/, the workspace manifests, the workflow
+  file) → `:edge`; published Releases → `:<version>` + `:latest`
+  (version = the release tag, sans v). Deliberately NOT on the
+  pkg-trigger dispatch chain — it needs no repo-API calls, so it
+  triggers on the release event directly. One-time secrets:
+  `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (Read & Write; plus the
+  manually created Docker Hub repo, so visibility is an explicit
+  choice).
 
 Release notes are written by hand (see `docs/RELEASE_PROMPT.md`), then the
 release publish fills in the assets. Asset names derive from productName
@@ -105,8 +139,8 @@ src/
 ├── App.tsx                # Layout shell only: chrome (glass frame, sidebar,
 │                          #   title bar) + OpenCode wiring via hooks
 │                          #   (useOpencode, useSessionFlow) and the
-│                          #   session ↔ welcome-screen swap (SessionSurface,
-│                          #   also defined here). Split in two since the
+│                          #   session ↔ welcome ↔ settings surface swap
+│                          #   (SessionSurface, also defined here). Split in two since the
 │                          #   context refactor: InnerApp is the
 │                          #   connection/theme shell (useOpencode + palette
 │                          #   + the three providers below), AppBody
@@ -152,13 +186,20 @@ src/
 │                          #   (useSurfaceColors) and provides it via
 │                          #   ColorsProvider (hooks/colors.tsx) + the
 │                          #   --lum-wash hover vars on the root.
+│                          #   AppBody's last child is the BOOT GATE
+│                          #   (BootScreen) covering the whole chrome
+│                          #   until the app is genuinely usable — see
+│                          #   components/BootScreen.tsx.
 ├── main.tsx               # ReactDOM entry (React.StrictMode) + attachConsole
+│                          #   + the persistence gate: initPersistedState()
+│                          #   seeds the state file BEFORE the App bundle is
+│                          #   dynamically imported (see lib/persistedStore.ts).
 ├── constants.ts           # CHROME_TITLE_BAR_HEIGHT
 ├── i18n/                  # en-us.ts (source of truth: keys ARE the English
 │                          #   strings) + zh-cn.ts (partial OK; per-lookup fallback)
 │
 ├── plugins/               # Plugin SOURCES shipped with the app (plain JS, no
-│   └── luminaTools.js     #   imports — a bare default export loads on server
+│   ├── luminaTools.js     #   imports — a bare default export loads on server
 │                          #   v2.0.11). The custom-tools host: Lumina Code
 │                          #   ensures this file lives under the global config's
 │                          #   `plugins/lumina-tools/` and is referenced from
@@ -166,7 +207,60 @@ src/
 │                          #   options (see opencode/useLuminaTools.ts, the
 │                          #   connect-time installer); the server hot-reloads
 │                          #   on config change. TOOLS registry inside = one
-│                          #   entry per tool (enabled/agentId/tool). v2.0.11
+│                          #   entry per tool (enabled/agentId/tool).
+│                          #   ON-DEMAND CONFIG GUIDES: the context hook
+│                          #   reads the user's LATEST message (ctx.session
+│                          #   .context, the stallWarning pattern) and, on
+│                          #   an MCP ask (mcp / model context protocol)
+│                          #   or a plugin ask (plugin/插件/扩展/extension
+│                          #   + an action verb — the double condition
+│                          #   keeps development chatter from firing it),
+│                          #   pushes MCP_GUIDE / PLUGIN_GUIDE for every
+│                          #   step of that turn: config-file locations +
+│                          #   entry shapes + edit-not-CLI, because most
+│                          #   users never discover the managed /mcp +
+│                          #   /plugin commands. A message starting with
+│                          #   MANAGED_COMMAND_MARK (an expanded command —
+│                          #   the constant mirrors toolPluginConfig's)
+│                          #   short-circuits: the template already carries
+│                          #   the full manual with a live config snapshot.
+│                          #   HOST_IDENTITY carries the always-on tail:
+│                          #   config JSON hot-reloads on save, never run
+│                          #   the PATH `opencode` CLI (an unrelated
+│                          #   install — models used to conclude OpenCode
+│                          #   was missing on machines without one).
+│                          #   configGuideFor is the pure half,
+│                          #   node-tested. HARNESS-PERFORMANCE SPLIT
+│                          #   (2026-10): the
+│                          #   context hook branches per agent — the
+│                          #   lumina-daily primary agent (config-defined;
+│                          #   DAILY_AGENT_ID mirrors toolPluginConfig's
+│                          #   LUMINA_DAILY_AGENT_ID) gets the COMPACT
+│                          #   plan protocol, every other primary gets
+│                          #   the full protocol + a static DEV_DISCIPLINE
+│                          #   anti-loop rule; the helper skip-set is the
+│                          #   TOOLS registry's agentIds
+│                          #   (HELPER_AGENT_IDS — a "lumina-" prefix
+│                          #   check would swallow the daily agent). The
+│                          #   RUNTIME anti-loop half: for EXECUTION
+│                          #   agents (isExecutionAgent — build/
+│                          #   lumina-daily, mirroring planWorkflow.ts)
+│                          #   the hook scans the trailing transcript
+│                          #   (ctx.session.context) every model call and
+│                          #   pushes a stall warning at the system tail
+│                          #   when the same normalized error survives 2
+│                          #   settles (errorFingerprint folds numbers/
+│                          #   hex/dirs, keeps file names) or — build
+│                          #   only — ≥3 trailing steps ran tools with no
+│                          #   file edits (daily sessions legitimately
+│                          #   read a lot); pure halves node-tested.
+│                          #   ALSO search_tools (always-on native): the
+│                          #   discovery window onto tools a mode HIDES
+│                          #   (the daily agent's deny rules) — a static
+│                          #   TOOL_GUIDES table + filterToolGuides query
+│                          #   matching, answering with what the tool
+│                          #   does and what to tell the user instead.
+│                          #   v2.0.11
 │                          #   facts encoded here: plugin tools default to
 │                          #   CODE MODE exposure — `codemode: false` makes
 │                          #   them NATIVE tools (verified live; the code-mode
@@ -342,18 +436,135 @@ src/
 │                          #   session's own directory, both
 │                          #   live-verified), so a NEW session can
 │                          #   resume a plan and a compacted context
-│                          #   re-learns where the documents live.
+│                          #   re-learns where the documents live. The
+│                          #   SAME gate also carries the user's CUSTOM
+│                          #   SYSTEM PROMPT (General settings): the
+│                          #   plugin-level `systemPrompt` option,
+│                          #   pushed after everything the server itself
+│                          #   assembled (built-in prompt + AGENTS.md /
+│                          #   instructions), skipped for lumina-*
+│                          #   helper agents.
+│   ├── officeTools.js     #   The OFFICE-TOOLS plugin host — a SEPARATE
+│                          #   plugin from lumina-tools on purpose (that
+│                          #   one is the OpenCode system-enhancement
+│                          #   layer; this one is a domain capability:
+│                          #   Word/PPT documents). Same plugin shape
+│                          #   (bare default export with id, dynamic
+│                          #   node:* imports, named exports for node
+│                          #   tests — officeTools.test.js drives the
+│                          #   builders end-to-end through the SAME
+│                          #   vendor bundles). TWO TOOLS, both native
+│                          #   (codemode: false): write_document — the
+│                          #   official way to produce office
+│                          #   deliverables: the model passes a
+│                          #   STRUCTURED block list (docx:
+│                          #   heading/paragraph/list/table/image; pptx:
+│                          #   slides with layout title|titleContent|
+│                          #   twoContent|blank + bullets/image/notes)
+│                          #   and the plugin renders deterministically
+│                          #   through the vendored npm engines (docx +
+│                          #   pptxgenjs, esbuild-bundled to single-file
+│                          #   ESM under officeToolsVendor/, installed
+│                          #   beside the plugin as vendor/*.mjs) — never
+│                          #   AI-written scripts; every write ALSO drops
+│                          #   a structure SIDECAR at
+│                          #   .lumina/docstruct/<name>.json ({version,
+│                          #   source, file, format, size, generatedAt,
+│                          #   blocks|slides} — the app's in-app preview
+│                          #   reads it; the TS mirror is
+│                          #   opencode/docstruct.ts) — and read_document
+│                          #   — content extraction to markdown (sidecar
+│                          #   fast path, else a hand-rolled zip reader
+│                          #   over node:zlib + conservative OOXML
+│                          #   regexes with a degraded raw-text fallback;
+│                          #   reads may point outside the workspace,
+│                          #   writes are confined to it —
+│                          #   resolveDocumentPath's confine flag).
+│                          #   PDF (2026-11): read_document ALSO reads
+│                          #   .pdf — READ_FORMATS vs WRITE_FORMATS split
+│                          #   the format sets (the plugin never
+│                          #   GENERATES PDFs). The pdf.js v6 trio rides
+│                          #   the same vendor mechanism: loadPdfEngine
+│                          #   (lazy cached promise, failure resets)
+│                          #   imports vendor/pdf.min.mjs +
+│                          #   pdfData.mjs and wraps an
+│                          #   InlineBinaryDataFactory (v6's
+│                          #   BinaryDataFactory param, useWorkerFetch:
+│                          #   false) over the INLINED cmaps +
+│                          #   standard_fonts table — no on-disk resource
+│                          #   dir; pdfToMarkdown → per-page
+│                          #   getTextContent → pdfItemsToLines (baseline
+│                          #   + hasEOL line grouping, pure) with
+│                          #   semantic errors: password / invalid /
+│                          #   no-text (the scanned-PDF shape — the tool
+│                          #   tells the model to fall back to vision).
+│                          #   Fake-worker facts (spike-verified 2026-11
+│                          #   on node 24 + bun 1.4): pdf.js disables
+│                          #   real workers in Node-like runtimes and
+│                          #   dynamically imports ./pdf.worker.mjs —
+│                          #   the SAME relative-import mechanism as the
+│                          #   docx engine (which the 2026-10-23 sidecar
+│                          #   spike proved); v6 fingerprints need
+│                          #   Uint8Array.prototype.toHex, which
+│                          #   pdfData.mjs shims (JSC/Bun ships it, Node
+│                          #   does not).
+│                          #   SPIKE-VERIFIED 2026-10-23 on the bundled
+│                          #   v2.0.11 sidecar: the Bun-compiled server
+│                          #   resolves the plugin's DYNAMIC RELATIVE
+│                          #   vendor imports (await import("./vendor/
+│                          #   docx.mjs")) against the installed plugin
+│                          #   directory, and both engines generate valid
+│                          #   documents (incl. CJK) from inside setup();
+│                          #   write_document registers ONLY when the
+│                          #   engines load, read_document always (the
+│                          #   PDF engine loads per-call inside execute —
+│                          #   an engine-less install still reads
+│                          #   docx/pptx).
+│                          #   Images: content-sniffed kind + PNG/JPEG
+│                          #   header dimensions (imageDimensions),
+│                          #   width-capped at 560px (imageBox); the
+│                          #   docx default font pair is Calibri +
+│                          #   Microsoft YaHei (Word/WPS both ship it).
+│   └── officeToolsVendor/ #   GENERATED by scripts/build-plugin-vendor.mjs
+│                          #   (pnpm gen:office-vendor; committed — the
+│                          #   gen:icons doctrine; CI never rebuilds).
+│                          #   docx.mjs (456 KB) + pptxgenjs.mjs (392 KB),
+│                          #   both esbuild ESM with node:* externals so
+│                          #   the server runtime provides the builtins;
+│                          #   PLUS the pdf.js v6 trio — pdf.min.mjs
+│                          #   (448 KB) + pdf.worker.mjs (1.2 MB, COPIED
+│                          #   VERBATIM from the official minified builds,
+│                          #   the worker keeping its NON-min file NAME —
+│                          #   pdf.js's fake-worker fallback hard-codes
+│                          #   import("./pdf.worker.mjs")) + pdfData.mjs
+│                          #   (2.5 MB: the full cmaps/*.bcmap (168) +
+│                          #   standard_fonts (14) inlined as base64 with
+│                          #   a binaryResource(kind, filename) resolver
+│                          #   and the Uint8Array.toHex shim).
+│                          #   devDps: docx, pptxgenjs, pdfjs-dist,
+│                          #   esbuild (MIT/Apache-2.0).
 │
 ├── opencode/              # THE domain layer — everything talking to the server
 │   ├── api.ts             # OpencodeApi: hand-rolled typed REST client (fetch +
 │   │                      #   basic auth, `{"data": …}` envelope unwrap).
+│   │                      #   UPLOAD_TIMEOUT_MS: requestRaw takes an optional
+│   │                      #   abort deadline (AbortController + timer, no
+│   │                      #   AbortSignal.timeout engine dependency) —
+│   │                      #   sendPrompt and the divert's writeBinaryFile
+│   │                      #   pass 120s: they carry the base64 attachment
+│   │                      #   bodies, the mobile frp route's biggest
+│   │                      #   uploads, and a dropped tunnel would park the
+│   │                      #   fetch forever (reads as an endless send).
 │   │                      #   Hand-rolled on purpose: the SDK's generated
 │   │                      #   client drifts from the installed v2.0.x server
 │   │                      #   (paths & body encoding); the SDK is imported
 │   │                      #   types-only. Server quirks documented inline:
 │   │                      #   messages `limit` caps at 200; session create sends
 │   │                      #   `location.directory` (a flat `directory` is silently
-│   │                      #   ignored); `?roots=true` doesn't work (root sessions are
+│   │                      #   ignored) and ACCEPTS `metadata` (curl-verified
+│   │                      #   v2.0.11, echoed + listed — the cross-instance
+│   │                      #   whitelist stamp, see sessionRegistry.CLIENT_SOURCE);
+│   │                      #   `?roots=true` doesn't work (root sessions are
 │   │                      #   filtered client-side); questions are forms on this
 │   │                      #   server generation; GET /api/session/active seeds busy
 │   │                      #   state predating the event stream. Also the session
@@ -385,11 +596,120 @@ src/
 │   │                      #   refuses dirty worktrees unless force — see
 │   │                      #   worktreeSessions for why removal is never
 │   │                      #   automatic). Current branch = readTextFile of
-│   │                      #   .git/HEAD + gitInfo.parseGitHead.
+│   │                      #   .git/HEAD + gitInfo.parseGitHead. PLUS the
+│   │                      #   SHELL EXECUTION PRIMITIVE feeding the worktree
+│   │                      #   write-back (worktreeSync.ts): spawnShell
+│   │                      #   (POST /api/shell — single command string via
+│   │                      #   the user's LOGIN SHELL, argv-style args
+│   │                      #   silently ignored, curl-verified) + awaitShell
+│   │                      #   (polls the shell RECORD until exited; the
+│   │                      #   exit code comes from data.exit — echoing $?
+│   │                      #   would be a bashism under fish). PLUS THE
+│   │                      #   SESSION INBOX trio feeding the interrupt
+│   │                      #   sweep AND the queued-prompt mirror
+│   │                      #   (source-verified v2.0.11):
+│   │                      #   listSessionInbox (GET /api/session/{id}/inbox
+│   │                      #   — the PERSISTED pending input table, rows
+│   │                      #   ordered by enqueued_seq; a prompt POSTed
+│   │                      #   mid-run without `delivery` parks there as
+│   │                      #   a steer row until a step boundary promotes
+│   │                      #   it, while delivery:"queue" rows are the
+│   │                      #   SERVER-NATIVE queued prompts — invisible
+│   │                      #   to the running turn, auto-drained as fresh
+│   │                      #   turns when it ends, and readable by every
+│   │                      #   client; see promptQueue.ts) +
+│   │                      #   cancelSessionInbox (DELETE
+│   │                      #   /api/session/{id}/inbox/{inboxID} — no-op
+│   │                      #   on already-delivered rows; emits
+│   │                      #   session.inbox.cancelled) — the server's
+│   │                      #   interrupt endpoint does NOT clear the
+│   │                      #   inbox, so "stop means stop" needs the sweep
+│   │                      #   (useSessionMessages.interrupt). sendPrompt
+│   │                      #   takes an optional delivery:"queue" — the
+│   │                      #   POST RESPONSE IS the inbox row (id +
+│   │                      #   delivery + payload, curl-verified), which
+│   │                      #   is what lets the optimistic queue row
+│   │                      #   adopt the server id without text matching.
 │   ├── configFiles.ts     # globalConfigTarget — where the global opencode.json
 │   │                      #   lives, derived from GET /api/config (pure; shared
 │   │                      #   by the settings config editor and the attachment
 │   │                      #   divert). node-testable via its consumers.
+│   ├── appMode.ts         # THE DAILY/DEV MODE SPLIT. A persistedStore
+│   │                      #   ("lumina-code:app-mode", the useThemePreference
+│   │                      #   pattern) remembering which half of the app the
+│   │                      #   user is in — default "daily" (the product's
+│   │                      #   non-developer stance), the last choice kept
+│   │                      #   across restarts. THE GIT GATE: dev's features
+│   │                      #   all assume a git machine (branch pickers,
+│   │                      #   worktrees, diffs), so a machine WITHOUT git
+│   │                      #   gets NO dev mode at all — probeGitAvailability
+│   │                      #   runs `git --version` through the server's
+│   │                      #   shell API once per connection (spawnShell, the
+│   │                      #   worktreeSync precedent; the command is legal
+│   │                      #   in every login-shell dialect incl. PowerShell),
+│   │                      #   records the verdict in a module store, and
+│   │                      #   useAppMode() FORCES "daily" on a CONFIRMED
+│   │                      #   absence (an UNKNOWN probe keeps the stored
+│   │                      #   choice — a flaked probe must not yank a
+│   │                      #   restored dev session to the welcome screen;
+│   │                      #   the switcher renders only on confirmed true).
+│   │                      #   The probe's ATTEMPT also settles a probed
+│   │                      #   flag (gitProbed/useGitProbed) that feeds the
+│   │                      #   BOOT GATE (BootScreen): the reveal's first
+│   │                      #   frame must carry the final mode state —
+│   │                      #   verdict OR probe failure (unknown is a
+│   │                      #   stable conservative UI), never a hung
+│   │                      #   attempt (the 15s valve covers that). The
+│   │                      #   probe MOUNTS at the connection level
+│   │                      #   (AppBody's useGitProbe, beside the
+│   │                      #   connect-time installers): the phone
+│   │                      #   layout's SessionBar is lazily mounted in
+│   │                      #   the drawer, so a sidebar mount point would
+│   │                      #   leave boot waiting on a probe that never
+│   │                      #   starts.
+│   │                      #   SESSION-SIDE: modeMetadata is the creation-time
+│   │                      #   stamp (beside CLIENT_SOURCE, create-only
+│   │                      #   metadata) and sessionMode derives it back —
+│   │                      #   unstamped sessions (pre-mode builds, TUI/CLI
+│   │                      #   strangers, imports) read as "dev".
+│   │                      #   node-testable (storage-stub + query re-import).
+│   ├── defaultWorkspace.ts # THE DAILY WORKSPACE: ~/Documents/LuminaWorkspace
+│   │                      #   — the mode's fixed working AREA (a
+│   │                      #   non-developer never picks folders).
+│   │                      #   defaultWorkspacePath (pure join, trailing-slash
+│   │                      #   tolerant), resolveDefaultWorkspace (GET
+│   │                      #   /api/location = the spawned server's cwd =
+│   │                      #   $HOME), ensureDefaultWorkspace — the first send
+│   │                      #   materializes the folder by seeding README.md +
+│   │                      #   AGENTS.md through experimental/fs/write
+│   │                      #   (creates parents); each file is written ONLY on
+│   │                      #   a 404 read (never overwrites; a FAILED read is
+│   │                      #   not "absent" — the readOrNull contract), and the
+│   │                      #   AGENTS.md IS the daily mode's behavioral half:
+│   │                      #   the server reads it for every session under
+│   │                      #   the workspace (OpenCode loads AGENTS.md
+│   │                      #   upward toward home — subfolder sessions
+│   │                      #   included), no app-level mode system needed.
+│   │                      #   PER-SESSION SUBDIRECTORIES: every NEW daily
+│   │                      #   session gets its own folder at
+│   │                      #   <workspace>/Sessions/<name>/ —
+│   │                      #   sessionFolderName mints a readable name from
+│   │                      #   the FIRST PROMPT (CJK kept verbatim, quotes
+│   │                      #   dropped, other non-alphanumerics folded to
+│   │                      #   dashes, capped; empty → 会话-timestamp
+│   │                      #   fallback) and resolveSessionDirectory
+│   │                      #   dedupes -2, -3… against the hidden marker
+│   │                      #   .lumina-session.json (its fs/write IS the
+│   │                      #   materialization — the server's bash needs the
+│   │                      #   cwd to exist; 500-missing-dir reads as free,
+│   │                      #   unreadable probes return null rather than
+│   │                      #   guess). The session's directory IS that
+│   │                      #   folder, so documents stay isolated per
+│   │                      #   session; failures fall back to the workspace
+│   │                      #   ROOT (sendFirst). Session directories are
+│   │                      #   create-only — the name never follows the
+│   │                      #   later AI-generated title.
+│   │                      #   node-testable (fake api).
 │   ├── useLuminaTools.ts  # The custom-tools plugin's install half:
 │   │                      #   ensureLuminaToolsPlugin(api, options?) writes the
 │   │                      #   plugin file + the config entry (diff-gated — the
@@ -397,8 +717,16 @@ src/
 │   │                      #   useLuminaToolsInstall (AppBody, once per
 │   │                      #   connection) keeps both current so the always-on
 │   │                      #   plan_mode tool exists from the first prompt on.
-│   │                      #   Passing options REPLACES the stored per-tool
-│   │                      #   options (the Tools tab's saves go through it);
+│   │                      #   The same rewrite ALSO plants the MANAGED SLASH
+│   │                      #   COMMANDS (/mcp, /plugin — toolPluginConfig's
+│   │                      #   managedCommandsCurrent probe is an upgrade
+│   │                      #   trigger beside luminaDailyAgentMissing), so
+│   │                      #   teaching-models-how-to-configure commands ship
+│   │                      #   with the plugin. Passing options REPLACES the
+│   │                      #   stored options wholesale (per-tool namespaces
+│   │                      #   AND plugin-level fields like the General tab's
+│   │                      #   systemPrompt — save sites spread the
+│   │                      #   read-back current options first);
 │   │                      #   omitting them preserves what's configured.
 │   │                      #   Failures log and degrade to "tool absent".
 │   ├── toolPluginConfig.ts # Pure custom-tools config logic (moved out of
@@ -406,17 +734,176 @@ src/
 │   │                      #   it — layering, §3.1): the lumina-tools plugin
 │   │                      #   entry upsert/read-back/entry-present probe in
 │   │                      #   the global opencode.json's `plugins` array
-│   │                      #   (per-tool options, foreign entries preserved;
+│   │                      #   (per-tool options + the PLUGIN-LEVEL
+│   │                      #   systemPrompt — the General tab's custom
+│   │                      #   system prompt, set/cleared through
+│   │                      #   withSystemPrompt; foreign entries preserved;
 │   │                      #   the entry is ALWAYS written now — plan_mode
 │   │                      #   ships always-on) + the restricted helper agents
 │   │                      #   in the config's `agents` section (v2.0.11 has
-│   │                      #   no plugin-side agent add) + the vision-capable
-│   │                      #   model filter. NOTE: the plan workflow's
+│   │                      #   no plugin-side agent add) + the MANAGED SLASH
+│   │                      #   COMMANDS in the config's `commands` section —
+│   │                      #   /mcp and /plugin, JSON command entries
+│   │                      #   (spike-verified 2026-10-25 against the pinned
+│   │                      #   sidecar: JSON `commands` entries list beside
+│   │                      #   markdown files via GET /api/command, `$ARGUMENTS`
+│   │                      #   substitutes, `!`cat <path>`` shell blocks run
+│   │                      #   server-side at submission, and the only
+│   │                      #   built-ins are init/review — no collisions):
+│   │                      #   each template (mcpCommandTemplate /
+│   │                      #   pluginCommandTemplate, the config file's
+│   │                      #   ABSOLUTE path baked in) teaches the model to
+│   │                      #   edit the JSON directly (mcp.servers shapes /
+│   │                      #   plugins array shapes, global vs project
+│   │                      #   documents, merge-don't-rewrite) and NEVER run
+│   │                      #   the `opencode` CLI — the PATH binary is an
+│   │                      #   unrelated install beside the app's bundled
+│   │                      #   sidecar. MANAGED_COMMAND_MARK (the templates'
+│   │                      #   first line) is the ownership marker: a
+│   │                      #   user-defined same-name command is respected
+│   │                      #   verbatim, and the plugin's configGuideFor
+│   │                      #   recognizes an expanded command by it (no
+│   │                      #   duplicate guide injection). managedCommands
+│   │                      #   Current is the installer's stale-template
+│   │                      #   probe. + the vision-capable
+│   │                      #   model filter. ALSO OWNS the
+│   │                      #   HARNESS-PERFORMANCE config half
+│   │                      #   (LUMINA_DAILY_AGENT_ID, spike-verified
+│   │                      #   2026-10-23): lumina-daily — a PRIMARY agent
+│   │                      #   whose `system` replaces build's
+│   │                      #   developer persona and whose permissions DENY
+│   │                      #   bash (a deny {action, resource:"*"} rule
+│   │                      #   removes the tool from the agent's tool list
+│   │                      #   ENTIRELY — v2.0.11 has NO agent.tools map;
+│   │                      #   the SDK's tools/prompt/name fields are
+│   │                      #   NEWER than the server and silently
+│   │                      #   stripped, the real ones are
+│   │                      #   system/description/mode/permissions),
+│   │                      #   written ALWAYS with the plugin —
+│   │                      #   luminaDailyAgentMissing feeds the
+│   │                      #   installer's upgrade-path rewrite (options
+│   │                      #   unchanged would otherwise skip it) — plus
+│   │                      #   the top-level tool_output ceiling
+│   │                      #   ({max_lines, max_bytes}, user-set values
+│   │                      #   preserved). NOTE: the plan workflow's
 │   │                      #   approval gate deliberately has NO config
 │   │                      #   rule — plugin tools have no execution-time
 │   │                      #   permission check on v2.0.11 (see the
 │   │                      #   plugin source's Route A poll gate).
 │   │                      #   node-testable.
+│   ├── pluginConfigShared.ts # The plugins-array mechanics shared by every
+│   │                      #   Lumina plugin installer (extracted when
+│   │                      #   officePluginConfig needed the same moves):
+│   │                      #   parseRoot/pluginsSection/findOwnEntry/
+│   │                      #   upsertPluginEntry (foreign entries
+│   │                      #   preserved verbatim; options embedded only
+│   │                      #   when given) PLUS the config WRITE LOCK
+│   │                      #   (serializeConfigWrite — a promise chain
+│   │                      #   serializing every read→merge→write batch:
+│   │                      #   the lumina-tools and office-tools
+│   │                      #   connect-time installers race on the same
+│   │                      #   file, and interleaved batches would
+│   │                      #   clobber each other's entries). Consumed
+│   │                      #   by toolPluginConfig + useLuminaTools +
+│   │                      #   officePluginConfig + useOfficeTools.
+│   │                      #   node-testable (through its consumers +
+│   │                      #   officePluginConfig.test.ts's lock cases).
+│   ├── officePluginConfig.ts # Pure office-tools config logic (the simple
+│   │                      #   twin of toolPluginConfig — the plugin reads
+│   │                      #   no options and defines no helper agents):
+│   │                      #   entry upsert/read-back/entry-present over
+│   │                      #   the shared mechanics. node-testable
+│   │                      #   (officePluginConfig.test.ts, incl. the
+│   │                      #   dual-installer coexistence shape).
+│   ├── useOfficeTools.ts  # The office-tools plugin's install half (the
+│   │                      #   useLuminaTools pattern): ensureOfficeTools
+│   │                      #   Plugin writes index.js + vendor/docx.mjs +
+│   │                      #   vendor/pptxgenjs.mjs + the pdf.js trio
+│   │                      #   (pdf.min.mjs / pdf.worker.mjs /
+│   │                      #   pdfData.mjs, ~5 MB total — written once,
+│   │                      #   then diff-gated; each file checked
+│   │                      #   against the committed sources pulled in
+│   │                      #   via ?raw) plus the config entry, the whole
+│   │                      #   batch under the shared write lock;
+│   │                      #   useOfficeToolsInstall (AppBody, beside
+│   │                      #   useLuminaToolsInstall) keeps all current
+│   │                      #   so write_document/read_document exist from
+│   │                      #   the first prompt on. Failures degrade to
+│   │                      #   "tool absent" (logged).
+│   ├── docstruct.ts       # The frontend half of the office-tools SIDECAR
+│   │                      #   contract (see the plugin source — this TS
+│   │                      #   module is its mirror): block/slide types,
+│   │                      #   lenient parseDocstruct (unknown version /
+│   │                      #   foreign source / missing arrays → null =
+│   │                      #   "no preview"; unknown block TYPES kept —
+│   │                      #   the renderer skips them, forward-compatible
+│   │                      #   with a newer plugin), isOfficeDocument,
+│   │                      #   docstructSidecarPath (the same join the
+│   │                      #   plugin performs) and docstructStale (byte-
+│   │                      #   count mismatch = edited in Word since).
+│   │                      #   node-testable (docstruct.test.ts).
+│   ├── pluginsMcp.ts    # Pure read/merge logic for the Plugins & MCP
+│   │                      #   manager (useExtensions.ts +
+│   │                      #   settings/ExtensionsSettings.tsx). All
+│   │                      #   verified live + against source on v2.0.11:
+│   │                      #   the MCP toggle is `mcp.servers.<name>
+│   │                      #   .disabled` (legacy `mcp.<name>.enabled`)
+│   │                      #   in the DECLARING document; the plugin
+│   │                      #   toggle is a `"-<pluginId>"` REMOVE
+│   │                      #   directive in the `plugins` array (matches
+│   │                      #   the plugin's DECLARED id, never its
+│   │                      #   package path; directives apply across
+│   │                      #   documents in priority order, later wins —
+│   │                      #   so a directive lands in the highest
+│   │                      #   document that DECLARES the plugin, else
+│   │                      #   the global one for auto-discovered
+│   │                      #   locals). A disabled plugin is INVISIBLE to
+│   │                      #   GET /api/plugin — the disabled rows come
+│   │                      #   from the directives (disabledPluginIds).
+│   │                      #   mcpServerTypes derives local/remote labels
+│   │                      #   (the status endpoint carries no type).
+│   │                      #   Both writes HOT-RELOAD. node-testable
+│   │                      #   (pluginsMcp.test.ts).
+│   ├── useExtensions.ts # The manager's STATEFUL half (mounted in
+│   │                      #   ExtensionsSettings): loads /api/plugin +
+│   │                      #   /api/mcp + /api/config, refreshes on
+│   │                      #   plugin.updated / mcp.status.changed /
+│   │                      #   config.updated (one debounced re-pull per
+│   │                      #   burst), and performs the toggles — read
+│   │                      #   raw document → merge → fs/write, with
+│   │                      #   optimistic rows, refusal reasons
+│   │                      #   (jsonc / no-document / read / merge /
+│   │                      #   write) surfaced per row and every error
+│   │                      #   logged. Also exposes the global config
+│   │                      #   directory (the log reader's shell cwd).
+│   ├── mcpLogs.ts       # ONE MCP server's log, read out of the
+│   │                      #   machine-wide opencode main log
+│   │                      #   (<XDG_DATA_HOME || ~/.local/share>/
+│   │                      #   opencode/log/opencode.log — the ONLY
+│   │                      #   data source; verified on v2.0.11 AND
+│   │                      #   v2.1-dev: no per-MCP log API/event, the
+│   │                      #   MCP protocol's logging notifications are
+│   │                      #   never captured). The file is 50MB→25MB
+│   │                      #   compacted and fs/read has no ranges, so
+│   │                      #   the read rides the SHELL API (the
+│   │                      #   worktreeSync.ts precedent): server-side
+│   │                      #   `grep -F -s 'server=<name>' | tail -n
+│   │                      #   200`, ~200 newest lines back. SHELL
+│   │                      #   DIALECT SAFETY (live-observed: this dev
+│   │                      #   machine's login shell is fish, which
+│   │                      #   rejects POSIX VAR=value and ${VAR:-x}) —
+│   │                      #   every command sticks to the fish/POSIX/
+│   │                      #   PowerShell common subset (quoted
+│   │                      #   commands, `;`, `|`, bare $VAR), so the
+│   │                      #   data-dir resolution is its own two-line
+│   │                      #   probe (echo $XDG_DATA_HOME; echo $HOME)
+│   │                      #   and the grep takes an ABSOLUTE path with
+│   │                      #   zero expansion; grep exit 1 ("no match")
+│   │                      #   is the empty state, exit 2+/spawn-fail
+│   │                      #   falls back to the PowerShell pipeline.
+│   │                      #   Probe cached per modal session
+│   │                      #   (ExtensionsSettings's dataDirRef). Pure
+│   │                      #   halves node-testable (mcpLogs.test.ts).
 │   ├── visionAttachments.ts # The vision tool's sending half (pure planning +
 │   │                      #   one api-bound writer): when the model a prompt is
 │   │                      #   bound for lacks image input (catalog
@@ -436,9 +923,42 @@ src/
 │   │                      #   the diverted images as attachment chips instead;
 │   │                      #   editResend re-appends the original note so an
 │   │                      #   edited prompt keeps its image paths. A failed
-│   │                      #   write falls back to inline. Wired into BOTH send
+│   │                      #   write falls back to inline. THE DIVERT TARGET'S
+│   │                      #   RESILIENCE: the config-directory probe
+│   │                      #   (GET /api/config) runs once per app run with
+│   │                      #   ONE silent retry, every success is remembered
+│   │                      #   durably (persistedStore
+│   │                      #   "lumina-code:config-directory"), and a dead
+│   │                      #   probe falls back to the remembered directory
+│   │                      #   across cold starts — on the mobile frp route
+│   │                      #   the probe is a full round-trip and its
+│   │                      #   transient failure used to degrade a
+│   │                      #   text-only model's images to inline, which the
+│   │                      #   provider then rejects (live-observed
+│   │                      #   glm-5.3: "this model does not support image
+│   │                      #   input"); a stale remembrance self-corrects
+│   │                      #   (fs/write creates parents, the vision tool
+│   │                      #   reads the path just written, the next healthy
+│   │                      #   probe re-pins). Only a dead probe with
+│   │                      #   NOTHING remembered falls back to inline.
+│   │                      #   Wired into BOTH send
 │   │                      #   paths (ChatView.handleSend,
-│   │                      #   useSessionFlow.sendFirst). node-testable.
+│   │                      #   useSessionFlow.sendFirst). node-testable
+│   │                      #   (the divert cases re-import the module per
+│   │                      #   query — fresh per-run memo + a shared
+│   │                      #   localStorage stub re-seeding each instance's
+│   │                      #   persisted store).
+│   ├── chatMessages.ts     # The transcript's message VIEW MODEL — split from
+│   │                      #   types.ts (the pure wire types stay there):
+│   │                      #   Assistant*Part, ChatUserMessage (with the
+│   │                      #   LOCAL-ONLY localKey/sendFailed/command fields
+│   │                      #   of the optimistic UI), the ChatMessage union,
+│   │                      #   the type guards + nextLocalId() (the
+│   │                      #   collision-proofed `local-*` id every
+│   │                      #   optimistic row mints — two sends in one
+│   │                      #   Date.now() millisecond used to collide).
+│   │                      #   types.ts re-exports it all (34 imports
+│   │                      #   unchanged).
 │   ├── eventStream.ts     # SSE transport: OpencodeEvent envelope +
 │   │                      #   streamServerEvents (fetch-based; the Authorization
 │   │                      #   header rules out native EventSource) with backoff
@@ -464,6 +984,52 @@ src/
 │   │                      #   part (e.g. a blocking plan_submit) hangs
 │   │                      #   every derived pending state (approval
 │   │                      #   cards, tool rows) until a re-seed.
+│   │                      #   TOOL.PROGRESS MERGE: session.tool.progress
+│   │                      #   is the ONLY bus signal carrying a running
+│   │                      #   subagent's child metadata.sessionID
+│   │                      #   (fires at spawn; tool.called has no
+│   │                      #   metadata and the server PERSISTS the
+│   │                      #   running part with metadata:{} — both
+│   │                      #   binary-verified via live probes), so the
+│   │                      #   reducer merges its metadata into
+│   │                      #   unsettled SUBAGENT parts only: a
+│   │                      #   foreground SHELL's progress also carries a
+│   │                      #   shellID its settled state will NOT keep
+│   │                      #   (only background shells keep one), and
+│   │                      #   merging it would flash foreground commands
+│   │                      #   through the terminals list. The seed merge
+│   │                      #   backs this up: equal-rank tool parts take
+│   │                      #   the page's state EXCEPT its empty
+│   │                      #   metadata never wipes a local child link
+│   │                      #   (mergePart's metadata rescue) — else every
+│   │                      #   re-seed mid-run would hide the subagent
+│   │                      #   from the stats panel again.
+│   │                      #   SUBAGENT LINK BACKFILL: the progress
+│   │                      #   frame is ONE-SHOT (spawn) and the
+│   │                      #   server's running snapshot has no child
+│   │                      #   id, so any client that MISSED the frame
+│   │                      #   (remote SSE gap, cold start into a
+│   │                      #   session that is already running — the
+│   │                      #   MOBILE norm; desktop loopback SSE
+│   │                      #   essentially never drops it) can never
+│   │                      #   link the part from the stream alone.
+│   │                      #   needsSubagentBackfill (cheap scan) +
+│   │                      #   backfillSubagentLink re-link it from the
+│   │                      #   SESSION LIST (parentID reverse lookup):
+│   │                      #   conservative one-to-one — exactly one
+│   │                      #   unlinked running part ∧ exactly one
+│   │                      #   candidate child (parentID match, not
+│   │                      #   referenced by any part's metadata, not a
+│   │                      #   lumina-tools helper, created at/after
+│   │                      #   the calling part — the time bound
+│   │                      #   rejects an errored earlier turn's
+│   │                      #   orphaned child, since error settle
+│   │                      #   carries NO metadata); ambiguity keeps
+│   │                      #   the list unchanged rather than guess.
+│   │                      #   Wired into EVERY seed path by
+│   │                      #   useSessionMessages (requestSeed →
+│   │                      #   backfillSubagentLinks), so the remote
+│   │                      #   reconnect heal re-runs it per gap.
 │   │                      #   EDIT-LAST-MESSAGE: dropFromBoundary + the
 │   │                      #   session.revert.committed event case truncate a
 │   │                      #   list at the first id >= boundary (the TUI's
@@ -494,35 +1060,94 @@ src/
 │   │                      #   true response never re-marks); a stale
 │   │                      #   marker is inert — the indicator also needs
 │   │                      #   busy, and the next execution.started clears.
-│   ├── promptQueue.ts    # The per-session QUEUED-PROMPT store (module store +
-│   │                      #   useSyncExternalStore, the sessionStopping
-│   │                      #   pattern): prompts composed mid-run QUEUE here
-│   │                      #   instead of steering the running turn, render as
-│   │                      #   rows above the composer (QueuedPromptRow —
-│   │                      #   grip-reorder / send-now / edit / remove) and
-│   │                      #   flush through the normal send path when the
-│   │                      #   run ends. THE FLUSH IS ChatView'S (it owns the
-│   │                      #   send path) and delivers EXACTLY ONE prompt per
-│   │                      #   idle window (a guard ref — busy flips true a
-│   │                      #   beat AFTER deliver, and the shrunken queue
-│   │                      #   re-fires the effect; without the guard the
-│   │                      #   whole queue would flush at once), re-armed on
-│   │                      #   busy→true and on session switch; a
-│   │                      #   backgrounded session's queue flushes when the
-│   │                      #   session is reopened (mount + idle). INTERRUPT
-│   │                      #   CLEARS the queue (stopping means stop — an
-│   │                      #   auto-flush right after would restart the
-│   │                      #   aborted work; rows collapse away with their
-│   │                      #   exit animation); "send now" delivers one row
-│   │                      #   immediately (the server accepts prompts
-│   │                      #   mid-run — a deliberate steer); "edit" loads
-│   │                      #   text + attachments back into the composer via
-│   │                      #   ChatInput's draftLoad prop (mention nodes
-│   │                      #   degrade to plain @path text — Lexical nodes
-│   │                      #   can't rehydrate from it). session.deleted
-│   │                      #   drops the queue (applyPromptQueueBusEvent,
-│   │                      #   folded in useSessions next to
-│   │                      #   applyStoppingBusEvent).
+│   │                      #   The marker ALSO fences sends: send() and
+│   │                      #   editResend() refuse to POST while it is up
+│   │                      #   (see useSessionMessages — a prompt landing
+│   │                      #   during the stop's cleanup would restart the
+│   │                      #   run server-side).
+│   ├── planWorkflow.ts    # The plan workflow's transcript derivations —
+│   │                      #   the FRONTEND MIRROR of the plugin's
+│   │                      #   planStateFromEntries fold, split from
+│   │                      #   sessionActivity.ts along domain lines:
+│   │                      #   collectSessionTodos (the LAST plan_submit
+│   │                      #   defines the list; task_complete/plan_amend/
+│   │                      #   work_submit advance it), planApprovalPending
+│   │                      #   / workApprovalPending (Route A's two gates
+│   │                      #   over lastUnsettledPart), findPlanSubmitInput,
+│   │                      #   GateContext, isExecutionAgent (build OR
+│   │                      #   lumina-daily count as "the gate opened" —
+│   │                      #   approvals switch a session into its mode's
+│   │                      #   execution agent; mirrored in the plugin
+│   │                      #   source). sessionActivity re-exports it
+│   │                      #   (imports unchanged); keep in sync with the
+│   │                      #   plugin source.
+│   ├── promptQueue.ts    # The per-session QUEUED-PROMPT store — now a MIRROR
+│   │                      #   of the SERVER's native queue (v2.0.11
+│   │                      #   `delivery:"queue"`, curl-verified): prompts
+│   │                      #   composed mid-run POST with delivery:"queue"
+│   │                      #   and park in the server's PERSISTED inbox
+│   │                      #   (session_pending table, enqueued_seq order)
+│   │                      #   — every client of the server (desktop
+│   │                      #   windows AND the mobile app) reads the same
+│   │                      #   rows, and they survive app kills (the old
+│   │                      #   in-memory queue never synced across
+│   │                      #   devices, which was the bug). Division of
+│   │                      #   labor (binary- + live-verified): PARKING —
+│   │                      #   steer-mode drain never sees queue rows, so
+│   │                      #   the running turn is untouched; FLUSH — the
+│   │                      #   SERVER does it (the POST's wake lingers as
+│   │                      #   pendingWake="input"; the run's natural end
+│   │                      #   drains queue rows as fresh turns — multiple
+│   │                      #   queued rows chain inside one successor
+│   │                      #   execution); DISPLAY — rows render above the
+│   │                      #   composer ONLY (messageStore's enqueued case
+│   │                      #   skips delivery:"queue" user rows; the
+│   │                      #   delivered frame appends the transcript
+│   │                      #   message under the SAME id); STOP — the
+│   │                      #   interrupt's inbox sweep cancels every
+│   │                      #   pending row server-side. The store itself
+│   │                      #   (module store + useSyncExternalStore, the
+│   │                      #   sessionStopping pattern): seeded from GET
+│   │                      #   /api/session/{id}/inbox on every
+│   │                      #   requestSeed (mount / surface warm / the
+│   │                      #   mobile SSE-reconnect heal), live-patched
+│   │                      #   from the bus (applyQueueBusEvent in
+│   │                      #   useSessions: enqueued/cancelled/delivered/
+│   │                      #   session.deleted; the pending-command
+│   │                      #   stamp is consumed HERE — messageStore
+│   │                      #   leaves it for queue rows). In-flight POSTs
+│   │                      #   render optimistically (local-* sending
+│   │                      #   rows); the POST RESPONSE IS the inbox row
+│   │                      #   (live-verified), so adoption is a straight
+│   │                      #   id swap; a dead POST keeps a failed row
+│   │                      #   (retry affordance). Queued COMMANDS ride
+│   │                      #   as their expanded template text (the
+│   │                      #   command endpoint takes no delivery
+│   │                      #   parameter). REORDER (drag) has no server
+│   │                      #   API — the commit REWRITES the queue
+│   │                      #   (cancel + re-POST in the new order,
+│   │                      #   useSessionMessages.rewriteQueuedOrder).
+│   │                      #   "STOP AND SEND" (⚡) still never steers the
+│   │                      #   running turn: the queue's content is
+│   │                      #   snapshotted locally (the sweep deletes the
+│   │                      #   server rows), the run interrupted, and
+│   │                      #   ChatView's flush effect re-POSTs the batch
+│   │                      #   in the first idle window — expedited first
+│   │                      #   (click order), the rest in queue order
+│   │                      #   (takeExpeditedBatch; the first POST
+│   │                      #   executes immediately, the rest park and
+│   │                      #   chain). "edit" loads text + attachments
+│   │                      #   back into the composer via queuedRowToDraft
+│   │                      #   (divert note stripped, saved images
+│   │                      #   re-referenced as file:// chips; ChatInput's
+│   │                      #   draftLoad prop — mention nodes degrade to
+│   │                      #   plain @path text). Node-testable pure
+│   │                      #   halves: mergeSeedRows / foldQueuedRows /
+│   │                      #   planQueueRewrite / mergeExpeditedSnapshot
+│   │                      #   (promptQueue.test.ts). KNOWN EDGE: after a
+│   │                      #   SERVER restart, idle leftover queue rows
+│   │                      #   have no wake — they drain with the user's
+│   │                      #   next POST (seq order), acceptable.
 │   ├── turnEdits.ts      # The per-turn EDIT SUMMARY store (module store +
 │   │                      #   useSyncExternalStore, the sessionStopping
 │   │                      #   pattern): one entry per (session, user
@@ -558,7 +1183,11 @@ src/
 │   │                      #   not with the session list.
 │   ├── sessionDataContext.tsx # Session-domain layer: SessionDataProvider hosts
 │   │                      #   useSessions + useSessionRequests ONCE;
-│   │                      #   useSessionData() (list/busy/CRUD/pending asks),
+│   │                      #   useSessionData() (list/busy/CRUD/pending
+│   │                      #   asks + the IMPORT surfaces —
+│   │                      #   foreignSessions/importSessions for
+│   │                      #   ImportSessionsModal and the sidebar's
+│   │                      #   count badge),
 │   │                      #   useSessionTranscript(sessionId) (message store
 │   │                      #   binding — mounting it still seeds an unseeded
 │   │                      #   session), usePendingRequests(sessionId),
@@ -579,13 +1208,33 @@ src/
 │   │                      #   dir" strangers): the ids of sessions created
 │   │                      #   by THIS app's UI, persisted via the factory
 │   │                      #   ("lumina-code:session-registry") — membership
-│   │                      #   is granted at the single creation choke-point
-│   │                      #   (useSessions.create ← sendFirst) and revoked
-│   │                      #   on every deletion path (useSessions.remove,
-│   │                      #   the session.deleted event, seed-time prune);
-│   │                      #   sessions created by anything else (TUI/CLI,
-│   │                      #   other instances — OpenCode storage is shared)
-│   │                      #   never enter the sidebar. `null` = NOT YET
+│   │                      #   is granted at the creation choke-point
+│   │                      #   (useSessions.create ← sendFirst), by USER
+│   │                      #   IMPORT (useSessions.importSessions ←
+│   │                      #   ImportSessionsModal, fed by
+│   │                      #   importableSessions — the root sessions the
+│   │                      #   server lists but the registry does not
+│   │                      #   hold), and AUTOMATICALLY for sessions
+│   │                      #   stamped {source: "lumina-code"} by ANY
+│   │                      #   Lumina Code client (CLIENT_SOURCE +
+│   │                      #   autoRegisterClientSessions — every create
+│   │                      #   stamps it, the seed/relist folds register
+│   │                      #   stamped strangers: another desktop window
+│   │                      #   or the MOBILE app joins the sidebar without
+│   │                      #   manual import; the whitelist isolates
+│   │                      #   subagents + third-party OpenCode software,
+│   │                      #   never Lumina Code's own instances), and
+│   │                      #   revoked on every deletion path
+│   │                      #   (useSessions.remove, the session.deleted
+│   │                      #   event, seed-time prune); sessions created
+│   │                      #   by anything else (TUI/CLI, other instances
+│   │                      #   — OpenCode storage is shared) stay out of
+│   │                      #   the sidebar until imported. Also the ROOT
+│   │                      #   predicate (isRootSession: no parentID, not
+│   │                      #   a lumina-tools helper — the server's
+│   │                      #   ?roots=true does not work) shared by the
+│   │                      #   sidebar view, the import candidates and
+│   │                      #   the one-time ADOPTION. `null` = NOT YET
 │   │                      #   ADOPTED (key absent / malformed — write(null)
 │   │                      #   removes the key, the factory's absence
 │   │                      #   semantics): the first successful session list
@@ -603,13 +1252,73 @@ src/
 │   │                      #   own list updates); array order = registration
 │   │                      #   order, the substrate for future pin /
 │   │                      #   fixed-sort features. DirectoryPicker's
-│   │                      #   quick-picks share the membership check.
-│   │                      #   node-testable (storage-stub + dynamic-import
+│   │                      #   quick-picks share the membership check
+│   │                      #   (unionMembership). node-testable (storage-stub + dynamic-import
 │   │                      #   pattern; parseRegistryRaw exported for the
-│   │                      #   read-shape cases).
+│   │                      #   read-shape cases). This store is the LOCAL
+│   │                      #   HALF of membership only — derivation is
+│   │                      #   always local ∪ shared
+│   │                      #   (sessionWhitelistSync.ts, the entry right
+│   │                      #   below); the local layer doubles as the
+│   │                      #   offline buffer and the lost-update healing
+│   │                      #   source (each seed union-pushes it into the
+│   │                      #   shared file), and the one-time ADOPTION
+│   │                      #   prefers the shared file's ids (a fresh
+│   │                      #   device starts with the SAME sidebar as
+│   │                      #   every other client) before falling back
+│   │                      #   to the visible roots.
+│   ├── sessionWhitelistSync.ts # THE SERVER-SHARED half of the session
+│   │                      #   whitelist (sessionRegistry.ts is the local
+│   │                      #   half): one id array at <global config
+│   │                      #   dir>/lumina/whitelist.json on the machine
+│   │                      #   running the opencode server — membership
+│   │                      #   every Lumina Code client (desktop windows,
+│   │                      #   CEF shell, mobile) can read AND write via
+│   │                      #   the same fs channel the lumina-tools
+│   │                      #   installer uses (fs/read location-confined,
+│   │                      #   experimental/fs/write absolute + creates
+│   │                      #   parents, curl-verified v2.0.11). WHY a
+│   │                      #   file: session metadata is create-only on
+│   │                      #   v2.0.11 (PATCH /api/session/{id} silently
+│   │                      #   drops a metadata field, only title sticks
+│   │                      #   — live-verified), so the create-time
+│   │                      #   CLIENT_SOURCE stamp can never be
+│   │                      #   retrofitted onto existing sessions, and
+│   │                      #   per-device registries diverge (import on
+│   │                      #   one device never reached the others —
+│   │                      #   the cross-device import-list mismatch).
+│   │                      #   SEMANTICS: membership = local ∪ file,
+│   │                      #   derived at every seed/relist; the file
+│   │                      #   only GROWS by union (every writer reads
+│   │                      #   fresh, unions, writes back — mergeWhitelist
+│   │                      #   is the ONE write primitive) and only
+│   │                      #   shrinks by server-confirmed deletion or
+│   │                      #   dead-id compaction against the live
+│   │                      #   session list (empty list compacts
+│   │                      #   nothing — the same transient-empty guard
+│   │                      #   as missingRegisteredIds). Direction
+│   │                      #   guarantee: a sync race can delay one
+│   │                      #   registration from appearing elsewhere
+│   │                      #   (the victim's next seed re-pushes from
+│   │                      #   its local layer and converges) but can
+│   │                      #   NEVER remove a live session from a
+│   │                      #   sidebar. Unknown read failures abort the
+│   │                      #   pending write (no clobbering over the
+│   │                      #   unknowable); the documented fs/read
+│   │                      #   500-missing-dir quirk reads as absent;
+│   │                      #   no config target degrades everything to
+│   │                      #   local-only behavior. Exposes a
+│   │                      #   synchronous snapshot serverWhitelistIds()
+│   │                      #   (empty until the first read — the derive
+│   │                      #   then equals the old local-only world).
+│   │                      #   The pure halves (unionIds, the merge math
+│   │                      #   over a fake api) are node-testable
+│   │                      #   (sessionWhitelistSync.test.ts).
 │   ├── useSessions.ts     # Sidebar list: a WHITELIST view over the server
-│   │                      #   session list — only registry members
-│   │                      #   (sessionRegistry.ts) are listed. Seeded from
+│   │                      #   session list — only members of the local
+│   │                      #   registry ∪ the shared whitelist file
+│   │                      #   (sessionRegistry.ts +
+│   │                      #   sessionWhitelistSync.ts) are listed. Seeded from
 │   │                      #   GET /api/session, live-patched
 │   │                      #   from the bus; root sessions only (subagent children carry
 │   │                      #   parentID and would flood the list; the tools plugin's
@@ -624,8 +1333,27 @@ src/
 │   │                      #   Mode via the plan_mode tool); busy set seeded from
 │   │                      #   GET /api/session/active (a stale busy id blocks the
 │   │                      #   composer forever — the seed must not resurrect ids watched
-│   │                      #   end); create/remove/patch (optimistic model/agent)
-│   │                      #   also grant/revoke the whitelist membership.
+│   │                      #   end); create/remove/patch (optimistic model/agent; create also
+│   │                      #   stamps metadata.mode beside CLIENT_SOURCE — which sidebar half
+│   │                      #   the session belongs to, derived back by appMode.sessionMode)
+│   │                      #   also grant/revoke the whitelist membership —
+│   │                      #   and create STAMPS {source: CLIENT_SOURCE},
+│   │                      #   the cross-instance marker whose stamped
+│   │                      #   strangers the seed/relist folds auto-register
+│   │                      #   (another window / the mobile app joins the
+│   │                      #   sidebar live, no manual import).
+│   │                      #   THE IMPORT HALF: foreignSessions — the same
+│   │                      #   list's root-session complement (server roots
+│   │                      #   NOT in the registry — TUI/CLI/other-instance
+│   │                      #   sessions in the shared storage), maintained by
+│   │                      #   the same seed/relist folds — feeds the import
+│   │                      #   picker (ImportSessionsModal via the session-
+│   │                      #   data context), and importSessions(ids) grants
+│   │                      #   membership (registerSession + relist; the
+│   │                      #   session itself already lives on the server —
+│   │                      #   importing moves nothing but the whitelist
+│   │                      #   entry; busy state is id-tracked globally and
+│   │                      #   just works).
 │   ├── useSessionMessages.ts # React binding over a MODULE-LEVEL store (one entry per
 │   │                      #   session, surviving ChatView unmounts AND webview reloads
 │   │                      #   — backgrounded sessions keep accumulating deltas; entries
@@ -646,7 +1374,14 @@ src/
 │   │                      #   switch/hover time), useSessionSeeded(id) is its
 │   │                      #   boolean useSyncExternalStore mirror, and a FAILED seed
 │   │                      #   still sets seeded+notify (otherwise the loading phase
-│   │                      #   would loop forever).
+│   │                      #   would loop forever). Every seed path also runs
+│   │                      #   backfillSubagentLinks — the missed-
+│   │                      #   tool.progress recovery (a running subagent
+│   │                      #   part re-linked from the session list's
+│   │                      #   parentID; see messageStore's SUBAGENT LINK
+│   │                      #   BACKFILL) — so a remote client heals a
+│   │                      #   dropped child link at the next seed,
+│   │                      #   including the SSE-reconnect reseed.
 │   │                      #   prepareCommandSubmission pre-creates the entry so a
 │   │                      #   first-send slash command keeps its enqueue frame;
 │   │                      #   a session.model.selected event re-pulls the newest
@@ -666,7 +1401,67 @@ src/
 │   │                      #   parsed back out and re-appended, keeping
 │   │                      #   a text-only model's image paths).
 │   │                      #   A failed commit unwinds via clearRevert
-│   │                      #   and returns false.
+│   │                      #   and returns false. FAILED-SEND SEMANTICS:
+│   │                      #   a POST that dies (network, the mobile frp
+│   │                      #   route, sendPrompt's 120s abort) does NOT
+│   │                      #   drop the optimistic bubble — markOptimistic
+│   │                      #   Failed keeps it as a sendFailed row whose
+│   │                      #   UserBubble renders an always-visible
+│   │                      #   "Failed to send" + retry (ChatView.
+│   │                      #   handleRetrySend: drop the row, filesFrom
+│   │                      #   Message rebuilds the attachments, deliver
+│   │                      #   re-runs — the divert note already rides
+│   │                      #   the stored text, so the re-divert pass
+│   │                      #   appends no second note); the welcome
+│   │                      #   screen's first send has no bubble yet, so
+│   │                      #   sendFirst's failure goes through the
+│   │                      #   exported appendFailedPrompt (a ready-made
+│   │                      #   failed row straight into the new session's
+│   │                      #   store). Self-healing duplicates are
+│   │                      #   impossible: the enqueued event ADOPTS the
+│   │                      #   failed row by text (a timeout whose POST
+│   │                      #   actually landed), and a re-seed's merge
+│   │                      #   drops local rows the page already carries.
+│   │                      #   THE INTERRUPT SWEEP +
+│   │                      #   SEND FENCE (v2.0.11, source-verified):
+│   │                      #   the server's interrupt kills ONLY the
+│   │                      #   in-flight execution — prompts POSTed
+│   │                      #   mid-run (a raw steer — this client no
+│   │                      #   longer produces them, see promptQueue's
+│   │                      #   "stop and send") park in the PERSISTED session
+│   │                      #   inbox as pending steer rows (a delivery-less
+│   │                      #   POST defaults to steer; only a step boundary promotes them
+│   │                      #   into the turn), and they SURVIVE the stop:
+│   │                      #   a POST landing after the interrupt restarts
+│   │                      #   the run as a successor execution, and rows
+│   │                      #   left parked resurrect inside the NEXT turn's
+│   │                      #   first promotion. interrupt() therefore (1)
+│   │                      #   SWEEPS the inbox after the interrupt POST
+│   │                      #   (list + DELETE every pending row — api.ts
+│   │                      #   listSessionInbox/cancelSessionInbox; best-
+│   │                      #   effort, logged) and (2) FENCES send()/
+│   │                      #   editResend() on the stopping marker: a
+│   │                      #   prompt whose POST would fire inside the
+│   │                      #   stop window is dropped instead (stop means
+│   │                      #   stop). messageStore drops the cancelled
+│   │                      #   rows' ghost bubbles on
+│   │                      #   session.inbox.cancelled. ALSO THE QUEUE
+│   │                      #   ACTION SET (the server-native queue's
+│   │                      #   client half, see promptQueue.ts):
+│   │                      #   sendQueued (the busy-path POST with
+│   │                      #   delivery:"queue" — optimistic row, the
+│   │                      #   POST response adopts the server id, a
+│   │                      #   dead POST keeps a retryable failed row),
+│   │                      #   retryQueued / removeQueued (cancel +
+│   │                      #   restore-on-failed-cancel) /
+│   │                      #   deliverQueuedRows (the "stop and send"
+│   │                      #   re-POST batch) / rewriteQueuedOrder (drag
+│   │                      #   reorder = cancel + re-POST, no server
+│   │                      #   reorder API); every requestSeed also seeds
+│   │                      #   the queue mirror, and the bus handler
+│   │                      #   appends a delivered queue row's transcript
+│   │                      #   message from the row content it holds
+│   │                      #   (appendUserMessage, id = the inboxID).
 │   ├── useSessionFlow.ts  # App-level session flow: active session id + composer
 │   │                      #   staging (pendingModel/pendingAgent/pendingDirectory
 │   │                      #   seeded from lib/persist.ts, plus the NOT-persisted
@@ -675,7 +1470,15 @@ src/
 │   │                      #   restart starts fresh), changeModel/changeAgent/
 │   │                      #   changeStagedBranch/changeDirectory/newSession/
 │   │                      #   deleteSession, sendFirst (create-then-deliver with
-│   │                      #   the slash-command fallback; a branch-bound send
+│   │                      #   the slash-command fallback; MODE-SPLIT directory rules — daily
+│   │                      #   resolves + ensures the fixed LuminaWorkspace (opencode/
+│   │                      #   defaultWorkspace.ts) and lands each NEW session in its
+│   │                      #   own <workspace>/Sessions/<name>/ folder (resolveSession
+│   │                      #   Directory — first-prompt name, marker-materialized,
+│   │                      #   root fallback on failure) so per-session documents stay
+│   │                      #   isolated, dev REQUIRES a
+│   │                      #   staged project (no default — sendBlocked refuses a bare send)
+│   │                      #   and creates the linked worktree for a staged branch; a branch-bound send
 │   │                      #   FIRST creates the linked worktree via
 │   │   │                  #   resolveBranchDirectory — POST /api/worktree with
 │   │                      #   projectID from worktreeSessions, recorded in the
@@ -685,7 +1488,30 @@ src/
 │   │                      #   (mainDirFor; an explicit folder "+" still takes
 │   │                      #   the worktree dir literally — shared-checkout
 │   │                      #   semantics on the pinned branch), and the
-│   │                      #   cross-restart save. Consumes the context split
+│   │                      #   cross-restart save. MODE-SPLIT AGENTS
+│   │                      #   (harness performance): modeDefaultAgent —
+│   │                      #   daily sessions START on the lumina-daily
+│   │                      #   agent (sendFirst switches when the catalog
+│   │                      #   lists it) while dev keeps build; the
+│   │                      #   persisted `agent` records only the user's
+│   │                      #   EXPLICIT staged pick (never the derived
+│   │                      #   default — an upgrade's daily user must not
+│   │                      #   re-land on a frozen "build"); and
+│   │                      #   approveAgent — the agent a plan approval
+│   │                      #   switches the ACTIVE session into (build /
+│   │                      #   lumina-daily by the session's mode),
+│   │                      #   threaded App → ChatView → useGateCards
+│   │                      #   (switching a daily session to build would
+│   │                      #   strand it on the developer persona).
+│   │                      #   MODE-SWITCH MEMORY: each half remembers the
+│   │                      #   session it had open when left (modeSessionsRef,
+│   │                      #   null = welcome screen, persisted as ui-state
+│   │                      #   daily/devSessionId) and switching back
+│   │                      #   RESTORES it — only if it still exists and
+│   │                      #   belongs to that half (else the welcome
+│   │                      #   screen; the sync effect's ownership guard
+│   │                      #   keeps the switch render's stale activeId out
+│   │                      #   of the new half's entry). Consumes the context split
 │   │                      #   (connection handles + catalog + the
 │   │                      #   provider-hosted session list) — no parameters.
 │   ├── useSessionRequests.ts # Pending server→user asks across ALL sessions (permission
@@ -714,6 +1540,11 @@ src/
 │   │                      #   means "already settled" — no restore, or the card
 │   │                      #   would zombie (api.requestRaw attaches the status).
 │   ├── sessionActivity.ts # Pure stats-card derivations from a session's messages:
+│   │                      #   SLIMMED: the plan-workflow folds live in
+│   │                      #   planWorkflow.ts (re-exported here); this file
+│   │                      #   keeps the tool-name predicates, toolParts /
+│   │                      #   inputRecord / metaString low-level helpers and
+│   │                      #   the shells/subagents/mutation collectors.
 │   │                      #   background shells (tool-part metadata.shellID — only
 │   │                      #   background results carry it) with their completion
 │   │                      #   notifications (marker messages with metadata.source ===
@@ -810,6 +1641,46 @@ src/
 │   │                      #   in App) warms the scopes ahead of the click.
 │   │                      #   Derived arrays are identity-stable across
 │   │                      #   streamed frames.
+│   ├── workspaceDocuments.ts # THE DAILY SIDE of the workspace panel —
+│   │                      #   what useSessionActivity's git diff is for dev,
+│   │                      #   done for a plain folder of DOCUMENTS where
+│   │                      #   line counts are meaningless. PER-SESSION
+│   │                      #   SCOPE: a daily session's directory is its
+│   │                      #   private <workspace>/Sessions/<name>/ folder
+│   │                      #   (defaultWorkspace.ts), so the scan IS the
+│   │                      #   isolation — each session's panel lists only
+│   │                      #   its own files; the same predicate serves
+│   │                      #   LEGACY root-level sessions (both scan
+│   │                      #   commands skip the Sessions container's
+│   │                      #   contents — an old session no longer lists
+│   │                      #   newer sessions' documents) and the hidden
+│   │                      #   session marker never shows (POSIX find
+│   │                      #   skips dotfiles; the PowerShell fallback
+│   │                      #   lists them — filterSessionMarkers drops
+│   │                      #   them by basename). Scanning rides
+│   │                      #   the SHELL API (fs routes can't list
+│   │                      #   directories): one POSIX pass (`find <dir>
+│   │                      #   -type f -not -path '*/.*' -not -path
+│   │                      #   '<dir>/Sessions/*' -exec wc -c {} +`
+│   │                      #   — find hands paths to wc as argv, so spaces
+│   │                      #   and CJK survive; legal in fish/POSIX alike)
+│   │                      #   falling back to a PowerShell pipeline on
+│   │                      #   failure (the mcpLogs dialect ladder). The
+│   │                      #   ROLLING BASELINE: each scan diffs against the
+│   │                      #   previous one — files that appeared or changed
+│   │                      #   SIZE wear 新增/变更 chips (a docx is rewritten
+│   │                      #   wholesale by python-docx, so a size delta IS
+│   │                      #   the change signal), settling to a plain
+│   │                      #   inventory on the next scan; deletes just drop
+│   │                      #   off. Stateful half = the directory-keyed
+│   │                      #   module store + useWorkspaceDocuments (the
+│   │                      #   useWorkspaceDiff pattern; mounted via
+│   │                      #   sessionDataContext's useWorkspaceDocumentsOf,
+│   │                      #   refreshed on run-end bus events debounced +
+│   │                      #   busy→idle). Pure halves (parseSizeLines —
+│   │                      #   wc's total rows dropped, CRLF tolerated, cap
+│   │                      #   MAX_DOC_ROWS; diffDocs; sortDocRows;
+│   │                      #   humanSize) node-testable.
 │   ├── useModelCatalog.ts # Providers/agents/models + server default, fetched per
 │                          #   connection AND re-fetched whenever the bus reports
 │                          #   credential.updated / config.updated (connecting a key
@@ -822,6 +1693,11 @@ src/
 │                          #   holding the shared storage lock) — an empty provider list
 │                          #   must never leak into the filter (`every()` is vacuously
 │                          #   true on [] and would unhide the free catalog).
+│                          #   Also exposes loaded — the INITIAL load's
+│                          #   settle flag (success or final failure;
+│                          #   reset only on api identity change, NOT on
+│                          #   revision refetches) feeding the boot gate
+│                          #   (components/BootScreen.tsx).
 │   ├── gitInfo.ts         # THE branch-parsing pure layer (node-testable):
 │                          #   parseGitHead (a `.git/HEAD` text → branch name |
 │                          #   detached sha — the server has NO current-branch
@@ -831,8 +1707,15 @@ src/
 │                          #   NAMES ("origin") and remote refs ("origin/x") —
 │                          #   the prefix relation classifies them; local names
 │                          #   may contain slashes, so the "/" split alone
-│                          #   doesn't), shortSha. Feeds the title-bar chip and
-│                          #   the picker's branch section.
+│                          #   doesn't), shortSha, PLUS the default-branch
+│                          #   pair feeding BranchPicker's 「主分支」chip:
+│                          #   parseRemoteHead (`.git/refs/remotes/<remote>/HEAD`
+│                          #   symref → the remote's default branch; symrefs
+│                          #   are always loose files, so fs/read is reliable)
+│                          #   and pickDefaultBranch (remote HEAD wins when
+│                          #   local, else conventional main → master, else
+│                          #   null — no chip rather than a guess). Feeds the
+│                          #   title-bar chip and the picker's branch section.
 │   ├── useDirectoryBranch.ts # The title bar's per-directory branch, cached in
 │                          #   a MODULE store keyed by directory (the
 │                          #   useSessionActivity directory-map pattern —
@@ -847,15 +1730,17 @@ src/
 │                          #   have checked out in their own terminal) and on
 │                          #   worktree-record changes (a branch session just
 │                          #   created).
-│   └── worktreeSessions.ts # THE branch-bound session bookkeeping: a
+│   ├── worktreeSessions.ts # THE branch-bound session bookkeeping: a
 │                          #   persistedStore.ts map ("lumina-code:worktree-dirs")
 │                          #   worktreeDir → {branch, mainDir} — the app's ONLY
 │                          #   branch truth for managed worktrees (detached HEAD
 │                          #   + the server's worktree list carries no branch on
-│                          #   this build). Written by sendFirst when it creates
-│                          #   a branch worktree (POST /api/worktree); read by
-│                          #   useDirectoryBranch, the sidebar's folder labels
-│                          #   (folderGroupLabel) and newSession's seeding (a
+│                          #   this build). Written by sendFirst when it
+│                          #   creates a branch worktree (POST /api/worktree);
+│                          #   read by useDirectoryBranch, the sidebar's
+│                          #   PROJECT grouping + per-row branch chips
+│                          #   (sessionGrouping/SessionFolder) and
+│                          #   newSession's seeding (a
 │                          #   worktree session's successor seeds the MAIN repo).
 │                          #   Entries never cleaned — worktree REMOVAL is never
 │                          #   automatic (a detached commit doesn't dirty the
@@ -865,6 +1750,49 @@ src/
 │                          #   worktree routes' projectID from GET /api/project
 │                          #   — duplicate canonicals exist (observed live);
 │                          #   prefer the vcs:"git" entry, newest first.
+│   ├── worktreeSync.ts    # THE worktree→local-branch WRITE-BACK, pure
+│   │                      #   planning + api-bound runner (types-only
+│   │                      #   imports — node-testable, the
+│   │                      #   sessionActivity pattern). Fixes the
+│   │                      #   isolation trap: AI edits land in the
+│   │                      #   worktree (uncommitted changes and/or
+│   │                      #   detached-HEAD commits) while the LOCAL
+│   │                      #   branch ref never moves, so the user's
+│   │                      #   own checkout looks untouched. All git
+│   │                      #   sequences curl-verified against server
+│   │                      #   v2.0.11's shell API (POST /api/shell —
+│   │                      #   see api.ts spawnShell): commit the dirty
+│   │                      #   tree on the detached HEAD (`git add -A &&
+│   │                      #   git commit`, fixed message, "nothing to
+│   │                      #   commit" race tolerated), then advance the
+│   │                      #   local branch — `git merge --ff-only` when
+│   │                      #   the main checkout HOLDS the branch (ref +
+│   │                      #   working copy together), `git branch -f`
+│   │                      #   otherwise (linked worktrees share the
+│   │                      #   object db). DIVERGENCE (branch tip not an
+│   │                      #   ancestor of the wt HEAD, via
+│   │                      #   merge-base --is-ancestor's exit code read
+│   │                      #   off the shell RECORD — no $? bashism)
+│   │                      #   REFUSES before touching anything: manual
+│   │                      #   merge is the user's call, never an
+│   │                      #   automatic one. probeWorktreeDrift is the
+│   │                      #   read-only half (HEAD/tip shas, dirty
+│   │                      #   count, commitsAhead, diverged);
+│   │                      #   outcomes (up-to-date / synced / diverged
+│   │                      #   / error incl. branch-missing) RETURN —
+│   │                      #   the runner never throws.
+│   └── useWorktreeSync.ts # The write-back's STATEFUL half (drift store
+│                          #   + sync action, keyed by worktree
+│                          #   directory — the turnEdits module-store
+│                          #   pattern): one entry per MANAGED worktree
+│                          #   dir holding the drift snapshot, the
+│                          #   syncing flag and the last sync's outcome;
+│                          #   probes are event-driven (mount via
+│                          #   useWorktreeSyncOf, stats-panel expand, the
+│                          #   active session's run end, every sync's
+│                          #   own re-probe — never timers). Logs through
+│                          #   the plugin logger at every outcome
+│                          #   (§3.5); syncWorktreeNow guards re-entry.
 │
 ├── lib/                   # Pure, framework-agnostic (NO React) — ported from
 │   │                      #   lumina-terminal; keep in sync with its sibling when fixed.
@@ -911,9 +1839,13 @@ src/
 │   ├── fileIcons.ts       # fileIconName/fileIconUrl — file path → Material
 │   │                      #   Icon Theme SVG (public/icons/files, generated
 │   │                      #   by `pnpm gen:icons`; maps in
-│   │                      #   fileIcons.generated.ts). Used by composer
-│   │                      #   mentions/suggestions/attachment chips and
-│   │                      #   tool-card file lines. node-testable.
+│   │                      #   fileIcons.generated.ts) + the FOLDER twin
+│   │                      #   folderIconName/folderIconUrl (folder-name →
+│   │                      #   folder-icon map, no extension ladder — the
+│   │                      #   read tool's directory listings wear it, see
+│   │                      #   toolMeta.readOutputIsDirectory). Used by
+│   │                      #   composer mentions/suggestions/attachment
+│   │                      #   chips and tool-card file lines. node-testable.
 │   ├── theme.ts           # appThemeFor(systemTheme) — lumina-code follows the system
 │   │                      #   light/dark (no per-profile palettes like lumina-terminal)
 │   ├── typography.ts      # Custom typography for the General settings:
@@ -929,25 +1861,86 @@ src/
 │   │                      #   model, agent, directory). Never throws; built over
 │   │                      #   persistedStore.ts like every persisted preference,
 │   │                      #   keeping its subscriber-less load/save shape.
+│   ├── moduleStore.ts     # THE in-memory store factory (node-testable,
+│   │                      #   moduleStore.test.ts): createListeners (the
+│   │                      #   listeners+notify+subscribe triple a dozen
+│   │                      #   stores hand-rolled before) +
+│   │                      #   createModuleStore (single value, eq
+│   │                      #   short-circuit) + createKeyedStore (Map +
+│   │                      #   lazy entryOf + identity-stable snapshot()
+│   │                      #   for useSyncExternalStore). The IN-MEMORY
+│   │                      #   counterpart of persistedStore.ts; the
+│   │                      #   reference-stable-snapshot and mutable-entry
+│   │                      #   disciplines live here, seq in-flight guards
+│   │                      #   stay at call sites.
 │   ├── persistedStore.ts  # THE persistence factory (node-testable):
 │   │                      #   createPersistedStore({key, label, read, write, eq})
 │   │                      #   is the ONE implementation behind every
-│   │                      #   localStorage-backed store — key naming, error
+│   │                      #   persisted store — key naming, error
 │   │                      #   handling + logging, same-value short-circuit and
 │   │                      #   the absence-means-default write semantics (write()
 │   │                      #   returning null removes the key) live here and
-│   │                      #   nowhere else. Stores are created at module top
-│   │                      #   level and read SYNCHRONOUSLY before React mounts
-│   │                      #   (typography/language/theme must apply before the
-│   │                      #   first paint — the reason this is a module store,
-│   │                      #   not a React context). set() never throws: a failed
-│   │                      #   storage write is logged while the in-memory value
-│   │                      #   still updates + notifies. If the storage medium
-│   │                      #   ever changes (file-backed, …), only this file
-│   │                      #   changes.
+│   │                      #   nowhere else. MEDIUM: tauri-plugin-store — ONE
+│   │                      #   file, state/state.json under the app data dir
+│   │                      #   (plugin auto-resolves the path, autoSave
+│   │                      #   debounces disk writes), values are the
+│   │                      #   per-store serialized strings.
+│   │                      #   initPersistedState() — awaited by BOTH entries
+│   │                      #   (main.tsx / mobile kv.ts) BEFORE the app bundle
+│   │                      #   imports — seeds an in-memory Map from the file,
+│   │                      #   which is what keeps every store's creation-time
+│   │                      #   read SYNCHRONOUSLY before React mounts
+│   │                      #   (typography/language/theme before first paint).
+│   │                      #   One-time MIGRATION: legacy `lumina-code:*`
+│   │                      #   localStorage keys are harvested into the file
+│   │                      #   (flushed first), then removed. Degradation
+│   │                      #   ladder: no invoke (plain-browser dev) →
+│   │                      #   localStorage; no localStorage (node tests) →
+│   │                      #   memory. set() never throws: a failed write is
+│   │                      #   logged while the in-memory value still updates
+│   │                      #   + notifies.
 │   ├── clipboard.ts       # copyText — clipboard write with an execCommand
 │   │                      #   fallback for webviews lacking the async API
+│   ├── imageCompress.ts   # MOBILE attachment compression (DOM-bound,
+│   │                      #   React-free): compressImageFile re-encodes
+│   │                      #   images through a canvas — longest edge
+│   │                      #   2048, JPEG 0.85 (3–8MB camera photos →
+│   │                      #   0.3–0.8MB; also normalizes HEIC picks
+│   │                      #   providers can't read). Never a gate:
+│   │                      #   non-images, undecodable inputs and
+│   │                      #   no-gain results return the ORIGINAL file.
+│   │                      #   Wired in ChatInput.addFiles under
+│   │                      #   isMobileApp() — the desktop's loopback
+│   │                      #   upload keeps originals (the base64 prompt
+│   │                      #   POST is the mobile frp route's biggest
+│   │                      #   body; see api.ts's UPLOAD_TIMEOUT_MS).
 │   ├── dragRegionDoubleClick.ts # pure predicate behind the title-bar double-click
+│   ├── backStack.ts      # The mobile BACK-LEVEL STACK (node-testable,
+│   │                      #   the persistedStore degradation pattern):
+│   │   │                  #   the frontend half of the system-back
+│   │                      #   integration — every open "page level"
+│   │                      #   (modal, settings second-level page,
+│   │                      #   drawer, popover menu, expanded stats
+│   │                      #   overlay) pushes one {lumId} history
+│   │                      #   entry, and a popstate landing below the
+│   │                      #   stack top closes levels down to it
+│   │                      #   (wry's back routing — re-enabled in
+│   │                      #   MainActivity — turns the system back
+│   │                      #   gesture into exactly those pops; at the
+│   │                      #   root it falls through to finish, the
+│   │                      #   Android convention). UI closes drop
+│   │                      #   their entries in one COALESCED
+│   │                      #   microtasked go(-n), SKIPPED when a push
+│   │                      #   followed the drop batch in the same
+│   │                      #   commit (drawer→import, StrictMode
+│   │                      #   remount — go would pop the successor);
+│   │                      #   those buried stales are eaten by the
+│   │                      #   CASCADE (a popstate landing on a stale
+│   │                      #   lumId with no live levels issues one
+│   │                      #   more go(-1), chaining to the base) so
+│   │                      #   "close via X, then back" never dead-
+│   │                      #   presses. Consumed ONLY through
+│   │                      #   hooks/useBackLevel (isMobileApp-gated).
 │   └── exitGate.ts     # Exit-engine logic (node-testable): the animation/
 │                        #   transition end-event matchers (target must BE
 │                        #   the host; bubbled child events never count),
@@ -1053,13 +2046,17 @@ src/
 │   │                      #   "always" force-expands at every mount).
 │   │                      #   Consumed by SessionStatsCard; the
 │   │                      #   segmented OptionRow is in GeneralSettings.
-│   │                      #   PLUS the cross-surface FILE DRILL request
-│   │                      #   store (requestStatsFileDrill /
-│   │                      #   usePendingStatsFileDrill): the
-│   │                      #   transcript's turn-edit rows (chat/
-│   │                      #   RunFooter) ask the panel — a flex sibling
-│   │                      #   at App level, not an ancestor — to expand
-│   │                      #   and open one file's diff view
+│   │                      #   PLUS the cross-surface DRILL request
+│   │                      #   store (a StatsDrillRequest union —
+│   │                      #   requestStatsFileDrill /
+│   │                      #   requestStatsSubagentDrill /
+│   │                      #   usePendingStatsDrill): the transcript
+│   │                      #   asks the panel — a flex sibling at App
+│   │                      #   level, not an ancestor — to expand into
+│   │                      #   one detail: a turn-edit row (chat/
+│   │                      #   RunFooter) at a file's diff view, a
+│   │                      #   SubagentCard row's click at its child
+│   │                      #   session's live transcript
 │   │                      #   (SessionStatsCard consumes + clears in an
 │   │                      #   effect; its outside-click collapse spares
 │   │                      #   [data-lum-stats-drill] rows so the re-aim
@@ -1109,6 +2106,54 @@ src/
 │   │                      #   banner AND tray entries, live-verified;
 │   │                      #   macOS/Windows keep the plugin.
 │   ├── useDragRegionDoubleClick.ts # capture-phase mousedown + explicit maximize toggle
+│   ├── useBackLevel.ts # Registers one mobile "page level" into the
+│   │                      #   system-back navigation (lib/backStack.ts):
+│   │                      #   useBackLevel(active, onClose) pushes a
+│   │                      #   history entry while active and drops it on
+│   │                      #   cleanup — popstate (system back) and the
+│   │                      #   UI's own close both land in the same
+│   │                      #   onClose, idempotently. Inert on desktop
+│   │                      #   (isMobileApp-gated). Wired into Modal
+│   │                      #   (every modal), SettingsPage (its own
+│   │                      #   close + the pushed pane), App's drawer,
+│   │                      #   PopoverMenu (every
+│   │                      #   picker/menu) and the stats overlay's
+│   │                      #   expanded state.
+│   ├── useLayoutMode.ts  # The mobile app's LAYOUT mode (tablet mode):
+│   │                      #   a persistedStore.ts store
+│   │                      #   ("lumina-code:mobile-layout", auto |
+│   │                      #   phone | desktop, default auto) splitting
+│   │                      #   isMobileApp()'s two jobs apart — the
+│   │                      #   DEVICE/connection semantics (remote frp
+│   │                      #   route, system-back stack, window
+│   │                      #   controls, touch delete surfaces, soft-
+│   │                      #   keyboard focus guard) stay on
+│   │                      #   isMobileApp() forever, while the LAYOUT
+│   │                      #   branches (drawer vs docked sidebar,
+│   │                      #   SidebarResizer, two-level settings vs tab
+│   │                      #   rail, fullscreen vs centered modals, the
+│   │                      #   welcome cluster, mobile.css's phone
+│   │                      #   adaptations) read usePhoneLayout() —
+│   │                      #   tablet mode (layout "desktop") renders
+│   │                      #   the DESKTOP chrome with the remote
+│   │                      #   connection untouched. auto resolves by
+│   │                      #   the Material breakpoint (shortest side
+│   │                      #   >= 600px; WebView CSS px ≈ dp — phones
+│   │                      #   ~410, 7" tablets 600, foldables OPENED
+│   │                      #   ~674) and tracks viewport changes
+│   │                      #   (rotation/fold/split); pinned modes are
+│   │                      #   stable. The General tab's Layout row
+│   │                      #   (mobile-only) edits it; src/mobile/App.tsx
+│   │                      #   mirrors the resolved layout onto #root as
+│   │                      #   data-lum-layout DURING RENDER (first
+│   │                      #   paint correct — an effect would flash),
+│   │                      #   which is mobile.css's hook for scoping
+│   │                      #   the phone-sized overrides. The stats
+│   │                      #   panel needs NO gating: its always-overlay
+│   │                      #   phone behavior is just the phone row
+│   │                      #   never reaching the 79rem flex-sibling
+│   │                      #   container-query tier — a tablet row
+│   │                      #   docks it like the desktop's.
 │   ├── useFollowBottom.ts # stream-follow stickiness for inner scroll regions;
 │   │                      #   also exposes top/bottom edge flags for the
 │   │                      #   conditional .lum-fade-* fades on its boxes
@@ -1139,6 +2184,24 @@ src/
 │   │                      #   overrides — a code block or table that
 │   │                      #   fits its column renders mask-free; the
 │   │                      #   .lum-md-table wrap hugs at fit-content).
+│   ├── useNow.ts          # A ticking "now" for relative-age labels (the
+│   │                      #   sidebar + import picker's 30s tickers,
+│   │                      #   previously hand-rolled in both).
+│   ├── useOutsideDismiss.ts # Capture-phase outside-pointerdown + Escape
+│   │                      #   dismissal (PopoverMenu + the stats panel's
+│   │                      #   overlay collapse — verbatim-duplicated
+│   │                      #   effects before; exempt/escapeBusy params
+│   │                      #   carry the stats panel's drill/modal rules).
+│   ├── useWindowFirstShow.ts # Show the hidden window after first paint,
+│   │                      #   racing the BMS probe (App's old inline
+│   │                      #   effect, extracted).
+│   ├── useChromeThemeSync.ts # HeroUI dark-class sync + the mobile
+│   │                      #   setChromeBackground push (App's old inline
+│   │                      #   effects, extracted; the glassSurfaceEquivalent
+│   │                      #   derivation note lives there).
+│   ├── useIntegrationOAuth.ts # The Model pane's browser-OAuth state machine
+│   │                      #   (extracted from ModelSettings.tsx): start /
+│   │                      #   2s poll / cancel over one flow at a time.
 │   ├── useCopy.ts         # copy feedback shared by run footers and the user
 │   │                      #   bubble: copied flag + ✓ linger reset
 │   └── useTranscriptScroll.ts # ChatView's scroll machinery: bottom-follow with
@@ -1156,17 +2219,73 @@ src/
     │                      #   the right-side BRANCH chip (GitBranch icon +
     │                      #   name, non-interactive; null = no repo, hidden)
     │                      #   — App feeds it useDirectoryBranch's reading,
-    │                      #   or the welcome screen's STAGED branch.
-    ├── SessionBar.tsx     # Left glass sidebar shell: brand row, folder
-    │                      #   collapse/expand state, relative-age ticker,
-    │                      #   bottom new-session button; groups render
-    │                      #   through SessionFolder. Session-row hover
+    │                      #   or the welcome screen's STAGED branch. MOBILE:
+    │                      #   an optional ⋯ menu (onDeleteSession prop, App
+    │                      #   passes it on a phone while a session is open)
+    │                      #   carrying 删除会话 — the delete entry's mobile
+    │                      #   home, relocated from the sidebar rows (a
+    │                      #   finger press synthesizes hover and reveals the
+    │                      #   row's X mid-tap: the tap meant to open the
+    │                      #   session would delete it). NOTE the bar's root
+    │                      #   wears relative z-50: its glass backdrop-filter
+    │                      #   creates a STACKING CONTEXT, so the downward
+    │                      #   menu panel needs the whole bar hoisted above
+    │                      #   the content sibling or it paints UNDER the
+    │                      #   conversation (live-observed on Android).
+    ├── SessionBar.tsx     # Left glass sidebar shell: brand row, THE MODE
+    │                      #   SWITCHER (HeroUI Tabs — 日常/开发, rendered
+    │                      #   ONLY once git availability is CONFIRMED
+    │                      #   (the probe itself fires at the CONNECTION
+    │                      #   level in AppBody — this bar is lazily
+    │                      #   mounted in the phone drawer; appMode.ts),
+    │                      #   the TWO-PAGE session
+    │                      #   slider (both halves stay MOUNTED inside a
+    │                      #   w-[200%] strip that translates between them —
+    │                      #   collapsed folders, scroll positions and show-
+    │                      #   more states survive a switch; a git-less
+    │                      #   machine renders the plain single daily page),
+    │                      #   folder collapse/expand state,
+    │                      #   relative-age ticker,
+    │                      #   bottom action rows — SETTINGS leads the
+    │                      #   group (the row the old Plugins & MCP
+    │                      #   entry occupied; onSettings/settingsOpen
+    │                      #   → App's toggleSettings — the accent-lit
+    │                      #   toggle that swaps in the SettingsPage
+    │                      #   SURFACE, the VS Code shape; the old
+    │                      #   title-bar gear is gone; the Plugins & MCP
+    │                      #   entry MOVED INTO the settings page — the
+    │                      #   extensions tab), then the IMPORT entry
+    │                      #   (FolderInput icon; the trailing count
+    │                      #   badge = importable foreign sessions,
+    │                      #   AppBody feeds onImport/importableCount and
+    │                      #   mounts ImportSessionsModal), then
+    │                      #   new-session; groups render
+    │                      #   through SessionFolder, keyed by PROJECT
+    │                      #   directory (groupByDirectory + the worktree
+    │                      #   bindings — branch sessions merge into the
+    │                      #   main repo's folder). Session-row hover
     │                      #   fires onSessionHover → App's
     │                      #   prefetchSessionActivity (warms the stats
     │                      #   card's data before the click). Expanded
     │                      #   width comes from the sidebar-width store
     │                      #   (useSidebarWidth) — transition suppressed
     │                      #   while the seam is dragged.
+    ├── ImportSessionsModal.tsx # The session-import picker (the sidebar's
+    │                      #   Import row): external OpenCode sessions —
+    │                      #   TUI/CLI/other-instance roots in the shared
+    │                      #   storage — joining the whitelist. Data via
+    │                      #   useSessionData (foreignSessions, live-patched
+    │                      #   by the same folds as the sidebar, so another
+    │                      #   client's new session appears while open);
+    │                      #   importSessions grants membership, the rows
+    │                      #   collapse away through ExitList and land in
+    │                      #   the sidebar's project folders (nothing is
+    │                      #   copied — the transcript already lives on
+    │                      #   the server). Grouped like the sidebar
+    │                      #   (groupByDirectory + worktree bindings, "" →
+    │                      #   "Other Sessions"); the whole row is the
+    │                      #   action; "Import All" when >1; busy foreign
+    │                      #   sessions wear the pulse dot.
     ├── SidebarResizer.tsx # The drag seam between the sidebar and the
     │                      #   conversation area: an invisible OVERLAY sash
     │                      #   (VS Code style) absolutely positioned over the
@@ -1182,29 +2301,106 @@ src/
     │                      #   reset.
     ├── SessionTitle.tsx   # Single-line label: edge-fade truncation + a
     │                      #   hover-debounced HeroUI tooltip when overflowing.
-    ├── SessionFolder.tsx  # One directory group: collapsible header (+/chevron),
-    │                      #   animated session rows (busy dot; pending badge,
-    │                      #   age and close button share one cross-fade slot;
-    │                      #   deleted rows collapse in place via ExitList,
-    │                      #   budget-limited), "Show more/less" expander.
+    ├── SessionFolder.tsx  # One PROJECT group: collapsible header (+/chevron),
+    │                      #   animated session rows (busy dot; branch-worktree
+    │                      #   sessions wear their branch as a quiet chip after
+    │                      #   the title — hint carries the worktree path;
+    │                      #   pending badge, age and close button share one
+    │                      #   cross-fade slot; deleted rows collapse in place
+    │                      #   via ExitList, budget-limited), "Show more/less"
+    │                      #   expander. `plain` strips the folder chrome
+    │                      #   (header + collapse) — the DAILY sidebar half's
+    │                      #   flat list (one workspace, no directory header;
+    │                      #   SessionBar's renderGroups(list, plain)).
+    │                      #   MOBILE rows carry NO delete X and no
+    │                      #   hover fade (synthetic hover on touch would
+    │                      #   reveal the X mid-tap — deleting on an open
+    │                      #   tap); deleting goes through the title-bar ⋯
+    │                      #   menu (TitleBar's onDeleteSession).
     ├── sessionGrouping.ts # Pure sidebar mapping: SessionInfo view-model,
-    │                      #   relativeAge, groupByDirectory, folderGroupLabel
-    │                      #   (a managed worktree dir → "<repo> · <branch>").
+    │                      #   relativeAge, groupByDirectory + projectDirOf —
+    │                      #   the sidebar groups by PROJECT directory: a
+    │                      #   managed worktree's sessions merge into their
+    │                      #   main repo's ONE folder (the branch rides the
+    │                      #   row as a chip in SessionFolder, never forks a
+    │                      #   second block); an unbound worktree dir falls
+    │                      #   back to grouping under itself.
     │                      #   node-testable.
+    ├── SessionSurface.tsx  # The session ↔ welcome ↔ settings
+    │                      #   SEQUENTIAL surface swap (extracted from
+    │                      #   App.tsx; the phase logic in
+    │                      #   lib/surfacePhases.ts: the exit plays out
+    │                      #   alone, a not-yet-seeded successor shows the
+    │                      #   loading dots, the entrance starts only when
+    │                      #   the first frame is renderable. The settings
+    │                      #   PAGE is the third peer surface — always
+    │                      #   ready, so it enters right after the exit).
+    ├── StatsCardSwap.tsx  # The stats card's DIRECTORY-keyed swap fade
+    │                      #   (extracted from App.tsx): a cross-directory
+    │                      #   switch holds the previous card as a frozen
+    │                      #   snapshot (.lum-card-hold) for a short fade
+    │                      #   while the successor mounts.
     ├── ChatPlaceholder.tsx # Welcome-screen logo + greeting
     │                      #   (picked once per mount via greetings.ts).
+    ├── BootScreen.tsx     # THE BOOT GATE (mobile-first): a full-screen
+    │                      #   opaque overlay over the whole chrome from
+    │                      #   the first frame (MOBILE) / past a 1s grace
+    │                      #   (DESKTOP fast path never mounts it) until
+    │                      #   the app is genuinely USABLE — connected ∧
+    │                      #   sessionsLoaded ∧ catalogLoaded (the
+    │                      #   catalog's initial-settle flag, see
+    │                      #   useModelCatalog) ∧ the dev-mode git
+    │                      #   probe settled (verdict OR failure —
+    │                      #   appMode's probed flag; the probe mounts
+    │                      #   in AppBody, so it runs in parallel)
+    │                      #   ∧ the restored session's
+    │                      #   message store seeded (warmed HERE at
+    │                      #   mount via ensureSessionSeeded, parallel
+    │                      #   with the list/catalog fetches — the mobile
+    │                      #   route saves a serial round trip; the
+    │                      #   reveal lands exactly when the session
+    │                      #   surface's entrance starts, both keying the
+    │                      #   same seeded flag). ONE-WAY reveal with
+    │                      #   three exits: ready / connection error
+    │                      #   (immediately — the welcome subtitle keeps
+    │                      #   showing the error + settings access, the
+    │                      #   mobile credential loop self-heals
+    │                      #   underneath) / a 15s valve (the gate only
+    │                      #   ADDs a loading state, never traps longer
+    │                      #   than the pre-gate UI). Visuals all reused:
+    │                      #   CO wordmark + .lum-loading dots +
+    │                      #   ExitPresence's .lum-fade-exit; mounted as
+    │                      #   AppBody's last child (App.tsx).
     ├── greetings.ts       # Pure welcome-greeting picker: per-language pools
     │                      #   (independent id sets — zh-only memes don't leak
     │                      #   to en), probability-gated special occasions
     │                      #   (1024, Thursday KFC, late night, Friday deploy,
-    │                      #   Monday, weekend), {project} interpolation.
+    │                      #   Monday, weekend), {project} interpolation — ALL
+    │                      #   SPLIT BY daily/dev mode (GreetingMode mirrors
+    │                      #   AppMode structurally; mode-scoped sibling
+    │                      #   occasions): daily gets life-assistant wording
+    │                      #   and never a coder meme, dev keeps the original
+    │                      #   set; ChatPlaceholder feeds useAppMode() through.
     │                      #   node-testable.
     ├── WelcomeScreen.tsx  # The no-session surface: greeting + the staged
     │                      #   composer (session created on first send).
+    │                      #   MOBILE: the composer's settings controls
+    │                      #   (mode/project/branch via
+    │                      #   ComposerSettingsControls + model/depth via
+    │                      #   ComposerSelectors) render as a centered,
+    │                      #   wrap-friendly cluster BELOW the box and the
+    │                      #   toolbar reduces to attach + send
+    │                      #   (toolbarMinimal) — five labeled controls
+    │                      #   cannot fit one phone row.
     ├── ui/                # Shared primitives (one of each thing)
     │   ├── IconButton.tsx # THE chrome button — never hand-roll <button> hover swaps
     │   ├── Button.tsx     # THE labeled button (primary/ghost) — shared by request
     │   │                  #   cards (re-exported as CardButton) and modals
+    │   ├── AttachmentChip.tsx # The ONE attachment-chip family (§3.8):
+    │   │                  #   ATTACHMENT_CHIP_CLASS (h-7, radius-sm,
+    │   │                  #   activeOverlay — composer staging + message
+    │   │                  #   bubbles had drifted apart) + AttachmentChipIcon
+    │   │                  #   (image thumb vs file-type icon).
     │   ├── Hint.tsx       # THE hover hint — HeroUI tooltip wrapper (the only
     │   │                  #   replacement for native `title` attributes; falsy
     │   │                  #   label renders the child untouched)
@@ -1250,13 +2446,30 @@ src/
     │   │                  #   the old conditional as present; as="span"
     │   │                  #   keeps button innards legal HTML).
     │   ├── Modal.tsx      # Portal-rendered modal chrome (fadeIn backdrop +
-    │   │                  #   scaleIn panel, Escape/backdrop close)
+    │   │                  #   scaleIn panel, Escape/backdrop close; optional
+    │   │                  #   onBack renders a back arrow before the title —
+    │   │                  #   the mobile settings pages' header)
     │   ├── MaskedSurface.tsx # SVG rounded-rect clip exposing the glass chrome corners
-    │   ├── PopoverMenu.tsx   # Shared dropdown menu
+    │   ├── PopoverMenu.tsx   # Shared dropdown menu. PORTAL mode
+    │                      #   (portal prop): the panel renders under
+    │                      #   <body> with FIXED placement for triggers
+    │                      #   inside scrolling containers (the
+    │                      #   transcript's run-footer usage card) —
+    │                      #   measured at open, following the trigger
+    │                      #   on resize/scroll, above the drawer scrim
+    │                      #   and under modals. Also exports the
+    │                      #   details-card primitives MenuRow (static
+    │                      #   label/value row) and MenuDivider, shared
+    │                      #   by UsageRing and RunFooter's cards.
     │   ├── RollingTitle.tsx # Ellipsized title that scrolls on hover
     │   └── WindowControls.tsx # minimize/maximize/close cluster (non-macOS)
     ├── chat/              # The conversation surface
     │   ├── ChatView.tsx   # Transcript column + composer for the active session.
+    │   │                  #   SLIMMED in the structure refactor: the queue
+    │   │                  #   rows + drag reorder live in QueuedPromptList,
+    │   │                  #   the plan-workflow gates in useGateCards, the
+    │   │                  #   edit-last-message wiring in useEditLastMessage
+    │   │                  #   (all in this directory).
     │   │                  #   Data via the context split (transcript through
     │   │                  #   useSessionTranscript, pending asks through
     │   │                  #   usePendingRequests, catalog through useCatalog) —
@@ -1323,13 +2536,16 @@ src/
     │   │                  #   submit = editResend (revert + resend),
     │   │                  #   success snaps to bottom and ends the
     │   │                  #   edit, failure keeps the composer editing.
-    │   │                  #   THE QUEUED-PROMPT SITE too: handleSend
-    │   │                  #   branches on busy (enqueue vs deliver), the
-    │   │                  #   ONE shared `deliver` feeds the live send /
-    │   │                  #   the flush effect / "send now" rows (see
-    │   │                  #   opencode/promptQueue.ts for the rules),
-    │   │                  #   and the rows' ExitList sits at the top of
-    │   │                  #   the pinned stack above the composer.
+     │   │                  #   THE QUEUED-PROMPT SITE too: handleSend
+     │   │                  #   branches on busy (queue POST vs deliver) —
+     │   │                  #   deliverQueued is deliver's twin (same
+     │   │                  #   vision divert) feeding the server-native
+     │   │                  #   queue POST, and the flush effect is now
+     │   │                  #   ONLY the "stop and send" re-POST batch
+     │   │                  #   (the regular flush is the SERVER's — see
+     │   │                  #   opencode/promptQueue.ts); the rows'
+     │   │                  #   ExitList sits at the top of
+     │   │                  #   the pinned stack above the composer.
     │   ├── transcript.ts  # Pure blockify(): folds runs of activity-only
     │   │                  #   assistant messages into TranscriptBlocks; a persisted
     │   │                  #   model-switched marker becomes its own model-change
@@ -1491,11 +2707,40 @@ src/
     │   │                  #   the envelope (running tools); toolDiffFor
     │   │                  #   flattens them for the accent counts and ToolCard
     │   │                  #   stacks one DiffBody per file. node-testable.
-    │   ├── SubagentCard.tsx # Subagent tool renderer
+    │   ├── SubagentCard.tsx # Subagent tool renderer. A part carrying
+    │   │                  #   metadata.sessionID (running via
+    │   │                  #   tool.progress, settled afterwards) has its
+    │   │                  #   row CLICK drill the workspace panel into
+    │   │                  #   the child's live transcript
+    │   │                  #   (requestStatsSubagentDrill) instead of
+    │   │                  #   toggling the inline report fold — looks
+    │   │                  #   unchanged otherwise; the wrapper div's
+    │   │                  #   data-lum-stats-drill exempts the click
+    │   │                  #   from the panel's outside-click collapse.
+    │   │                  #   Parts without a link keep the fold
     │   ├── RunFooter.tsx + runFooters.ts # Per-turn summary footer (pure collector in
     │   │                  #   runFooters.ts — node-testable; the footer
     │   │                  #   info carries the run's opening userMessageId).
-    │   │                  #   Beyond copy + duration, a turn that EDITED
+    │   │                  #   Beyond copy + duration, the TURN TOKEN
+    │   │                  #   READOUT (the harness-performance
+    │   │                  #   observability seat): ↑ the context
+    │   │                  #   footprint (the run's LAST usage step's
+    │   │                  #   prompt side — input + cache read/write;
+    │   │                  #   prompt tokens are a SNAPSHOT, never summed
+    │   │                  #   across steps — each step's input contains
+    │   │                  #   the whole prior context, summing would
+    │   │                  #   grow quadratically, see usageStats) and ↓
+    │   │                  #   the turn's output (output + reasoning +
+    │   │                  #   cost, summed — outputs are independent per
+    │   │                  #   step); CLICKING the readout opens the
+    │   │                  #   details card (UsageRing's MenuRow
+    │   │                  #   presentation over a PORTAL PopoverMenu —
+    │   │                  #   the footer lives inside the transcript's
+    │   │                  #   scroller, where an in-root absolute panel
+    │   │                  #   would clip at the edge) decomposing the
+    │   │                  #   numbers, and comparing the ↑ readout
+    │   │                  #   across agents/modes is how prompt-shrink
+    │   │                  #   wins are measured. ALSO a turn that EDITED
     │   │                  #   files gets the turns-edits CARD below the
     │   │                  #   row — a recessed bordered box (useColors)
     │   │                  #   whose header "N files changed +A −D"
@@ -1554,10 +2799,83 @@ src/
     │   │                  #   tailActivity.ts is pure + node-testable.
     │   ├── UsageRing.tsx + usageStats.ts # Context/cost ring (pure math in usageStats.ts)
     │   ├── Markdown.tsx   # Shared react-markdown + remark-gfm; links via plugin-opener.
+    │   │                  #   MATH (2026-10): remark-math + rehype-katex
+    │   │                  #   render `$…$` / `$$…$$` through KaTeX
+    │   │                  #   (colors inherit currentColor; both themes
+    │   │                  #   work untouched). LaTeX's own `\(…\)` /
+    │   │                  #   `\[…\]` delimiters fold into dollar form
+    │   │                  #   FIRST by markdownMath.ts (pure,
+    │   │                  #   node-tested) — CommonMark escapes would
+    │   │                  #   otherwise eat the backslashes; block `$$`
+    │   │                  #   follows FENCE syntax (delimiter alone on its
+    │   │                  #   line — a carrying delimiter drops its text),
+    │   │                  #   which the normalizer splits out, and
+    │   │                  #   markdownBlocks.ts tracks open `$$` blocks so
+    │   │                  #   blank lines inside a formula never cut a
+    │   │                  #   chunk. THREE interlocking gotchas
+    │   │                  #   (live-observed 2026-11, each one broke math
+    │   │                  #   in a different way): (1) VERSION LOCK —
+    │   │                  #   katex must stay 0.16.x, the SAME line
+    │   │                  #   rehype-katex@7 resolves (^0.16): a 0.19
+    │   │                  #   stylesheet beside 0.16 DOM silently breaks
+    │   │                  #   script sizing (0.16 emits class "sizing",
+    │   │                  #   0.19's rules select ".katex-sizing"); (2)
+    │   │                  #   rehypeStyles.ts — react-markdown's
+    │   │                  #   hast→JSX layer DROPS every inline style:
+    │   │                  #   style-to-js (its parser dep) is a
+    │   │                  #   pre-exports CJS build whose default export
+    │   │                  #   interop fails ("styleToJs is not a
+    │   │                  #   function", silently caught) — the plugin
+    │   │                  #   after rehype-katex objectifies style
+    │   │                  #   strings (the converter's object path never
+    │   │                  #   calls the broken parser), restoring
+    │   │                  #   KaTeX's vlist positioning; (3) the
+    │   │                  #   stylesheet import lives in MAIN.TSX (the
+    │   │                  #   entry js) — a component-level css import can
+    │   │                  #   miss a long-lived dev webview's HMR, and a
+    │   │                  #   main.css bare-specifier @import gets inlined
+    │   │                  #   through the Tailwind v4 plugin's stale-able
+    │   │                  #   expansion cache; the entry import rides
+    │   │                  #   vite's standard css-module pipeline.
+    │   │                  #   Font prewarm in main.tsx closes the lazy-
+    │   │                  #   load race (WebKitGTK reflows late-arriving
+    │   │                  #   fonts unreliably — a formula laid out with
+    │   │                  #   fallback metrics keeps the wrong layout).
+    │   │                  #   Truncated formulas mid-stream show KaTeX's
+    │   │                  #   red error text and settle when the closer
+    │   │                  #   arrives; `$5 and $6` currency CAN
+    │   │                  #   false-positive into math (accepted
+    │   │                  #   trade-off, same as every mainstream client).
     │   │                  #   Splits text into memoized block chunks (only the
     │   │                  #   tail chunk re-parses per streamed delta) and gates
     │   │                  #   the CSS entrance fade to `live` (streaming)
     │   │                  #   messages — see markdownBlocks.ts + main.css.
+    │   │                  #   Code blocks carry a floating COPY chip
+    │   │                  #   (top-right, host-span anchored, elevated
+    │   │                  #   surface + reveal ladder in main.css):
+    │   │                  #   mdCodeText.ts (pure, node-testable)
+    │   │                  #   extracts the raw text lazily at click.
+    │   │                  #   OFFICE-DOCUMENT LINKS: MdLink (the `a`
+    │   │                  #   override, module-scoped for identity
+    │   │                  #   stability) reads MarkdownWorkspaceContext —
+    │   │                  #   provided ONLY by AssistantBlock with the
+    │   │                  #   session directory (a context so the
+    │   │                  #   memoized blocks keep stable identities;
+    │   │                  #   every other Markdown consumer — gate cards,
+    │   │                  #   tool outputs, todos, subagent reports —
+    │   │                  #   stays un-provided, plain links) — and an
+    │   │                  #   href resolving to a .docx/.pptx (absolute,
+    │   │                  #   or relative to that directory; %-decoding
+    │   │                  #   tolerated; scheme URLs excluded) renders as
+    │   │                  #   the @-file chip look (.lum-file-mention +
+    │   │                  #   button.lum-md-doc in main.css) whose click
+    │   │                  #   drills the workspace panel into the
+    │   │                  #   document's preview
+    │   │                  #   (requestStatsDocumentDrill with size 0 =
+    │   │                  #   unknown-fresh; the panel's refresh swaps in
+    │   │                  #   the scanned row). The write_document tool
+    │   │                  #   RESULT instructs the model to emit these
+    │   │                  #   [名.docx](./名.docx) links.
     │   ├── markdownBlocks.ts # Pure markdown chunker: cuts at blank-line
     │   │                  #   boundaries outside fenced code, conservatively
     │   │                  #   (loose lists / indented continuations / ref-defs
@@ -1581,6 +2899,40 @@ src/
     │   │                  #   "always" only to the first (the rule saves once) + "once" to
     │   │                  #   the rest. Shared chrome in RequestCardChrome.tsx; answer
     │   │                  #   rules in formLogic.ts (pure, node-testable).
+    │   ├── GateCard.tsx       # The plan workflow's shared GATE chrome — title
+    │   │                      #   + icon, restart-orphan warning line, markdown
+    │   │                      #   reading area (conditional fades) and the
+    │   │                      #   reject/approve pair; PlanApprovalCard and
+    │   │                      #   WorkReviewCard are thin wrappers (they were
+    │   │                      #   95% identical before this extraction).
+    │   ├── QueuedPromptList.tsx # The queued rows above the composer AND their
+    │   │                      #   pointer-drag reorder (window listeners +
+    │   │                      #   elementFromPoint + the portaled fixed ghost,
+    │   │                      #   extracted from ChatView — HTML5 DnD proved
+    │   │                      #   unreliable on WebKitGTK). Entrance/exit is
+    │   │                      #   the .lum-queue-enter/-exit synced pair.
+    │   ├── useGateCards.ts    # The gate cards' DERIVATION + DECISION hook (see
+    │   │                      #   ChatView's old inline block): pendingPlan/
+    │   │                      #   pendingWork over the transcript with the
+    │   │                      #   restart-recovery GateContext, the plan/work
+    │   │                      #   decision handlers (switchAgent / the
+    │   │                      #   .lumina/review marker file / interrupt),
+    │   │                      #   the wake-prompt recovery for restart
+    │   │                      #   orphans and the zombie marker probe.
+    │   ├── useEditLastMessage.ts # Edit-last-message wiring (ChatView's old
+    │   │                      #   inline block): which message qualifies,
+    │   │                      #   editing state, the edit bundle threaded to
+    │   │                      #   memoized rows, submit = editResend +
+    │   │                      #   snapToBottom on success.
+    │   ├── UserBubble.tsx     # The USER half of a transcript entry (split from
+    │   │                      #   MessageItem.tsx): the accent bubble,
+    │   │                      #   attachment chips + previews, the send-failed
+    │   │                      #   retry row, the edit pencil — plus
+    │   │                      #   TranscriptEditProps (MessageItem re-exports).
+    │   ├── AssistantBlock.tsx # The ASSISTANT half of a transcript entry (split
+    │   │                      #   from MessageItem.tsx): reasoning disclosure,
+    │   │                      #   markdown text, tool cards — folded into
+    │   │                      #   activity groups by messageParts.
     │   ├── PlanApprovalCard.tsx # The plan workflow's approval card
     │   │                  #   (Route A): the plan_submit executor
     │   │                  #   BLOCKS inside its tool call, so ChatView
@@ -1618,20 +2970,29 @@ src/
     │   │                  #   window listeners resolve the row under
     │   │                  #   the pointer via elementFromPoint — the row
     │   │                  #   root carries data-queued-id — and pointerup
-    │   │                  #   commits moveQueuedPrompt; Esc/release
-    │   │                  #   outside cancels, source dims, target
-    │   │                  #   outlines, and a FIXED ghost copy of the
-    │   │                  #   row follows the pointer — portaled to
-    │   │                  #   document.body (a fixed element inside the
-    │   │                  #   tree gets caught by .lum-row's
-    │   │                  #   container-type containment and offsets
-    │   │                  #   from the cursor), imperative
-    │   │                  #   transform writes, pointer-events:none so
-    │   │                  #   elementFromPoint still resolves the row
-    │   │                  #   beneath it),
-    │   │                  #   the text preview (a slash-command entry shows
-    │   │                  #   its compact /name args form, not the expanded
-    │   │                  #   template), and send-now / edit / remove.
+     │   │                  #   root carries data-queued-id — and pointerup
+     │   │                  #   commits the rewrite (rewriteQueuedOrder —
+     │   │                  #   cancel + re-POST, no server reorder API);
+     │   │                  #   Esc/release
+     │   │                  #   outside cancels, source dims, target
+     │   │                  #   outlines, and a FIXED ghost copy of the
+     │   │                  #   row follows the pointer — portaled to
+     │   │                  #   document.body (a fixed element inside the
+     │   │                  #   tree gets caught by .lum-row's
+     │   │                  #   container-type containment and offsets
+     │   │                  #   from the cursor), imperative
+     │   │                  #   transform writes, pointer-events:none so
+     │   │                  #   elementFromPoint still resolves the row
+     │   │                  #   beneath it),
+     │   │                  #   the text preview (a slash-command entry shows
+     │   │                  #   its compact /name args form, not the expanded
+     │   │                  #   template; a diverted send strips its
+     │   │                  #   protocol note), and stop-and-send (snapshot +
+     │   │                  #   interrupt, NEVER a mid-run steer — see
+     │   │                  #   promptQueue.ts) / edit / remove. A row whose
+     │   │                  #   queue POST DIED renders failed (danger-text
+     │   │                  #   label + retry button; a `sending` row dims
+     │   │                  #   with its actions disabled).
     │   │                  #   The edit pencil locks while edit-last-message
     │   │                  #   owns the composer (the two buffers must not
     │   │                  #   clobber each other). ENTRANCE is SYNCED
@@ -1678,16 +3039,27 @@ src/
     │                      #   75vh); outside-click/Escape collapse is the
     │                      #   useStatsPanelMode "auto" mode)
     │   ├── WorkspaceStatsCard.tsx # The card's data owner: consumes the
-    │                      #   two context scope hooks (workspace diff by
-    │                      #   directory, session terminals/subagents),
+    │                      #   context scope hooks (workspace diff by
+    │                      #   directory, session terminals/subagents)
+    │                      #   PLUS the worktree write-back scope
+    │                      #   (useWorktreeSyncOf + the directory's
+    │                      #   binding — null for non-managed
+    │                      #   directories, hiding pill + section; the
+    │                      #   active session's busy→idle flip is one of
+    │                      #   the drift probe's refresh triggers),
     │                      #   then renders SessionStatsCard (colors via
     │                      #   context).
     │   ├── SessionStatsCard.tsx # The card (presentation + local
     │                      #   navigation only): collapsed summary rows
-    │                      #   (plan progress ✓n/N, +N −N lines,
-    │                      #   terminal/subagent counts) expanding into
+    │                      #   (branch-sync drift, plan progress ✓n/N,
+    │                      #   +N −N lines, terminal/subagent counts)
+    │                      #   expanding into
     │                      #   the detail panel (TodoSection rides ABOVE
-    │                      #   ChangesSection — see stats/TodoSection).
+    │                      #   BranchSyncSection ABOVE
+    │                      #   ChangesSection — see stats/TodoSection;
+    │                      #   the write-back's section/pill exist only
+    │                      #   for managed-worktree directories with
+    │                      #   drift or a last outcome).
     │                      #   ALL motion
     │                      #   is CSS (§3.7): the root wears .lum-enter /
     │                      #   .lum-fade-exit (the exit engine holds the
@@ -1734,6 +3106,65 @@ src/
     │   │                  #   a file the AI newly touches unfurls in, a
     │   │                  #   reverted/checked-out file collapses away;
     │   │                  #   mere re-counts/re-orders render instantly.
+    │   ├── DocumentsSection.tsx # THE DAILY workspace section (opencode/
+    │   │                  #   workspaceDocuments.ts's data): the folder's
+    │   │                  #   document inventory — icon + relative path +
+    │   │                  #   新增/变更 chip + humanSize per row. A row
+    │   │                  #   CLICK on an OFFICE file or IMAGE DRILLS the
+    │   │                  #   panel into its preview (DocumentPreviewBody
+    │   │                  #   — setView {kind:"document"}, the same
+    │   │                  #   overview→detail model as the file/terminal/
+    │   │                  #   subagent rows; requestStatsDocumentDrill is
+    │   │                  #   the transcript-side twin; images preview
+    │   │                  #   their own pixels, isImagePath —
+    │   │                  #   attachmentPreview.ts's extension rule);
+    │   │                  #   every other file
+    │   │                  #   opens in the system's default application
+    │   │                  #   (openPath — needs opener:allow-open-path,
+    │   │                  #   in all three shells' capabilities). The
+    │   │                  #   row-end button reveals it in the file
+    │   │                  #   manager (revealItemInDir, opener:default).
+    │   │                  #   Rows are DIVS (the nested reveal button
+    │   │                  #   would be illegal inside a button) wearing
+    │   │                  #   statsRowClass; same ExitList `enter`
+    │   │                  #   choreography as the changes rows.
+    │   │                  #   SessionStatsCard renders this INSTEAD of
+    │   │                  #   ChangesSection for daily sessions
+    │   │                  #   (activity.mode / documents —
+    │   │                  #   WorkspaceStatsCard picks the scope).
+    │   ├── DocumentPreviewBody.tsx # The DAILY side's document-preview
+    │   │                  #   DRILL BODY (the office-tools plugin's
+    │   │                  #   structure sidecar rendered back —
+    │   │                  #   opencode/docstruct.ts's contract) for
+    │   │                  #   office rows, and a PIXEL preview for image
+    │   │                  #   rows (isImagePath — the file's own bytes
+    │   │                  #   via readFileBlob → blob URL, no sidecar;
+    │   │                  #   subfolder-safe read target via
+    │   │                  #   splitFilePath, size-keyed reload when the
+    │   │                  #   AI rewrites the image): a docx
+    │   │                  #   renders as a THEME-COLORED document flow
+    │   │                  #   (headings/paragraphs/lists/tables/embedded
+    │   │                  #   images — a CONTENT preview: docx pagination
+    │   │                  #   is computed by Word's layout engine at
+    │   │                  #   render time, so no pages, paper chrome or
+    │   │                  #   fixed page width are simulated), a pptx as
+    │   │                  #   one 16:9 card
+    │   │                  #   per slide (title/bullets/image/notes footer
+    │   │                  #   + page chip). Fidelity is "what the
+    │   │                  #   document says", not how Word paginates —
+    │   │                  #   the action row's system-app buttons cover
+    │   │                  #   the real look. No sidecar (user's own/
+    │   │                  #   foreign documents) → a notice + the
+    │   │                  #   system-app button; a size mismatch (edited
+    │   │                  #   in Word since generation) → the staleness
+    │   │                  #   banner, still rendered. Images load as
+    │   │                  #   blob URLs through readFileBlob (the
+    │   │                  #   AttachmentPreview lifecycle — revoked on
+    │   │                  #   swap/unmount); unknown block types render
+    │   │                  #   as nothing (forward-compatible with a
+    │   │                  #   newer plugin). The row resolves LIVE at
+    │   │                  #   the card (a re-scan's byte count flows
+    │   │                  #   into the staleness check).
     │   ├── TerminalsSection.tsx # Background-shell rows (ExitList with
     │   │                  #   `enter`: a shell moved off the foreground
     │   │                  #   unfurls in at the bottom of the list —
@@ -1780,6 +3211,20 @@ src/
     │                      #   a completed work_submit → "archived"
     │                      #   (terminal; the record lives in
     │                      #   .lumina/archived/).
+    │   └── BranchSyncSection.tsx # The worktree write-back's expanded
+    │                      #   section (opencode/worktreeSync.ts runs
+    │                      #   the git, useWorktreeSync.ts holds the
+    │                      #   state): the binding line (branch → main
+    │                      #   repo, full path on hover), the drift
+    │                      #   counts (commits ahead / dirty files), the
+    │                      #   同步到本地分支 button (disabled while the
+    │                      #   session runs — hint explains why) and the
+    │                      #   last outcome line (synced summary /
+    │                      #   diverged + the exact `git -C <main> merge
+    │                      #   <sha>` to run / error + git's own text).
+    │                      #   The collapsed pill lives in
+    │                      #   SessionStatsCard (attention signal:
+    │                      #   drift or an in-flight sync).
     ├── composer/          # The prompt composer
         ├── ChatInput.tsx  # Composer shell: staged attachments (chips),
         │                  #   slash-command fetch (per-directory, retried),
@@ -1803,6 +3248,10 @@ src/
         │                  #   active) — then fires onDraftLoaded. While
         │                  #   busy the placeholder switches to the
         │                  #   queue hint ("继续输入以排队发送").
+        │                  #   toolbarMinimal (MOBILE welcome only)
+        │                  #   reduces the toolbar to attach + send —
+        │                  #   the below-composer cluster hosts the
+        │                  #   settings controls + selectors.
         ├── ComposerCore.tsx # Editor internals: trigger-driven suggestions,
         │                  #   keyboard routing (Enter/arrows/Tab/Esc, IME-safe),
         │                  #   submit serialization, paste-to-attach.
@@ -1819,16 +3268,46 @@ src/
         │                  #   QUEUES — opencode/promptQueue.ts — instead
         │                  #   of steering the run, and the title says so),
         │                  #   no text while running → stop, idle + empty →
-        │                  #   send disabled. Owns the catalog →
-        │                  #   picker mapping (provider groups, variants) and
-        │                  #   the model-config entry (empty-state "no models
-        │                  #   configured" when catalogOnly, and the
-        │                  #   scrollable list's last "configure models…"
-        │                  #   row) raising onOpenModelConfig (App opens
-        │                  #   Settings on Model).
+        │                  #   send disabled. The settings controls and
+        │                  #   selectors live in EXPORTED components
+        │                  #   (same file): ComposerSettingsControls
+        │                  #   (mode picker + pre-session directory/
+        │                  #   branch pickers) and ComposerSelectors
+        │                  #   (usage ring + model + thinking depth with
+        │                  #   ALL the catalog wiring: provider groups,
+        │                  #   disabled-model filter, context-limit
+        │                  #   resolution, variant-preserving switch, the
+        │                  #   model-config entry raising
+        │                  #   onOpenModelConfig) — because MOBILE's
+        │                  #   welcome screen hosts the whole cluster
+        │                  #   BELOW the composer (five labeled controls
+        │                  #   cannot fit a phone row) while the
+        │                  #   in-session toolbar embeds both
+        │                  #   (ComposerSelectors' align prop — the
+        │                  #   centered welcome cluster passes "auto":
+        │                  #   PopoverMenu measures at open and clamps
+        │                  #   the panel into the viewport, since a
+        │                  #   wrapping chip row has no stable screen
+        │                  #   side); minimal={true} strips the
+        │                  #   toolbar to attach + send and adds
+        │                  #   .lum-toolbar-plain (send keeps its
+        │                  #   right-edge spring, main.css).
+        ├── composerSerialize.ts # The composer's submit serialization — the
+        │                  #   editor-state → {text, paths} walk (mention
+        │                  #   tokens re-prefixed "@relative"; the
+        │                  #   composerTriggers.ts precedent for extracted
+        │                  #   Lexical node algorithms).
         ├── composerTriggers.ts # Lexical node-tree algorithms: `@`/`/` trigger
         │                  #   detection (CJK-aware) + atomic mention ←/→.
         ├── composerAttachments.ts # Data-URI attachment reader + size cap
+        │                      #   (10MB; oversize/unreadable picks are
+        │                      #   COUNTED back to ChatInput's red notice,
+        │                      #   never silently dropped) + filesFromMessage
+        │                      #   — the sent-message → attachments rebuild
+        │                      #   shared by edit-mode chip staging AND the
+        │                      #   failed-send retry (uri riders and
+        │                      #   file:// refs pass through verbatim;
+        │                      #   node-testable, composerAttachments.test.ts).
         ├── composerDrafts.ts  # In-memory composer draft store (Map keyed
         │                      #   by surface — WELCOME_DRAFT_KEY or the
         │                      #   session id): serialized Lexical
@@ -1839,19 +3318,37 @@ src/
         ├── FileMentionNode.tsx / CommandMentionNode.tsx # Lexical token TextNodes
         ├── ToolbarButton.tsx # The composer's compact toolbar control
         ├── DirectoryPicker.tsx # Working-directory chooser (dialog + GET /api/project);
-        │                      #   the BRANCH binding is its own sibling
-        │                      #   button (BranchPicker) — the two stay
-        │                      #   independent picks on the toolbar.
+        │                      #   DEV ONLY (ComposerSettingsControls hides
+        │                      #   it in daily mode — the workspace is fixed)
+        │                      #   and with NO "default directory" item: dev
+        │                      #   sessions must name a real project, the
+        │                      #   unset state blocks sending
+        │                      #   (useSessionFlow's sendBlocked) until a
+        │                      #   choice is made, and an unstaged welcome
+        │                      #   composer preselects the most recent dev
+        │                      #   session's project. The BRANCH binding is
+        │                      #   its own sibling button (BranchPicker) —
+        │                      #   the two stay independent picks on the
+        │                      #   toolbar.
         └── BranchPicker.tsx   # The pre-session BRANCH button (the project
                           #   picker's sibling): the plain LOCAL branch
                           #   list; picking a branch → sendFirst pins the
                           #   next session to a server worktree. The
-                          #   repo's CURRENT branch wears a 「主分支」chip
-                          #   (row's right edge, always sorted to the TOP)
-                          #   and selecting IT means the plain main
-                          #   worktree (that row doubles as the default/
-                          #   null binding — no isolation, the session
-                          #   runs where the user's checkout already is).
+                          #   repo's DEFAULT branch (remote HEAD symref
+                          #   `.git/refs/remotes/<remote>/HEAD`, read via
+                          #   fs/read → gitInfo.parseRemoteHead, with the
+                          #   conventional main/master fallback of
+                          #   pickDefaultBranch; none determinable → no
+                          #   chip) wears a 「主分支」chip; the CURRENT
+                          #   branch wears 「当前分支」 when it is not the
+                          #   default, stays sorted to the TOP, and
+                          #   selecting IT means the plain main worktree
+                          #   (that row doubles as the default/null
+                          #   binding — no isolation, the session runs
+                          #   where the user's checkout already is; the
+                          #   null binding is tied to the CHECKOUT, never
+                          #   to the default branch — picking 「主分支」
+                          #   from a `dev` checkout still pins a worktree).
                           #   Remote refs are classified away, not listed.
                           #   The button shows the STAGED branch, else the
                           #   CURRENT one (a "following" state); hidden
@@ -1864,14 +3361,74 @@ src/
                           #   changeDirectory — the one place the siblings
                           #   meet).
 
-    └── settings/           # The settings modal (title-bar gear; layout
-                           #   follows lumina-terminal's settings pages)
-    ├── SettingsModal.tsx # Modal shell: left tab rail (General / Model /
-    │                      #   About) over ui/Modal; ONE pane mounts at a
-    │                      #   time (mount doubles as the pane's open →
-    │                      #   ModelSettings loads/resets on mount). App owns
-    │                      #   {open, tab} so entry points deep-link a tab.
+    └── settings/           # The settings PAGE (the sidebar's bottom-left
+                           #   gear; layout follows lumina-terminal's
+                           #   settings pages)
+    ├── SettingsPage.tsx  # A PEER SURFACE of the session and welcome
+    │                      #   screens: App's SessionSurface swaps to the
+    │                      #   "settings" key like a session switch — the
+    │                      #   leaving surface (conversation AND stats
+    │                      #   panel) UNLOADS completely through the same
+    │                      #   sequential exit/entrance choreography, and
+    │                      #   transcripts/composer drafts survive in the
+    │                      #   module stores exactly like a session
+    │                      #   switch (always-ready: no seed, so it enters
+    │                      #   right after the exit with no loading
+    │                      #   phase). NO close button by design —
+    │                      #   navigation is the sidebar gear row (toggle),
+    │                      #   a sidebar session click (App's
+    │                      #   selectSession/startNewSession leave the
+    │                      #   surface), Escape, or the mobile back
+    │                      #   gesture (both back levels declared in
+    │                      #   order: page close first, the pushed pane's
+    │                      #   pop second = stack top). While it is the
+    │                      #   live surface the chrome reads like the
+    │                      #   WELCOME screen (App's surfaceSession/
+    │                      #   surfaceActiveId): no selected session row,
+    │                      #   no session title/branch chip, no mobile ⋯
+    │                      #   delete entry — never a second tab
+    │                      #   coexisting with the session (the real
+    │                      #   activeId survives underneath; closing
+    │                      #   returns to it). It mounts only
+    │                      #   while it is the live surface, so "open" is
+    │                      #   implicit — App owns only the tab. TWO
+    │                      #   LAYOUTS. Desktop: the HeroUI Tabs
+    │                      #   component in its VERTICAL form (the mode
+    │                      #   switcher's Tabs, SessionBar) wrapped in
+    │                      #   Tabs.ListContainer — the component's OWN
+    │                      #   container chrome (bg-default pill, the
+    │                      #   theme radius 2.5×--radius = 20px,
+    │                      #   ScrollShadow overflow), no hand-rolled
+    │                      #   radius/background; the .lum-settings-tabs
+    │                      #   scope only scrubs heroui's blue focus
+    │                      #   ring (main.css) — as a w-56 rail (General /
+    │                      #   Model / Usage / Server / Extensions /
+    │                      #   About), NO header
+    │                      #   (tab-like: the rail starts at the top); ONE
+    │                      #   pane mounts at a time (mount doubles as the
+    │                      #   pane's open → ModelSettings loads/resets on
+    │                      #   mount), the pane column width-capped +
+    │                      #   centered (max-w-[52rem] — a SettingRow's
+    │                      #   label/control must not drift to a full-area
+    │                      #   window's opposite ends). Mobile: TWO-LEVEL
+    │                      #   page navigation — a full-width CATEGORY LIST
+    │                      #   (the tab rows as h-11 chevron rows) pushes
+    │                      #   the pane as a sliding page (.lum-m-page-in
+    │                      #   from the right, an absolute overlay over the
+    │                      #   always-mounted list; the pushed page carries
+    │                      #   the page's ONE header — a back row — popping
+    │                      #   it out through the exit engine, the
+    │                      #   frozen-pane ghost kept by a lastPaneRef). A
+    │                      #   NULL tab is the mobile root list (desktop
+    │                      #   reads null as "general"), so list rows and
+    │                      #   the desktop rail share one onTabChange and
+    │                      #   openSettings("model") lands directly on the
+    │                      #   second level.
     ├── GeneralSettings.tsx # Language + appearance rows, the
+    │                      #   SLIMMED: the system-prompt editor
+    │                      #   (SystemPromptSection.tsx) and the Blur my
+    │                      #   Shell rows (BlurMyShellSettings.tsx) are files
+    │                      #   now; SectionHeader is shared with About.
     │                      #   activity-panel mode OptionRow (auto
     │                      #   collapse / always open), the desktop-
     │                      #   notification tier OptionRow + focus-mute
@@ -1883,15 +3440,62 @@ src/
     │                      #   "接入" button — addToBmsWhitelist — and
     │                      #   active binds the translucent render's
     │                      #   Switch + the opacity/static-blur advice
-    │                      #   lines; the pane mount re-probes), and a
-    │                      #   Fonts section
-    │                      #   (AboutSettings-style header; one control per
-    │                      #   row — family input / size stepper — plus
-    │                      #   reset); everything acts instantly through
+    │                      #   lines; the pane mount re-probes), a Fonts
+    │                      #   section (AboutSettings-style header; one
+    │                      #   control per row — family input / size
+    │                      #   stepper — plus reset), and the CUSTOM
+    │                      #   SYSTEM PROMPT section — the pane's only
+    │                      #   server-backed editor (SystemPromptSection:
+    │                      #   loads the plugin-level systemPrompt option
+    │                      #   from the global opencode.json on mount,
+    │                      #   saves through ensureLuminaToolsPlugin with
+    │                      #   withSystemPrompt, JSONC/read-failure
+    │                      #   degrade to the manual-edit notice); the
+    │                      #   rest acts instantly through
     │                      #   module stores (i18n, useThemePreference,
     │                      #   useStatsPanelMode, useWindowOutline,
     │                      #   useBlurMyShell, useTypography).
+    ├── modelSettingsChrome.tsx # Shared chrome for the Model pane's sub-views
+    │                      #   (split out of ModelSettings.tsx): Field (the
+    │                      #   labeled form row), AccentBadge (the ONE accent
+    │                      #   status badge — four hand-rolled copies' text
+    │                      #   colors had already drifted), useModelsList
+    │                      #   (the cancel-safe listModels effect ToolsTab and
+    │                      #   ProviderDetail both ran).
+    ├── ToolsTab.tsx      # The Model pane's THIRD tab — Lumina Code's custom
+    │                      #   tools (src/plugins/luminaTools.js): the vision
+    │                      #   tool's model picker + on/off switch, saved
+    │                      #   through the shared installer. Split from
+    │                      #   ModelSettings.tsx.
+    ├── ProviderDetail.tsx # One provider's auth surface (split from
+    │                      #   ModelSettings.tsx): stored credentials
+    │                      #   (activate/remove), the API-key form, OAuth
+    │                      #   buttons + the device-code status block, the
+    │                      #   env hint, per-model picker-visibility toggles.
+    ├── CustomProviderForm.tsx # The custom provider add/edit form (split from
+    │                      #   ModelSettings.tsx); validation + config-text
+    │                      #   building live in modelConfig.ts
+    │                      #   (validateCustomProvider / customProviderText).
+    ├── SystemPromptSection.tsx # The General pane's custom system prompt
+    │                      #   editor (split from GeneralSettings.tsx — a
+    │                      #   server-config editor among instant-apply
+    │                      #   rows): loads the plugin-level systemPrompt
+    │                      #   option, saves through ensureLuminaToolsPlugin
+    │                      #   with withSystemPrompt, JSONC/read-failure
+    │                      #   degrade to the manual-edit notice.
+    ├── BlurMyShellSettings.tsx # The Blur my Shell rows (split from
+    │                      #   GeneralSettings.tsx; the isLinux() gate lives
+    │                      #   HERE — one check, not one per row).
+    ├── SectionHeader.tsx  # The one settings section-header look (General's
+    │                      #   Typography group + About's Dependencies —
+    │                      #   two identical inline copies before).
     ├── ModelSettings.tsx # Formerly composer/ModelConfigModal: searchable
+    │                      #   SLIMMED in the structure refactor: ToolsTab /
+    │                      #   ProviderDetail / CustomProviderForm are files
+    │                      #   now (this directory), the OAuth state machine
+    │                      #   is hooks/useIntegrationOAuth, shared chrome in
+    │                      #   modelSettingsChrome.tsx — this file is the pane
+    │                      #   shell (tabs, providers list, custom list).
     │                      #   integration list, API-key connect, browser-OAuth
     │                      #   flow with attempt polling, credential
     │                      #   activate/remove, per-provider model switches
@@ -1915,6 +3519,75 @@ src/
     │                      #   (pure) splits it out for a prominent mono
     │                      #   display + copy; code-less instructions
     │                      #   (Snowflake etc.) show as a plain caption.
+    ├── UsageSettings.tsx # The Usage pane — the stats endpoint's
+    │                      #   model-share donut + per-model daily-trend
+    │                      #   lines (data: GET /api/experimental/
+    │                      #   session/stats, curl-verified v2.0.11 —
+    │                      #   api.sessionStats; ONE whole-window query
+    │                      #   for the header totals + ONE query per
+    │                      #   LOCAL day for the per-model matrix, all
+    │                      #   parallel: the endpoint's activity[] has
+    │                      #   NO model split, so the time series is
+    │                      #   assembled client-side from day windows;
+    │                      #   a failed day drops out of its rows, a
+    │                      #   failed summary degrades the header to the
+    │                      #   series' own aggregate). Variants collapse
+    │                      #   into providerID/modelID rows (thinking-
+    │                      #   depth picks are one model). Range switch:
+    │                      #   7/30 days. Charts are hand-rolled SVG in
+    │                      #   UsageCharts.tsx (the UsageRing doctrine —
+    │                      #   no chart library): UsageDonut (center
+    │                      #   readout swaps to the hovered model's
+    │                      #   share; a single model owning 100% renders
+    │                      #   the evenodd full ring — an arc path
+    │                      #   degenerates at 2π), UsageLegend and
+    │                      #   UsageLines (niceTicks y grid +
+    │                      #   xLabelIndices sparse date labels), all
+    │                      #   three sharing ONE hover channel so a
+    │                      #   sector, its legend row and the matching
+    │                      #   line cross-highlight. Pure shaping
+    │                      #   (variant folding, day windows, pie
+    │                      #   geometry, tick math) + the fixed 8-color
+    │                      #   palette (SVG attributes can't resolve
+    │                      #   var()) live in usageOverview.ts,
+    │                      #   node-testable (usageOverview.test.ts).
+    ├── ExtensionsSettings.tsx # The Plugins & MCP pane (formerly the
+    │                      #   sidebar-entry ExtensionsModal): every
+    │                      #   user-manageable extension the server
+    │                      #   loaded — plugins (non-builtin rows from
+    │                      #   GET /api/plugin plus REMOVE-DIRECTIVE
+    │                      #   rows the runtime list cannot see) and MCP
+    │                      #   servers — each with an enable/disable
+    │                      #   Switch. Toggles are config rewrites the
+    │                      #   server HOT-RELOADS (opencode/
+    │                      #   pluginsMcp.ts); data + actions live in
+    │                      #   opencode/useExtensions.ts. lumina-tools
+    │                      #   carries a built-in notice (disabling it
+    │                      #   kills Plan Mode) but stays toggleable; a
+    │                      #   plugin that failed before exporting an id
+    │                      #   renders display-only. Each MCP row also
+    │                      #   carries a LOG button expanding a
+    │                      #   per-server log panel under the row
+    │                      #   (Reveal unfurl; mono line list with
+    │                      #   local-time + level colors, Refresh
+    │                      #   re-pull, one panel at a time — data via
+    │                      #   opencode/mcpLogs.ts).
+    ├── ServerSettings.tsx # The Server pane — DUAL-PURPOSE by platform.
+    │                      #   Desktop: sign in to a self-hosted
+    │                      #   lumina-code-server (url + credentials → the
+    │                      #   serverConnection store, picked up live by
+    │                      #   useServerFrp), the remote-access Switch
+    │                      #   + its LIVE frp connection status row
+    │                      #   (useFrpStatus — colored dot + label:
+    │                      #   connecting / connected / reconnecting /
+    │                      #   retrying / no-frps / error; route id on
+    │                      #   success, error text on failure), sign
+    │                      #   out (revoke best-effort then clear).
+    │                      #   Mobile: the app's
+    │                      #   ACCOUNT page — the logged-in server
+    │                      #   address + sign out (logout best-effort
+    │                      #   then clearMobileConnection, which remounts
+    │                      #   the whole tree back to the login screen).
     ├── AboutSettings.tsx # About pane: centered identity hero (icon +
     │                      #   name + app version via getVersion), the
     │                      #   OpenCode server version as a key/value line,
@@ -1926,6 +3599,9 @@ src/
     ├── Switch.tsx        # The settings pill switch (extracted from
     │                      #   ModelSettings when General needed one too).
     ├── TextInput.tsx     # The settings boxed text input (same extraction).
+    ├── TextArea.tsx      # Its multiline twin (same surface language) for
+    │                      #   paragraph values — the General tab's custom
+    │                      #   system prompt.
     ├── modelConfig.ts    # Pure model-config logic: integration search,
     │                      #   custom-provider config merge/remove/read-back
     │                      #   (globalConfigTarget itself lives in
@@ -1944,11 +3620,57 @@ frontend. `system.rs` plus the `opencode/` module:
 src-tauri/src/
 ├── main.rs        # entry, calls lib::run()
 ├── lib.rs         # Tauri builder: plugins (log → LogDir "lumina-code" + Webview
-│                  #   target, os, opener, dialog, notification), Linux env workarounds set BEFORE
+│                  #   target, os, opener, dialog, notification, store — the
+│                  #   last one being tauri-plugin-store, the file-backed
+│                  #   persistence behind lib/persistedStore.ts's state file),
+│                  #   Linux env workarounds set BEFORE
 │                  #   GTK init (__NV_DISABLE_EXPLICIT_SYNC; GDK_DEBUG=gl-no-fractional
 │                  #   for Wayland fractional scaling), invoke_handler, and the Exit
 │                  #   hook that kills the owned server (opencode::shutdown).
 ├── system.rs      # is_wayland command (XDG_SESSION_TYPE, WAYLAND_DISPLAY fallback)
+├── lumina_http.rs # lumina_request: the lumina-code-server HTTP transport (the Rust
+│                  #   half of opencode/serverConnection.ts's LuminaServerApi).
+│                  #   WHY requests to the self-hosted server must NOT ride
+│                  #   the webview's fetch (live-observed 2026-10-18, phone
+│                  #   -hotspot network + local proxy): tauri/wry's WebKitGTK
+│                  #   network stack (libsoup/GnuTLS) failed EVERY path to
+│                  #   the server with an opaque `TypeError: Load failed`
+│                  #   (system proxy / direct / clean env), while curl
+│                  #   (OpenSSL), bare libsoup and a bare WebKitGTK page all
+│                  #   succeeded against the same host — a backend channel
+│                  #   must not drift with the user's proxy software or the
+│                  #   network's TLS-fingerprint handling. So LuminaServerApi
+│                  #   invokes this instead of fetch: plain reqwest
+│                  #   (native-tls), proxies explicitly DISABLED, 20s
+│                  #   timeout, one JSON-in/JSON-out shape ({baseUrl, token,
+│                  #   method, path, body?} → {status, body}). Error
+│                  #   contract: transport failures are the command's Err;
+│                  #   HTTP responses always Ok — the client maps `{error}`
+│                  #   bodies + tags `.status` (the old fetch shape). CEF
+│                  #   shell mounts it single-source via #[path].
+├── frp.rs         # REMOTE ACCESS: the frpc sidecar lifecycle (the tunnel's
+│                  #   replacement). frp_start {addr, port, token, routeId,
+│                  #   localPort, secure} writes a throwaway frpc.toml into
+│                  #   the app data dir (TOML-escaped, routeId
+│                  #   charset-validated — it doubles as the frp proxy name
+│                  #   AND the nginx /t/<id>/ segment) and spawns the
+│                  #   resource sidecar (fetch-frp.mjs; $FRPC_BIN
+│                  #   overrides); a monitor thread emits "frp-status"
+│                  #   running/exited, frp_stop kills + removes the config,
+│                  #   and the app-exit hook calls frp::shutdown so the
+│                  #   route drops with the app. TRANSPORT, by the secure
+│                  #   flag (server's LUMINA_FRPS_CONTROL decides):
+│                  #   secure=true → transport.protocol = "wss" — frpc
+│                  #   dials wss://addr:port/~!frp (path FIXED in frp
+│                  #   0.71.x) through nginx's WebSocket upgrade; the ONLY
+│                  #   shape that passes Cloudflare (CF fronts HTTP(S)
+│                  #   only and cuts frp's raw TCP frame — live-observed
+│                  #   as "session shutdown"). secure=false → legacy raw
+│                  #   TCP + frp's own TLS (direct-reach deployments).
+│                  #   Binary resolution mirrors resolve.rs: resource dir →
+│                  #   dev checkout binaries/ → PATH. The frontend half is
+│                  #   hooks/useServerFrp.ts (registration/heartbeat live
+│                  #   there — Rust only supervises the process).
 ├── notify.rs      # desktop_notify: the Linux notification sender over a
 │                  #   PERSISTENT zbus session connection (OnceLock, process
 │                  #   lifetime). tauri-plugin-notification/notify-rust drops
@@ -2106,25 +3828,211 @@ dependency versions.
   the conf file's directory; commands (`beforeDevCommand`) run relative to
   the app dir (`cef/`) — hence `../../dist` vs `--dir ..`.
 
-### lumina-server (`server/`) — the self-hosted companion server
+### The mobile app (`mobile/` + `src/mobile/`) — the desktop tree over the frp route
+
+iOS/Android client on **stable crates.io Tauri 2** (`=`-pinned to the
+desktop lock/npm versions — caret CANNOT stay on a minor, see
+mobile/README.md). **v2 architecture — the desktop-tree takeover**: the
+mobile app mounts the REAL desktop `App` (the whole UI tree: transcript,
+composer, settings, drawer sidebar) and talks to the DESKTOP's opencode
+**directly** through the server's frp route — `useOpencode`'s
+`isMobileApp()` remote branch fetches the credential from
+`GET /api/frp/connect` (the account's current route id + the desktop's
+opencode password) and connects to `<server>/t/<routeId>/` with
+`Basic opencode:<password>`: nginx strips the prefix + rewrites Host to
+`<routeId>.frp.internal`, frps routes on the Host, the desktop's frpc
+pipes to 127.0.0.1 (spike-verified: SSE streams through with
+sub-microsecond overhead; repeatable `--cors` origins let the preflight
+through). The branch also owns the remote HEALS: SSE reconnects
+re-seed every tracked session (the mobile-network heal), the liveness
+gate fast-polls until the route answers then re-issues the api handle
+on recovery, and a 401 (desktop restarted → password rotated)
+re-fetches the connect info, rebuilds client + stream and reseeds.
+The v1 custom screens (SessionList/Session/ComposerBar/ActivityPanel)
+are DELETED; only LoginScreen + the kv gate remain under
+src/mobile/ (kv.ts now only plants the __LUMINA_MOBILE__ flag and
+awaits initPersistedState before importing the app — the old ArkWeb
+localStorage shim is gone, replaced by tauri-plugin-store's invoke
+channel; the Rust shell's kv_load/kv_set were removed with it).
+
+The route's other halves: **server** `server/src/lib/frp.ts` +
+`server/src/app/api/frp/**` (config / routes / connect — the credential
+exchange over the `frp_routes` table, one CURRENT route per user with
+fresh-route takeover; config also serves the CONTROL-CHANNEL WebSocket
+ride `LUMINA_FRPS_CONTROL` → `{control:{host,port,secure}}` — CF-fronted
+deployments MUST set it: Cloudflare passes only HTTP(S) and cuts frp's
+raw TCP frame at the edge) + the frps container (server/deploy/frps.toml,
+mounted by docker-compose: host ports are a contiguous block — 14600
+web / 14601 the frpc control channel / 14602 the HTTP vhost (BOTH
+published loopback-only by default — the control channel rides nginx's
+`location = /~!frp` WebSocket upgrade (frp 0.71.x dials that exact path
+with `transport.protocol = "wss"`, frps accepts ws on bindPort natively —
+spike-verified); unset LUMINA_FRPS_CONTROL reverts to the legacy direct
+TCP mode, which needs 14601 published publicly)); **desktop**
+`src-tauri/src/frp.rs` (frpc child lifecycle, the opencode.rs pattern)
+driven by `src/hooks/useServerFrp.ts` (AppBody, gated by the Server
+settings' 远程访问开关 — registers the password + heartbeat, derives
+the local port/password from the OpencodeApi handle) +
+`scripts/fetch-frp.mjs` (the pinned frpc resource sidecar — mirror-
+aware + sha256-verified; frpc 0.71.1 runs against the compose's
+0.71.0-alpine frps — cross-version verified, see §1's version note).
+The opencode password DOES live on the server now — a
+deliberate trust-model change, documented in server/README.md.
+
+Mobile chrome decisions live in the DESKTOP tree keyed off
+`isMobileApp()` (lib/platform.ts — the window flag kv.ts plants before
+the app bundle imports): sidebar → TitleBar-hamburger DRAWER (the only
+session navigation), the stats panel mounted as an ALWAYS-OVERLAY over
+the conversation (mobile.css widens the expanded panel to span the row;
+the wide-row flex-sibling tier stays desktop's), SidebarResizer not
+mounted, the Server
+settings tab mounting as the app's ACCOUNT page (server address + sign
+out — see ServerSettings' mobile branch), TitleBar's window controls
+hidden. mobile.css carries the
+narrow-layout adaptations + the login card — html/body get NO colors
+(splash-era inline colors poison the app tree's inherited text) — plus
+the settings page's second-level PAGE animations (.lum-m-page-in/-out,
+the push/pop over the category list; see SettingsPage).
+TABLET MODE splits that flag's two jobs (hooks/useLayoutMode.ts): the
+LAYOUT half of those decisions (drawer, resize seam, settings
+navigation, modal shape, welcome cluster, mobile.css's phone
+adaptations via #root[data-lum-layout]) reads usePhoneLayout() instead
+and resolves to the DESKTOP chrome on tablet-class screens (auto =
+Material 600px shortest-side breakpoint; user-pinnable in General →
+Layout — phone / auto / tablet), while the DEVICE/connection half
+(remote frp-route opencode, system-back stack, hidden window controls,
+touch delete surfaces, soft-keyboard focus guard, touch composer
+height) stays on isMobileApp() regardless of layout — a tablet in
+desktop layout still connects to the DESKTOP's opencode remotely.
+
+- **Frontend = second vite entry**: `mobile/index.html` → `src/mobile/`
+  (config `mobile/vite.config.ts`, port 1421, outDir `dist-mobile/`).
+  main.css declares an explicit `@source` — Tailwind v4's content
+  detection follows the VITE ROOT (mobile/), so without it the desktop
+  tree's utilities silently drop out of the bundle.
+- **beforeBuildCommand runs at the REPO ROOT** (`pnpm run build:mobile`).
+- `gen/android`/`gen/ios` are committed project sources. iOS init/build
+  needs macOS; Linux covers `pnpm build:mobile` +
+  host/`aarch64-linux-android` `cargo check` only.
+- **App icons: the master export is `mobile/src-tauri/icons/icon.png`
+  (1024×1024)** — downscaled once (Lanczos) from the designer's
+  `Code Icon@3x.png` (3837, the icon.svg 3x export; file at the repo
+  root). Never re-render `src/assets/icon.svg` yourself and never let
+  the CLI's 512 re-encode become the master (the gen script
+  git-restores icons/ after each run — the 1024 master must stay
+  committed or reruns will silently drop it back to 512). Desktop + CEF
+  icon sets are committed as exported (512 era). The ANDROID half
+  (`gen/android` res) is NOT covered by `tauri android init` — init
+  plants the tauri template's own mipmaps; regenerate them from the
+  master with `pnpm gen:app-icon` (= `tauri icon` run from mobile/,
+  then git-restore icons/ + drop the CLI's untracked desktop-only
+  extras). tauri-cli ≥2.11 writes
+  `mipmap-anydpi-v26/ic_launcher.xml` +
+  `values/ic_launcher_background.xml` itself and never the ROUND
+  adaptive twin — `ic_launcher_round.xml` is hand-kept next to it
+  (manifest carries `android:roundIcon`). The template's leftover
+  green-grid background / android-robot foreground drawables and
+  purple/teal colors were deleted (unreferenced, trap hand-wiring).
+- **The soft keyboard is handled NATIVELY, never in CSS/JS**:
+  MainActivity's insets listener pads the content view with
+  `max(bars.bottom, ime.bottom)` — under targetSdk 35+ edge-to-edge the
+  system does NOT resize the window for the IME at all, so without the
+  ime() insets the composer sits behind the keyboard. Deliberately NO
+  `WindowInsetsAnimationCompat` per-frame sync (live-observed 2026-10-17:
+  per-frame padding resizes the WebView per frame, and WebView resizes
+  lag their compositor — the surface buffer scales between frames and
+  the whole layout flickered between final and mid-animation states);
+  the padding applies once when the IME settles — a single clean jump.
+  The manifest's `adjustResize` serves
+  only pre-35 devices (it kills adjustPan, which would stack a
+  whole-window pan on top of our padding); on 35+ it is ignored. The
+  page needs zero JS: the composer's column flow is pure CSS and
+  useTranscriptScroll's ResizeObserver re-pins the transcript on the
+  shrink. Deliberately NO visualViewport/`--lum-kb` web fallback —
+  Android-native is authoritative and the only live platform (a web
+  fallback would be untested code; revisit when iOS/ohos resumes).
+- **The safe-area bands' background is NATIVE and chrome-synced**: the
+  edge-to-edge insets listener pads the content view, so the status /
+  nav-bar bands are painted by the Android WINDOW background — the
+  theme's `windowBackground` = `lumina_window_bg` (values/values-night
+  `colors.xml`, #f0f0f0 / #282828 — NOT the raw chrome bases but their
+  GLASS-SURFACE EQUIVALENTS: the chrome the bands adjoin renders as the
+  glass tint over the base, derived by lib/glass.ts's
+  `glassSurfaceEquivalent` from lib/theme.ts's LIGHT_BG #fafafa /
+  DARK_BG #1a1a1a — keep the derivation, not just the values, in
+  sync), plus the v31 splash override so the launch never flashes a
+  foreign color. Because the manifest swallows the uiMode config
+  change, `MainActivity.onConfigurationChanged` re-applies the
+  background AND the system-bar icon appearance (enableEdgeToEdge sets
+  it once; a day→night switch would otherwise leave dark icons on the
+  dark bands). ALSO: enableEdgeToEdge leaves the nav-bar CONTRAST
+  ENFORCEMENT on for its default auto() style while hardcoding the
+  status-bar twin to false (bytecode-verified, activity 1.10.1
+  EdgeToEdgeApi29) — the system would paint a semi-transparent scrim
+  over the transparent navigation bar, covering the windowBackground
+  (live-observed: bottom band reading ~#fefefe next to a correct
+  #f0f0f0 top band), so MainActivity onCreate explicitly sets
+  `isNavigationBarContrastEnforced = false` (API 29+). The in-app theme
+  preference can disagree with the
+  system theme (the static resource follows the system, the chrome
+  follows the preference), so the resolved base is PUSHED from the
+  frontend: MainActivity's `onWebViewCreate` injects
+  `window.__luminaNative` (a JS interface — trusted local content only)
+  and InnerApp's effect calls `setChromeBackground(glassSurfaceEquivalent(effectiveBg), dark)`
+  (deps include systemTheme so a manual override re-wins after every
+  system switch); desktop/CEF have no such object and no-op.
+- **The system back gesture closes page levels, not the app**:
+  MainActivity overrides `handleBackNavigation = true` (TauriActivity
+  hard-disables wry's built-in OnBackPressedCallback routing — back
+  would finish the activity outright, i.e. exit on ANY back). Re-
+  enabled, wry maps back to the WEBVIEW HISTORY (`canGoBack() →
+  goBack()`, else the default finish at the root — the Android
+  convention), and the frontend's back-level stack
+  (lib/backStack.ts + hooks/useBackLevel.ts) keeps one {lumId}
+  history entry per open level: modals (the Modal primitive),
+  the settings second-level page, the drawer, popover menus (the
+  PopoverMenu primitive) and the expanded stats overlay all close on
+  back; desktop is untouched (the hook is isMobileApp-gated, Escape
+  paths stay). iOS edge-swipe is FUTURE work: wry 0.55 has
+  `with_back_forward_navigation_gestures` but tauri 2.11 does not
+  expose it (would need a vendored patch, plus a macOS build host);
+  the history-based frontend half already works for it as-is.
+- **HarmonyOS is FROZEN on the `feat/mobile-ohos` branch** (branch-patch
+  line, blocked on a device black-screen + tauri-plugin-log SIGABRT on
+  ohos — this branch's lib.rs must cfg the plugin out if that port
+  resumes).
+
+### lumina-code-server (`server/`) — the self-hosted companion server
 
 A pnpm WORKSPACE MEMBER (`pnpm-workspace.yaml` lists `server/`; the
 desktop app stays the root package) — a single Next.js App Router
-application = **user system + web management UI + session-mirror API**,
-backed by ONE SQLite file (better-sqlite3, no ORM — the queries are a
-screenful; DDL lives in `server/src/db/schema.ts` with additive
-`MIGRATIONS` applied at startup). Deployed as one Docker container
-(`server/Dockerfile` + root `docker-compose.yml`); TLS/组网 is the
-user's affair (reverse proxy — see `server/README.md`).
+application = **user system + web management UI + remote-access
+credential exchange**, backed by ONE SQLite file (better-sqlite3, no
+ORM — the queries are a screenful; DDL lives in
+`server/src/db/schema.ts` with additive `MIGRATIONS` applied at
+startup). Deployed as two Docker services (docker-compose.yml): the
+Next.js app (pulls the CI-published `iewnfod/lumina-code-server:latest`
+— see docker-server.yml above; `server/Dockerfile` builds it from a
+source checkout) + the frps container (`fatedier/frps`, config
+`server/deploy/frps.toml`). TLS/组网 is the user's affair (reverse
+proxy — see `server/README.md`, which also carries the REQUIRED nginx
+`/t/` location for remote access).
 
-ARCHITECTURE — the RELAY MODEL (decided 2026-10): the agent NEVER runs
-on the server. Desktop Lumina Code keeps its local opencode + local
-files; when a server connection is configured (Settings → Server),
-the sync engine mirrors the session LIST + per-session message
-snapshots UP so other devices (mobile, milestone 2) can browse them.
-Model API keys, git repos, and code files stay on the desktop; the
-server only ever holds transcript mirrors + accounts. Prompt relay
-(mobile → desktop) is explicitly out of scope for v1.
+ARCHITECTURE — the FRP DIRECT ROUTE (migrated 2026-10, replacing the
+relay/mirror model): the agent NEVER runs on the server and NO session
+content crosses it anymore. Desktop Lumina Code keeps its local
+opencode + local files; while remote access is enabled its frpc holds
+an outbound pipe to frps, and the server's whole data-plane job is the
+CREDENTIAL EXCHANGE — the desktop registers (and heartbeats) its
+current opencode password + route id (`frp_routes`, one CURRENT row
+per user; a fresh route id from a second desktop takes over
+wholesale), and mobile clients fetch both via `GET /api/frp/connect`
+to connect straight to the desktop. The frps auth token is shared
+among all accounts and the opencode password lives on the server —
+both accepted for the self-hosted single-operator model, documented in
+server/README.md. The legacy mirror/relay tables (sessions/messages/
+diffs/relay_prompts) stay in the DDL for downgrade safety but have no
+code paths.
 
 ```
 src/
@@ -2140,18 +4048,21 @@ src/
 │   │              for unknown users so timing never reveals usernames.
 │   │              tokenFromRequest accepts Bearer OR the httpOnly
 │   │              `lumina_session` cookie — ONE credential mechanism
-│   │              for API clients and the web UI alike.
+│   │              for API clients and the web UI alike. login()'s
+│   │              optional label (sanitized by sanitizeTokenLabel —
+│   │              blank/control-char/capped, vitest-covered) names the
+│   │              token in the account page: clients send their device
+│   │              label ("desktop (myhost)"/"mobile (Pixel 9)"), the
+│   │              web console signs in as "web", default "login".
 │   ├── rateLimit.ts  in-memory fixed-window limiter (login endpoint;
 │   │                 per-instance by design; heavier protection = the
 │   │                 reverse proxy's job)
-│   ├── sync.ts    the mirror core: parseSessionPush (full-list push;
-│   │              tombstoning scoped to the PUSHER's own sessions so
-│   │              two desktops never delete each other's work),
-│   │              applyMessagesSnapshot (wholesale replace, auto-create
-│   │              session row, 64MB cap), listLiveSessions
-│   ├── transcript.ts  minimal text extraction from ChatMessage[]
-│   │              (walks user.text + assistant content parts; skips
-│   │              reasoning and marker messages) for the admin browse view
+│   ├── frp.ts     the credential-exchange core: frpServerConfig
+│   │              (LUMINA_FRPS_* env → bind port + shared token),
+│   │              registerFrpRoute (mint/refresh/takeover over the
+│   │              frp_routes table — hex-only route ids that nginx's
+│   │              `[A-Za-z0-9_-]+` capture and frp's proxy names both
+│   │              accept), getFrpConnect (the mobile's read side)
 │   └── pageAuth.ts    cookie-side guard for protected pages
 ├── app/
 │   ├── actions.ts    no-JS server actions (login/register/logout/
@@ -2160,15 +4071,18 @@ src/
 │   │                 re-checks auth from the cookie
 │   ├── login|register/  public auth pages
 │   ├── (protected)/     the console shell (layout redirects to /login):
-│   │                 / overview (counts + facts), /users admin
+│   │                 / overview — ROLE-SCOPED (a regular user sees ONLY
+│   │                 their own desktop's route + state, never other
+│   │                 users' route ids or server counts/paths; admin
+│   │                 keeps the full counts + frps state + last route
+│   │                 heartbeat view; listFrpRoutes' userId filter is
+│   │                 the data half), /users admin
 │   │                 management (disable/enable + reset password; you
 │   │                 cannot disable yourself), /account (password +
-│   │                 device-token revocation), /sessions list +
-│   │                 /[id] read-only transcript
+│   │                 device-token revocation)
 │   └── api/         auth (register/login/me/logout), tokens (list/
 │                    revoke; admin may inspect others), admin/users
-│                    (GET/PATCH), sync (sessions GET+POST, per-session
-│                    messages GET+POST)
+│                    (GET/PATCH), frp (config / routes / connect)
 └── middleware.ts   CORS for /api/* (webview origins fetch cross-origin
                      with a bearer header; blanket origin allowance is
                      safe because no cookies ride the API path) +
@@ -2177,88 +4091,49 @@ src/
 Desktop half: `src/opencode/serverConnection.ts` (the connection
 persistedStore `"lumina-code:server-connection"` + LuminaServerApi —
 the OpencodeApi pattern applied to the companion server; token lives in
-the webview's localStorage, revocable from the web console),
-`src/opencode/serverSync.ts` (pure shaping — mirrorableSessions keeps
-the sidebar's own view [root sessions minus lumina-tools helpers],
-stripUnconfirmed drops `local-*` optimistic bubbles, toSyncEntry
-flattens the model ref; + the serial createSyncQueue and the sync
-HEALTH module store), and `src/hooks/useServerSync.ts` (the engine,
-mounted once in AppBody: session.* bus events → debounced full-list
-re-pull+push; message-store notifies → per-session trailing-debounced
-snapshot pushes; failures log + mark health + stay dirty for the 60s
-liveness retry — sync NEVER blocks or degrades the local app).
+the app's state/state.json (lib/persistedStore.ts over
+tauri-plugin-store; migrated from the webview's localStorage), revocable
+from the web console; the store
+shape is {url, token, username, remoteEnabled, frpRouteId?} with
+legacy `tunnelEnabled` migrating into remoteEnabled on read.
+deviceLoginLabel — the LOGIN's device label: the client kind plus the
+device name (desktop = plugin-os hostname(), mobile = the Android
+bridge's Build.MODEL via `__luminaNative.deviceName()`, MainActivity;
+meaningless readings like Android's "localhost" filter out), falling
+back to the bare kind — feeds LuminaServerApi.login's label param;
+needs `os:allow-hostname` in every shell's capabilities, which
+`os:default` deliberately withholds) and
+`src/hooks/useServerFrp.ts` (the engine, mounted once in AppBody:
+fetches /api/frp/config, registers the local opencode password —
+derived from the OpencodeApi handle's Basic authorization — with a
+5-minute heartbeat, supervises the frpc sidecar through the Rust
+frp_start/frp_stop commands, and re-runs whenever the local opencode
+handle changes [restart = new port + password]; failures log + retry
+every 30s — remote access never blocks or degrades the local app).
+The engine mirrors every phase into `src/opencode/frpStatus.ts` —
+the route's LIVE status as a module store (the sessionStopping
+pattern, NOT persisted): off / starting / running / retrying /
+unavailable (server has no frps) / exited / error, read by
+ServerSettings' connection row; Rust's frp-status "exited" (frpc
+process died) also reconnects there on the retry cadence — frpc's
+loginFailExit=false only retries the CONNECTION inside a live
+process, a dead one needs the engine to restart it (frp_start is
+idempotent; its internal stop does not emit, so no self-trigger
+loop).
+The Rust half is `src-tauri/src/frp.rs` (see the backend map).
+LuminaServerApi carries the full surface (auth + frp config/register/
+connect) — ONE client for every consumer; its TRANSPORT is the Rust
+`lumina_request` command (src-tauri/src/lumina_http.rs — reqwest with
+proxies off; the webview fetch path proved unusable on proxy-fronted
+networks, see that module's header), so login/settings/frp engine all
+bypass the browser network stack; `src/opencode/
+mobileConnection.ts` is the MOBILE app's own connection store (login
+screen ↔ useOpencode's remote branch).
 
 Scripts (root): `pnpm server:dev|build|test|typecheck`; CI:
 `.github/workflows/ci-server.yml` (vitest + next build). Server tests
 are vitest (its own runner — the desktop keeps node:test); they invoke
 route-level libs directly with :memory: databases.
-
-### The mobile app (`mobile/` + `src/mobile/`) — the remote client
-
-The RELAY MODEL's third surface (after the desktop and lumina-server):
-a thin client that signs in to a self-hosted lumina-server, browses the
-mirrored sessions, and forwards prompts. HarmonyOS-first, built on
-Tauri's official `feat/open-harmony` branches (v2.11.5 line — the same
-minor the desktop shells are on; NOT the stale community fork).
-
-**Second-entry architecture**: the mobile frontend is `src/mobile/` in
-the ROOT package — a second vite entry (`mobile/index.html` +
-`mobile/vite.config.ts` → `dist-mobile/`), NOT a separate package. The
-desktop's transcript rendering chain (TranscriptList → MessageItem →
-ToolCard/Markdown/DiffViewBody…), design tokens (main.css), lib/ pure
-modules and i18n are imported directly — zero cross-package config,
-`pnpm build` typechecks both entries, `pnpm dev:mobile` serves 1421.
-Mobile-native code lives under `src/mobile/`: connection store
-(`lumina-mobile:connection`), server client additions
-(LuminaServerApi's sync-read + relay methods in serverConnection.ts —
-ONE client for all surfaces), screens (Login/SessionList/Session/
-ActivityPanel/ComposerBar — plain textarea, no Lexical), and a NULL-api
-ConnectionProvider stand-in so reused components' useConnection() is
-satisfied. ArkWeb's null localStorage is bridged by `src/mobile/kv.ts`
-— mobile.html imports it FIRST; it awaits kv_load (Rust, app-data JSON)
-, installs an in-memory Storage shim, then dynamically imports the app
-(module-level store reads happen only after hydration).
-
-**The relay loop** (desktop stays the agent): mobile `POST
-/api/relay/prompt` → lumina-server queues it (`relay_prompts`, at-least-
-once) → the OWNING desktop's `useServerRelay` (AppBody, beside
-useServerSync) long-polls `GET /api/relay/poll?wait=25`, dedupes by id
-(`opencode/relay.ts` ledger, ≤2 attempts then ack-and-drop poison),
-ensureSessionSeeded the target (a never-opened session would otherwise
-never mirror), injects via the plain prompt endpoint, acks — the reply
-flows back as the next mirrored snapshots (mobile polls 3s while
-visible). Desktop offline ⇒ prompts WAIT, delivered on reconnect.
-
-**Workspace activity on mobile**: `src/mobile/activity.ts` re-runs the
-desktop's sessionActivity folds (todos/shells/subagents — the mirror
-carries all their inputs) and the ActivityPanel renders them plus the
-MIRRORED working-copy diff: desktop useServerSync piggy-backs
-`POST /api/sync/diffs` (truncated: ≤200 files / ≤2MB patches —
-`truncateDiffForMirror`) off its session-list pushes, reading the stats
-card's diff cache via `peekWorkspaceDiff`; mobile fetches per session
-directory (30s poll) and expands files through the shared DiffViewBody.
-
-**The ohos shell** (`mobile/src-tauri`): its own workspace with
-`tauri = "=2.11.5"` + `[patch.crates-io]` to the feat/open-harmony
-branches (tauri/wry/tao) — EXACT versions, because crates.io publishing
-wry 0.56.1 silently bypassed a `^`-pinned patch once already (the build
-then pulled webkit2gtk's gtk stack for the linux-flavored ohos target
-and died in pkg-config); a bare `wry = "=0.56.0"` dep forces the
-patched version into the graph. openharmony-ability (git-only, its HEAD
-dropped the `webview` feature) is VENDORED at the rev the wry branch's
-own lockfile pins (`mobile/vendor/openharmony-ability`, rev 295a276a)
-and path-patched. The shell's Rust is minimal: kv_load/kv_set (the
-localStorage backing), log plugin (Stdout only — no home_dir on ohos),
-opener. The DevEco project lives in `gen/ohos` (sources committed,
-build outputs ignored) at `compatibleSdkVersion "26.0.0"`; build recipe
-+ the full pitfall list (SDK symlinks, hvigor daemon env cache,
-beforeBuildCommand cwd) in `mobile/README.md`. Toolchain: branch-pinned
-cargo tauri-cli (`ohos` subcommand), `ohrs`, ohos rust targets.
-
-CI: `.github/workflows/ci-mobile.yml` — the web bundle + a HOST-target
-cargo check of the crate (catches patch drift; full HAP builds are
-local-only, they need the HarmonyOS SDK).
-
 
 ---
 
@@ -2315,7 +4190,9 @@ types (opencode/types.ts, i18n keys)  ←  opencode/ + lib/  ←  hooks/  ←  c
   strings in JSX are wrong even for "temporary" copy.
 - **Cross-restart state** → `lib/persistedStore.ts`'s `createPersistedStore`
   (one factory: own key per preference, read/write/eq callbacks, never
-  throws, logging + same-value short-circuit built in). The session-flow
+  throws, logging + same-value short-circuit built in; medium =
+  tauri-plugin-store's `state/state.json` under the app data dir — see
+  the factory's initPersistedState + migration). The session-flow
   ui-state keeps its `lib/persist.ts` (`loadState`/`saveState`) wrapper.
   Don't hand-roll another store implementation or introduce a second
   persistence mechanism.
@@ -2489,8 +4366,9 @@ modals, bubbles, composer, window frame) · `xl 22` the largest float
 - Panel primary text is `colors.textPrimary` (one value, not per-panel
   0.88 hand-rolls).
 
-**Type scale** — four steps: `text-2xs` 11 (micro rows, uppercase
-labels) · `text-xs` 12 (default UI) · `text-sm` 14 (prose) ·
+**Type scale** — five steps: `text-2xs` 11 (micro rows, uppercase
+labels) · `text-xs` 12 (default UI) · `text-2sm` 13 (the xs/sm halfway,
+e.g. sidebar folder headers) · `text-sm` 14 (prose) ·
 `text-base` 16 (rare). No arbitrary `text-[Npx]`.
 
 **Spacing rhythm** — Tailwind's 4px grid only; the recurring beats:

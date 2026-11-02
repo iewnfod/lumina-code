@@ -9,6 +9,10 @@
 // inside src-tauri/src/opencode/ automatically.
 #[path = "../../../src-tauri/src/blur.rs"]
 mod blur;
+#[path = "../../../src-tauri/src/frp.rs"]
+mod frp;
+#[path = "../../../src-tauri/src/lumina_http.rs"]
+mod lumina_http;
 #[path = "../../../src-tauri/src/notify.rs"]
 mod notify;
 #[path = "../../../src-tauri/src/opencode/mod.rs"]
@@ -53,6 +57,8 @@ pub fn run() {
         // v3 起不再捆绑 webview runtime，在此选择 CEF (Chromium)。
         // DynRuntime 类型擦除 —— 下方所有 command 签名无需泛型化。
         .runtime(tauri_runtime_cef::Cef::default())
+        // File-backed persisted state — same plugin/init as the webkit shell.
+        .plugin(tauri_plugin_store::Builder::new().build())
         .setup(|app| {
             // 验证辅助：LUMINA_DEVTOOLS=1 时打开 Chromium DevTools，供
             // 渲染性能录制（Performance 面板）。
@@ -84,9 +90,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .manage(opencode::OpencodeState::default())
+        .manage(frp::FrpState::default())
         .invoke_handler(tauri::generate_handler![
             system::is_wayland,
             opencode::opencode_start,
+            frp::frp_start,
+            frp::frp_stop,
+            lumina_http::lumina_request,
             notify::desktop_notify,
             blur::blur_my_shell_probe,
             blur::blur_my_shell_set_whitelist
@@ -98,6 +108,7 @@ pub fn run() {
             // otherwise it would be orphaned on the user's machine.
             if matches!(event, tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit) {
                 opencode::shutdown(app_handle);
+                frp::shutdown(app_handle);
             }
         });
 }

@@ -107,6 +107,23 @@ export async function createUser(
   }
 }
 
+/** Max stored label length — the account page renders them inline, so
+ * an arbitrarily long client-supplied label must not flood the table. */
+export const MAX_TOKEN_LABEL_LENGTH = 64;
+
+/** Normalize a client-supplied token label: non-strings and blank values
+ * fall back to `fallback`, surrounding whitespace and control characters
+ * are stripped, over-long values truncate. Pure. */
+export function sanitizeTokenLabel(raw: unknown, fallback: string): string {
+  if (typeof raw !== "string") return fallback;
+  const cleaned = raw
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim()
+    .slice(0, MAX_TOKEN_LABEL_LENGTH)
+    .trim();
+  return cleaned || fallback;
+}
+
 /** Issue a new device token for a user; returns the one-time plaintext. */
 export function createTokenForUser(
   db: Db,
@@ -190,11 +207,14 @@ async function dummyReject(password: string): Promise<boolean> {
 }
 
 /** Verify username/password for login. Throws AuthError(401) on any
- * mismatch — the message deliberately does not say which part was wrong. */
+ * mismatch — the message deliberately does not say which part was wrong.
+ * `label` names the token in the account page (the API clients send
+ * their device label, e.g. "desktop (myhost)"; defaults to "login"). */
 export async function login(
   db: Db,
   username: string,
   password: string,
+  label = "login",
 ): Promise<{user: UserRow; token: string}> {
   if (typeof username !== "string" || typeof password !== "string") {
     throw new AuthError("invalid credentials", 401);
@@ -207,6 +227,6 @@ export async function login(
     : await dummyReject(password);
   if (!row || !ok) throw new AuthError("invalid username or password", 401);
   if (row.disabled === 1) throw new AuthError("account disabled", 403);
-  const token = createTokenForUser(db, row.id, "login");
+  const token = createTokenForUser(db, row.id, label);
   return {user: row, token};
 }

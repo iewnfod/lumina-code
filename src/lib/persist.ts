@@ -16,6 +16,11 @@ import {createPersistedStore} from "./persistedStore.ts";
 export interface PersistedState {
     /** Session open at quit; null = the welcome screen. */
     sessionId: string | null;
+    /** Session each mode (daily/dev) had open when last left — switching
+     *  modes restores it (useSessionFlow). null = that mode was on the
+     *  welcome screen. Absent in older state, reads the same. */
+    dailySessionId: string | null;
+    devSessionId: string | null;
     /** Composer's model, including the thinking-depth variant. */
     model: SessionModelRef | null;
     /** Composer's mode (primary agent id). */
@@ -24,7 +29,14 @@ export interface PersistedState {
     directory: string | null;
 }
 
-const EMPTY: PersistedState = {sessionId: null, model: null, agent: null, directory: null};
+const EMPTY: PersistedState = {
+    sessionId: null,
+    dailySessionId: null,
+    devSessionId: null,
+    model: null,
+    agent: null,
+    directory: null,
+};
 
 function asString(v: unknown): string | null {
     return typeof v === "string" && v !== "" ? v : null;
@@ -53,6 +65,8 @@ const store = createPersistedStore<PersistedState>({
             const v = JSON.parse(raw) as Record<string, unknown>;
             return {
                 sessionId: asString(v.sessionId),
+                dailySessionId: asString(v.dailySessionId),
+                devSessionId: asString(v.devSessionId),
                 model: asModelRef(v.model),
                 agent: asString(v.agent),
                 directory: asString(v.directory),

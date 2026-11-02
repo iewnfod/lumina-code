@@ -313,6 +313,86 @@ const planMode = {
 };
 
 // ---------------------------------------------------------------------------
+// Tool discovery — search_tools
+// ---------------------------------------------------------------------------
+
+/** Static entries for tools a Lumina Code mode HIDES (the daily agent's
+ * deny rules). search_tools is the model's window onto them: what the
+ * tool does and what to tell the user instead of failing silently.
+ * Table-driven — when a future mode hides more tools, appending an
+ * entry is the whole change. The matchable `names` are lowercase.
+ * Exported for node tests. */
+export const TOOL_GUIDES = [
+  {
+    names: ["bash", "shell", "terminal", "command", "run", "git", "script"],
+    title: "bash — run terminal commands",
+    description:
+      "Executes shell commands on the user's machine (git, scripts, system utilities, batch file operations).",
+    guidance:
+      "Terminal access is HIDDEN in daily (documents) mode. If the task truly needs it, explain what you " +
+      "would run and suggest the user switch to dev mode — a session opened in the project directory.",
+  },
+];
+
+/** Pure query → guide matching: a guide matches when ANY whitespace
+ * token of the (lowercased) query appears in the guide's names, title
+ * or description. An empty/unmatched query returns the WHOLE catalog —
+ * it is small, and "what else exists" is a legitimate question.
+ * Exported for node tests. */
+export function filterToolGuides(guides, query) {
+  const tokens = String(query ?? "")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length > 1);
+  if (tokens.length === 0) return guides;
+  return guides.filter((g) => {
+    const haystack = `${g.title} ${g.description} ${g.names.join(" ")}`.toLowerCase();
+    return tokens.some((t) => haystack.includes(t));
+  });
+}
+
+/** Render matched guides as the tool's markdown result. */
+function renderToolGuides(matches) {
+  if (matches.length === 0) {
+    return (
+      "No tool matches that query. The tools available in THIS mode are already in your tool list — " +
+      "this index only describes tools a mode hides."
+    );
+  }
+  return matches
+    .map((g) => `### ${g.title}\n${g.description}\nAvailability: ${g.guidance}`)
+    .join("\n\n");
+}
+
+const searchTools = {
+  enabled() {
+    return true;
+  },
+
+  tool(_options, _ctx) {
+    return {
+      name: "search_tools",
+      description:
+        "Look up tools this Lumina Code mode does NOT load (e.g. the terminal in daily mode): what they do " +
+        "and what to tell the user instead. Call it before giving up on a task that seems to need a missing " +
+        "capability.",
+      input: {
+        type: "object",
+        properties: {
+          query: {type: "string", description: "What you want to do (e.g. 'run a command', 'terminal')"},
+        },
+        required: ["query"],
+      },
+      options: {
+        // Native tool — always directly callable, not behind Code Mode.
+        codemode: false,
+      },
+      execute: async (input) => ({content: renderToolGuides(filterToolGuides(TOOL_GUIDES, input?.query))}),
+    };
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Plan documents on disk — pure naming/composition helpers
 // ---------------------------------------------------------------------------
 // The plan workflow's on-disk mirror lives under the session's directory:
@@ -912,8 +992,11 @@ function toolEntries(messages) {
  * frontend twin (sessionActivity.ts) mirrors the exact same semantics.
  * `agentNow` only feeds the restart-recovery rule: a plan_submit frozen
  * RUNNING by an app restart counts as approved while the session runs
- * under build (approval IS the agent switch — the executor's poll waits
- * for exactly that; the dead executor merely never settled the part).
+ * under an EXECUTION agent (approval IS the agent switch — the
+ * executor's poll waits for exactly that; the dead executor merely
+ * never settled the part). "build" is dev's execution agent;
+ * DAILY_AGENT_ID is the daily mode's — see isExecutionAgent, the
+ * mirror of planWorkflow.ts's predicate (keep the two in sync).
  * Progress entries (task_complete/plan_amend/work_submit) still count
  * only once COMPLETED — a running one is an in-flight call, not an
  * event that happened. */
@@ -922,7 +1005,7 @@ export function planStateFromEntries(entries, agentNow) {
   for (const e of entries) {
     if (!e.input || typeof e.input !== "object") continue;
     if (e.name === "plan_submit") {
-      if (!e.ok && !(e.running && agentNow === "build")) continue;
+      if (!e.ok && !(e.running && isExecutionAgent(agentNow))) continue;
       const todos = asStringArray(e.input.todos);
       if (typeof e.input.title === "string" && e.input.title.trim() && todos && todos.length > 0) {
         state = {
@@ -968,16 +1051,49 @@ function renderChecklist(state) {
  * Without this, the server's own prompt says only "OpenCode" and a model
  * running inside Lumina Code cannot know its actual harness (the desktop
  * GUI, not the TUI). This plugin is installed EXCLUSIVELY by Lumina Code
- * (opencode/useLuminaTools.ts), so its presence is the reliable signal. */
+ * (opencode/useLuminaTools.ts), so its presence is the reliable signal.
+ * The config tail line steers models away from the two classic mistakes:
+ * running the PATH `opencode` CLI (an unrelated install — the app bundles
+ * its own server; on a machine without one the model used to conclude
+ * OpenCode is missing) and hand-rolling config edits blind, when every
+ * JSON config edit hot-reloads. The full per-topic manuals ride the
+ * managed /mcp + /plugin commands (toolPluginConfig.ts) and the
+ * on-demand guides below (configGuideFor). */
 const HOST_IDENTITY =
   "Harness identity: you are running inside Lumina Code — a desktop GUI client for OpenCode " +
   "(Tauri + React), NOT the OpenCode TUI or CLI. When asked which harness or app you run in, " +
-  "answer \"Lumina Code\"; the underlying server and agent machinery is OpenCode's.";
+  "answer \"Lumina Code\"; the underlying server and agent machinery is OpenCode's. " +
+  "OpenCode's JSON config files (MCP servers, plugins) HOT-RELOAD on save — configure by " +
+  "editing them directly, and never run `opencode` CLI commands in a terminal: that binary " +
+  "(if present) is an unrelated install, not this app's bundled server.";
+
+/** The daily-mode primary agent's id — MUST stay in sync with
+ * LUMINA_DAILY_AGENT_ID in opencode/toolPluginConfig.ts (the plugin
+ * source is a plain-JS no-imports island, so the constant is mirrored
+ * here rather than imported). Sessions the app stamps as daily run on
+ * this agent; its `system` already carries the compact daily persona
+ * (and its config deny rules hide dev-only tools), so the plan
+ * protocol below has a dedicated SHORT form for it. */
+const DAILY_AGENT_ID = "lumina-daily";
+
+/** The agents a plan approval switches a session INTO — build for dev
+ * sessions, DAILY_AGENT_ID for daily ones. Mirror of isExecutionAgent
+ * in opencode/planWorkflow.ts (keep the two in sync): every
+ * agent-as-truth fold accepts either as "the gate opened". */
+function isExecutionAgent(agent) {
+  return agent === "build" || agent === DAILY_AGENT_ID;
+}
 
 /** The system-prompt protocol pushed into every model call via the
  * "context" session hook (v2.0.11 ships hooks — verified by binary
  * inspection; setup probes the method at runtime and degrades to
- * tool-description-only enforcement when absent). */
+ * tool-description-only enforcement when absent). TWO variants by
+ * agent (see PLAN_PROTOCOL_DAILY + DEV_DISCIPLINE below): the FULL
+ * protocol + dev discipline for build/plan — the half whose GUI
+ * integrations (strict task_complete validation, TodoSection) depend
+ * on the model following the letter of the workflow — and a COMPACT
+ * form for the daily agent, where most turns are single-step answers
+ * and every protocol token is overhead. */
 const PLAN_PROTOCOL =
   "Plan workflow protocol: (1) In plan mode, a plan is NOT complete until you call plan_submit with the " +
   "full plan document and its ordered task list, then STOP — the call blocks until the user approves; never " +
@@ -992,6 +1108,269 @@ const PLAN_PROTOCOL =
   "verified (tests and their outcome, manual checks) and known gaps; it blocks until the user has TESTED the " +
   "work themselves, and a completed plan is archived only on their acceptance. Never claim progress or " +
   "verification you have not made. (3) Skip all of this for single-step answers and trivial edits.";
+
+/** The daily agent's compact workflow form: the same load-bearing
+ * rules — block on submit, exact-title task_complete, work_submit at
+ * the end — without the dev-mode verification litany. The daily
+ * agent's own system prompt (config agents entry, written by
+ * toolPluginConfig.ts) carries the persona. */
+const PLAN_PROTOCOL_DAILY =
+  "Plan workflow (compact): for multi-step work you may call plan_mode to enter plan mode, then " +
+  "plan_submit {title, plan, todos} with SHORT task titles (a few words each) — then STOP; the call " +
+  "blocks for the user's approval. In build mode, finish each task with task_complete {title} copied " +
+  "EXACTLY and in order (blocked: true + reason when a task cannot be finished), adjust the remaining " +
+  "list with plan_amend, and when every task is settled call work_submit with a truthful report — it " +
+  "blocks for the user's acceptance. Single-step answers and small documents skip all of this.";
+
+/** Dev-mode working discipline — appended to the full protocol for the
+ * build/plan agents only (daily tasks rarely debug at all). Static
+ * half of the anti-loop story; the runtime half (stall warnings
+ * computed from the live transcript) is injected by the context hook
+ * further down. */
+const DEV_DISCIPLINE =
+  "Debug discipline: if the SAME error survives two consecutive fix attempts, or several steps pass " +
+  "with no file edits and no test/status change, STOP the current approach — re-read the failing " +
+  "evidence, question your assumption, and try a genuinely different approach instead of repeating " +
+  "yourself. When you switch approaches, say briefly what you tried and why the next attempt differs.";
+
+// ---------------------------------------------------------------------------
+// On-demand MCP/plugin configuration guides
+// ---------------------------------------------------------------------------
+
+/** Marker shared with the managed /mcp + /plugin command templates
+ * (opencode/toolPluginConfig.ts's MANAGED_COMMAND_MARK — the plugin is a
+ * no-imports island, so the constant is mirrored here). An expanded
+ * command message starts with it, which is how configGuideFor knows the
+ * full manual is already in the prompt. Keep the two in sync. */
+const MANAGED_COMMAND_MARK = "<!-- managed by Lumina Code -->";
+
+/** The no-CLI line every guide carries (the HOST_IDENTITY tail states it
+ * too; the guides repeat it because a mid-task model may be working from
+ * the guide alone). Keep the wording consistent with the command
+ * templates' NO_CLI_RULE in toolPluginConfig.ts. */
+const GUIDE_NO_CLI =
+  "NEVER run `opencode` CLI commands in a terminal — the binary on PATH (if present) is an " +
+  "unrelated install, not this app's bundled server; configuration is done by editing JSON files, " +
+  "which hot-reload the moment they are saved.";
+
+/** Where OpenCode's config files live — both common global locations,
+ * named without assuming which one this machine uses (the model has read
+ * tools and can check). */
+const GUIDE_CONFIG_PATHS =
+  "Global config: opencode.json in the global config directory (most installs: ~/.config/opencode/ " +
+  "or ~/.opencode/ — check which exists). Project-only: .opencode/opencode.json in the project root " +
+  "(create it if absent).";
+
+/** The MCP quick guide — injected when the user's latest message asks
+ * about MCP servers (configGuideFor). The FULL manual (with the live
+ * config snapshot) rides the managed /mcp command instead. */
+const MCP_GUIDE =
+  "Lumina Code MCP guide: MCP servers are configured in OpenCode's JSON config files, " +
+  "under \"mcp.servers\". " + GUIDE_CONFIG_PATHS + " Entry shapes: a stdio server is " +
+  "{\"type\": \"local\", \"command\": \"npx\", \"args\": [\"-y\", \"@scope/mcp-server\"], \"env\": {...}}; " +
+  "a remote one is {\"type\": \"remote\", \"url\": \"https://...\", \"headers\": {...}}. Read the file " +
+  "first, add only your entry, preserve every unrelated key, keep the JSON valid. " + GUIDE_NO_CLI +
+  " Servers can be inspected and toggled (with per-server logs) in Lumina Code: Settings → Extensions.";
+
+/** The plugin quick guide — configGuideFor's plugin branch. */
+const PLUGIN_GUIDE =
+  "Lumina Code plugin guide: OpenCode plugins are configured in the \"plugins\" array of the JSON " +
+  "config files. " + GUIDE_CONFIG_PATHS + " Entry shapes: an npm package is the bare string " +
+  "\"package-name\" (or {\"package\": \"package-name\", \"options\": {...}} to configure it); a local " +
+  "plugin directory is {\"package\": \"/abs/path/to/plugin\"}. Read the file first, append your entry, " +
+  "preserve every unrelated one, keep the JSON valid; npm packages download on first load. " +
+  GUIDE_NO_CLI + " Plugins can be toggled in Lumina Code: Settings → Extensions.";
+
+/** Keyword sets for the on-demand guide decision (configGuideFor). MCP
+ * terms are distinctive enough to stand alone; plugin/extension terms
+ * are common in ordinary development talk, so they additionally require
+ * an action verb in the same message (both word sets case-insensitive,
+ * Chinese included). */
+const MCP_TERMS = /\bmcp\b|model context protocol/i;
+const PLUGIN_TERMS = /\bplugins?\b|插件|扩展|\bextensions?\b/i;
+const CONFIG_ACTION_TERMS =
+  /add|install|配置|设置|添加|安装|装|启用|开启|卸载|删除|remove|uninstall|configure|enable|disable|set ?up/i;
+
+/** The last user message's joined text parts (the shape ctx.session.context
+ * returns — {info: {role}, parts: [{type, text}]}, same defensive parse
+ * as replyText). Empty string when there is no user message. */
+function lastUserText(messages) {
+  for (let i = (Array.isArray(messages) ? messages.length : 0) - 1; i >= 0; i--) {
+    const m = messages[i] ?? {};
+    const role = m.info?.role ?? m.role ?? m.type;
+    if (role !== "user") continue;
+    const parts = m.parts ?? m.content ?? [];
+    const texts = [];
+    for (const p of parts) {
+      if (p?.type === "text" && typeof p.text === "string" && p.text) texts.push(p.text);
+    }
+    return texts.join("\n\n").trim();
+  }
+  return "";
+}
+
+/** Which on-demand configuration guide the current model call needs, if
+ * any — derived from the user's LATEST message so the guide rides every
+ * step of the turn it belongs to (and drops out once the topic changes).
+ * "" when none. Exported for node tests.
+ *
+ * The MANAGED_COMMAND_MARK short-circuit: a message that IS an expanded
+ * managed command (/mcp, /plugin) already carries the full manual with a
+ * live config snapshot — injecting the quick guide on top would be pure
+ * duplication. */
+export function configGuideFor(messages) {
+  const text = lastUserText(messages);
+  if (!text) return "";
+  if (text.startsWith(MANAGED_COMMAND_MARK)) return "";
+  if (MCP_TERMS.test(text)) return MCP_GUIDE;
+  if (PLUGIN_TERMS.test(text) && CONFIG_ACTION_TERMS.test(text)) return PLUGIN_GUIDE;
+  return "";
+}
+
+/** The hook-side runner: resolve the session's context and pick the
+ * guide, if any. Best-effort — a failed context read means no guide this
+ * call, never a blocked model call (the stallWarning contract). */
+async function configGuide(ctx, sessionID) {
+  if (!sessionID) return "";
+  let messages;
+  try {
+    messages = await ctx.session.context({sessionID});
+  } catch {
+    return "";
+  }
+  return configGuideFor(messages);
+}
+
+// ---------------------------------------------------------------------------
+// Runtime stall detection — the anti-loop RUNTIME half
+// ---------------------------------------------------------------------------
+
+/** The stall window: how many trailing assistant messages the detector
+ * scans. Small on purpose — the hook runs before EVERY model call and
+ * ctx.session.context() returns the whole transcript, so the scan stays
+ * bounded. */
+const STALL_WINDOW = 24;
+
+/** Trailing steps with tool calls but NO file edits before "inspection
+ * loop" fires (build agent only — daily sessions legitimately spend
+ * many steps reading). */
+const STALL_STEPS = 3;
+
+/** Normalize a tool error text into a comparison fingerprint: hex ids,
+ * numbers and directory prefixes fold away (line numbers, retry counts
+ * and moved files do NOT make an error different), while FILE NAMES
+ * survive ("File not found: a.txt" ≠ "File not found: b.txt"). */
+export function errorFingerprint(text) {
+  const tokens = String(text ?? "")
+    .replace(/\b[0-9a-f]{6,}\b/gi, "x")
+    .replace(/\d+/g, "n")
+    .split(/\s+/)
+    .map((token) => {
+      if (!token.includes("/")) return token;
+      const parts = token.split("/");
+      return parts[parts.length - 1] || token;
+    });
+  return tokens.join(" ").replace(/\s+/g, " ").trim().slice(0, 200);
+}
+
+/** A tool part's error text, defensively (v2.0.11 settles errors as
+ * string or {message} — both observed through session.context). */
+function toolErrorText(part) {
+  const err = part?.state?.error;
+  if (typeof err === "string") return errorFingerprint(err);
+  if (err && typeof err === "object" && typeof err.message === "string") return errorFingerprint(err.message);
+  return "";
+}
+
+/** Stall signals from a session's trailing messages (the shape
+ * ctx.session.context returns — {info: {role}, parts: [...]}):
+ * - repeatedError: the last TWO error-settled tool parts share a
+ *   fingerprint (the user's "same error twice" rule).
+ * - stagnantSteps: trailing assistant steps that ran tool calls but NO
+ *   file edits (edit/write/patch). 0 unless every one of those steps
+ *   actually called a tool (pure prose turns are conversations, not
+ *   loops). Exported for node tests. */
+export function collectStallSignals(messages, windowSize = STALL_WINDOW) {
+  const assistants = [];
+  for (const m of Array.isArray(messages) ? messages : []) {
+    const role = m?.info?.role ?? m?.role;
+    if (role === "assistant") assistants.push(m);
+  }
+  const window = assistants.slice(-windowSize);
+  const errors = [];
+  const stepsWithEdits = new Set();
+  const stepsWithCalls = new Set();
+  window.forEach((m, idx) => {
+    const parts = m?.parts ?? m?.content;
+    if (!Array.isArray(parts)) return;
+    let hasEdit = false;
+    let hasCall = false;
+    for (const p of parts) {
+      if (!p || typeof p !== "object" || p.type !== "tool") continue;
+      hasCall = true;
+      if (p.name === "edit" || p.name === "write" || p.name === "patch") hasEdit = true;
+      if ((p.state ?? {}).status === "error") errors.push(toolErrorText(p));
+    }
+    if (hasEdit) stepsWithEdits.add(idx);
+    if (hasCall) stepsWithCalls.add(idx);
+  });
+  const lastTwo = errors.filter(Boolean).slice(-2);
+  const repeatedError = lastTwo.length === 2 && lastTwo[0] === lastTwo[1] ? lastTwo[0] : null;
+  let stagnant = 0;
+  for (let i = window.length - 1; i >= 0; i--) {
+    if (stepsWithEdits.has(i) || !stepsWithCalls.has(i)) break;
+    stagnant++;
+  }
+  return {repeatedError, stagnantSteps: stagnant >= STALL_STEPS ? stagnant : 0};
+}
+
+/** Render the warning text for the signals (null = healthy). The
+ * inspection-loop signal is BUILD-only: a daily session legitimately
+ * spends many steps reading before answering. */
+export function renderStallWarning(signals, agent) {
+  const lines = [];
+  if (signals?.repeatedError) {
+    lines.push(
+      `Stall warning: the SAME error has now survived consecutive fix attempts ("${signals.repeatedError.slice(0, 80)}"). ` +
+        "The current approach is not working. STOP repeating it — re-read the failing evidence, " +
+        "question your assumptions, and try a genuinely different approach; say what you tried and " +
+        "why the next attempt differs.",
+    );
+  }
+  if (signals?.stagnantSteps > 0 && agent === "build") {
+    lines.push(
+      `Stall warning: the last ${signals.stagnantSteps} steps ran tools but made no file edits ` +
+        "(inspection only, nothing changing). If you are looping without progress, stop and reconsider " +
+        "the approach; otherwise wrap up and report what you found and what you need next.",
+    );
+  }
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
+/** The hook-side runner: resolve the session's trailing context and
+ * render the warning, if any. Best-effort — a failed context read
+ * means no warning this call, never a blocked model call. */
+async function stallWarning(ctx, sessionID, agent) {
+  if (!sessionID) return null;
+  let messages;
+  try {
+    messages = await ctx.session.context({sessionID});
+  } catch {
+    return null;
+  }
+  return renderStallWarning(collectStallSignals(messages), agent);
+}
+
+/** The user's custom system prompt (General settings) — read from the
+ * plugin options' plugin-level `systemPrompt` field, written there by
+ * ensureLuminaToolsPlugin. Pushed at the END of event.system, i.e. after
+ * everything the server itself assembled (built-in prompt + AGENTS.md /
+ * instructions). Exported for the plugin's node tests; keep side-effect
+ * free. Empty / whitespace-only / non-string means "off". */
+export function customSystemPrompt(options) {
+  const raw = options?.systemPrompt;
+  return typeof raw === "string" ? raw.trim() : "";
+}
 
 /** Route A approval gate timing: how often the blocked executor re-reads
  * the session's agent (approval IS the agent switch — Lumina Code's
@@ -1475,7 +1854,14 @@ const workSubmit = {
 // ---------------------------------------------------------------------------
 
 /** The resident tools. Order matters only for tool-list presentation. */
-const TOOLS = [vision, planMode, planSubmit, taskComplete, planAmend, workSubmit];
+const TOOLS = [vision, planMode, planSubmit, taskComplete, planAmend, workSubmit, searchTools];
+
+/** The restricted helper agent ids the TOOLS registry delegates to —
+ * the context hook's skip-set. Derived from the registry so a future
+ * delegate-tool's helper joins automatically. A "lumina-" PREFIX check
+ * did this before but would now also skip the daily PRIMARY agent
+ * (DAILY_AGENT_ID), which needs the custom prompt + plans note. */
+const HELPER_AGENT_IDS = new Set(TOOLS.map((t) => t.agentId).filter(Boolean));
 
 export default {
   id: "lumina-tools",
@@ -1502,17 +1888,49 @@ export default {
       if (typeof ctx.session?.hook === "function") {
         await ctx.session.hook("context", async (event) => {
           if (!Array.isArray(event?.system)) return;
+          const agent = typeof event.agent === "string" ? event.agent : "";
+          const isDaily = agent === DAILY_AGENT_ID;
           event.system.push({type: "text", text: HOST_IDENTITY});
-          event.system.push({type: "text", text: PLAN_PROTOCOL});
-          // The directory's unarchived plans — skip the restricted helper
-          // agents (single-step, deny-all: the note would be inert noise
-          // in their focused prompts).
-          if (typeof event.agent === "string" && event.agent.startsWith("lumina-")) return;
+          // Per-agent protocol (the harness-performance split): the daily
+          // agent gets the COMPACT workflow form; every other primary
+          // agent (build, plan, a user's own) gets the full protocol plus
+          // the dev discipline. Helper agents get neither — the gate
+          // below returns before it.
+          event.system.push({
+            type: "text",
+            text: isDaily ? PLAN_PROTOCOL_DAILY : PLAN_PROTOCOL + " " + DEV_DISCIPLINE,
+          });
+          // Skip the RESTRICTED helper agents (single-step, deny-all):
+          // the custom prompt and plans note would be inert noise in
+          // their focused prompts. The helper ids come from the TOOLS
+          // registry — a plain "lumina-" prefix check would now also
+          // swallow the daily PRIMARY agent (DAILY_AGENT_ID), which
+          // needs both.
+          if (HELPER_AGENT_IDS.has(agent)) return;
+          // The user's custom system prompt (General settings) — after the
+          // helper gate so the restricted single-step agents keep their
+          // focused prompts, and after everything the server itself
+          // assembled (built-in prompt + AGENTS.md / instructions).
+          const custom = customSystemPrompt(options);
+          if (custom) event.system.push({type: "text", text: custom});
+          // On-demand MCP/plugin configuration guides: the user's latest
+          // message asking to configure one (configGuideFor's keyword
+          // match) injects the quick manual for every step of that turn —
+          // most users never discover the /mcp + /plugin commands, and
+          // without this the model wanders into the terminal looking for
+          // an `opencode` CLI. An expanded managed command short-circuits
+          // (its template already carries the full manual).
+          try {
+            const guide = await configGuide(ctx, event.sessionID);
+            if (guide) event.system.push({type: "text", text: guide});
+          } catch {
+            // best-effort context enrichment — never block the call
+          }
           // Restart-orphan acceptances converge HERE first (the sweep is
           // what archives them) — before the note below so an archived
           // plan doesn't advertise itself in the same call.
           try {
-            await sweepOrphanAcceptance(ctx, event.sessionID, typeof event.agent === "string" ? event.agent : undefined);
+            await sweepOrphanAcceptance(ctx, event.sessionID, agent || undefined);
           } catch {
             // best-effort convergence — never block the call
           }
@@ -1521,6 +1939,19 @@ export default {
             if (note) event.system.push({type: "text", text: note});
           } catch {
             // best-effort context enrichment — never block the call
+          }
+          // Runtime anti-loop feedback for EXECUTION agents only (plan
+          // is read-only by design; helpers are single-step): computed
+          // from the live transcript on every model call and pushed at
+          // the very END of event.system, after every static block —
+          // the tail is the cache-cheapest place for volatile content.
+          if (isExecutionAgent(agent)) {
+            try {
+              const warning = await stallWarning(ctx, event.sessionID, agent);
+              if (warning) event.system.push({type: "text", text: warning});
+            } catch {
+              // best-effort — never block the call
+            }
           }
         });
       }

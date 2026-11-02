@@ -1,15 +1,39 @@
-import {memo, type ReactNode} from "react";
+import {memo, createContext, useContext, type ReactNode} from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+// KaTeX's own stylesheet + fonts are imported in main.css (NOT here) —
+// see the note there: a component-level CSS import rides the JS chunk's
+// injection, which a long-lived dev webview's HMR can fail to deliver.
+import {rehypeInlineStyles} from "./rehypeStyles.ts";
 import {openUrl} from "@tauri-apps/plugin-opener";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {Check, Copy} from "lucide-react";
+import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {useCopy} from "../../hooks/useCopy.ts";
+import {useI18n} from "../../hooks/i18n.tsx";
+import {isOfficeDocument} from "../../opencode/docstruct.ts";
+import {requestStatsDocumentDrill} from "../../hooks/useStatsPanelMode.ts";
+import {fileIconUrl} from "../../lib/fileIcons.ts";
+import Hint from "../ui/Hint.tsx";
 import {splitMarkdownBlocks} from "./markdownBlocks.ts";
+import {normalizeMathDelimiters} from "./markdownMath.ts";
+import {mdCodeText} from "./mdCodeText.ts";
 
 /**
  * Markdown renderer for assistant text. Scoped styles live under `.lum-md`
  * in main.css so the chat typography stays part of the design-token system
  * (radii, mono font) instead of a parallel stylesheet. Links open in the
  * system browser — the webview must never navigate away.
+ *
+ * MATH: remark-math turns `$…$` / `$$…$$` into math nodes and
+ * rehype-katex renders them through KaTeX (colors inherit currentColor,
+ * so light/dark both work untouched). LaTeX's own `\(…\)` / `\[…\]`
+ * delimiters are folded into dollar form FIRST (markdownMath.ts —
+ * CommonMark escapes would eat the backslashes otherwise). A truncated
+ * formula mid-stream shows KaTeX's red error text and settles when the
+ * closing delimiter arrives; currency like "$5 and $6" stays text
+ * (remark-math refuses a closing `$` after a space).
  *
  * PERFORMANCE — two mechanisms keep streaming cheap (this was the frame
  * dropper on WebKitGTK):
@@ -41,18 +65,43 @@ import {splitMarkdownBlocks} from "./markdownBlocks.ts";
 // the horizontal scroller wearing the CONDITIONAL fades — a block that
 // fits its column renders mask-free; each side fades only while code is
 // actually hidden beyond it.
+//
+// The COPY affordance: MdPre wraps everything in a host span
+// (.lum-md-pre-host, display:block + relative) so the floating button
+// can live OUTSIDE the pre — Hint's trigger wrapper is a div, which
+// must not enter pre (phrasing content only). The button fades in on
+// host hover and copies the code's raw text (mdCodeText extracts it
+// lazily at click time, so streaming renders never pay for it), with
+// the shared useCopy ✓ linger. The chip's chrome (elevated surface,
+// reveal ladder, translateZ compositing for WebKitGTK) lives with the
+// other .lum-md styles in main.css.
 function MdPre({children}: {children?: ReactNode}) {
     const edges = useScrollEdges<HTMLSpanElement>();
+    const {copied, copy} = useCopy();
+    const t = useI18n();
     return (
-        <pre>
-            <span
-                ref={edges.ref}
-                onScroll={edges.onScroll}
-                className={`lum-md-pre-scroll${edges.left ? " lum-fade-left" : ""}${edges.right ? " lum-fade-right" : ""}`}
-            >
-                {children}
-            </span>
-        </pre>
+        <span className="lum-md-pre-host">
+            <pre>
+                <span
+                    ref={edges.ref}
+                    onScroll={edges.onScroll}
+                    className={`lum-md-pre-scroll${fadeClasses(edges)}`}
+                >
+                    {children}
+                </span>
+            </pre>
+            <Hint label={copied ? t["Copied"] : t["Copy"]}>
+                <button
+                    type="button"
+                    onClick={() => void copy(mdCodeText(children))}
+                    className={`lum-md-copy${copied ? " copied" : ""}`}
+                >
+                    {copied
+                        ? <Check size={14} className="shrink-0"/>
+                        : <Copy size={14} className="shrink-0"/>}
+                </button>
+            </Hint>
+        </span>
     );
 }
 
@@ -69,7 +118,7 @@ function MdTable({children}: {children?: ReactNode}) {
             <div
                 ref={edges.ref}
                 onScroll={edges.onScroll}
-                className={`lum-md-table-scroll${edges.left ? " lum-fade-left" : ""}${edges.right ? " lum-fade-right" : ""}`}
+                className={`lum-md-table-scroll${fadeClasses(edges)}`}
             >
                 <table>{children}</table>
             </div>
@@ -77,10 +126,59 @@ function MdTable({children}: {children?: ReactNode}) {
     );
 }
 
-// Module scope — stable component identities across renders (see the
-// PERFORMANCE note in the header comment).
-const mdComponents = {
-    a: ({href, children}: {href?: string; children?: ReactNode}) => (
+/**
+ * The workspace directory OFFICE-DOCUMENT LINKS in assistant text
+ * resolve against (AssistantBlock provides the session's directory;
+ * every other Markdown consumer — gate cards, tool outputs, todo
+ * documents, subagent reports — stays un-provided and keeps the plain
+ * link behavior). A context rather than a prop so the module-scoped
+ * component map (the streaming-performance invariant above) keeps its
+ * stable identities — memoized blocks re-render on a context CHANGE
+ * only, which is exactly a directory switch.
+ */
+export const MarkdownWorkspaceContext = createContext<string | null>(null);
+
+/** Decode a link's href defensively: markdown sources usually keep
+ * non-ASCII verbatim, but a %-encoded path (spaces, brackets) must not
+ * defeat the office-extension check or the drill path. */
+function decodeHref(href: string): string {
+    try {
+        return decodeURIComponent(href);
+    } catch {
+        return href; // a lone '%' survivor — take it verbatim
+    }
+}
+
+/** One markdown link. An OFFICE-document href (absolute, or relative to
+ * the provided workspace) renders as the `.lum-file-mention` chip — the
+ * @-file token's look — and clicking drills the workspace-activity
+ * panel into the document's preview (requestStatsDocumentDrill; the
+ * row's real byte count arrives with the panel's refresh). Everything
+ * else stays the system-browser link. */
+function MdLink({href, children}: {href?: string; children?: ReactNode}) {
+    const workspace = useContext(MarkdownWorkspaceContext);
+    const decoded = typeof href === "string" ? decodeHref(href) : "";
+    const absolute =
+        decoded.startsWith("/") ? decoded
+        : workspace && decoded !== "" && !/^[a-z][a-z0-9+.-]*:/i.test(decoded)
+            ? `${workspace.replace(/\/+$/, "")}/${decoded.replace(/^\.?\//, "")}`
+            : null;
+    if (absolute !== null && isOfficeDocument(absolute)) {
+        return (
+            <button
+                type="button"
+                // Exempt from the stats panel's outside-click collapse —
+                // this click AIMS the panel, same as the turn-edit rows.
+                data-lum-stats-drill
+                className="lum-file-mention lum-md-doc"
+                style={{backgroundImage: `url("${fileIconUrl(absolute)}")`}}
+                onClick={() => requestStatsDocumentDrill({path: absolute, size: 0, change: null})}
+            >
+                {children}
+            </button>
+        );
+    }
+    return (
         <a
             href={href}
             target="_blank"
@@ -92,10 +190,26 @@ const mdComponents = {
         >
             {children}
         </a>
-    ),
+    );
+}
+
+// Module scope — stable component identities across renders (see the
+// PERFORMANCE note in the header comment). The plugin ARRAYS live here
+// for the same reason: one shared constant documents the module-scope
+// discipline.
+const mdComponents = {
+    a: MdLink,
     table: MdTable,
     pre: MdPre,
 };
+
+const remarkPlugins = [remarkGfm, remarkMath];
+// rehypeInlineStyles AFTER rehype-katex: objectifies every inline style
+// the katex HTML carries, because hast-util-to-jsx-runtime's STRING
+// path goes through the broken style-to-js CJS interop and silently
+// DROPS the attribute (see rehypeStyles.ts for the full post-mortem) —
+// the object path bypasses it entirely.
+const rehypePlugins = [rehypeKatex, rehypeInlineStyles];
 
 /** One block chunk. Memoized on its text: while a message streams only
  * the tail chunk's text changes, so every settled chunk skips re-parsing
@@ -105,7 +219,8 @@ const mdComponents = {
 const MarkdownBlock = memo(function MarkdownBlock({children}: {children: string}) {
     return (
         <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
+            remarkPlugins={remarkPlugins}
+            rehypePlugins={rehypePlugins}
             components={mdComponents}
         >
             {children}
@@ -114,7 +229,12 @@ const MarkdownBlock = memo(function MarkdownBlock({children}: {children: string}
 });
 
 const Markdown = memo(function Markdown({children, live}: {children: string; live?: boolean}) {
-    const chunks = splitMarkdownBlocks(children);
+    // LaTeX's own delimiters (\(…\), \[…\]) fold into the dollar forms
+    // BEFORE chunking — CommonMark escapes would otherwise eat the
+    // backslashes, and the chunker's frozen chunks must never hold a
+    // half-rewritten formula.
+    const normalized = normalizeMathDelimiters(children);
+    const chunks = splitMarkdownBlocks(normalized);
     return (
         <div className={live ? "lum-md live" : "lum-md"}>
             {chunks.map((chunk, i) => (

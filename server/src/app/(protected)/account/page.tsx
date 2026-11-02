@@ -56,7 +56,9 @@ export default async function AccountPage({
       <h2>Device tokens ({tokens.length})</h2>
       <p className="muted">
         Each desktop/mobile login creates a token. Revoke any you do not
-        recognize. The desktop app&apos;s token appears as <code>login</code>.
+        recognize. Clients label their tokens with their device name
+        (<code>desktop (myhost)</code>, <code>mobile (Pixel 9)</code>);
+        browser sign-ins appear as <code>web</code>.
       </p>
       <table className="table">
         <thead>

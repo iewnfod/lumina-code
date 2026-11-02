@@ -1,112 +1,167 @@
 # Lumina Code Mobile
 
-> **⚠️ WIP — 已暂停（2026-10-06）**：移动端暂不是主线，此分支封存现场。
-> 硬件/环境：Mate 80 Pro 真机（API 26，已签名安装）。**卡在最后一步：真机黑屏**。
->
-> 已跑通：完整工具链（分支 CLI/ohrs/SDK 链接）→ Rust 交叉编译 → 签名 HAP →
-> 安装 → 启动 → napi 胶衣（`mobile` cfg 是关键坑：tauri-build 必须 patch 到
-> 分支，否则 `#[ability]` 不生成，.so 无 init/render → 白屏）→ ArkWeb 引擎
-> 初始化 → webview 存活（进程稳定，chromium 日志正常）。
->
-> 卡点：webview 已创建但**从未向 dev server 发起请求**（vite 日志无手机 IP），
-> 页面不加载 → 纯黑。已排除：网络层（手机可 ping 通桌面且 ufw 已放行）、
-> JS 崩溃（错误浮层已装，无输出）、kv 水合挂起（已加 3s 超时）。
->
-> 下次续作的排查方向：
-> 1. **devUrl 疑点**：怀疑 CLI dev 流程的 config overlay 没有传进 rust 构建
->    （.so 内嵌的可能是 localhost:1421 而非 LAN IP → 手机连自己 → 黑屏）。
->    验证方法：把 `tauri.conf.json` 的 devUrl 硬编码为 LAN IP 重装（试过一次
->    但被中断未验证完）；或从 .so 里解出内嵌 URL。
-> 2. `setWebDebuggingAccess(true)` 已加进 EntryAbility 但 9222 socket 未出现，
->    可研究 HAR 的 webview controller 路径。
-> 3. tauri-plugin-log 在 ohos 上初始化即 SIGABRT（已二分定位，**勿加回**），
->    桌面共享代码若需要日志，走 hilog 或条件编译。
+Lumina Code 的移动客户端（v2 —— **桌面树接管 + lumina-code-server 隧道**）：手机上跑
+的就是桌面 App 的完整 UI 树，opencode API 流量经自部署的 lumina-code-server 隧道
+到达桌面端。手机只需可达 server（公网/内网均可），获得 100% 功能——实时 SSE
+流式输出、全功能 composer、模型切换、设置。
 
-Lumina Code 的移动客户端（鸿蒙优先）：连接自部署的 lumina-server，浏览桌面端
-镜像上来的会话与工作区动态，并向已有会话转发 prompt（agent 始终跑在桌面）。
+```
+手机 App（桌面 UI 树）
+  ↕ HTTPS（Bearer = lumina 设备 token）
+lumina-code-server  /api/tunnel/opencode/**（透传代理 + SSE fan-out）
+  ↕ 长轮询指令 / POST 响应 / POST 事件
+桌面 App（useServerTunnel → 127.0.0.1 本地 opencode，注入本地密码）
+```
+
+- **鉴权两段式**：手机侧 Bearer 设备 token（server 验），桌面侧注入本地
+  Basic——opencode 密码永不离开桌面。隧道授予完整 opencode 控制面，凭据可在
+  网页 console 吊销；TLS 归反向代理（见 server/README.md）。
+- **桌面在线是前提**：桌面端须在 Settings → Server 打开「远程访问（隧道）」；
+  离线时手机侧 503 → 连接错误态。每账号一条隧道，第二个桌面顶替第一个
+  （世代栅栏，旧的自动退位）。事件流断线后重连会 re-seed 已跟踪会话自愈。
+- **v1 的镜像/relay 消费端已删**（SessionList/Session/ComposerBar/ActivityPanel
+  自制界面）：网页 console 的镜像浏览与 relay 循环保留（服务其他客户端），
+  移动端不再是其消费者。
+
+## 结构
 
 - 前端：仓库根 package 的**第二 vite 入口**（`mobile/index.html` →
-  `src/mobile/`），复用桌面端的 transcript 渲染组件与设计 tokens。
-- 壳：`mobile/src-tauri`，Tauri `feat/open-harmony` 分支（patch 见下）。
-- 本目录不含前端代码；`src/mobile/` 在仓库根的 src 下。
-
-## 工具链（一次性安装，全部实测验证）
-
-```bash
-# 1. ohos rust targets
-rustup target add aarch64-unknown-linux-ohos x86_64-unknown-linux-ohos
-
-# 2. feat/open-harmony 分支的 tauri-cli（npm 的 @tauri-apps/cli 无 ohos 子命令）
-cargo install tauri-cli --git https://github.com/tauri-apps/tauri --branch feat/open-harmony
-
-# 3. ohrs（ohos-rs 构建工具，tauri 的 ohos 构建通过它驱动交叉编译）
-cargo install ohrs
-
-# 4. 系统级符号链接（需要 sudo，两条都是 cargo-mobile2 的路径推导所必需）：
-#    a) OHOS_HOME 需要带 API 版本层（openharmony/26），DevEco 平铺布局没有——
-#       在 SDK 目录内补一个指向自身的版本符号链接
-sudo ln -sfn /opt/devecostudio/sdk/default/openharmony /opt/devecostudio/sdk/default/openharmony/26
-#    b) ohpm 的计算路径固定为 <DEVECO_SDK_HOME>/ohpm/bin/ohpm（duct 对相对路径
-#       程序名不做 PATH 查找，回退路径结构性失效）——把 DevEco 的 ohpm 链过去
-sudo ln -sfn /opt/devecostudio/tools/ohpm /opt/devecostudio/sdk/ohpm
-```
-
-每次构建/运行所需的环境变量（可放进 shell rc）：
-
-```bash
-export OHOS_HOME=/opt/devecostudio/sdk/default/openharmony/26
-export PATH="/opt/devecostudio/tools/bin:/opt/devecostudio/tools/node/bin:$PATH"
-```
+  `src/mobile/`）：`kv.ts`（localStorage 水合门 + `__LUMINA_MOBILE__` 旗标）→
+  `App.tsx`（登录门 → 挂载真正的桌面 `App`）。桌面树的移动门控都在桌面代码
+  里：`isMobileApp()`（lib/platform.ts）驱动 useOpencode 的远程分支、sidebar
+  抽屉（TitleBar 汉堡）、隐藏统计面板/窗口控件/Server 设置页。
+- 壳：`mobile/src-tauri`，**纯 crates.io stable**（`=` 钉版对齐桌面 lock/npm，
+  见下）；插件 log/opener/os/dialog/notification/store（store 即
+  tauri-plugin-store —— 持久化 state/state.json 的落盘通道；原先给 ArkWeb
+  localStorage 兜底的 kv_load/kv_set 已随之删除）。
+- 桌面端：`src/hooks/useServerTunnel.ts` + `src/opencode/tunnelClient.ts`
+  （纯核心，node-testable）。
+- server 端：`server/src/lib/tunnel.ts` + `server/src/app/api/tunnel/**`。
 
 ## 构建与运行
 
 ```bash
-# Web 端开发（浏览器里调 UI，连真实 lumina-server）
-pnpm dev:mobile          # http://localhost:1421
+pnpm dev:mobile            # 浏览器开发 UI（http://localhost:1421）
+pnpm build:mobile          # → dist-mobile/
+cargo check --manifest-path mobile/src-tauri/Cargo.toml   # host 检查
 
-# 鸿蒙构建（Rust 交叉编译 + HAP 组装）
-cd mobile/src-tauri && cargo tauri ohos build --debug
-# 产物：gen/ohos/entry/build/default/outputs/default/entry-default-unsigned.hap
+# Android（SDK/NDK/环境见下）
+cd mobile/src-tauri && cargo tauri android init   # 首次；gen/android 提交
+cargo tauri android build --debug                 # APK/AAB
+cargo tauri android dev                           # 模拟器热载
 
-# 真机运行（hdc 连接设备后）
-cd mobile/src-tauri && cargo tauri ohos dev
+# 注意：gradle 的 rustBuild 任务会回调 tauri CLI（android-studio-script），
+# 该回调走 `pnpm exec tauri`（见 gen/android/buildSrc/BuildTask.kt）——npm CLI
+# 是 N-API 模块、没有独立的 cargo-tauri 可执行文件，走 pnpm 保证回调用的就是
+# 根 package.json 钉的同一个 CLI 版本。前提：仓库根跑过 `pnpm install`（构建
+# 本来就需要）；顶层用 `cargo tauri` 驱动也行，但内外两层 CLI 版本可能不同。
+
+# iOS：需 macOS（Linux 上 cc-rs 过不了 xcrun）；cargo tauri ios init/build
 ```
 
-## 已知坑（全部实测踩过）
+### Android 工具链（一次性）
 
-- **真机安装必须签名**：`cargo tauri ohos build --debug` 产出的是
-  `entry-default-unsigned.hap`，模拟器能装，**零售真机会拒绝**
-  （`code:9568320 no signature file`）。解决：用 DevEco Studio 打开
-  `mobile/src-tauri/gen/ohos`，File → Project Structure → Signing
-  Configs 勾选 "Automatically generate signature" 并登录华为开发者
-  账号（一次性）；之后 CLI 构建/`ohos dev` 都会带签名。改过签名
-  配置后如遇诡异报错，`hvigorw --stop-daemon` 清守护进程缓存。
-- **版本必须钉死**：`mobile/src-tauri/Cargo.toml` 里 tauri 是 `=2.11.5`，并把
-  tauri/wry/tao 三件 `[patch.crates-io]` 到 `feat/open-harmony` 分支。
-  `^` 语义会被 crates.io 更新的版本绕过 patch——实测坑到两次：crates.io 出了
-  wry 0.56.1 导致 wry patch 失效（表现为 ohos 编译去拉 webkit2gtk 的 gtk 全家
-  桶然后死在 pkg-config/glib），所以还有一条 `wry = "=0.56.0"` 的直接依赖把解
-  析钉在 patch 版本上。该 patch 只作用于 mobile 自己的 workspace，
-  webkit/CEF 两个 shell 不受影响。
-- **openharmony-ability 需要 vendor**：分支 wry 依赖 harmony-contrib 的
-  openharmony-ability（git-only），其 HEAD 已删掉 `webview` feature，且 cargo
-  拒绝同源 patch——按 wry 分支自己的 Cargo.lock 把 rev `295a276a`（v0.3.0）
-  vendor 到 `mobile/vendor/openharmony-ability`，path patch 进图。随 wry 分支
-  一起更新。
-- **beforeBuildCommand 在仓库根执行**（不是 src-tauri 目录），所以直接写
-  `pnpm run build:mobile`。
-- **hvigor 守护进程缓存环境变量**：改过 DEVECO_SDK_HOME/OHOS_HOME 后旧守护
-  进程会一直报 "Invalid value of 'DEVECO_SDK_HOME'"——`hvigorw --stop-daemon`
-  后重试。
-- **API 26+ 的版本串格式是 `"26.0.0"`**（不是 `"6.0.0(26)"` 也不是 `"26"`；
-  API 10-25 才用 `"5.0.0(12)"` 形式）。gen/ohos/build-profile.json5 已按
-  本机 SDK（API 26）配置。
-- **ArkWeb 的 localStorage 为 null**（tauri:// 自定义 scheme 下）：`src/mobile/kv.ts`
-  在 app bundle import 之前装内存 shim（Rust 侧 kv_load/kv_set 落盘到 app 数据目录）。
-- **ohos 无 home_dir**：日志插件只配 Stdout target（hdc hilog 可见）。
+Android Studio（platform + build-tools）+ NDK (side by side) + cmdline-tools +
+`rustup target add aarch64-linux-android armv7-linux-androideabi
+i686-linux-android x86_64-linux-android`；环境变量 `ANDROID_HOME=$HOME/Android/Sdk`
+（NDK 自动取 `ndk/` 最新，或显式 `NDK_HOME`）。日志：`adb logcat`。
 
-## 分支合入主线后
+### 签名与 CI 发布（Release 流水线）
 
-上游把 ohos 合进正式 release 时：删除 Cargo.toml 的 `[patch.crates-io]` 块和
-wry 直接钉死依赖，把 `=2.11.5` 松绑到该 release，npm CLI 换回稳定版，并清理
-上面两条 sudo 符号链接即可。
+- **版本随桌面端同步**：`mobile/src-tauri/{tauri.conf.json, Cargo.toml,
+  Cargo.lock}` 三处（无 package.json——前端是仓库根的第二个 vite 入口）由
+  `scripts/bump-version.sh` 常设收编，与 webkit/CEF 两个 shell 一起从同一
+  tag 发布。Android 的 versionName/versionCode 由 tauri 构建时从 conf 版本
+  自动派生（`major*1000000 + minor*1000 + patch`，写入构建时生成的
+  `gen/android/app/tauri.properties`），`--check` 十一个文件全绿即三端对齐。
+- **Release 流水线**：`.github/workflows/release.yml` 的 `publish-android`
+  job 在每次 release 发布时构建 **arm64-only APK**
+  （`pnpm exec tauri android build --apk --target aarch64`，在 `mobile/`
+  目录下执行）并上传为 `Lumina.Code_<ver>_android-arm64.apk`。
+- **签名**（APK 不签名无法安装）：`gen/android/app/build.gradle.kts` 里的
+  条件 signingConfig 读取 `gen/android/keystore.properties`（已被模板
+  gitignore）：
+  ```properties
+  storeFile=lumina-release.jks
+  storePassword=<storepass>
+  keyAlias=lumina
+  keyPassword=<keypass>
+  ```
+  本地构建时手写该文件即可；CI 从四个 secrets 生成它。**一次性设置**（密钥
+  库丢失 = 老用户无法覆盖升级，务必备份 `.jks`）：
+  ```bash
+  keytool -genkey -v -keystore lumina-release.jks \
+    -keyalg RSA -keysize 2048 -validity 10000 -alias lumina \
+    -storepass <password> -keypass <password>
+  gh secret set ANDROID_KEYSTORE_BASE64 < <(base64 -w0 lumina-release.jks)
+  gh secret set ANDROID_KEYSTORE_PASSWORD   # -storepass 的值
+  gh secret set ANDROID_KEY_ALIAS           # 例如 lumina
+  gh secret set ANDROID_KEY_PASSWORD        # 同一个密码（见下）
+  ```
+  **PKCS12 密码约束**（live-observed）：现代 keytool 默认输出 PKCS12，不支持
+  key 密码 ≠ store 密码——`-keypass` 传不同值会被静默忽略。两个 secret 必须是
+  同一个密码，否则 gradle 报 `Given final block not properly padded`。
+  secrets 缺失时 android job 会**快速失败**并打印上述指引——宁可发布红着，
+  不上传一个装不上的 unsigned APK。
+
+### E2E 冒烟（无需跑桌面 App）
+
+```bash
+# 1. 起 lumina-code-server + sidecar
+LUMINA_DATA_DIR=/tmp/e2e pnpm --filter lumina-code-server dev
+OPENCODE_SERVER_PASSWORD=pw ./src-tauri/binaries/opencode serve --port 4312 \
+  --hostname 127.0.0.1 --cors 'http://localhost:1421'
+# 2. 注册账号拿 token（POST /api/auth/register）
+# 3. 假桌面（协议同 tunnelClient.ts）
+LUMINA_URL=http://127.0.0.1:4600 LUMINA_TOKEN=... \
+OPENCODE_URL=http://127.0.0.1:4312 OPENCODE_PASSWORD=pw \
+  node scripts/tunnel-fake-desktop.mjs
+# 4. 模拟器登录 http://10.0.2.2:4600 → 完整桌面 UI → 发 prompt → 流式回复
+```
+
+## 已知坑（全部 live-observed）
+
+- **`app.windows` 必须有 `main` 条目**：空列表 = setup() 不建 webview = 白屏
+  但进程存活、无 chromium 日志。
+- **Tailwind 内容检测跟随 vite root**：mobile 构建的 root 是 `mobile/`，桌面树
+  的工具类（h-screen/text-sm/…）会静默缺失（表现为 36px 高的 UI / 排版崩坏
+  ——这也是 v1「markdown css 没加载」的真正根因）。修复：main.css 显式
+  `@source "./**/*.{ts,tsx}"`。
+- **html/body 内联样式会毒害继承**：index.html 里 splash 时代的
+  `color:#e8e8ee` 被整个 app 树继承 → 浅色主题浅底浅字不可读。html/body 只
+  放布局样式，颜色放 `#splash` 自身。
+- **版本 `=` 钉死**（caret 表达不了"留在 2.11"，`^2.11`=`<3.0.0` 会跳最新
+  minor 触发 CLI 的 npm parity 拒绝；fresh lock 会解出 tauri 2.11.6 +
+  tauri-runtime 2.12 的互不兼容组合——恢复法：以桌面 Cargo.lock 为种子
+  `cp src-tauri/Cargo.lock mobile/src-tauri/Cargo.lock && cargo check`）。
+- **`beforeBuildCommand` 在仓库根执行**（写 `pnpm run build:mobile`）。
+- 边缘到边缘：MainActivity 默认 enableEdgeToEdge，标题栏需 safe-area padding
+  （mobile.css 的 `#root > div` 规则）。
+- **软键盘（IME）同样走 native padding**：targetSdk 35+ 的 edge-to-edge 下系统
+  根本不为键盘缩放窗口——MainActivity 的 insets listener 取
+  `max(bars.bottom, ime.bottom)` 作底边 padding（取 max 不相加：键盘弹出时
+  导航栏 insets 仍在报告）。**刻意不挂 `WindowInsetsAnimationCompat` 逐帧回调**
+  （live-observed：逐帧 padding = 逐帧 resize WebView，而 WebView 的尺寸变化
+  滞后于合成器，动画期间 surface buffer 被缩放凑数，整个布局在最终/中间状态
+  间闪烁）；padding 在键盘落定时一次性生效，表现为干净的一跳。manifest
+  的 `adjustResize` 只为 pre-35 设备禁掉 adjustPan（全屏窗 +
+  decorFitsSystemWindows(false) 下 pan 会与 padding 叠成双重抬升），35+ 上被
+  忽略。页面侧零 JS：composer 列是纯 CSS 流，缩放后自然抬升；
+  useTranscriptScroll 的 ResizeObserver 负责把 transcript 重新贴底。
+
+## 待打磨（已知，不阻塞）
+
+- composer 工具栏窄屏三行堆叠的间距/收缩。
+- 状态栏配色未跟随 app 主题。
+- 隧道无事件 replay buffer（重连靠 re-seed 自愈）；无多桌面仲裁（顶替制）。
+
+---
+
+## HarmonyOS（封存，未完成）
+
+状态：**WIP 已暂停（2026-10-06）**，现场完整保留在 `feat/mobile-ohos` 分支
+（官方 `feat/open-harmony` 分支四件 `[patch.crates-io]` + vendored
+openharmony-ability + DevEco 工程，卡在真机黑屏——webview 已创建但不向 dev
+server 发请求；排查方向与全部工具链坑见该分支 `mobile/README.md`）。该支持
+至今不在任何 crates.io 稳定发布里。恢复时注意：本分支 lib.rs 注册了
+tauri-plugin-log（iOS/Android 正常），ohos 上它初始化即 SIGABRT，需 cfg 掉。
