@@ -157,11 +157,119 @@ OPENCODE_URL=http://127.0.0.1:4312 OPENCODE_PASSWORD=pw \
 
 ---
 
-## HarmonyOS（封存，未完成）
+## HarmonyOS（已恢复，`feat/mobile-ohos` 分支）
 
-状态：**WIP 已暂停（2026-10-06）**，现场完整保留在 `feat/mobile-ohos` 分支
-（官方 `feat/open-harmony` 分支四件 `[patch.crates-io]` + vendored
-openharmony-ability + DevEco 工程，卡在真机黑屏——webview 已创建但不向 dev
-server 发请求；排查方向与全部工具链坑见该分支 `mobile/README.md`）。该支持
-至今不在任何 crates.io 稳定发布里。恢复时注意：本分支 lib.rs 注册了
-tauri-plugin-log（iOS/Android 正常），ohos 上它初始化即 SIGABRT，需 cfg 掉。
+状态：**同步 master 后原生运行打通（2026-11-02）**——真机（Mate 80 Pro，
+API 26）上登录 lumina-code-server → frp 直连桌面 opencode → v2 桌面树主界面
+（会话列表/composer）完整渲染，dev 与内嵌两种加载模式均验证可用。
+
+该支持仍不在任何 crates.io 稳定发布里（官方 `feat/open-harmony` 分支四件
+`[patch.crates-io]` + vendored openharmony-ability + DevEco 工程）。
+
+### 2026-11-02 同步与修复记录
+
+1. **分支同步**：master 的 103 个提交合入（v1 relay 架构遗骸随之清理，
+   `mobile/src-tauri` 融合为 master 的 0.7.1 插件集 + ohos patch 块）。
+   冲突矩阵：共享文件一律取 master；ohos 资产（gen/ohos、vendor）保留。
+2. **插件按 target 拆分**（`Cargo.toml` 的
+   `[target.'cfg(not(target_env = "ohos"))'.dependencies]` +
+   `lib.rs` 的同名 cfg）：ohos 上只装 **store + opener**。tauri-plugin-log
+   在 ohos 初始化即 SIGABRT（v1 二分实锤，勿加回）；os/dialog/notification
+   携带未验证的 linux 路径原生依赖，直接排除出 ohos 解析图。**注意 ohos
+   target 的 `target_os` 是 `"linux"`，ohos 专属 cfg 一律用
+   `target_env = "ohos"`**。npm 侧对应插件的 import 全部有降级
+   （invoke 失败 → catch → fallback）。
+3. **capabilities 按平台拆分**：ohos 图里没有的插件，其权限也无法通过
+   tauri-build 的 ACL 校验（`Permission log:default not found`）。
+   `default.json` 显式列非 ohos 平台（linux/windows/macOS/android/iOS）
+   + 全量权限；`ohos.json` 走 `platforms: ["openHarmony"]`（分支的 Target
+   serde 序列化值，camelCase）+ 最小权限集。
+4. **登录后白屏根因**：plugin-os 的 js `platform()` **同步读**
+   `window.__TAURI_OS_PLUGIN_INTERNALS__`（Rust 插件 init script 注入的
+   全局）——ohos 上插件缺席 → undefined.platform → 同步 throw →
+   React 在 InnerApp 首渲染（useGlass → isLinux）整树崩溃。
+   修复：`src/lib/platform.ts` 的 `osPlatform()` try/catch 防御，
+   undefined 读作 not-macos/not-linux（ohos 语义恰好正确：ArkWeb 是
+   Chromium，glass 保持开启）。
+5. **v1 黑屏结论**：v1 卡点"webview 从不向 dev server 发请求"在同步后
+   **不复现**——`cargo tauri ohos dev`（CLI 2.11.4）构建安装的 dev 版
+   页面成功从 vite 加载（tauri://localhost 页面框架 + `@fs` 代理路径 +
+   HMR 连接正常），内嵌版（`ohos build`，frontendDist 打进 HAP）同样
+   渲染正常。二分证据：内嵌 HAP 有画面 → 壳层（napi 胶水/ArkWeb/插件）
+   全通，v1 现象归因于当时代的 dev 流程，现已消解。
+
+### 调试通道（本次排查的取证利器）
+
+EntryAbility 已开 `webview.WebviewController.setWebDebuggingAccess(true)`
+（v1 时代 9222 不出现；**现在可用**——dev 与内嵌构建都行）：
+
+```bash
+PID=$(hdc shell pidof com.iewnfod.lumina_code_mobile | tr -d '\r\n ')
+hdc fport tcp:9222 localabstract:webview_devtools_remote_$PID
+curl -s http://127.0.0.1:9222/json/list   # 拿 webSocketDebuggerUrl
+```
+
+之后用任何 CDP 客户端连 `ws://127.0.0.1:9222/devtools/page/<id>`：
+`Runtime.evaluate` 直接在 webview 里跑诊断（表单状态/fetch 连通性探测），
+`Runtime.exceptionThrown` 抓 React 崩溃堆栈（本次白屏根因就是这么抓到的
+——hilog 里看不到前端异常，因为 app 代码不走 console）。
+
+### 工具链（一次性安装，v1 实测踩坑记录，仍然适用）
+
+```bash
+# 1. ohos rust targets
+rustup target add aarch64-unknown-linux-ohos x86_64-unknown-linux-ohos
+
+# 2. feat/open-harmony 分支的 tauri-cli（npm 的 @tauri-apps/cli 无 ohos 子命令）
+cargo install tauri-cli --git https://github.com/tauri-apps/tauri --branch feat/open-harmony
+
+# 3. ohrs（ohos-rs 构建工具，tauri 的 ohos 构建通过它驱动交叉编译）
+cargo install ohrs
+
+# 4. 系统级符号链接（需要 sudo，两条都是 cargo-mobile2 的路径推导所必需）：
+#    a) OHOS_HOME 需要带 API 版本层（openharmony/26），DevEco 平铺布局没有
+sudo ln -sfn /opt/devecostudio/sdk/default/openharmony /opt/devecostudio/sdk/default/openharmony/26
+#    b) ohpm 的计算路径固定为 <DEVECO_SDK_HOME>/ohpm/bin/ohpm
+sudo ln -sfn /opt/devecostudio/tools/ohpm /opt/devecostudio/sdk/ohpm
+```
+
+每次构建/运行所需的环境变量（可放进 shell rc）：
+
+```bash
+export OHOS_HOME=/opt/devecostudio/sdk/default/openharmony/26
+export PATH="/opt/devecostudio/tools/bin:/opt/devecostudio/tools/node/bin:$PATH"
+```
+
+历史坑（v1 实测，构建异常时先对照这里）：
+
+- **真机安装必须签名**：`ohos build --debug` 产出的 unsigned HAP 零售真机
+  拒收（`code:9568320`）。用 DevEco 打开 `gen/ohos` → Project Structure →
+  Signing Configs 勾自动签名（一次性，本机已配好）；之后 CLI 构建都带签名。
+  诡异报错先 `hvigorw --stop-daemon` 清守护进程缓存。
+- **版本必须钉死**：`Cargo.toml` 的 tauri `=2.11.5`（feat/open-harmony 分支
+  的发布版本，2026-11-02 复核）+ `[patch.crates-io]` 四件 + `wry = "=0.56.0"`
+  直接依赖把解析钉在 patch 版本上——`^` 语义会被 crates.io 新版绕过 patch
+  （实测两次：wry 0.56.1 使 ohos 编译拉 webkit2gtk 全家桶死在 pkg-config）。
+- **openharmony-ability 需要 vendor**：分支 wry 依赖 harmony-contrib 的
+  openharmony-ability（git-only），其 HEAD 已删 `webview` feature，cargo 拒
+  同源 patch——rev `295a276a`（v0.3.0）vendor 在 `mobile/vendor/`，path
+  patch 进图。随 wry 分支一起更新。
+- **`beforeBuildCommand` 在仓库根执行**（不是 src-tauri 目录）。
+- **API 26+ 的版本串是 `"26.0.0"`**（API 10-25 才用 `"5.0.0(12)"` 形式）。
+- **hvigor 守护进程缓存环境变量**：改过 DEVECO_SDK_HOME/OHOS_HOME 后旧
+  守护进程一直报 "Invalid value of 'DEVECO_SDK_HOME'"——stop-daemon 重试。
+- 上游把 ohos 合进正式 release 时：删 `[patch.crates-io]` 块和 wry 钉死
+  依赖，`=` 松绑到该 release，npm CLI 换回稳定版，清理两条 sudo 符号链接。
+
+### 已知残留
+
+- dev 构建偶尔抛 `Cannot read properties of undefined (reading
+  'runCallback')`（vite/react-refresh HMR runtime 的 teardown 噪音，无害，
+  仅 dev 模式）。
+- ohos 上 os/dialog/notification 插件缺席的降级影响：登录设备标签退化为
+  裸 "mobile"（无 hostname）；附件选择器与系统通知不可用。若要恢复，
+  在 Cargo.toml 的 ohos target 段逐个加回 + `ohos.json` 补权限 +
+  真机验证（log 永远不加）。
+- 构建命令：`cargo tauri ohos build --debug` / `cargo tauri ohos dev`（需
+  上面的 OHOS_HOME 环境变量；裸跑 `cargo check --target
+  aarch64-unknown-linux-ohos` 还需要 `OHOS_NDK_HOME=$OHOS_HOME/native`）。
