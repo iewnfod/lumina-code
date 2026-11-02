@@ -27,7 +27,14 @@ const CHROME_BG_DARK = '#282828';
 export default class EntryAbility extends RustAbility {
   // change to dynamic library name
   public moduleName: string = "lumina_code_mobile_lib"
-  public defaultPage: boolean = true;
+  // The HAR's internal MainPage (loaded via loadContentByName when
+  // defaultPage is true) has NO onBackPress — the system back gesture
+  // fell through to the OS default (move to background) and the
+  // webview's history never participated. false skips it;
+  // onWindowStageCreate loads OUR page (pages/LuminaPage) instead,
+  // whose onBackPress drives the webview history — the HarmonyOS twin
+  // of Android's MainActivity.handleBackNavigation (see LuminaPage.ets).
+  public defaultPage: boolean = false;
   public mode: 'xcomponent' | 'webview' = 'webview'
 
   private mainWindow: window.Window | null = null;
@@ -69,11 +76,21 @@ export default class EntryAbility extends RustAbility {
     this.mainWindow = windowStage.getMainWindowSync();
     await this.mainWindow.setWindowLayoutFullScreen(false);
     await super.onWindowStageCreate(windowStage);
-    // AFTER super: RustAbility loads the page inside (loadContentByName),
-    // and setWindowBackgroundColor only takes effect once the window has
-    // content (its own d.ts contract). The system bars decorate themselves
-    // in non-fullscreen layout and follow the system theme on their own —
-    // unlike Android there is no system-bar appearance to manage here.
+    // defaultPage = false above skipped the HAR's internal page load —
+    // load OUR page here. Same ordering as the stock path: AFTER super
+    // (the Rust window lifecycle must be up before the page's
+    // aboutToAppear calls render()), and BEFORE applyWindowBackground —
+    // setWindowBackgroundColor only takes effect once the window has
+    // content (its own d.ts contract). The system bars decorate
+    // themselves in non-fullscreen layout and follow the system theme
+    // on their own — unlike Android there is no system-bar appearance
+    // to manage here.
+    try {
+      await windowStage.loadContent('pages/LuminaPage');
+    } catch (e) {
+      const err = e as BusinessError;
+      hilog.error(DOMAIN, TAG, `loadContent(pages/LuminaPage) failed: ${err.code} ${err.message}`);
+    }
     this.applyWindowBackground(this.context.config.colorMode);
   }
 

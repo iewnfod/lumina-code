@@ -270,6 +270,36 @@ API 26）上登录 lumina-code-server → frp 直连桌面 opencode → v2 桌�
     `app.configuration` 再发事件，事件循环未就绪也只丢事件不丢值，
     `theme()` 查询兜底正确）。随 wry/tauri 分支升级时 vendor 需 re-sync
     并重放两处改动（Cargo.toml patch 注释同）。
+11. **系统侧滑返回驱动网页回退**（2026-11-02）：安卓
+    `MainActivity.handleBackNavigation`（wry → `canGoBack`/`goBack`）的
+    鸿蒙同构——前端 `backStack`（isMobileApp 不分平台）早已激活，缺的
+    只是"系统返回手势 → webview 历史回退"这一段。障碍三连：HAR 内部
+    MainPage（`loadContentByName`，`defaultPage = true`）没有
+    `onBackPress`，返回直落 OS 默认（移后台）；Web 组件旧 API 的
+    `onBackPressed` **事件已在当前 SDK 移除**；wry ohos 的
+    `can_go_back`/`go_back` 是**空 stub**。修复：走 @ohos-rs/ability
+    0.0.2 起官方的 **custom-page 扩展点**——EntryAbility
+    `defaultPage = false` + `onWindowStageCreate` 里 super 之后
+    `loadContent('pages/LuminaPage')`（次序约束：super 先行保证 Rust
+    window 生命周期就绪、页面 aboutToAppear 才能调 `render()`；
+    loadContent 先于 applyWindowBackgroundColor——窗口有内容后
+    setWindowBackgroundColor 才生效，原有次序保持）。自建
+    `pages/LuminaPage.ets` 复刻 DefaultXComponent 组装（NodeContent
+    rootSlot + RustWebviewNodeController + helper.render），但
+    `createWebview` **预建原生 `WebviewController` 记入页面数组、经
+    `WebviewInitData.controller` 传入 `addWebview`**——该字段是
+    addWebview 未传时自己也会同款赋值的口子（stock
+    DefaultXComponent 把 controller 私有化了，这正是拿不到的原因）。
+    页面 `onBackPress` 遍历 controller（try/catch：未关联 Web 组件时
+    抛 17100001）：`accessBackward()` 为真 → `backward()`（history
+    back → popstate → 前端 `backStackHandlePop` 关顶层 level）并
+    `return true` 拦截；全无可回退 → `return false` 走系统默认
+    （targetSdk 12+ = 移后台，鸿蒙"根上返回"惯例，≡ 安卓 finish）。
+    `accessBackward` 对 pushState 条目同样为真——与安卓 `canGoBack`
+    完全同构。类型桥：`WebviewInitData.controller` 的 declare 扩展类
+    未导出，init 对象整体走 ESObject（EntryAbility 先例；编译器
+    arkts-limited-esobj 警告与 HAR 自身警告同级）。`main_pages.json`
+    注册页面（模板 `pages/Index` 保留无害）。零 Rust、零前端改动。
 
 ### 调试通道（本次排查的取证利器）
 

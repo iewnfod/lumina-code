@@ -4011,7 +4011,19 @@ desktop layout still connects to the DESKTOP's opencode remotely.
   the settings second-level page, the drawer, popover menus (the
   PopoverMenu primitive) and the expanded stats overlay all close on
   back; desktop is untouched (the hook is isMobileApp-gated, Escape
-  paths stay). iOS edge-swipe is FUTURE work: wry 0.55 has
+  paths stay). HarmonyOS drives the SAME semantics through its own
+  native gate: the @Entry page is LuminaPage (gen/ohos
+  .../pages/LuminaPage.ets — a port of the @ohos-rs/ability
+  DefaultXComponent assembly, mounted via RustAbility.defaultPage =
+  false + EntryAbility.loadContent, the HAR's custom-page extension
+  point), whose onBackPress maps `accessBackward() ? backward() :
+  false` — accessBackward is ArkWeb's canGoBack (pushState entries
+  count), backward() is history back → popstate, and false at the
+  root runs the system default (move to background, the HarmonyOS
+  convention; no Rust or frontend changes — wry's ohos
+  can_go_back/go_back are empty stubs and the Web component's legacy
+  onBackPressed event no longer exists in current SDKs). iOS
+  edge-swipe is FUTURE work: wry 0.55 has
   `with_back_forward_navigation_gestures` but tauri 2.11 does not
   expose it (would need a vendored patch, plus a macOS build host);
   the history-based frontend half already works for it as-is.
@@ -4069,7 +4081,15 @@ desktop layout still connects to the DESKTOP's opencode remotely.
   calling this.onConfigurationUpdate(this.context.config) at the
   end of onCreate (the system only delivers it on CHANGES — a cold
   start into an already-dark system would otherwise read NoSet
-  forever). Frontend debugging on device: the ArkWeb DevTools
+  forever). The SYSTEM BACK gesture (2026-11-02): the stock @Entry
+  page inside the @ohos-rs/ability HAR has no onBackPress, so back
+  fell through to the OS default; fixed via the HAR's custom-page
+  extension point (RustAbility.defaultPage = false + a
+  DefaultXComponent port, pages/LuminaPage.ets, whose createWebview
+  pre-creates and remembers each native WebviewController through
+  WebviewInitData.controller) — onBackPress maps accessBackward()?
+  backward() : false, the handleBackNavigation twin (see the mobile
+  back-gesture bullet above). Frontend debugging on device: the ArkWeb DevTools
   channel (hdc fport 9222 + CDP — hilog shows no JS exceptions).
   Full resume record + toolchain pitfalls: mobile/README.md's
   HarmonyOS section.
