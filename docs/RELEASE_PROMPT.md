@@ -1,71 +1,72 @@
 # 任务：为 Lumina Code 生成 Release Note
 
-从 git tag `<上一个 tag>`（例如 v0.1.0）到当前 HEAD 生成一份 GitHub Release Note，遵循项目既定的标准格式。
-
-## 自 0.3.0 起的固定条目
-
-每次发布都必须包含以下说明块（放在 Features 之后或专门的变体小节），因为
-Linux 用户会在 release 资产里看到两套包：
-
-- **CEF 变体（Linux，实验性）**：`Lumina.Code.CEF_*` 资产（注意：GitHub
-  release 上传会把资产文件名里的空格替换为点，两个变体的远端资产都是点分
-  命名）/
-  `lumina-code-cef-bin`
-  (AUR) / `lumina-code-cef` (COPR) 是内置 Chromium 渲染的变体 ——
-  渲染性能与 Web API 兼容性显著更好，但底座是 tauri v3 alpha（实验性），
-  与 webkit 版可并行安装（数据目录隔离）。已知限制：无透明玻璃窗口
-  （走不透明 + WM 原生圆角）、窗口拖动依赖本地补丁（上游
-  tauri-apps/tauri#14936）、暂无 AppImage。默认 `Lumina.Code_*` 资产仍是
-  webkit 版，普通用户无需改变。
-
-自 0.6.0 起还须包含（Android 首次入流水线时提一句即可）：
-
-- **Android APK（`Lumina.Code_*_android-arm64.apk`，arm64-only）**：移动
-  客户端直接安装包，需自部署 lumina-code-server 配合使用（见 mobile/README.md）；
-  签名密钥随发布流水线管理，覆盖升级需先卸载旧的手工签名调试版。
+从 git tag `<上一个 tag>`（例如 v0.7.1）到当前 HEAD 生成一份 GitHub Release Note，遵循项目既定的标准格式（完整样例见文末，v0.8.0 的实际输出）。
 
 ## 步骤
 
 1. 运行以下命令收集信息：
     - `git tag --sort=-creatordate` — 确认所有 tag，检查区间内是否存在中间 tag
     - `git log <上一个 tag>..HEAD --format="%h %s (%an)" --no-decorate` — 获取 commit 列表
+    - `gh release view <上一个 tag> --json assets --jq '.assets[].name'` — 确认 release 资产的实际命名规则（Downloads 表格链接由此推出）
     - 对语义不清晰的 commit，用 `git show <hash> --stat --format="%B"` 查看改动范围和详情
     - 对重大特性，可查看关键文件了解功能实际行为
 2. 如果区间内有未发布的中间 tag（如测试版本），需特别处理：跳过该 tag 本身，但要说明跳过的原因
 3. 分类所有 commit，并过滤噪音：
     - **跳过**：版本号 commit（`update: vX.Y.Z`）、纯 merge commit、测试性 docs
-    - **归入分类**：其余按功能、修复、性能、样式、杂项、文档归类
-4. 将同一领域的多个 commit 合并为一条 bullet（例如同一功能的多个 fix 合并成一条）
+    - **归入分类**：其余按功能、修复、杂项归类
+4. 将同一领域的多个 commit 合并为一条 bullet（例如同一功能的多个 fix 合并成一条，设备适配类小修并入主特性条目）
 5. 区分贡献者：主仓库提交不需要署名；PR 合并的提交在条目末尾标注 `(by @GitHub用户名)`
 
+## 风格规则（核心）
+
+- **极简**：每个 bullet 一句话概括"现在能做什么 / 修了什么"，不说废话。
+- 不写实现细节、内部机制、验证设备、along-the-way 的小修清单。
+- 不解释为什么改，只说行为变化。
+- 技术名词（工具名、定界符、快捷键）保留原文。
+- 输出**英文**。
+
 ## 输出格式
+
+无总标题（GitHub release 标题即版本号），四个 section 依序排列，结尾 Full Changelog：
+
 ```
 ### ✨ Features
-- **加粗的功能名** — 详细说明，包含实际使用场景和关键细节
-
-### ⚡ Performance
-- 性能改进的具体数据或场景
+- **加粗的功能名** — 一句话说明现在能做什么
 
 ### 🐛 Bug Fixes
-- 修复内容及影响场景
-
-### 🎨 Polish
-- UI 样式和交互细节优化
+- 一句话说明修了什么问题（可带一句影响场景）
 
 ### 🔧 Chores
-- CI、构建、发布流程变更
+- 一句话说明构建/CI/流程变更
 
-**Full Changelog**: https://github.com/iewnfod/lumina-code/compare/${上个版本号}...${新的版本号}
+### 📦 Downloads
+（表格，见下）
+
+**Full Changelog**: https://github.com/iewnfod/lumina-code/compare/v<prev>...v<next>
 ```
 
-## 写作规则
+### Downloads 表格
 
-- 输出**英文**
-- 每个 bullet 的第一句是完整句子，说明"改了什么、对用户意味着什么"
-- 不逐条翻译 commit message，要按用户价值重组
-- 修复类条目说明"之前的问题是什么"，特性类条目说明"现在能做什么"
-- 技术细节（协议名、命令名、快捷键）保留原文，如 `Ctrl+Shift+F`、`~/.ssh/config`
-- 每条 bullet 不宜超过 3 行
+按操作系统一行，格式 `| Operating System | Downloads |`，每种产物一个 markdown 链接（链接文字如 `.deb amd64`），包管理器行内嵌包名链接：
+
+| Operating System | Downloads |
+|---|---|
+| **Linux** (webkit) | .deb amd64/arm64 · .rpm x86_64/aarch64 · AppImage amd64/aarch64 · AUR `lumina-code-bin` · COPR `lumina-code` |
+| **Linux** (CEF) | .deb amd64/arm64 · .rpm x86_64/aarch64 · AUR `lumina-code-cef-bin` · COPR `lumina-code-cef`（无 AppImage） |
+| **Windows** x64 | Setup .exe · .msi |
+| **macOS** | Apple Silicon .dmg · Intel .dmg |
+| **Android** (arm64) | .apk |
+| **HarmonyOS** (arm64) | .hap |
+
+- 下载链接指向 `https://github.com/iewnfod/lumina-code/releases/download/v<ver>/<asset>`。
+- 资产名按上一个 release 的实际命名推出：`.deb`/`.AppImage`/`.apk`/`.hap` 用下划线（`Lumina.Code_<ver>_…`），`.rpm` 用连字符（`Lumina.Code-<ver>-1.…`），CEF 变体前缀 `Lumina.Code.CEF`。
+- 表格后固定两条注脚（blockquote）：
+
+  > The mobile versions require self deployed server to connect to your desktop.
+
+  > HarmonyOS version needs to sign manually before install.
+
+- 不再写长篇 CEF 变体说明段：CEF 已是表格里独立一行，由用户自选，无需重复渲染引擎/实验性等背景。
 
 ## 特殊场景
 
@@ -74,22 +75,41 @@ Linux 用户会在 release 资产里看到两套包：
 - **无新 commit**：明确回复"区间内没有新提交"
 
 ## 样例
-一份合格的 Release Note 样例如下：
+
+v0.8.0 的实际输出（链接为该版本真实资产）：
+
 ```markdown
 ### ✨ Features
 
-- **Plan workflow with approval gate** — Sessions can now run a structured plan → approve → execute loop: the plan agent submits {title, plan, todos} via plan_submit, an approval card pins above the composer (approve = switch to build + save the plan document under .lumina/plans/, reject = interrupt for revision), and execution reports progress through task_complete with strict next-task validation
-- **Vision tool (识图)** — When the selected model lacks image input, attached images are diverted to disk and a text-only model can ask a configured vision model about them through a transient helper session — no more failed sends on vision-incapable models
-- **Workspace stats panel** — A stats card now sits beside the conversation as a real flex sibling: plan progress checklist, working-copy diff with inline git-diff drill-down, background terminals with live output, and subagent transcripts — all keyed by directory so same-directory session switches keep it mounted
+- **HarmonyOS support (experimental)** — The full desktop UI now runs natively on HarmonyOS (API 26).
+- **Read PDF documents** — `read_document` now accepts `.pdf`, extracting text to markdown via an inlined pdf.js engine.
+- **Math rendering in markdown** — `$…$` / `$$…$$` (plus `\(...\)` / `\[...\]`) render through KaTeX.
+- **Folder icons** — Directory listings now show Material folder icons.
 
 ### 🐛 Bug Fixes
 
-- Fixed transcript rows re-animating on scroll-up history loads; only tail-appended live content now enters with the fade
-- Fixed the session surface flash on cross-directory switches — the successor enters only after its first frame has content
+- Fixed the sidebar "new session" button not switching back to the staged directory, which could land the next session in the previous project's folder.
+- Fixed the daily-mode agent picker listing developer agents; it now offers only the daily assistant.
 
 ### 🔧 Chores
 
-- Added GitHub Actions CI (frontend + backend) and the Release → AUR/COPR publish pipeline
+- Added the HarmonyOS release workflow as a separate pipeline, isolated so the ohos toolchain can never block a release.
+- Removed dead v1 relay/sync code.
 
-**Full Changelog**: https://github.com/iewnfod/lumina-code/compare/v0.1.0...v0.2.0
+### 📦 Downloads
+
+| Operating System | Downloads |
+|---|---|
+| **Linux** (webkit) | [.deb amd64](…) · [.deb arm64](…) · [.rpm x86_64](…) · [.rpm aarch64](…) · [AppImage amd64](…) · [AppImage aarch64](…) · AUR [`lumina-code-bin`](https://aur.archlinux.org/packages/lumina-code-bin) · COPR [`lumina-code`](https://copr.fedorainfracloud.org/coprs/iewnfod/lumina-code/package/lumina-code) |
+| **Linux** (CEF) | [.deb amd64](…) · [.deb arm64](…) · [.rpm x86_64](…) · [.rpm aarch64](…) · AUR [`lumina-code-cef-bin`](https://aur.archlinux.org/packages/lumina-code-cef-bin) · COPR [`lumina-code-cef`](https://copr.fedorainfracloud.org/coprs/iewnfod/lumina-code/package/lumina-code-cef) |
+| **Windows** x64 | [Setup .exe](…) · [.msi](…) |
+| **macOS** | [Apple Silicon .dmg](…) · [Intel .dmg](…) |
+| **Android** (arm64) | [.apk](…) |
+| **HarmonyOS** (arm64) | [.hap](…) |
+
+> The mobile versions require self deployed server to connect to your desktop.
+
+> HarmonyOS version needs to sign manually before install.
+
+**Full Changelog**: https://github.com/iewnfod/lumina-code/compare/v0.7.1...v0.8.0
 ```
