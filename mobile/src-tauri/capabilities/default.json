@@ -1,7 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The mobile shell's only window: the shared web frontend.",
+  "description": "The mobile shell's only window: the shared web frontend. Platforms EXCLUDE openHarmony — the ohos target resolves without the log/os/dialog/notification plugins (see Cargo.toml's ohos split), so their permissions cannot be validated there; ohos.json carries the ohos-scoped set.",
+  "platforms": ["linux", "windows", "macOS", "android", "iOS"],
   "windows": [
     "main"
   ],
