@@ -14,6 +14,7 @@ import {whileHoverTap} from "../lib/motion.ts";
 import {useI18n} from "../hooks/i18n.tsx";
 import {useScrollEdges, type ScrollEdges} from "../hooks/useScrollEdges.ts";
 import {useSidebarResizing, useSidebarWidth} from "../hooks/useSidebarWidth.ts";
+import {getCollapsedFolders, setCollapsedFolders, useCollapsedFolders} from "../hooks/useCollapsedFolders.ts";
 import {groupByDirectory, projectDirOf, type SessionInfo} from "./sessionGrouping.ts";
 import {setAppMode, useAppMode, useGitAvailable} from "../opencode/appMode.ts";
 import {useWorktreeDirs} from "../opencode/worktreeSessions.ts";
@@ -32,9 +33,10 @@ import type {CSSProperties} from "react";
  *
  * The shell owns the folder state (which folders are collapsed, how far
  * each is expanded) and the ticking clock for relative ages; each group
- * renders through SessionFolder. The expanded width is the persisted
- * sidebar-width store (hooks/useSidebarWidth.ts), resized by dragging the
- * seam beside the bar (components/SidebarResizer.tsx).
+ * renders through SessionFolder. The COLLAPSED set is persisted across
+ * restarts (hooks/useCollapsedFolders.ts); the expanded width is the
+ * persisted sidebar-width store (hooks/useSidebarWidth.ts), resized by
+ * dragging the seam beside the bar (components/SidebarResizer.tsx).
  */
 
 interface SessionBarProps {
@@ -113,19 +115,22 @@ export default function SessionBar(props: SessionBarProps) {
     // also re-groups live the moment sendFirst records a new binding.
     const worktreeDirs = useWorktreeDirs();
 
-    // Folders the user has collapsed (by directory path). The active
-    // session's folder always re-expands so the open tab can't vanish.
-    const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(new Set());
+    // Folders the user has collapsed (by directory path), PERSISTED across
+    // restarts (hooks/useCollapsedFolders.ts — the sidebar-width pattern).
+    // The active session's folder always re-expands so the open tab can't
+    // vanish, which also un-collapses a restored open session's folder on
+    // load. Reads/writes go through the module store synchronously; the eq
+    // short-circuit keeps an unchanged set from touching the state file.
+    const collapsedDirs = useCollapsedFolders();
     // Folders expanded past the initial 5 most-recent sessions; each
-    // "Show more" press reveals another batch of 5.
+    // "Show more" press reveals another batch of 5. Deliberately NOT
+    // persisted — restart resets the reveal to the cap.
     const [extraDirs, setExtraDirs] = useState<Map<string, number>>(new Map());
     const toggleFolder = useCallback((directory: string) => {
-        setCollapsedDirs((prev) => {
-            const next = new Set(prev);
-            if (next.has(directory)) next.delete(directory);
-            else next.add(directory);
-            return next;
-        });
+        const next = new Set(getCollapsedFolders());
+        if (next.has(directory)) next.delete(directory);
+        else next.add(directory);
+        setCollapsedFolders(next);
     }, []);
     useEffect(() => {
         if (activeId === null) return;
@@ -133,7 +138,8 @@ export default function SessionBar(props: SessionBarProps) {
         // session's folder is its main repo's, so the re-expand lookup
         // maps through the same bindings the grouping uses.
         const dir = projectDirOf(sessions.find((s) => s.id === activeId)?.directory, worktreeDirs);
-        setCollapsedDirs((prev) => (prev.has(dir) ? new Set([...prev].filter((d) => d !== dir)) : prev));
+        const prev = getCollapsedFolders();
+        if (prev.has(dir)) setCollapsedFolders(new Set([...prev].filter((d) => d !== dir)));
     }, [activeId, sessions, worktreeDirs]);
 
     const showMore = useCallback((directory: string, visibleCount: number) => {

@@ -2267,7 +2267,12 @@ src/
     │                      #   collapsed folders, scroll positions and show-
     │                      #   more states survive a switch; a git-less
     │                      #   machine renders the plain single daily page),
-    │                      #   folder collapse/expand state,
+    │                      #   folder collapse/expand state (the
+    │                      #   COLLAPSED set is persisted across restarts
+    │                      #   via hooks/useCollapsedFolders.ts, the
+    │                      #   sidebar-width pattern; the active session's
+    │                      #   folder always re-expands, "show more"
+    │                      #   reveal levels stay session-memory only),
     │                      #   relative-age ticker,
     │                      #   bottom action rows — SETTINGS leads the
     │                      #   group (the row the old Plugins & MCP
