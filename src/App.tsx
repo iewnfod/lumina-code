@@ -8,7 +8,7 @@ import WelcomeScreen from "./components/WelcomeScreen.tsx";
 import BootScreen from "./components/BootScreen.tsx";
 import ChatView from "./components/chat/ChatView.tsx";
 import WorkspaceStatsCard from "./components/stats/WorkspaceStatsCard.tsx";
-import SettingsPage, {type SettingsTab} from "./components/settings/SettingsPage.tsx";
+import SettingsPage, {settingsTabLabel, type SettingsTab} from "./components/settings/SettingsPage.tsx";
 import ImportSessionsModal from "./components/ImportSessionsModal.tsx";
 import MaskedSurface from "./components/ui/MaskedSurface.tsx";
 import {useMaximized} from "./hooks/maximized.ts";
@@ -333,9 +333,17 @@ function AppBody({
     // title or branch chip in the title bar — the settings page is a peer
     // surface, never a second tab coexisting with the session. The real
     // activeId is untouched underneath (closing the settings surface
-    // returns to it); only the PRESENTATION is blanked.
+    // returns to it); only the PRESENTATION is blanked. ONE exception —
+    // the PHONE layout's title bar hosts the settings navigation itself
+    // (the pushed pane renders bare, see SettingsPage): the root list
+    // shows 「设置」 and a pushed second level shows the pane's label,
+    // with the bar's left cluster swapping the drawer hamburger for a
+    // back arrow while pushed.
     const surfaceSession = settings.open ? null : activeSession;
     const surfaceActiveId = settings.open ? null : activeId;
+    const settingsSurfaceTitle = settings.open && phoneLayout
+        ? (settings.tab != null ? settingsTabLabel(settings.tab, t) : t["Settings"])
+        : null;
 
     return (
         <div
@@ -421,10 +429,15 @@ function AppBody({
             <div className="flex-1 flex flex-col min-w-0">
                 <TitleBar
                     theme={effectiveTheme}
-                    title={surfaceSession ? surfaceSession.title?.trim() || t["Untitled"] : null}
+                    title={settingsSurfaceTitle ?? (surfaceSession ? surfaceSession.title?.trim() || t["Untitled"] : null)}
                     branch={settings.open ? null : shownBranch}
                     isMaximized={isMaximized}
                     onMenu={phoneLayout ? () => setDrawerOpen(true) : undefined}
+                    // MOBILE settings second level: the bar's left slot
+                    // becomes the pane's back arrow (replacing the drawer
+                    // hamburger) while a pane is pushed — the pushed page
+                    // itself renders bare.
+                    onBack={phoneLayout && settings.open && settings.tab != null ? () => changeSettingsTab(null) : undefined}
                     // MOBILE pin entry: same surface rule as delete — only
                     // while a session is open (the ⋯ menu's pin item acts
                     // on the ACTIVE session; desktop uses the sidebar row's

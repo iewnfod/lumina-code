@@ -3463,10 +3463,16 @@ src/
     │                      #   (the tab rows as h-11 chevron rows) pushes
     │                      #   the pane as a sliding page (.lum-m-page-in
     │                      #   from the right, an absolute overlay over the
-    │                      #   always-mounted list; the pushed page carries
-    │                      #   the page's ONE header — a back row — popping
-    │                      #   it out through the exit engine, the
-    │                      #   frozen-pane ghost kept by a lastPaneRef). A
+    │                      #   always-mounted list, popping it out
+    │                      #   through the exit engine, the frozen-pane
+    │                      #   ghost kept by a lastPaneRef). The pushed
+    │                      #   page renders BARE — its TITLE and BACK
+    │                      #   live in the TITLE BAR (App feeds TitleBar
+    │                      #   while the surface is live: the root list
+    │                      #   shows 「设置」, a pushed pane shows
+    │                      #   settingsTabLabel, and the bar's left
+    │                      #   cluster swaps the drawer hamburger for a
+    │                      #   back arrow). The
     │                      #   NULL tab is the mobile root list (desktop
     │                      #   reads null as "general"), so list rows and
     │                      #   the desktop rail share one onTabChange and

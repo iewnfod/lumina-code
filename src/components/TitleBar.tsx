@@ -1,4 +1,4 @@
-import {Ellipsis, GitBranch, Menu, Pin, PinOff, Trash2} from "lucide-react";
+import {ArrowLeft, Ellipsis, GitBranch, Menu, Pin, PinOff, Trash2} from "lucide-react";
 import type {ChromeTheme} from "../lib/theme.ts";
 import {isMacOS, isMobileApp} from "../lib/platform.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
@@ -26,6 +26,7 @@ export default function TitleBar({
     branch,
     isMaximized,
     onMenu,
+    onBack,
     onTogglePin,
     sessionPinned,
     onDeleteSession,
@@ -41,6 +42,13 @@ export default function TitleBar({
     /** The MOBILE drawer toggle (hamburger in the bar's left side);
      *  absent on the desktop, where the sidebar is always docked. */
     onMenu?: () => void,
+    /** MOBILE back affordance — while present it REPLACES the drawer
+     *  hamburger in the bar's left cluster (the Android second-level
+     *  pattern: the top-left slot is a back arrow, the drawer returns
+     *  once the level is popped). Currently fed while the settings
+     *  surface's second level is pushed: the pane's title rides in the
+     *  bar and the pushed page itself renders bare (SettingsPage). */
+    onBack?: () => void,
     /** Toggle the ACTIVE session's pin (MOBILE only): App passes it on
      *  a phone while a session is open, and the ⋯ menu grows the pin
      *  entry. The row-level pin button is desktop-only — a phone has no
@@ -115,7 +123,22 @@ export default function TitleBar({
             }}
         >
             <div className="relative flex-1 min-w-0 flex items-center self-stretch overflow-hidden" data-tauri-drag-region>
-                {onMenu && (
+                {/* Back REPLACES the hamburger while present (the
+                 * second-level pattern — see onBack's doc). Same
+                 * geometry as the hamburger so the left cluster reads
+                 * as one slot. */}
+                {onBack ? (
+                    <IconButton
+                        size={size - 8}
+                        hoverOverlay={hoverOverlay}
+                        activeOverlay={activeOverlay}
+                        style={{color: fg, marginLeft: 4, flexShrink: 0}}
+                        onClick={onBack}
+                        aria-label={t["Back"]}
+                    >
+                        <ArrowLeft size={18}/>
+                    </IconButton>
+                ) : onMenu && (
                     <IconButton
                         size={size - 8}
                         hoverOverlay={hoverOverlay}

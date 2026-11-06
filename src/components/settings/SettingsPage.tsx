@@ -1,16 +1,15 @@
 import {useEffect, useRef, type ReactNode} from "react";
 import {motion} from "framer-motion";
-import {ArrowLeft, ChartPie, ChevronRight, Cpu, Info, Puzzle, Server as ServerIcon, Settings as SettingsIcon} from "lucide-react";
+import {ChartPie, ChevronRight, Cpu, Info, Puzzle, Server as ServerIcon, Settings as SettingsIcon} from "lucide-react";
 import {Tab, Tabs} from "@heroui/react";
 import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
-import {useI18n} from "../../hooks/i18n.tsx";
+import {useI18n, type TranslationKey} from "../../hooks/i18n.tsx";
 import {useBackLevel} from "../../hooks/useBackLevel.ts";
 import {usePhoneLayout} from "../../hooks/useLayoutMode.ts";
 import {isMobileApp} from "../../lib/platform.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
 import ExitPresence from "../ui/ExitPresence.tsx";
-import IconButton from "../ui/IconButton.tsx";
 import GeneralSettings from "./GeneralSettings.tsx";
 import ModelSettings from "./ModelSettings.tsx";
 import UsageSettings from "./UsageSettings.tsx";
@@ -21,6 +20,25 @@ import AboutSettings from "./AboutSettings.tsx";
 /** Selectable settings tabs. App owns the value so an entry point can
  *  deep-link (the model picker opens straight to the Model tab). */
 export type SettingsTab = "general" | "model" | "usage" | "server" | "extensions" | "about";
+
+/** The pane labels' ONE source: the tab ids map to i18n keys here, and
+ *  both consumers read through settingsTabLabel — the category list rows
+ *  below AND the MOBILE title bar (App feeds TitleBar while the settings
+ *  surface is live: the root list shows 「设置」, a pushed second level
+ *  shows the pane's label). */
+const SETTINGS_TAB_LABELS: Record<SettingsTab, TranslationKey> = {
+    general: "General",
+    model: "Model settings",
+    usage: "Usage",
+    server: "Server",
+    extensions: "Plugins & MCP Servers",
+    about: "About",
+};
+
+/** A settings pane's display label (list row / mobile title bar). */
+export function settingsTabLabel(tab: SettingsTab, t: Record<TranslationKey, string>): string {
+    return t[SETTINGS_TAB_LABELS[tab]];
+}
 
 /**
  * The app's settings PAGE — a PEER SURFACE of the session and welcome
@@ -44,15 +62,17 @@ export type SettingsTab = "general" | "model" | "usage" | "server" | "extensions
  * MOBILE: the rail is unusable on a phone, so the page navigates TWO
  * LEVELS instead — a category LIST (the tab rows become full-width
  * chevron rows) pushing the pane as a SLIDING PAGE over it
- * (.lum-m-page-in from the right; the pushed page carries its own back
- * header — the ONE header this page has, since the pane needs a way
- * back to the list; back pops it out over the still-mounted list, the
- * frozen-pane ghost kept by a lastPaneRef). The navigation state is
- * App's own `tab` either way: NULL means "at the root list"
- * (mobile-only; the desktop rail reads null as "general"), a real tab
- * means that pane is showing, so deep-links (openSettings("model"))
- * land directly on the second level and the list rows call the very
- * same onTabChange the desktop rail uses.
+ * (.lum-m-page-in from the right; back pops it out over the
+ * still-mounted list, the frozen-pane ghost kept by a lastPaneRef).
+ * The pushed page renders BARE — its TITLE and BACK both live in the
+ * TITLE BAR (App feeds TitleBar while this surface is live: the root
+ * list shows 「设置」, a pushed pane shows its label, and the bar's
+ * left cluster swaps the drawer hamburger for a back arrow). The
+ * navigation state is App's own `tab` either way: NULL means "at the
+ * root list" (mobile-only; the desktop rail reads null as "general"),
+ * a real tab means that pane is showing, so deep-links
+ * (openSettings("model")) land directly on the second level and the
+ * list rows call the very same onTabChange the desktop rail uses.
  */
 export default function SettingsPage({
     tab,
@@ -109,20 +129,20 @@ export default function SettingsPage({
     useBackLevel(mobile && !atRoot, () => onTabChange(null));
 
     const tabs: {id: SettingsTab; icon: typeof SettingsIcon; label: string}[] = [
-        {id: "general", icon: SettingsIcon, label: t["General"]},
-        {id: "model", icon: Cpu, label: t["Model settings"]},
+        {id: "general", icon: SettingsIcon, label: settingsTabLabel("general", t)},
+        {id: "model", icon: Cpu, label: settingsTabLabel("model", t)},
         // The Usage pane — the stats endpoint's model-share donut +
         // daily trend (settings/UsageSettings.tsx).
-        {id: "usage", icon: ChartPie, label: t["Usage"]},
+        {id: "usage", icon: ChartPie, label: settingsTabLabel("usage", t)},
         // The Server pane is DUAL-PURPOSE: the desktop's own lumina-code-server
         // link (remote access) on desktop, the MOBILE app's account page
         // (server address + sign out — see ServerSettings' mobile branch)
         // on mobile.
-        {id: "server", icon: ServerIcon, label: t["Server"]},
+        {id: "server", icon: ServerIcon, label: settingsTabLabel("server", t)},
         // The Plugins & MCP pane — the old sidebar-entry modal, now a
         // peer pane (settings/ExtensionsSettings.tsx).
-        {id: "extensions", icon: Puzzle, label: t["Plugins & MCP Servers"]},
-        {id: "about", icon: Info, label: t["About"]},
+        {id: "extensions", icon: Puzzle, label: settingsTabLabel("extensions", t)},
+        {id: "about", icon: Info, label: settingsTabLabel("about", t)},
     ];
 
     // The mounted pane — one at a time; switching fades the keyed pane
@@ -156,28 +176,10 @@ export default function SettingsPage({
         // light mode, the chrome glass in dark), exactly like the
         // conversation surfaces this page is a peer of.
         <div role="region" aria-label={t["Settings"]} className="flex flex-col h-full min-h-0 w-full">
-            {/* The pushed pane's back header (MOBILE second level only —
-             * the ONE header this page has: the desktop rail and the
-             * mobile root list render bare, tab-like). */}
-            {mobile && !atRoot && (
-                <div
-                    className="flex items-center gap-1.5 h-11 shrink-0 px-2 min-w-0"
-                    style={{borderBottom: `1px solid ${colors.glassBorder}`}}
-                >
-                    <IconButton
-                        size={22}
-                        hoverOverlay={colors.hoverOverlay}
-                        activeOverlay={colors.activeOverlay}
-                        aria-label={t["Back"]}
-                        onClick={() => onTabChange(null)}
-                    >
-                        <ArrowLeft size={15}/>
-                    </IconButton>
-                    <div className="text-sm font-semibold truncate leading-normal">
-                        {tabs.find((x) => x.id === active)?.label ?? t["Settings"]}
-                    </div>
-                </div>
-            )}
+            {/* No in-page header on EITHER layout — the pushed pane's
+             * title/back live in the TITLE BAR on mobile (see the file
+             * doc); the desktop rail and the mobile root list render
+             * bare, tab-like. */}
 
             {/* Body — fills the rest of the main area on BOTH
              * layouts (every pane scrolls inside it). */}
