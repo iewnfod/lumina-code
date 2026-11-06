@@ -216,6 +216,7 @@ const enUs = {
     "Delete session": "Delete session",
     "Pin session": "Pin session",
     "Unpin session": "Unpin session",
+    "Session actions": "Session actions",
     "Yes": "Yes",
     "No": "No",
     // --- Model configuration ---

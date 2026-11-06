@@ -2243,13 +2243,15 @@ src/
     │                      #   name, non-interactive; null = no repo, hidden)
     │                      #   — App feeds it useDirectoryBranch's reading,
     │                      #   or the welcome screen's STAGED branch. MOBILE:
-    │                      #   an optional ⋯ menu (onDeleteSession prop, App
-    │                      #   passes it on a phone while a session is open)
-    │                      #   carrying 删除会话 — the delete entry's mobile
-    │                      #   home, relocated from the sidebar rows (a
-    │                      #   finger press synthesizes hover and reveals the
-    │                      #   row's X mid-tap: the tap meant to open the
-    │                      #   session would delete it). NOTE the bar's root
+    │                      #   an optional ⋯ menu (onTogglePin +
+    │                      #   onDeleteSession props, App passes them on a
+    │                      #   phone while a session is open) carrying
+    │                      #   置顶/取消置顶 + 删除会话 — the pin and
+    │                      #   delete entries' mobile home, relocated from
+    │                      #   the sidebar rows (a finger press synthesizes
+    │                      #   hover and reveals the row's hover-only
+    │                      #   buttons mid-tap: the tap meant to open the
+    │                      #   session would hit them). NOTE the bar's root
     │                      #   wears relative z-50: its glass backdrop-filter
     │                      #   creates a STACKING CONTEXT, so the downward
     │                      #   menu panel needs the whole bar hoisted above
@@ -2339,11 +2341,14 @@ src/
     │                      #   hover-debounced HeroUI tooltip when overflowing.
     ├── SessionFolder.tsx  # One PROJECT group: collapsible header (+/chevron),
     │                      #   animated session rows (the left INDICATOR
-    │                      #   SLOT is three-state: busy → pulsing dot,
+    │                      #   SLOT — DESKTOP only for the pin half, a
+    │                      #   phone's pin surface is the title-bar ⋯
+    │                      #   menu — is three-state: busy → pulsing dot,
     │                      #   pinned → always-on filled pin (click
     │                      #   unpins), else a hover-revealed pin outline
-    │                      #   that pins — MOBILE keeps the pinned icon
-    │                      #   only, no hover button, like the delete X;
+    │                      #   that pins, the delete-X pattern; MOBILE
+    │                      #   renders only the busy dot, pin state reads
+    │                      #   through the folder's ordering;
     │                      #   branch-worktree
     │                      #   sessions wear their branch as a quiet chip after
     │                      #   the title — hint carries the worktree path;

@@ -206,18 +206,20 @@ export default function SessionFolder({
                                         onPointerEnter={() => onSessionHover?.(session.id)}
                                     >
                                         {/* The INDICATOR SLOT (the indent gutter left of the row) is
-                                            shared by the busy dot and the pin button: busy → the pulsing
-                                            dot (a transient state wins the slot, the pin steps aside);
-                                            pinned → the always-on filled pin (click unpins); otherwise a
-                                            hover-revealed pin outline (click pins) — the delete-X
-                                            pattern. MOBILE has no hover: unpinned rows show no button,
-                                            pinned rows keep theirs (tap to unpin). */}
+                                            shared by the busy dot and the pin button (DESKTOP only —
+                                            a phone has no hover to reveal the button, its pin
+                                            surface is the title-bar ⋯ menu): busy → the pulsing dot
+                                            (a transient state wins the slot, the pin steps aside);
+                                            pinned → the always-on filled pin (click unpins);
+                                            otherwise a hover-revealed pin outline (click pins) —
+                                            the delete-X pattern. MOBILE renders only the busy dot;
+                                            pin state reads through the folder's ordering. */}
                                         {busyIds?.has(session.id) ? (
                                             <span
                                                 className="absolute left-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full animate-pulse pointer-events-none"
                                                 style={{backgroundColor: "var(--color-brand-lavender)"}}
                                             />
-                                        ) : (isPinned || !mobile) && onTogglePin && (
+                                        ) : !mobile && onTogglePin && (
                                             <Hint
                                                 label={isPinned ? t["Unpin session"] : t["Pin session"]}
                                                 className="absolute left-2 top-1/2 -translate-y-1/2"

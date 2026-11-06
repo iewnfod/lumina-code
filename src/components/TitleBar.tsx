@@ -1,4 +1,4 @@
-import {Ellipsis, GitBranch, Menu, Trash2} from "lucide-react";
+import {Ellipsis, GitBranch, Menu, Pin, PinOff, Trash2} from "lucide-react";
 import type {ChromeTheme} from "../lib/theme.ts";
 import {isMacOS, isMobileApp} from "../lib/platform.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
@@ -8,7 +8,7 @@ import {useI18n} from "../hooks/i18n.tsx";
 import {glassSurface} from "../lib/glass.ts";
 import { info } from "@tauri-apps/plugin-log";
 import IconButton from "./ui/IconButton.tsx";
-import PopoverMenu, {MenuItem} from "./ui/PopoverMenu.tsx";
+import PopoverMenu, {MenuDivider, MenuItem} from "./ui/PopoverMenu.tsx";
 import RollingTitle from "./ui/RollingTitle.tsx";
 import WindowControl from "./ui/WindowControls.tsx";
 import {CHROME_TITLE_BAR_HEIGHT} from "../constants.ts";
@@ -26,6 +26,8 @@ export default function TitleBar({
     branch,
     isMaximized,
     onMenu,
+    onTogglePin,
+    sessionPinned,
     onDeleteSession,
 } : {
     theme: ChromeTheme | null,
@@ -39,6 +41,15 @@ export default function TitleBar({
     /** The MOBILE drawer toggle (hamburger in the bar's left side);
      *  absent on the desktop, where the sidebar is always docked. */
     onMenu?: () => void,
+    /** Toggle the ACTIVE session's pin (MOBILE only): App passes it on
+     *  a phone while a session is open, and the ⋯ menu grows the pin
+     *  entry. The row-level pin button is desktop-only — a phone has no
+     *  hover to reveal it, so the MENU is the mobile pin surface (the
+     *  delete-entry pattern). */
+    onTogglePin?: () => void,
+    /** Whether the active session is pinned (labels the ⋯ menu's pin
+     *  entry 置顶/取消置顶). Only read while onTogglePin is passed. */
+    sessionPinned?: boolean,
     /** Delete the ACTIVE session (MOBILE only): App passes it on a phone
      *  while a session is open, and the bar shows a ⋯ menu with the
      *  delete action. Relocated here from the sidebar rows because the
@@ -122,13 +133,13 @@ export default function TitleBar({
                 {branch && (
                     <TitleBranchChip branch={branch} fg={fg}/>
                 )}
-                {/* MOBILE session menu (⋯): the delete entry's new home —
-                 * see onDeleteSession's doc note. PopoverMenu opens DOWN
+                {/* MOBILE session menu (⋯): the pin and delete entries'
+                 * mobile home — see the props' doc notes. PopoverMenu opens DOWN
                  * from the bar (a title-bar menu, like the composer's
                  * upward menus are bottom-anchored); the trigger keeps the
                  * gear's exact geometry (36px, square) so the bar reads as
                  * one cluster. */}
-                {onDeleteSession && (
+                {(onTogglePin || onDeleteSession) && (
                     <PopoverMenu
                         direction="down"
                         align="end"
@@ -140,27 +151,44 @@ export default function TitleBar({
                                 activeOverlay={activeOverlay}
                                 style={{color: fg, borderRadius: 0}}
                                 onClick={toggle}
-                                aria-label={t["Delete session"]}
+                                aria-label={t["Session actions"]}
                             >
                                 <Ellipsis size={18}/>
                             </IconButton>
                         )}
                     >
-                        {(close) => (
-                            <MenuItem
-                                danger
-                                onClick={() => {
-                                    info("Session delete requested from title bar").catch(() => {});
-                                    close();
-                                    onDeleteSession();
-                                }}
-                            >
-                                <span className="flex items-center gap-2">
-                                    <Trash2 size={13} className="shrink-0"/>
-                                    {t["Delete session"]}
-                                </span>
-                            </MenuItem>
-                        )}
+                        {(close) => (<>
+                            {onTogglePin && (
+                                <MenuItem
+                                    onClick={() => {
+                                        info(`Session pin toggle requested from title bar (${sessionPinned ? "unpin" : "pin"})`).catch(() => {});
+                                        close();
+                                        onTogglePin();
+                                    }}
+                                >
+                                    <span className="flex items-center gap-2">
+                                        {sessionPinned ? <PinOff size={13} className="shrink-0"/> : <Pin size={13} className="shrink-0"/>}
+                                        {sessionPinned ? t["Unpin session"] : t["Pin session"]}
+                                    </span>
+                                </MenuItem>
+                            )}
+                            {onTogglePin && onDeleteSession && <MenuDivider/>}
+                            {onDeleteSession && (
+                                <MenuItem
+                                    danger
+                                    onClick={() => {
+                                        info("Session delete requested from title bar").catch(() => {});
+                                        close();
+                                        onDeleteSession();
+                                    }}
+                                >
+                                    <span className="flex items-center gap-2">
+                                        <Trash2 size={13} className="shrink-0"/>
+                                        {t["Delete session"]}
+                                    </span>
+                                </MenuItem>
+                            )}
+                        </>)}
                     </PopoverMenu>
                 )}
                 {!isMobileApp() && (

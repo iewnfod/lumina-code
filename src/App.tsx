@@ -28,6 +28,7 @@ import {useChromeThemeSync} from "./hooks/useChromeThemeSync.ts";
 import {useNotifications} from "./hooks/useNotifications.ts";
 import {useServerFrp} from "./hooks/useServerFrp.ts";
 import {useBackLevel} from "./hooks/useBackLevel.ts";
+import {toggleSessionPin, useSessionPins} from "./hooks/useSessionPins.ts";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {isColorDark, withAlpha} from "./lib/color.ts";
 import {isLinux, isCefRuntime, isMobileApp} from "./lib/platform.ts";
@@ -254,6 +255,11 @@ function AppBody({
     // becomes reachable (a wide row) with no further gating here.
     const mobile = isMobileApp();
     const phoneLayout = usePhoneLayout();
+    // The user's pinned sessions (hooks/useSessionPins.ts) — feeds the
+    // MOBILE title-bar ⋯ menu's pin entry for the ACTIVE session (the
+    // row-level pin button is desktop-only; the sidebar reads the same
+    // store through SessionBar's own subscription).
+    const pinnedIds = useSessionPins();
     const [drawerOpen, setDrawerOpen] = useState(false);
     const closeDrawer = useCallback(() => setDrawerOpen(false), []);
     // SYSTEM BACK closes the drawer (phone layout): it is the top page
@@ -419,6 +425,12 @@ function AppBody({
                     branch={settings.open ? null : shownBranch}
                     isMaximized={isMaximized}
                     onMenu={phoneLayout ? () => setDrawerOpen(true) : undefined}
+                    // MOBILE pin entry: same surface rule as delete — only
+                    // while a session is open (the ⋯ menu's pin item acts
+                    // on the ACTIVE session; desktop uses the sidebar row's
+                    // own pin button instead).
+                    onTogglePin={mobile && activeId && !settings.open ? () => toggleSessionPin(activeId) : undefined}
+                    sessionPinned={mobile && activeId ? pinnedIds.has(activeId) : undefined}
                     // MOBILE delete entry: only while a session is open
                     // (TitleBar renders the ⋯ menu only when this is
                     // passed — desktop never does, its sidebar row X
