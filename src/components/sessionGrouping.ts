@@ -44,6 +44,23 @@ export function projectDirOf(
     return bindings[directory]?.mainDir ?? directory;
 }
 
+/** PINNED-FIRST ordering within one folder: pinned sessions rise to
+ * the top (stable among themselves and among the rest — the server's
+ * recency order is preserved within each half). Pinned rows also
+ * bypass the folder's default reveal cap (the sidebar derives its
+ * visible count from pinnedCount + cap). */
+export function orderSessions(
+    sessions: readonly SessionInfo[],
+    pinned: ReadonlySet<string>,
+): SessionInfo[] {
+    const pinnedRows: SessionInfo[] = [];
+    const rest: SessionInfo[] = [];
+    for (const session of sessions) {
+        (pinned.has(session.id) ? pinnedRows : rest).push(session);
+    }
+    return pinnedRows.length === 0 ? [...sessions] : [...pinnedRows, ...rest];
+}
+
 /** Sessions bucketed by PROJECT directory (branch-worktree sessions
  * merge into their main repo's group), folders in order of each
  * folder's most recently updated session (the server's list order). */

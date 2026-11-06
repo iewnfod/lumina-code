@@ -207,6 +207,8 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Waiting for OpenCode...": "等待 OpenCode...",
     "Send a message to start": "发送消息开始对话",
     "Delete session": "删除会话",
+    "Pin session": "置顶会话",
+    "Unpin session": "取消置顶",
     "Yes": "是",
     "No": "否",
     // --- Model configuration ---

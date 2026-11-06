@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
-import {groupByDirectory, projectDirOf, relativeAge, type SessionInfo} from "./sessionGrouping.ts";
+import {groupByDirectory, orderSessions, projectDirOf, relativeAge, type SessionInfo} from "./sessionGrouping.ts";
 import type {WorktreeDirs} from "../opencode/worktreeSessions.ts";
 
 function session(id: string, directory?: string, updatedAt?: number): SessionInfo {
@@ -17,6 +17,26 @@ test("relativeAge buckets minute/hour/day", () => {
 
 test("relativeAge clamps future timestamps to now", () => {
     assert.equal(relativeAge(1_000_000_100_000, 1_000_000_000_000), "now");
+});
+
+test("orderSessions keeps the original order with no pins", () => {
+    const rows = [session("a", "/p1"), session("b", "/p1"), session("c", "/p1")];
+    assert.deepEqual(orderSessions(rows, new Set()).map((s) => s.id), ["a", "b", "c"]);
+    // Ids absent from the list are inert.
+    assert.deepEqual(orderSessions(rows, new Set(["ghost"])).map((s) => s.id), ["a", "b", "c"]);
+});
+
+test("orderSessions floats pinned rows to the top, stable within each half", () => {
+    const rows = [
+        session("a", "/p1"),
+        session("b", "/p1"),
+        session("c", "/p1"),
+        session("d", "/p1"),
+    ];
+    // Pin two mid-list rows: they rise in their original relative order,
+    // the rest keeps the server's recency order.
+    const ordered = orderSessions(rows, new Set(["c", "b"]));
+    assert.deepEqual(ordered.map((s) => s.id), ["b", "c", "a", "d"]);
 });
 
 test("groupByDirectory buckets by directory and keeps first-seen order", () => {

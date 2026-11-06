@@ -214,6 +214,8 @@ const enUs = {
     "Waiting for OpenCode...": "Waiting for OpenCode...",
     "Send a message to start": "Send a message to start",
     "Delete session": "Delete session",
+    "Pin session": "Pin session",
+    "Unpin session": "Unpin session",
     "Yes": "Yes",
     "No": "No",
     // --- Model configuration ---

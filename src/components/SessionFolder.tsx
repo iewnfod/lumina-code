@@ -1,6 +1,6 @@
 import {type CSSProperties} from "react";
 import {motion} from "framer-motion";
-import {ChevronRight, Plus, X} from "lucide-react";
+import {ChevronRight, Pin, Plus, X} from "lucide-react";
 import {useColors} from "../hooks/colors.tsx";
 import {whileHoverTap} from "../lib/motion.ts";
 import ExitPresence, {ExitList} from "./ui/ExitPresence.tsx";
@@ -45,6 +45,9 @@ export default function SessionFolder({
     activeId,
     busyIds,
     pendingCounts,
+    pinnedIds,
+    pinnedCount = 0,
+    onTogglePin,
     collapsed,
     now,
     foregroundColor,
@@ -62,13 +65,22 @@ export default function SessionFolder({
      * merged into their main repo's folder ("" = the no-directory
      * bucket). */
     directory: string;
-    /** Every session in the folder. */
+    /** Every session in the folder (PINNED-FIRST — the parent orders
+     *  through sessionGrouping's orderSessions before slicing). */
     sessions: SessionInfo[];
-    /** The slice currently revealed (cap + expansions). */
+    /** The slice currently revealed (pins + cap + expansions). */
     visibleSessions: SessionInfo[];
     activeId: string | null;
     busyIds?: ReadonlySet<string>;
     pendingCounts?: ReadonlyMap<string, number>;
+    /** The user's pinned-session set (hooks/useSessionPins.ts) — drives
+     *  the per-row pin button's state. */
+    pinnedIds?: ReadonlySet<string>;
+    /** Pinned rows in THIS folder — they bypass the reveal cap, so the
+     *  expander's base is pinnedCount + maxVisible. */
+    pinnedCount?: number;
+    /** Toggle a session's pin (the indicator-slot button). */
+    onTogglePin?: (id: string) => void;
     collapsed: boolean;
     /** Ticking "now" for relative ages (owned by SessionBar). */
     now: number;
@@ -80,9 +92,10 @@ export default function SessionFolder({
     onToggleFolder: (directory: string) => void;
     /** New session pinned to this folder (header +). */
     onNewInFolder: (directory?: string) => void;
-    /** Reveal another batch ("Show more" — grows the cap). */
-    onShowMore: (directory: string, visibleCount: number) => void;
-    /** Collapse back to the initial cap ("Show less"). */
+    /** Reveal another batch — the value is the NEXT target visible
+     *  count (the current one + the batch size). */
+    onShowMore: (directory: string, target: number) => void;
+    /** Collapse back to the default reveal (pinnedCount + cap). */
     onShowLess: (directory: string) => void;
     /** Flat mode (the DAILY half): no header, no collapse — rows only.
      *  The `directory` prop then only keys the show more/less state. */
@@ -106,6 +119,9 @@ export default function SessionFolder({
     // the branch is per-session metadata.
     const worktreeDirs = useWorktreeDirs();
     const visibleCount = visibleSessions.length;
+    // The default reveal = pinned rows + the cap: pinned rows bypass the
+    // cap entirely, so every expander threshold shifts by pinnedCount.
+    const base = pinnedCount + maxVisible;
 
     return (
         <div>
@@ -171,6 +187,7 @@ export default function SessionFolder({
                         {(session) => {
                             const isActive = session.id === activeId;
                             const pendingCount = pendingCounts?.get(session.id);
+                            const isPinned = pinnedIds?.has(session.id) ?? false;
                             // The session's branch binding — present only
                             // for branch-worktree sessions (rows of the
                             // merged project folder).
@@ -188,13 +205,42 @@ export default function SessionFolder({
                                         onClick={() => onSelect(session.id)}
                                         onPointerEnter={() => onSessionHover?.(session.id)}
                                     >
-                                        {/* Busy dot pins into the indent gutter left of
-                                            the row so session names stay aligned. */}
-                                        {busyIds?.has(session.id) && (
+                                        {/* The INDICATOR SLOT (the indent gutter left of the row) is
+                                            shared by the busy dot and the pin button: busy → the pulsing
+                                            dot (a transient state wins the slot, the pin steps aside);
+                                            pinned → the always-on filled pin (click unpins); otherwise a
+                                            hover-revealed pin outline (click pins) — the delete-X
+                                            pattern. MOBILE has no hover: unpinned rows show no button,
+                                            pinned rows keep theirs (tap to unpin). */}
+                                        {busyIds?.has(session.id) ? (
                                             <span
                                                 className="absolute left-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full animate-pulse pointer-events-none"
                                                 style={{backgroundColor: "var(--color-brand-lavender)"}}
                                             />
+                                        ) : (isPinned || !mobile) && onTogglePin && (
+                                            <Hint
+                                                label={isPinned ? t["Unpin session"] : t["Pin session"]}
+                                                className="absolute left-2 top-1/2 -translate-y-1/2"
+                                            >
+                                                <button
+                                                    type="button"
+                                                    className={`flex items-center justify-center w-3.5 h-3.5 rounded-[var(--radius-xs)] lum-wash cursor-pointer${
+                                                        isPinned
+                                                            ? ""
+                                                            : " opacity-0 transition-opacity duration-[var(--duration-fast)] group-hover:opacity-100"
+                                                    }`}
+                                                    style={{
+                                                        "--lum-wash": colors.activeOverlay,
+                                                        color: isActive ? foregroundColor : colors.inactiveText,
+                                                    } as CSSProperties}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onTogglePin(session.id);
+                                                    }}
+                                                >
+                                                    <Pin size={11} fill={isPinned ? "currentColor" : "none"}/>
+                                                </button>
+                                            </Hint>
                                         )}
                                         <div className="flex items-center gap-2 min-w-0 flex-1">
                                             <SessionTitle
@@ -273,12 +319,15 @@ export default function SessionFolder({
                         }}
                     </ExitList>
                     {/* Expanded: split into two halves — left keeps
-                        revealing another batch (sized by the cap),
-                        right collapses back to the initial cap. Fully
-                        expanded → collapse only. The DAILY half rides
-                        the same expander past its higher cap. */}
-                    {sessions.length > maxVisible && (
-                        visibleCount > maxVisible ? (
+                        revealing another batch (the next absolute target
+                        = current visible + batch size), right collapses
+                        back to the default reveal (pins + cap). Fully
+                        expanded → collapse only. The expander exists only
+                        while NON-pinned sessions hide below the base (pins
+                        are always visible). The DAILY half rides the same
+                        expander past its higher cap. */}
+                    {sessions.length > base && (
+                        visibleCount > base ? (
                             <div className="flex flex-row w-full gap-1">
                                 {visibleCount < sessions.length && (
                                     <motion.button
@@ -286,7 +335,7 @@ export default function SessionFolder({
                                         {...whileHoverTap}
                                         className="flex-1 min-w-0 flex items-center justify-center px-2 py-1.5 text-2xs cursor-pointer rounded-[var(--radius-sm)] lum-wash"
                                         style={{color: colors.inactiveText} as CSSProperties}
-                                        onClick={() => onShowMore(directory, visibleCount)}
+                                        onClick={() => onShowMore(directory, visibleCount + maxVisible)}
                                     >
                                         {`${t["Show more"]} (${sessions.length - visibleCount})`}
                                     </motion.button>
@@ -307,7 +356,7 @@ export default function SessionFolder({
                                 {...whileHoverTap}
                                 className="w-full flex items-center px-7 py-1.5 text-2xs cursor-pointer rounded-[var(--radius-sm)] lum-wash"
                                 style={{color: colors.inactiveText} as CSSProperties}
-                                onClick={() => onShowMore(directory, visibleCount)}
+                                onClick={() => onShowMore(directory, visibleCount + maxVisible)}
                             >
                                 {`${t["Show more"]} (${sessions.length - visibleCount})`}
                             </motion.button>

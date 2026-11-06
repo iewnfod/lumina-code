@@ -2291,7 +2291,15 @@ src/
     │                      #   through SessionFolder, keyed by PROJECT
     │                      #   directory (groupByDirectory + the worktree
     │                      #   bindings — branch sessions merge into the
-    │                      #   main repo's folder). Session-row hover
+    │                      #   main repo's folder). PER-PROJECT PINS: the
+    │                      #   user's pinned sessions (hooks/
+    │                      #   useSessionPins.ts, a persisted id set —
+    │                      #   the collapsed-folders pattern) float to
+    │                      #   the top of their folder (orderSessions)
+    │                      #   and BYPASS the reveal cap (default
+    │                      #   visible = pinnedCount + cap; "show more"
+    │                      #   entries store the absolute target).
+    │                      #   Session-row hover
     │                      #   fires onSessionHover → App's
     │                      #   prefetchSessionActivity (warms the stats
     │                      #   card's data before the click). Expanded
@@ -2330,13 +2338,20 @@ src/
     ├── SessionTitle.tsx   # Single-line label: edge-fade truncation + a
     │                      #   hover-debounced HeroUI tooltip when overflowing.
     ├── SessionFolder.tsx  # One PROJECT group: collapsible header (+/chevron),
-    │                      #   animated session rows (busy dot; branch-worktree
+    │                      #   animated session rows (the left INDICATOR
+    │                      #   SLOT is three-state: busy → pulsing dot,
+    │                      #   pinned → always-on filled pin (click
+    │                      #   unpins), else a hover-revealed pin outline
+    │                      #   that pins — MOBILE keeps the pinned icon
+    │                      #   only, no hover button, like the delete X;
+    │                      #   branch-worktree
     │                      #   sessions wear their branch as a quiet chip after
     │                      #   the title — hint carries the worktree path;
     │                      #   pending badge, age and close button share one
     │                      #   cross-fade slot; deleted rows collapse in place
     │                      #   via ExitList, budget-limited), "Show more/less"
-    │                      #   expander. `plain` strips the folder chrome
+    │                      #   expander (thresholds shift by pinnedCount —
+    │                      #   pins never hide). `plain` strips the folder chrome
     │                      #   (header + collapse) — the DAILY sidebar half's
     │                      #   flat list (one workspace, no directory header;
     │                      #   SessionBar's renderGroups(list, plain)).

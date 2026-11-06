@@ -15,9 +15,10 @@ import {useI18n} from "../hooks/i18n.tsx";
 import {useScrollEdges, type ScrollEdges} from "../hooks/useScrollEdges.ts";
 import {useSidebarResizing, useSidebarWidth} from "../hooks/useSidebarWidth.ts";
 import {getCollapsedFolders, setCollapsedFolders, useCollapsedFolders} from "../hooks/useCollapsedFolders.ts";
-import {groupByDirectory, projectDirOf, type SessionInfo} from "./sessionGrouping.ts";
+import {groupByDirectory, orderSessions, projectDirOf, type SessionInfo} from "./sessionGrouping.ts";
 import {setAppMode, useAppMode, useGitAvailable} from "../opencode/appMode.ts";
 import {useWorktreeDirs} from "../opencode/worktreeSessions.ts";
+import {toggleSessionPin, useSessionPins} from "../hooks/useSessionPins.ts";
 import SessionFolder, {MAX_PLAIN_VISIBLE_SESSIONS, MAX_VISIBLE_SESSIONS} from "./SessionFolder.tsx";
 import type {CSSProperties} from "react";
 
@@ -122,10 +123,15 @@ export default function SessionBar(props: SessionBarProps) {
     // load. Reads/writes go through the module store synchronously; the eq
     // short-circuit keeps an unchanged set from touching the state file.
     const collapsedDirs = useCollapsedFolders();
-    // Folders expanded past the initial 5 most-recent sessions; each
-    // "Show more" press reveals another batch of 5. Deliberately NOT
-    // persisted — restart resets the reveal to the cap.
+    // Folders expanded past the default reveal; each "Show more" press
+    // reveals another batch (entries store the ABSOLUTE target visible
+    // count — the default being pinnedCount + cap). Deliberately NOT
+    // persisted — restart resets the reveal to the default.
     const [extraDirs, setExtraDirs] = useState<Map<string, number>>(new Map());
+    // The user's pinned sessions (per-project ordering preference,
+    // persisted across restarts — hooks/useSessionPins.ts): pinned rows
+    // float to the top of their folder and bypass the reveal cap.
+    const pinnedIds = useSessionPins();
     const toggleFolder = useCallback((directory: string) => {
         const next = new Set(getCollapsedFolders());
         if (next.has(directory)) next.delete(directory);
@@ -142,11 +148,18 @@ export default function SessionBar(props: SessionBarProps) {
         if (prev.has(dir)) setCollapsedFolders(new Set([...prev].filter((d) => d !== dir)));
     }, [activeId, sessions, worktreeDirs]);
 
-    const showMore = useCallback((directory: string, visibleCount: number) => {
-        setExtraDirs((prev) => new Map(prev).set(directory, visibleCount));
+    const showMore = useCallback((directory: string, target: number) => {
+        setExtraDirs((prev) => new Map(prev).set(directory, target));
     }, []);
+    // Collapse back to the default reveal (pinnedCount + cap) — drop the
+    // entry so the base stays dynamic as pins come and go.
     const showLess = useCallback((directory: string) => {
-        setExtraDirs((prev) => new Map(prev).set(directory, 0));
+        setExtraDirs((prev) => {
+            if (!prev.has(directory)) return prev;
+            const next = new Map(prev);
+            next.delete(directory);
+            return next;
+        });
     }, []);
 
     /** One half's folder list — the DAILY half renders FLAT (one
@@ -160,19 +173,26 @@ export default function SessionBar(props: SessionBarProps) {
         const groups: [string, SessionInfo[]][] = plain
             ? [["", list]]
             : groupByDirectory(list, worktreeDirs);
-        return groups.map(([directory, groupSessions]) => {
+        return groups.map(([directory, rawSessions]) => {
             const collapsedFolder = collapsedDirs.has(directory);
+            // Pinned rows float to the top first (stable within each
+            // half) — every count below derives from the ordered list.
+            const groupSessions = orderSessions(rawSessions, pinnedIds);
+            const pinnedCount = rawSessions.reduce((n, s) => n + (pinnedIds.has(s.id) ? 1 : 0), 0);
             const activeIndex = activeId === null ? -1 : groupSessions.findIndex((s) => s.id === activeId);
-            // Cap each folder at its N most-recent sessions; each
-            // "Show more" reveals another batch of the same size. The
-            // active session always stays visible even beyond the
-            // current cap. The DAILY half's flat list carries a much
+            // Pinned rows DON'T count against the cap: the default
+            // reveal is every pinned row + the folder's N most-recent
+            // others; each "Show more" reveals another batch of the
+            // same size (stored as the absolute target visible count).
+            // The active session always stays visible even beyond the
+            // current target. The DAILY half's flat list carries a much
             // higher guard (50 vs 5) — everything visible by default,
             // the cap existing purely as a DOM-size guard.
             const cap = plain ? MAX_PLAIN_VISIBLE_SESSIONS : MAX_VISIBLE_SESSIONS;
+            const target = extraDirs.get(directory) ?? pinnedCount + cap;
             const visibleCount = Math.min(
                 groupSessions.length,
-                Math.max(cap + (extraDirs.get(directory) ?? 0), activeIndex + 1),
+                Math.max(target, activeIndex + 1),
             );
             return (
                 <SessionFolder
@@ -183,6 +203,9 @@ export default function SessionBar(props: SessionBarProps) {
                     activeId={activeId}
                     busyIds={busyIds}
                     pendingCounts={pendingCounts}
+                    pinnedIds={pinnedIds}
+                    pinnedCount={pinnedCount}
+                    onTogglePin={toggleSessionPin}
                     collapsed={collapsedFolder}
                     now={now}
                     foregroundColor={foregroundColor}
