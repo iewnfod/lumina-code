@@ -113,6 +113,59 @@ pnpm tauri dev
 * The server version is pinned in three places that must move together: `OPENCODE_VERSION` in `scripts/fetch-opencode.mjs`, `EXPECTED_OPENCODE_VERSION` in `src-tauri/src/opencode/mod.rs`, and the exact-pinned `@opencode-ai/sdk` in `package.json`.
 * See [AGENTS.md](./AGENTS.md) for the full architecture guide.
 
+### Building each variant yourself
+
+Desktop shells share the same prerequisites — a Rust toolchain, `pnpm install`, and the two bundled sidecars (they ship as Tauri build resources, so even `cargo check` fails without them):
+
+```sh
+pnpm fetch:opencode   # pinned OpenCode server (~200 MB)
+pnpm fetch:frp        # frpc for remote access (~13 MB)
+```
+
+**Desktop — default WebKit shell** (Linux / Windows / macOS):
+
+```sh
+pnpm tauri dev    # dev run
+pnpm tauri build  # release bundle (.deb/.rpm/AppImage, .exe, .dmg — per host platform)
+```
+
+**CEF / Chromium shell** (Linux-only variant for setups where WebKitGTK misbehaves) — its sidecars live in the second crate's binaries dir, and it needs the shared CEF distribution under `~/.local/share/cef/cef_linux_x86_64` (a cold build downloads it into `OUT_DIR` automatically, but through a proxy if the direct route stalls):
+
+```sh
+pnpm fetch:opencode:cef
+pnpm fetch:frp:cef
+pnpm dev:cef      # dev run
+pnpm build:cef    # release bundle
+```
+
+**Android app** — bundles no sidecars (it connects to your desktop remotely). One-time toolchain: Android Studio (SDK + platform/build-tools), NDK, `rustup target add aarch64-linux-android`, and `ANDROID_HOME` pointing at the SDK. Then from `mobile/`:
+
+```sh
+cd mobile
+pnpm exec tauri android dev                            # debug run on a device/emulator
+pnpm exec tauri android build --apk --target aarch64   # release APK
+```
+
+A release APK won't install unsigned — create a keystore and write `gen/android/keystore.properties` (one-time setup in [mobile/README.md](./mobile/README.md)).
+
+**HarmonyOS app** — needs the `feat/open-harmony` toolchain: `rustup target add aarch64-unknown-linux-ohos`, the branch's own CLI (`cargo install tauri-cli --git https://github.com/tauri-apps/tauri --branch feat/open-harmony`), `cargo install ohrs`, and DevEco with `OHOS_HOME` exported (the full one-time setup, including the SDK symlink layout, is in [mobile/README.md](./mobile/README.md)). Then from `mobile/`:
+
+```sh
+cargo tauri ohos dev --target aarch64
+cargo tauri ohos build --target aarch64   # HAP under gen/ohos/.../outputs
+```
+
+On-device installs require signing — configure automatic signing once in DevEco (Project Structure → Signing Configs).
+
+**Companion server** (self-hosted lumina-code-server) — plain Node, no Rust:
+
+```sh
+pnpm server:dev     # dev run
+pnpm server:build   # production build
+pnpm server:test
+# or build the Docker image from server/Dockerfile (see docker-compose.yml)
+```
+
 ## Recommended IDE Setup
 
 - [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)

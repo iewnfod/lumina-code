@@ -113,6 +113,59 @@ pnpm tauri dev
 * 服务器版本钉扎在三处，必须一同变更：`scripts/fetch-opencode.mjs` 的 `OPENCODE_VERSION`、`src-tauri/src/opencode/mod.rs` 的 `EXPECTED_OPENCODE_VERSION`、以及 `package.json` 中精确钉扎的 `@opencode-ai/sdk`。
 * 完整架构指南见 [AGENTS.md](./AGENTS.md)。
 
+### 自行构建各个版本
+
+两个桌面壳的前置条件相同 —— Rust 工具链、`pnpm install`，以及两个内置 sidecar（它们以 Tauri 构建资源形式打包，缺了连 `cargo check` 都过不去）：
+
+```sh
+pnpm fetch:opencode   # 钉扎版本的 OpenCode 服务器（约 200 MB）
+pnpm fetch:frp        # 远程访问用的 frpc（约 13 MB）
+```
+
+**桌面端 —— 默认 WebKit 壳**（Linux / Windows / macOS）：
+
+```sh
+pnpm tauri dev    # 开发运行
+pnpm tauri build  # 发布打包（.deb/.rpm/AppImage、.exe、.dmg —— 取决于宿主平台）
+```
+
+**CEF / Chromium 壳**（仅 Linux，面向 WebKitGTK 表现异常的环境）—— 其 sidecar 单独放进第二个 crate 的 binaries 目录，另需 `~/.local/share/cef/cef_linux_x86_64` 下的共享 CEF 发行版（首次冷构建会自动下载到 `OUT_DIR`，但直连不畅时会经由代理）：
+
+```sh
+pnpm fetch:opencode:cef
+pnpm fetch:frp:cef
+pnpm dev:cef      # 开发运行
+pnpm build:cef    # 发布打包
+```
+
+**Android 应用** —— 不打包任何 sidecar（它远程连接你的桌面）。一次性工具链：Android Studio（SDK + platform/build-tools）、NDK、`rustup target add aarch64-linux-android`，并设置指向 SDK 的 `ANDROID_HOME`。然后在 `mobile/` 下：
+
+```sh
+cd mobile
+pnpm exec tauri android dev                            # 在真机/模拟器上调试运行
+pnpm exec tauri android build --apk --target aarch64   # 发布 APK
+```
+
+发布 APK 未签名无法安装 —— 需创建密钥库并填写 `gen/android/keystore.properties`（一次性步骤见 [mobile/README.md](./mobile/README.md)）。
+
+**鸿蒙应用** —— 需要 `feat/open-harmony` 工具链：`rustup target add aarch64-unknown-linux-ohos`、该分支专属的 CLI（`cargo install tauri-cli --git https://github.com/tauri-apps/tauri --branch feat/open-harmony`）、`cargo install ohrs`，以及 DevEco 并导出 `OHOS_HOME`（完整的一次性配置含 SDK 符号链接布局，见 [mobile/README.md](./mobile/README.md)）。然后在 `mobile/` 下：
+
+```sh
+cargo tauri ohos dev --target aarch64
+cargo tauri ohos build --target aarch64   # HAP 产物在 gen/ohos/.../outputs
+```
+
+真机安装需要签名 —— 在 DevEco 里配置一次自动签名（Project Structure → Signing Configs）。
+
+**配套服务器**（自部署 lumina-code-server）—— 纯 Node，无需 Rust：
+
+```sh
+pnpm server:dev     # 开发运行
+pnpm server:build   # 生产构建
+pnpm server:test
+# 或从 server/Dockerfile 构建 Docker 镜像（见 docker-compose.yml）
+```
+
 ## 推荐的 IDE 配置
 
 - [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
