@@ -1458,7 +1458,14 @@ src/
 │   │                      #   a POST landing after the interrupt restarts
 │   │                      #   the run as a successor execution, and rows
 │   │                      #   left parked resurrect inside the NEXT turn's
-│   │                      #   first promotion. interrupt() therefore (1)
+│   │                      #   first promotion. The stop discipline
+│   │                      #   lives at MODULE LEVEL as
+│   │                      #   interruptSessionRun(api, sid) — the
+│   │                      #   immediate stopping marker, idempotent
+│   │                      #   in-flight fence and inbox sweep — shared
+│   │                      #   by the hook's interrupt() and the
+│   │                      #   interruptSession keyboard shortcut.
+│   │                      #   interrupt() therefore (1)
 │   │                      #   SWEEPS the inbox after the interrupt POST
 │   │                      #   (list + DELETE every pending row — api.ts
 │   │                      #   listSessionInbox/cancelSessionInbox; best-
@@ -1964,7 +1971,7 @@ src/
 │   │                      #   "close via X, then back" never dead-
 │   │                      #   presses. Consumed ONLY through
 │   │                      #   hooks/useBackLevel (isMobileApp-gated).
-│   └── exitGate.ts     # Exit-engine logic (node-testable): the animation/
+│   ├── exitGate.ts     # Exit-engine logic (node-testable): the animation/
 │                        #   transition end-event matchers (target must BE
 │                        #   the host; bubbled child events never count),
 │                        #   the app-wide EXIT BUDGET ledger (caps
@@ -1985,6 +1992,30 @@ src/
 │                        #   a watched list sitting empty, so its first
 │                        #   arrival IS an append; keys coming back from
 │                        #   an exit hold never re-unfurl.
+│   └── shortcuts.ts     # THE keyboard-shortcut pure core (node-testable,
+│                        #   shortcuts.test.ts): the SHORTCUTS action
+│                        #   registry (id + default chord + i18n label —
+│                        #   MATCH ORDER: a conflicting chord fires the
+│                        #   first-listed action, the documented rule the
+│                        #   settings pane warns about) + the chord
+│                        #   algebra: canonical form "mod+ctrl+alt+shift+
+│                        #   <key>" (mod = Meta on mac / Ctrl elsewhere —
+│                        #   folded at EVENT time so storage + settings
+│                        #   are platform-blind; non-mac Super/meta never
+│                        #   matches), chordFromEvent (bindable gate: a
+│                        #   real modifier OR a bare F1–F12 — plain/shift-
+│                        #   only letters never bind; IME/dead/pure-
+│                        #   modifier events dropped), parseChord/
+│                        #   isBindableChord (reserved: escape/tab, f5,
+│                        #   mod-family text keys a/c/v/x/z/y/r —
+│                        #   mod(+shift) with no alt), resolveBindings
+│                        #   (custom ?? default), matchChord, findConflicts,
+│                        #   formatChord (⌘⇧N / Ctrl+Shift+N display) and
+│                        #   sanitizeCustomBindings (storage read side).
+│                        #   Consumers: hooks/useKeyboardShortcuts.ts
+│                        #   (dispatch), hooks/useShortcutBindings.ts
+│                        #   (persistence), settings/ShortcutsSettings.tsx
+│                        #   (customization UI).
 │
 ├── hooks/                 # React hooks (start with `use`; i18n.tsx provides JSX context)
 │   ├── i18n.tsx           # useI18n() → dictionary indexed by TranslationKey;
@@ -2227,7 +2258,7 @@ src/
 │   │                      #   2s poll / cancel over one flow at a time.
 │   ├── useCopy.ts         # copy feedback shared by run footers and the user
 │   │                      #   bubble: copied flag + ✓ linger reset
-│   └── useTranscriptScroll.ts # ChatView's scroll machinery: bottom-follow with
+│   ├── useTranscriptScroll.ts # ChatView's scroll machinery: bottom-follow with
 │                              #   programmatic-scroll guards, prepend anchoring
 │                              #   around render-window growth, geometry re-pin,
 │                              #   visibilitychange catch-up, content-shrink-aware
@@ -2235,6 +2266,39 @@ src/
 │                              #   the reader leaving — the follow used to die
 │                              #   mid-stream), and snapToBottom (user actions
 │                              #   from mid-history re-arm the follow).
+│   ├── useKeyboardShortcuts.ts # THE global shortcut listener, mounted ONCE
+│   │                      #   in AppBody: capture-phase document keydown
+│   │                      #   (runs before Lexical/target handlers; a
+│   │                      #   MATCHED chord is consumed — preventDefault +
+│   │                      #   stopPropagation — unmatched events pass
+│   │                      #   through untouched, never shadowing typing
+│   │                      #   or the Escape system). Actions arrive as a
+│   │                      #   callback map read through a ref (listener
+│   │                      #   registers once); bindings resolve from the
+│   │                      #   override store. Also hosts the RECORDING
+│   │                      #   gate (setShortcutRecording — the settings
+│   │                      #   pane's recorder raises it so the combination
+│   │                      #   being captured cannot fire its current
+│   │                      #   action mid-record).
+│   ├── useShortcutBindings.ts # Custom shortcut OVERRIDES over the
+│   │                      #   persistedStore factory (the useSidebarWidth
+│   │                      #   pattern): only overrides persist — absence
+│   │                      #   = registry default (lib/shortcuts.ts), so
+│   │                      #   default bumps propagate; read side
+│   │                      #   sanitizes via sanitizeCustomBindings,
+│   │                      #   setShortcutBinding refuses non-bindable
+│   │                      #   chords (the last line of defense).
+│   └── useComposerFocus.ts # Cross-surface composer FOCUS requests (the
+│                          #   useStatsPanelMode drill-request pattern):
+│                          #   requestComposerFocus() bumps a token that
+│                          #   the ONE mounted ChatInput (session or
+│                          #   welcome surface) subscribes to — the
+│                          #   focusComposer shortcut's landing (AppBody
+│                          #   and the composer are strangers in the tree;
+│                          #   a mounted-present ChatInput also focuses on
+│                          #   mount when the token is already > 0, so a
+│                          #   request that fires during a surface swap is
+│                          #   honored by the successor).
 │
 └── components/
     ├── TitleBar.tsx       # Drag region + chrome buttons (window controls in
@@ -2372,7 +2436,15 @@ src/
     │                      #   main repo's ONE folder (the branch rides the
     │                      #   row as a chip in SessionFolder, never forks a
     │                      #   second block); an unbound worktree dir falls
-    │                      #   back to grouping under itself.
+    │                      #   back to grouping under itself. ALSO the
+    │                      #   shortcut cycle's order source:
+    │                      #   flatSessionOrder (the sidebar's visible rows
+    │                      #   flattened — plain straight-through, grouped
+    │                      #   buckets each pinned-first, EXACTLY what
+    │                      #   SessionBar renders) + cycleSessionId
+    │                      #   (wrapping next/prev; null activeId lands on
+    │                      #   the first/last row — the welcome screen's
+    │                      #   entry point).
     │                      #   node-testable.
     ├── SessionSurface.tsx  # The session ↔ welcome ↔ settings
     │                      #   SEQUENTIAL surface swap (extracted from
@@ -3642,6 +3714,20 @@ src/
     │                      #   address + sign out (logout best-effort
     │                      #   then clearMobileConnection, which remounts
     │                      #   the whole tree back to the login screen).
+    ├── ShortcutsSettings.tsx # The Keyboard Shortcuts pane (the settings
+    │                      #   rail's second tab): one row per registry
+    │                      #   action (label + keycap + per-row reset),
+    │                      #   live REBINDING — clicking a keycap arms the
+    │                      #   row, the pane then captures every keydown
+    │                      #   (capture phase) while the global listener
+    │                      #   stands down (setShortcutRecording); the next
+    │                      #   valid chord commits instantly, Esc cancels,
+    │                      #   Backspace/Delete restores the default,
+    │                      #   unbindable presses flash 保留组合 and keep
+    │                      #   waiting. Conflicts are permitted with a
+    │                      #   per-row 已绑定 warning (the registry-first
+    │                      #   winner — matchChord's rule). 全部重置 at
+    │                      #   the bottom.
     ├── AboutSettings.tsx # About pane: centered identity hero (icon +
     │                      #   name + app version via getVersion), the
     │                      #   OpenCode server version as a key/value line,

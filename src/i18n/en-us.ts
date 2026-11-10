@@ -392,6 +392,20 @@ const enUs = {
     "Daily usage": "Daily usage",
     "Failed to load usage": "Failed to load usage",
     "No usage yet": "No usage yet",
+    // --- Keyboard shortcuts (lib/shortcuts.ts action labels) ---
+    "Stop the running session": "Stop the running session",
+    "Next session": "Next session",
+    "Previous session": "Previous session",
+    "Focus the message box": "Focus the message box",
+    // --- Settings · Keyboard shortcuts pane ---
+    "Keyboard Shortcuts": "Keyboard Shortcuts",
+    "Click a key to rebind it": "Click a key to rebind it",
+    "Recording hint": "While recording: Esc cancels; Backspace restores the default",
+    "Recording…": "Recording…",
+    "Reset": "Reset",
+    "Reset all": "Reset all",
+    "Reserved combination": "Reserved combination",
+    "Already bound to {action}": "Already bound to {action}",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;

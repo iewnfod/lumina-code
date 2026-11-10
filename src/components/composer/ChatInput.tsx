@@ -18,6 +18,7 @@ import {compressImageFile} from "../../lib/imageCompress.ts";
 import {isMobileApp} from "../../lib/platform.ts";
 import {splitAttachmentNote} from "../../opencode/visionAttachments.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
+import {useComposerFocusRequest} from "../../hooks/useComposerFocus.ts";
 import ComposerCore, {type ComposerHandle} from "./ComposerCore.tsx";
 import ComposerToolbar from "./ComposerToolbar.tsx";
 import {filesFromMessage, readAttachment} from "./composerAttachments.ts";
@@ -164,6 +165,14 @@ const ChatInput = memo(function ChatInput({
     // send button lives in the toolbar, the editor state lives in
     // ComposerCore.
     const composerApiRef = useRef<ComposerHandle | null>(null);
+
+    // focusComposer shortcut (hooks/useComposerFocus.ts — the cross-surface
+    // request store): whichever ChatInput is mounted (session or welcome
+    // surface) focuses its editor on every request token past the initial.
+    const focusToken = useComposerFocusRequest();
+    useEffect(() => {
+        if (focusToken > 0) composerApiRef.current?.focus();
+    }, [focusToken]);
 
     // --- Edit mode ("edit last message" lives in the composer) ---
     // Entering: stash whatever draft was in progress (snapshot object —

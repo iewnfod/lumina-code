@@ -77,3 +77,40 @@ export function groupByDirectory(
     }
     return Array.from(groups.entries());
 }
+
+/** The sidebar's VISIBLE row order flattened to one list — exactly what
+ *  SessionBar renders (renderGroups): the daily half's plain list runs
+ *  straight through orderSessions; the dev half concatenates its
+ *  groupByDirectory buckets, each pinned-first ordered inside. The
+ *  next/prev session keyboard shortcut cycles THIS order so the jumps
+ *  match what is on screen. */
+export function flatSessionOrder(
+    sessions: SessionInfo[],
+    bindings: WorktreeDirs,
+    pinned: ReadonlySet<string>,
+    plain: boolean,
+): SessionInfo[] {
+    if (plain) return orderSessions(sessions, pinned);
+    const flat: SessionInfo[] = [];
+    for (const [, bucket] of groupByDirectory(sessions, bindings)) {
+        flat.push(...orderSessions(bucket, pinned));
+    }
+    return flat;
+}
+
+/** The next (or previous) session id in a flat order, WRAPPING around
+ *  the ends. A null active id lands on the first (direction 1) / last
+ *  (direction -1) entry — the welcome screen's entry point. Empty
+ *  order → null (nothing to switch to). */
+export function cycleSessionId(
+    order: readonly Pick<SessionInfo, "id">[],
+    activeId: string | null,
+    direction: 1 | -1,
+): string | null {
+    if (order.length === 0) return null;
+    if (activeId === null) return order[direction === 1 ? 0 : order.length - 1].id;
+    const index = order.findIndex((s) => s.id === activeId);
+    if (index === -1) return order[direction === 1 ? 0 : order.length - 1].id;
+    const next = (index + direction + order.length) % order.length;
+    return order[next].id;
+}

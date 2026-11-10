@@ -385,6 +385,20 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Daily usage": "每日用量",
     "Failed to load usage": "用量加载失败",
     "No usage yet": "暂无用量数据",
+    // --- 快捷键（lib/shortcuts.ts 的动作标签） ---
+    "Stop the running session": "停止正在运行的会话",
+    "Next session": "下一个会话",
+    "Previous session": "上一个会话",
+    "Focus the message box": "聚焦输入框",
+    // --- 设置 · 快捷键面板 ---
+    "Keyboard Shortcuts": "快捷键",
+    "Click a key to rebind it": "点击键位可重新绑定",
+    "Recording hint": "录制中：Esc 取消；Backspace 恢复默认键",
+    "Recording…": "录制中…",
+    "Reset": "重置",
+    "Reset all": "全部重置",
+    "Reserved combination": "该组合不可绑定",
+    "Already bound to {action}": "已绑定：{action}",
 };
 
 export default zhCn;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
-import {groupByDirectory, orderSessions, projectDirOf, relativeAge, type SessionInfo} from "./sessionGrouping.ts";
+import {cycleSessionId, flatSessionOrder, groupByDirectory, orderSessions, projectDirOf, relativeAge, type SessionInfo} from "./sessionGrouping.ts";
 import type {WorktreeDirs} from "../opencode/worktreeSessions.ts";
 
 function session(id: string, directory?: string, updatedAt?: number): SessionInfo {
@@ -97,4 +97,34 @@ test("projectDirOf maps worktrees to their main repo", () => {
     // No directory is the "" bucket.
     assert.equal(projectDirOf(null, bindings), "");
     assert.equal(projectDirOf(undefined, bindings), "");
+});
+
+// --- flatSessionOrder / cycleSessionId (the shortcut cycle) ---
+
+test("flatSessionOrder plain runs straight; grouped concatenates buckets pinned-first", () => {
+    const rows = [
+        session("a", "/p1"),
+        session("b", "/p2"),
+        session("c", "/p1"),
+    ];
+    const pinned = new Set(["c"]);
+    // Plain (daily): pins float over the WHOLE list.
+    assert.deepEqual(flatSessionOrder(rows, {}, pinned, true).map((s) => s.id), ["c", "a", "b"]);
+    // Grouped (dev): pins float only within their folder; buckets keep
+    // first-seen order — the exact order SessionFolder rows render.
+    assert.deepEqual(flatSessionOrder(rows, {}, pinned, false).map((s) => s.id), ["c", "a", "b"]);
+    // A pin in the SECOND folder does not jump the first folder's rows —
+    // grouped order is buckets-first (p1=[a,c], p2=[b]).
+    assert.deepEqual(flatSessionOrder(rows, {}, new Set(["b"]), false).map((s) => s.id), ["a", "c", "b"]);
+});
+
+test("cycleSessionId wraps and enters from the welcome screen", () => {
+    const order = [{id: "a"}, {id: "b"}, {id: "c"}];
+    assert.equal(cycleSessionId(order, "a", 1), "b");
+    assert.equal(cycleSessionId(order, "c", 1), "a"); // wraps
+    assert.equal(cycleSessionId(order, "a", -1), "c"); // wraps back
+    assert.equal(cycleSessionId(order, null, 1), "a"); // welcome → first
+    assert.equal(cycleSessionId(order, null, -1), "c"); // welcome → last
+    assert.equal(cycleSessionId(order, "ghost", 1), "a"); // unknown id → first
+    assert.equal(cycleSessionId([], null, 1), null); // nothing to switch to
 });

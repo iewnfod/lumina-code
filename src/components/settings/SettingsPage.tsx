@@ -1,6 +1,6 @@
 import {useEffect, useRef, type ReactNode} from "react";
 import {motion} from "framer-motion";
-import {ChartPie, ChevronRight, Cpu, Info, Puzzle, Server as ServerIcon, Settings as SettingsIcon} from "lucide-react";
+import {ChartPie, ChevronRight, Cpu, Info, Keyboard, Puzzle, Server as ServerIcon, Settings as SettingsIcon} from "lucide-react";
 import {Tab, Tabs} from "@heroui/react";
 import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
@@ -15,11 +15,12 @@ import ModelSettings from "./ModelSettings.tsx";
 import UsageSettings from "./UsageSettings.tsx";
 import ServerSettings from "./ServerSettings.tsx";
 import ExtensionsSettings from "./ExtensionsSettings.tsx";
+import ShortcutsSettings from "./ShortcutsSettings.tsx";
 import AboutSettings from "./AboutSettings.tsx";
 
 /** Selectable settings tabs. App owns the value so an entry point can
  *  deep-link (the model picker opens straight to the Model tab). */
-export type SettingsTab = "general" | "model" | "usage" | "server" | "extensions" | "about";
+export type SettingsTab = "general" | "shortcuts" | "model" | "usage" | "server" | "extensions" | "about";
 
 /** The pane labels' ONE source: the tab ids map to i18n keys here, and
  *  both consumers read through settingsTabLabel — the category list rows
@@ -28,6 +29,7 @@ export type SettingsTab = "general" | "model" | "usage" | "server" | "extensions
  *  shows the pane's label). */
 const SETTINGS_TAB_LABELS: Record<SettingsTab, TranslationKey> = {
     general: "General",
+    shortcuts: "Keyboard Shortcuts",
     model: "Model settings",
     usage: "Usage",
     server: "Server",
@@ -130,6 +132,9 @@ export default function SettingsPage({
 
     const tabs: {id: SettingsTab; icon: typeof SettingsIcon; label: string}[] = [
         {id: "general", icon: SettingsIcon, label: settingsTabLabel("general", t)},
+        // The keyboard-shortcut pane (settings/ShortcutsSettings.tsx) —
+        // lib/shortcuts.ts registry + persisted overrides.
+        {id: "shortcuts", icon: Keyboard, label: settingsTabLabel("shortcuts", t)},
         {id: "model", icon: Cpu, label: settingsTabLabel("model", t)},
         // The Usage pane — the stats endpoint's model-share donut +
         // daily trend (settings/UsageSettings.tsx).
@@ -151,6 +156,7 @@ export default function SettingsPage({
     const paneNode: ReactNode = (
         <>
             {active === "general" && <GeneralSettings api={api}/>}
+            {active === "shortcuts" && <ShortcutsSettings/>}
             {active === "model" && <ModelSettings api={api}/>}
             {active === "usage" && <UsageSettings api={api}/>}
             {active === "server" && <ServerSettings/>}

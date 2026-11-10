@@ -61,6 +61,8 @@ export interface ComposerHandle {
     /** Restore a serialized EditorState full-fidelity (mention nodes
      * survive); an empty string clears the buffer. */
     setState: (json: string) => void;
+    /** Focus the editable (the focusComposer shortcut's landing). */
+    focus: () => void;
 }
 
 /**
@@ -338,10 +340,12 @@ export default function ComposerCore({
         editor.focus();
     }, [editor]);
 
-    // Hand the imperative handle up (toolbar send + edit-mode entry).
+    // Hand the imperative handle up (toolbar send + edit-mode entry +
+    // the focusComposer shortcut).
+    const focus = useCallback(() => editor.focus(), [editor]);
     useEffect(() => {
-        onReady({submit, setText, setState});
-    }, [onReady, submit, setText, setState]);
+        onReady({submit, setText, setState, focus});
+    }, [onReady, submit, setText, setState, focus]);
 
     // --- Keyboard: one registration, Lexical commands only. -------------
     // Every handler is IME-safe: keys pressed while composing (candidate

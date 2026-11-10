@@ -1,4 +1,4 @@
-import {useCallback, useState} from "react";
+import {useCallback, useMemo, useState} from "react";
 import TitleBar from "./components/TitleBar.tsx";
 import SessionSurface from "./components/SessionSurface.tsx";
 import StatsCardSwap from "./components/StatsCardSwap.tsx";
@@ -34,7 +34,7 @@ import {isColorDark, withAlpha} from "./lib/color.ts";
 import {isLinux, isCefRuntime, isMobileApp} from "./lib/platform.ts";
 import {appThemeFor, type ChromeTheme} from "./lib/theme.ts";
 import {useOpencode} from "./opencode/useOpencode.ts";
-import {sessionMode, useGitProbe} from "./opencode/appMode.ts";
+import {sessionMode, useAppMode, useGitProbe} from "./opencode/appMode.ts";
 import {useSessionFlow} from "./opencode/useSessionFlow.ts";
 import {useDirectoryBranch} from "./opencode/useDirectoryBranch.ts";
 import {useLuminaToolsInstall} from "./opencode/useLuminaTools.ts";
@@ -42,7 +42,11 @@ import {useOfficeToolsInstall} from "./opencode/useOfficeTools.ts";
 import {CatalogProvider} from "./opencode/catalogContext.tsx";
 import {ConnectionProvider, useConnection} from "./opencode/connectionContext.tsx";
 import {SessionDataProvider, useSessionData} from "./opencode/sessionDataContext.tsx";
-import {ensureSessionSeeded} from "./opencode/useSessionMessages.ts";
+import {ensureSessionSeeded, interruptSessionRun} from "./opencode/useSessionMessages.ts";
+import {useWorktreeDirs} from "./opencode/worktreeSessions.ts";
+import {flatSessionOrder, cycleSessionId} from "./components/sessionGrouping.ts";
+import {useKeyboardShortcuts} from "./hooks/useKeyboardShortcuts.ts";
+import {requestComposerFocus} from "./hooks/useComposerFocus.ts";
 import {prefetchSessionActivity} from "./opencode/useSessionActivity.ts";
 import type {SessionUsage} from "./opencode/types.ts";
 
@@ -321,6 +325,57 @@ function AppBody({
         prefetchSessionActivity(api, subscribe, id, directory);
         ensureSessionSeeded(api, id);
     }, [api, subscribe, sessionInfos]);
+
+    // --- 全局快捷键（lib/shortcuts.ts + hooks/useKeyboardShortcuts.ts）---
+    // The listener mounts ONCE and reads actions through a ref, so
+    // rebuilding this map per render is fine — every callback closes
+    // over live flow state.
+    const appMode = useAppMode();
+    const worktreeDirs = useWorktreeDirs();
+    // 会话循环顺序 = 当前模式那半边侧栏的可见平铺（flatSessionOrder 与
+    // SessionBar 的 renderGroups 同源）——快捷键的跳转与屏幕上的行序
+    // 一致；欢迎屏下 null activeId 落在首/末行。
+    const cycleOrder = useMemo(
+        () =>
+            flatSessionOrder(
+                sessionInfos.filter((s) => s.mode === appMode),
+                worktreeDirs,
+                pinnedIds,
+                appMode === "daily",
+            ),
+        [sessionInfos, worktreeDirs, pinnedIds, appMode],
+    );
+    const shortcutActions = useMemo(
+        () => ({
+            newSession: startNewSession,
+            toggleSettings,
+            interruptSession: () => {
+                // Only a genuinely running session stops; the shared
+                // discipline (stopping marker + inbox sweep) is the
+                // transcript stop button's own interruptSessionRun.
+                if (!api || !activeId || !busy) return;
+                void interruptSessionRun(api, activeId);
+            },
+            nextSession: () => {
+                const id = cycleSessionId(cycleOrder, activeId, 1);
+                if (id !== null && id !== activeId) selectSession(id);
+            },
+            prevSession: () => {
+                const id = cycleSessionId(cycleOrder, activeId, -1);
+                if (id !== null && id !== activeId) selectSession(id);
+            },
+            focusComposer: () => {
+                // The settings surface unloads the composer — closing it
+                // swaps the session/welcome surface back while the focus
+                // token already carries the request (the newly mounted
+                // ChatInput focuses on mount when the token is > 0).
+                if (settings.open) closeSettings();
+                requestComposerFocus();
+            },
+        }),
+        [api, activeId, busy, cycleOrder, startNewSession, toggleSettings, selectSession, settings.open, closeSettings],
+    );
+    useKeyboardShortcuts(shortcutActions);
 
     const placeholderSubtitle = connectionStatus.state === "connecting"
         ? t["Connecting to OpenCode..."]
