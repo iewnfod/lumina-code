@@ -10,7 +10,17 @@ import {createRoot} from "react-dom/client";
 
 import "../main.css";
 import "./mobile.css";
+// KaTeX engine stylesheet + font prewarm — the SAME entry-level doctrine
+// as the desktop (src/main.tsx; see main.css's note for why not an
+// @import there): the mobile bundle ships the KaTeX DOM (the real
+// desktop tree renders the transcript) but its stylesheet lives ONLY in
+// an entry js import — without this line the fonts never load and every
+// formula renders in fallback metrics (live-observed 2026-11, mobile).
+import "katex/dist/katex.min.css";
+import {prewarmKatexFonts} from "../lib/katexFonts.ts";
 import MobileApp from "./App.tsx";
+
+prewarmKatexFonts();
 
 const root = createRoot(document.getElementById("root")!);
 root.render(

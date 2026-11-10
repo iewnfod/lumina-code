@@ -3983,11 +3983,20 @@ opencode password) and connects to `<server>/t/<routeId>/` with
 `<routeId>.frp.internal`, frps routes on the Host, the desktop's frpc
 pipes to 127.0.0.1 (spike-verified: SSE streams through with
 sub-microsecond overhead; repeatable `--cors` origins let the preflight
-through). The branch also owns the remote HEALS: SSE reconnects
-re-seed every tracked session (the mobile-network heal), the liveness
-gate fast-polls until the route answers then re-issues the api handle
-on recovery, and a 401 (desktop restarted → password rotated)
-re-fetches the connect info, rebuilds client + stream and reseeds.
+through). The branch also owns the remote HEALS and the DESKTOP-ONLINE
+GATE (liveness-first connect): the credential exchange succeeds even
+with the desktop's frpc down, so the data path is probed
+(listSessions, 5s retry; a 401 = password rotated → re-fetch
+credentials and rebuild, else the probe loops) BEFORE the app flips to
+connected — an unreachable desktop renders the welcome screen's status
+line as an i18n error (OpencodeStatus error reason → App.tsx's
+CONNECTION_ERROR_TEXT key map) while the retry loop waits, so a
+re-opened signed-in app never lands in a silently broken surface; the
+login screen does NO desktop pre-flight of its own (both entries and
+re-opens share this one gate). Post-connect: SSE reconnects re-seed
+every tracked session (the mobile-network heal) and a 401 (desktop
+restarted → password rotated) re-fetches the connect info, rebuilds
+client + stream and reseeds.
 The v1 custom screens (SessionList/Session/ComposerBar/ActivityPanel)
 are DELETED; only LoginScreen + the kv gate remain under
 src/mobile/ (kv.ts now only plants the __LUMINA_MOBILE__ flag and

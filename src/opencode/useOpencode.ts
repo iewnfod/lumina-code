@@ -35,10 +35,15 @@ interface OpencodeStatusPayload {
     message: string;
 }
 
+/** Why a mobile remote connection failed — the welcome screen maps
+ * these to i18n keys (App.tsx) so the error line is actionable in the
+ * user's language instead of the raw wire message. */
+export type ConnectionErrorReason = "no-desktop" | "desktop-offline";
+
 export type OpencodeStatus =
     | {state: "connecting"}
     | {state: "connected"; baseUrl: string; version: string | null}
-    | {state: "error"; message: string};
+    | {state: "error"; message: string; reason?: ConnectionErrorReason};
 
 export type OpencodeEventHandler = (event: OpencodeEvent) => void;
 
@@ -110,13 +115,15 @@ export function useOpencode(): {
                             } catch (e) {
                                 const status = (e as {status?: number}).status;
                                 if (!cancelled) {
-                                    setStatus({
-                                        state: "error",
-                                        message:
-                                            status === 404
-                                                ? "No desktop registered for this account (enable remote access in the desktop's Server settings)"
-                                                : String(e),
-                                    });
+                                    setStatus(
+                                        status === 404
+                                            ? {
+                                                state: "error",
+                                                reason: "no-desktop",
+                                                message: "No desktop registered for this account (enable remote access in the desktop's Server settings)",
+                                            }
+                                            : {state: "error", message: String(e)},
+                                    );
                                 }
                                 await new Promise((r) => setTimeout(r, 5000));
                             }
@@ -150,44 +157,61 @@ export function useOpencode(): {
                         });
                     };
 
-                    const client = build(first);
+                    // LIVENESS-FIRST connect: the credential exchange
+                    // above succeeds even while the desktop is offline
+                    // (frps holds the route, the desktop's frpc is down
+                    // — the credentials alone would happily "connect"
+                    // to nothing), so the DATA PATH is probed BEFORE
+                    // the app flips to connected: entering the welcome
+                    // surface with the desktop unreachable would strand
+                    // the user in a broken app with no explanation. A
+                    // 401 here means the desktop restarted and rotated
+                    // its opencode password — re-fetch the credentials
+                    // and rebuild (retrying the stale ones would loop
+                    // forever); any other failure renders an honest
+                    // error state (once — the retry loop stays quiet)
+                    // until the desktop answers.
+                    let current = first;
+                    let client = build(current);
+                    let reportedOffline = false;
+                    for (;;) {
+                        if (cancelled) return;
+                        try {
+                            await client.listSessions();
+                            break;
+                        } catch (e) {
+                            if (cancelled) return;
+                            if ((e as {status?: number}).status === 401) {
+                                info("Remote credentials rotated before connect — re-fetching frp connect info").catch(() => {});
+                                current = await fetchConnect();
+                                client = build(current);
+                                continue;
+                            }
+                            if (!reportedOffline) {
+                                reportedOffline = true;
+                                error(`Remote route not reachable (desktop offline?); will retry until it answers: ${e}`).catch(() => {});
+                                setStatus({state: "error", reason: "desktop-offline", message: String(e)});
+                            }
+                            await new Promise((r) => setTimeout(r, 5000));
+                        }
+                    }
+
                     openStream(client);
                     setApi(client);
                     setStatus({state: "connected", baseUrl: client.baseUrl, version: null});
                     settleServerVersion(client);
-                    info(`Connected via frp route ${first.routeId} at ${conn.url}`).catch(() => {});
+                    info(`Connected via frp route ${current.routeId} at ${conn.url}`).catch(() => {});
 
-                    // LIVENESS + CREDENTIAL GATE. Phase 1 (fast poll,
-                    // 2s): the one-shot seeds that fire on the api flip
-                    // above can fail while the desktop is still offline
-                    // (frps 404s the unrouted path) and nothing retries
-                    // them — probe the data path and RE-ISSUE the api
-                    // handle on recovery so every api-keyed seed
-                    // (useSessions, useModelCatalog) re-runs off the new
-                    // identity. Phase 2 (slow watch, 30s): a 401 means
-                    // the desktop restarted and rotated its opencode
-                    // password — re-fetch the connect info, rebuild the
-                    // handle + stream, reseed. Non-401 blips stay
-                    // connected (the stream's own heal covers them).
+                    // CREDENTIAL WATCH (slow, 30s). The fast-poll phase
+                    // that used to live here is gone — the probe above
+                    // already gated the connected flip, so the one-shot
+                    // seeds that fire on the api flip run against a
+                    // confirmed-live data path. A 401 means the desktop
+                    // restarted and rotated its opencode password —
+                    // re-fetch the connect info, rebuild the handle +
+                    // stream, reseed. Non-401 blips stay connected (the
+                    // stream's own heal covers them).
                     const gate = async () => {
-                        for (let attempt = 0; ; attempt++) {
-                            if (cancelled) return;
-                            try {
-                                await client.listSessions();
-                                if (attempt === 0) {
-                                    info("Remote route is live").catch(() => {});
-                                } else {
-                                    info("Remote route recovered — re-issuing api handle to re-seed global state").catch(() => {});
-                                    setApi(build(first));
-                                }
-                                break;
-                            } catch (e) {
-                                if (attempt === 0) {
-                                    error(`Remote session list failed (desktop offline?); will retry: ${e}`).catch(() => {});
-                                }
-                                await new Promise((r) => setTimeout(r, 2000));
-                            }
-                        }
                         for (;;) {
                             await new Promise((r) => setTimeout(r, 30_000));
                             if (cancelled) return;

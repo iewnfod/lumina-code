@@ -1,5 +1,5 @@
 import {useState} from "react";
-import {error as logError, warn as logWarn} from "@tauri-apps/plugin-log";
+import {error as logError} from "@tauri-apps/plugin-log";
 import Icon from "../../assets/icon.svg";
 import {openExternalUrl} from "../../lib/openExternal.ts";
 import {useColors} from "../../hooks/colors.tsx";
@@ -13,42 +13,18 @@ import {
 } from "../../opencode/serverConnection.ts";
 import {setMobileConnection} from "../../opencode/mobileConnection.ts";
 
-/** Probe the frp route's desktop opencode (does it answer an API call?)
- * — the sign-in gate: entering the app with the desktop offline would
- * strand the user in a broken welcome screen. Same wire shape as
- * useOpencode's remote branch (Basic opencode:<password> against
- * <server>/t/<routeId>/); 8s AbortController timeout covers the proxied
- * route's worst case. A 200 with a non-JSON body is the SPA-HTML
- * fallback (unknown-route quirk, see src-tauri probe.rs) — not live. */
-async function probeDesktopRoute(
-    serverUrl: string,
-    routeId: string,
-    password: string,
-): Promise<boolean> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    try {
-        const res = await fetch(`${serverUrl}/t/${routeId}/api/session`, {
-            headers: {
-                Accept: "application/json",
-                Authorization: `Basic ${btoa(`opencode:${password}`)}`,
-            },
-            signal: controller.signal,
-        });
-        return res.ok && (res.headers.get("content-type") ?? "").includes("application/json");
-    } catch {
-        return false;
-    } finally {
-        clearTimeout(timer);
-    }
-}
-
 /**
  * The mobile sign-in screen: credentials → the device token stored in
  * the mobile connection store. The server address defaults to the
  * OFFICIAL lumina-code-server (no address to type); a custom self-
  * hosted server is one expandable step away. Reuses the desktop's
  * i18n keys and the shared LuminaServerApi.login (same wire contract).
+ *
+ * Signing in does NOT probe the desktop route: the connection stage
+ * (useOpencode's remote branch) owns the desktop-online gate for BOTH
+ * fresh sign-ins and re-opens — a signed-in app that reopens with the
+ * desktop offline lands on the welcome screen's error line (and keeps
+ * retrying underneath), never a silently broken surface.
  */
 export default function LoginScreen() {
     const t = useI18n();
@@ -90,32 +66,6 @@ export default function LoginScreen() {
                 password,
                 await deviceLoginLabel(),
             );
-            // Pre-flight the desktop route BEFORE entering the app:
-            // fetch the route credentials (404 = the account has no
-            // desktop registered) and probe the route itself (the
-            // desktop's frpc may be offline — the credentials alone
-            // would happily connect to nothing). Failing here keeps the
-            // user on the login screen with an actionable message
-            // instead of a broken welcome surface.
-            const server = new LuminaServerApi(normalized, login.token);
-            let connect: {routeId: string; password: string};
-            try {
-                connect = await server.frpConnect();
-            } catch (e) {
-                const status = (e as {status?: number}).status;
-                if (status === 404) {
-                    setErrorText(t["No desktop registered for this account. Enable remote access in the desktop app's Server settings first."]);
-                } else {
-                    setErrorText(String(e));
-                }
-                logWarn(`mobile sign-in pre-flight: frp connect failed: ${e}`).catch(() => {});
-                return;
-            }
-            if (!(await probeDesktopRoute(normalized, connect.routeId, connect.password))) {
-                setErrorText(t["Cannot reach your desktop. Make sure Lumina Code is running on your computer with remote access enabled."]);
-                logWarn(`mobile sign-in pre-flight: desktop route ${connect.routeId} not reachable`).catch(() => {});
-                return;
-            }
             setMobileConnection({url: normalized, token: login.token, username: login.username});
         } catch (e) {
             setErrorText(String(e));

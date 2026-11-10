@@ -4,8 +4,9 @@ import ReactDOM from "react-dom/client";
 // @theme font stacks at module init, which in dev-mode Vite happens in
 // import order (the built app uses a blocking <link> either way).
 import "./main.css";
-import { attachConsole, info as logInfo } from "@tauri-apps/plugin-log";
+import { attachConsole } from "@tauri-apps/plugin-log";
 import {initPersistedState} from "./lib/persistedStore.ts";
+import {prewarmKatexFonts} from "./lib/katexFonts.ts";
 
 // KaTeX engine stylesheet + fonts at the ENTRY (see main.css's note for
 // why not an @import there; see Markdown.tsx for why not the component).
@@ -17,31 +18,9 @@ import "katex/dist/katex.min.css";
 // Forward Rust logs to the webview console
 attachConsole();
 
-// MATH FONT PREWARM — load every KaTeX webfont family immediately at
-// module load (NOT after boot): the transcript restore can render
-// formulas within the first second, and WebKit only fetches an
-// @font-face lazily once text uses it — a formula laid out with the
-// FALLBACK font stacks its vlist levels wrong (fallback metrics are
-// taller; live-observed 2026-11: superscripts piling a line low), and
-// WebKitGTK does not reliably re-layout already-rendered content when
-// the font arrives late. Kicking the requests off NOW (before the App
-// bundle even imports) closes the race: the faces are loaded by the
-// time the first formula renders.
-const KATEX_FAMILIES = [
-    "KaTeX_AMS", "KaTeX_Caligraphic", "KaTeX_Fraktur", "KaTeX_Main",
-    "KaTeX_Math", "KaTeX_SansSerif", "KaTeX_Script", "KaTeX_Size1",
-    "KaTeX_Size2", "KaTeX_Size3", "KaTeX_Size4", "KaTeX_Typewriter",
-];
-const prewarmStarted = Date.now();
-Promise.all(
-    KATEX_FAMILIES.map((family) =>
-        document.fonts.load(`1em ${family}`)
-            .then((loaded) => `${family}:${loaded.length ? "ok" : "none"}`)
-            .catch((e: unknown) => `${family}:ERR ${String(e).slice(0, 60)}`),
-    ),
-).then((results) => {
-    logInfo(`[math-prewarm] ${Date.now() - prewarmStarted}ms ${results.join(",")}`).catch(() => {});
-});
+// MATH FONT PREWARM — see lib/katexFonts.ts for why this fires at entry
+// module load instead of after boot.
+prewarmKatexFonts();
 
 // Seed the persisted-state backend BEFORE the app bundle imports: every
 // store reads SYNCHRONOUSLY at module evaluation (theme/typography/

@@ -15,7 +15,7 @@ import {useMaximized} from "./hooks/maximized.ts";
 import {usePaddingOffset} from "./hooks/paddingOffset.ts";
 import {useDragRegionDoubleClick} from "./hooks/useDragRegionDoubleClick.ts";
 import {useGlass} from "./hooks/useGlass.ts";
-import {useI18n} from "./hooks/i18n.tsx";
+import {useI18n, type TranslationKey} from "./hooks/i18n.tsx";
 import {usePhoneLayout} from "./hooks/useLayoutMode.ts";
 import {useSystemTheme} from "./hooks/useSystemTheme.ts";
 import {useThemePreference} from "./hooks/useThemePreference.ts";
@@ -33,7 +33,7 @@ import {glassSurface, windowOutline} from "./lib/glass.ts";
 import {isColorDark, withAlpha} from "./lib/color.ts";
 import {isLinux, isCefRuntime, isMobileApp} from "./lib/platform.ts";
 import {appThemeFor, type ChromeTheme} from "./lib/theme.ts";
-import {useOpencode} from "./opencode/useOpencode.ts";
+import {useOpencode, type ConnectionErrorReason} from "./opencode/useOpencode.ts";
 import {sessionMode, useAppMode, useGitProbe} from "./opencode/appMode.ts";
 import {useSessionFlow} from "./opencode/useSessionFlow.ts";
 import {useDirectoryBranch} from "./opencode/useDirectoryBranch.ts";
@@ -49,6 +49,15 @@ import {useKeyboardShortcuts} from "./hooks/useKeyboardShortcuts.ts";
 import {requestComposerFocus} from "./hooks/useComposerFocus.ts";
 import {prefetchSessionActivity} from "./opencode/useSessionActivity.ts";
 import type {SessionUsage} from "./opencode/types.ts";
+
+/** The mobile remote connection's actionable errors (useOpencode's
+ * ConnectionErrorReason): shown in the WELCOME screen's status line in
+ * the user's language instead of the raw wire message — same keys the
+ * login screen used to own, now shared by the connection-stage gate. */
+const CONNECTION_ERROR_TEXT: Record<ConnectionErrorReason, TranslationKey> = {
+    "no-desktop": "No desktop registered for this account. Enable remote access in the desktop app's Server settings first.",
+    "desktop-offline": "Cannot reach your desktop. Make sure Lumina Code is running on your computer with remote access enabled.",
+};
 
 /**
  * Layout shell, ported from lumina-terminal's App.tsx: outer transparent
@@ -380,7 +389,7 @@ function AppBody({
     const placeholderSubtitle = connectionStatus.state === "connecting"
         ? t["Connecting to OpenCode..."]
         : connectionStatus.state === "error"
-            ? connectionStatus.message
+            ? (connectionStatus.reason ? t[CONNECTION_ERROR_TEXT[connectionStatus.reason]] : connectionStatus.message)
             : null;
 
     // While the settings page is the live surface, the chrome reads like
