@@ -340,8 +340,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     // --- Server（自部署 lumina-code-server） ---
     "Server": "服务器",
     "Remote access": "远程访问",
-    "Expose this machine's OpenCode directly to your signed-in mobile clients through the server.":
-        "将本机的 OpenCode 直接暴露给你登录的移动设备（经服务器路由直连）。",
+    "Allow mobile devices to connect": "允许移动端连接控制",
     "Connection status": "连接状态",
     "Disconnected, reconnecting...": "连接断开，正在重连...",
     "Connection failed, retrying...": "连接失败，正在重试...",
@@ -349,8 +348,18 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Route ID": "路由 ID",
     "Server address": "服务器地址",
     "Server address must start with http:// or https://": "服务器地址必须以 http:// 或 https:// 开头",
-    "Sign in to your self-hosted lumina-code-server to enable remote access from your mobile devices.":
-        "登录自部署的 lumina-code-server，为移动设备开启远程访问。",
+    "Official server": "官方服务器",
+    "Use a custom server": "使用自建服务器",
+    "Use the official server": "使用官方服务器",
+    "Register account": "注册账号",
+    "Self-host a server": "自部署服务端",
+    "Web console": "Web 控制台",
+    "No desktop registered for this account. Enable remote access in the desktop app's Server settings first.":
+        "该账号还没有绑定桌面端。请先在电脑端 Lumina Code 的「服务器」设置中开启远程访问。",
+    "Cannot reach your desktop. Make sure Lumina Code is running on your computer with remote access enabled.":
+        "无法连接到桌面端。请确认电脑上的 Lumina Code 正在运行，且已开启远程访问。",
+    "Sign in to the server to enable remote access from your mobile devices.":
+        "登录服务端，提供移动设备远程访问功能",
     "Username": "用户名",
     "Password": "密码",
     "Sign in": "登录",

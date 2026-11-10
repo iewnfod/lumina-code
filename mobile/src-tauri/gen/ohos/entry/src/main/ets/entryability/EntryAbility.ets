@@ -61,6 +61,28 @@ export default class EntryAbility extends RustAbility {
 
     await super.onCreate(want, launchParam);
 
+    // The external-URL opener bridge: tauri's mobile plugin channel is
+    // a TODO stub on the feat/open-harmony branch, so
+    // tauri-plugin-opener's openUrl promise hangs forever on ohos
+    // (live-observed as the login screen's register / self-host buttons
+    // doing nothing). The webview's openExternal helper (src/lib/
+    // openExternal.ts) invokes the Rust `open_external_url` command,
+    // which only STORES the url — pulling it from this side is the one
+    // Rust direction proven safe on ohos (set_sandbox_dirs rides it);
+    // pushing INTO ArkTS from the tauri IPC thread via a napi
+    // threadsafe function crashes the whole app (live-observed:
+    // `ArkCompiler: [CallForNapi] occur exception need return`). Poll
+    // every 500ms; worst case the browser opens half a second late.
+    // UIAbilityContext.openLink: API 12+, opens the default browser.
+    setInterval(() => {
+      const url: string | null = module.default.takePendingUrl();
+      if (url !== null && url !== undefined) {
+        this.context.openLink(url).catch((e: BusinessError) => {
+          hilog.warn(DOMAIN, TAG, `openLink(${url}) failed: ${e.code} ${e.message}`);
+        });
+      }
+    }, 500);
+
     // Seed the Rust side with the INITIAL system configuration. The system
     // only delivers onConfigurationUpdate on CHANGES — a cold start into an
     // already-dark system would otherwise leave the Rust app config at

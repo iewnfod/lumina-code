@@ -23,6 +23,15 @@ import {createPersistedStore} from "../lib/persistedStore.ts";
  * the web console's account page.
  */
 
+/** The official lumina-code-server the login forms default to — users
+ * sign in against it without typing an address; a custom (self-hosted)
+ * server stays one expandable step away. */
+export const DEFAULT_SERVER_URL = "https://lumina-code-server.iewnfod.com";
+
+/** The self-hosting guide (server/README.md on GitHub) the "self-host"
+ * buttons open. */
+export const SELF_HOST_DOC_URL = "https://github.com/iewnfod/lumina-code/tree/master/server";
+
 export interface ServerConnection {
     /** Server base URL, normalized (origin only, no trailing slash). */
     url: string;

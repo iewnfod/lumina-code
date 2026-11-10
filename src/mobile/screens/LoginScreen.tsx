@@ -1,29 +1,75 @@
 import {useState} from "react";
-import {error as logError} from "@tauri-apps/plugin-log";
+import {error as logError, warn as logWarn} from "@tauri-apps/plugin-log";
 import Icon from "../../assets/icon.svg";
+import {openExternalUrl} from "../../lib/openExternal.ts";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {
+    DEFAULT_SERVER_URL,
     LuminaServerApi,
+    SELF_HOST_DOC_URL,
     deviceLoginLabel,
     normalizeServerUrl,
 } from "../../opencode/serverConnection.ts";
 import {setMobileConnection} from "../../opencode/mobileConnection.ts";
 
+/** Probe the frp route's desktop opencode (does it answer an API call?)
+ * — the sign-in gate: entering the app with the desktop offline would
+ * strand the user in a broken welcome screen. Same wire shape as
+ * useOpencode's remote branch (Basic opencode:<password> against
+ * <server>/t/<routeId>/); 8s AbortController timeout covers the proxied
+ * route's worst case. A 200 with a non-JSON body is the SPA-HTML
+ * fallback (unknown-route quirk, see src-tauri probe.rs) — not live. */
+async function probeDesktopRoute(
+    serverUrl: string,
+    routeId: string,
+    password: string,
+): Promise<boolean> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+        const res = await fetch(`${serverUrl}/t/${routeId}/api/session`, {
+            headers: {
+                Accept: "application/json",
+                Authorization: `Basic ${btoa(`opencode:${password}`)}`,
+            },
+            signal: controller.signal,
+        });
+        return res.ok && (res.headers.get("content-type") ?? "").includes("application/json");
+    } catch {
+        return false;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 /**
- * The mobile sign-in screen: server address + credentials → the device
- * token stored in the mobile connection store. Reuses the desktop's
+ * The mobile sign-in screen: credentials → the device token stored in
+ * the mobile connection store. The server address defaults to the
+ * OFFICIAL lumina-code-server (no address to type); a custom self-
+ * hosted server is one expandable step away. Reuses the desktop's
  * i18n keys and the shared LuminaServerApi.login (same wire contract).
  */
 export default function LoginScreen() {
     const t = useI18n();
     const colors = useColors();
 
-    const [url, setUrl] = useState("");
+    const [url, setUrl] = useState(DEFAULT_SERVER_URL);
+    const [customServer, setCustomServer] = useState(false);
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
     const [busy, setBusy] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
+
+    const toggleServer = () => {
+        // Both edges reset the field: expanding starts EMPTY (the
+        // official address must not sit in the custom box as if it
+        // were the user's own server); collapsing restores the
+        // official default so the collapsed form never signs in to a
+        // stale custom value.
+        setUrl(customServer ? DEFAULT_SERVER_URL : "");
+        setCustomServer(!customServer);
+    };
 
     const signIn = async () => {
         const normalized = normalizeServerUrl(url);
@@ -44,6 +90,32 @@ export default function LoginScreen() {
                 password,
                 await deviceLoginLabel(),
             );
+            // Pre-flight the desktop route BEFORE entering the app:
+            // fetch the route credentials (404 = the account has no
+            // desktop registered) and probe the route itself (the
+            // desktop's frpc may be offline — the credentials alone
+            // would happily connect to nothing). Failing here keeps the
+            // user on the login screen with an actionable message
+            // instead of a broken welcome surface.
+            const server = new LuminaServerApi(normalized, login.token);
+            let connect: {routeId: string; password: string};
+            try {
+                connect = await server.frpConnect();
+            } catch (e) {
+                const status = (e as {status?: number}).status;
+                if (status === 404) {
+                    setErrorText(t["No desktop registered for this account. Enable remote access in the desktop app's Server settings first."]);
+                } else {
+                    setErrorText(String(e));
+                }
+                logWarn(`mobile sign-in pre-flight: frp connect failed: ${e}`).catch(() => {});
+                return;
+            }
+            if (!(await probeDesktopRoute(normalized, connect.routeId, connect.password))) {
+                setErrorText(t["Cannot reach your desktop. Make sure Lumina Code is running on your computer with remote access enabled."]);
+                logWarn(`mobile sign-in pre-flight: desktop route ${connect.routeId} not reachable`).catch(() => {});
+                return;
+            }
             setMobileConnection({url: normalized, token: login.token, username: login.username});
         } catch (e) {
             setErrorText(String(e));
@@ -53,23 +125,28 @@ export default function LoginScreen() {
         }
     };
 
+    const inputEl = (value: string, onChange: (v: string) => void, type?: "password", mono?: boolean, placeholder?: string) => (
+        <input
+            type={type ?? "text"}
+            value={value}
+            onChange={(e) => onChange(e.currentTarget.value)}
+            placeholder={placeholder}
+            className={`lum-m-input ${mono ? "lum-m-mono" : ""}`}
+            style={{
+                background: colors.recessedBg,
+                border: `1px solid ${colors.glassBorder}`,
+                color: colors.textPrimary,
+            }}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+        />
+    );
+
     const field = (value: string, onChange: (v: string) => void, label: string, type?: "password", mono?: boolean) => (
         <label className="lum-m-field">
             <span>{label}</span>
-            <input
-                type={type ?? "text"}
-                value={value}
-                onChange={(e) => onChange(e.currentTarget.value)}
-                className={`lum-m-input ${mono ? "lum-m-mono" : ""}`}
-                style={{
-                    background: colors.recessedBg,
-                    border: `1px solid ${colors.glassBorder}`,
-                    color: colors.textPrimary,
-                }}
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-            />
+            {inputEl(value, onChange, type, mono)}
         </label>
     );
 
@@ -83,7 +160,17 @@ export default function LoginScreen() {
                 className="lum-m-card"
                 style={{background: colors.recessedBg, border: `1px solid ${colors.glassBorder}`}}
             >
-                {field(url, setUrl, t["Server address"], undefined, true)}
+                <div className="lum-m-server-row">
+                    <span>{customServer ? t["Server address"] : t["Official server"]}</span>
+                    <button
+                        type="button"
+                        className="lum-m-button small"
+                        onClick={toggleServer}
+                    >
+                        {customServer ? t["Use the official server"] : t["Use a custom server"]}
+                    </button>
+                </div>
+                {customServer && inputEl(url, setUrl, undefined, true, "https://lumina.example.com")}
                 {field(username, setUsername, t["Username"])}
                 {field(password, setPassword, t["Password"], "password")}
                 {errorText != null && (
@@ -100,6 +187,26 @@ export default function LoginScreen() {
                 >
                     {busy ? t["Signing in…"] : t["Sign in"]}
                 </button>
+                <div className="lum-m-link-row">
+                    <button
+                        type="button"
+                        className="lum-m-button small"
+                        onClick={() => openExternalUrl(`${normalizeServerUrl(url) ?? DEFAULT_SERVER_URL}/register`).catch((e) => {
+                            logError(`open register page failed: ${e}`).catch(() => {});
+                        })}
+                    >
+                        {t["Register account"]}
+                    </button>
+                    <button
+                        type="button"
+                        className="lum-m-button small"
+                        onClick={() => openExternalUrl(SELF_HOST_DOC_URL).catch((e) => {
+                            logError(`open self-host doc failed: ${e}`).catch(() => {});
+                        })}
+                    >
+                        {t["Self-host a server"]}
+                    </button>
+                </div>
             </div>
         </div>
     );

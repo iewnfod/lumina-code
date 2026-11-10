@@ -1,10 +1,13 @@
 import {useState} from "react";
+import {openExternalUrl} from "../../lib/openExternal.ts";
 import {error as logError, info as logInfo} from "@tauri-apps/plugin-log";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {isMobileApp} from "../../lib/platform.ts";
 import {
+    DEFAULT_SERVER_URL,
     LuminaServerApi,
+    SELF_HOST_DOC_URL,
     clearServerConnection,
     deviceLoginLabel,
     normalizeServerUrl,
@@ -61,11 +64,24 @@ function MobileServerPage() {
         <div className="flex flex-col gap-4 p-4 overflow-y-auto flex-1 min-h-0">
             <SettingRow
                 label={t["Signed in"]}
-                description={<span className="font-mono">{connection.url}</span>}
+                description={
+                    connection.url === DEFAULT_SERVER_URL
+                        ? t["Official server"]
+                        : <span className="font-mono">{connection.url}</span>
+                }
             >
                 <span className="text-xs opacity-70">{connection.username}</span>
             </SettingRow>
-            <div className="self-end">
+            <div className="flex items-center gap-3 self-end">
+                <Button
+                    size="sm"
+                    label={t["Web console"]}
+                    onClick={() => {
+                        openExternalUrl(connection.url).catch((e) => {
+                            logError(`open web console failed: ${e}`).catch(() => {});
+                        });
+                    }}
+                />
                 <Button label={t["Sign out"]} onClick={() => void signOut()} disabled={busy}/>
             </div>
         </div>
@@ -80,13 +96,24 @@ export default function ServerSettings() {
     // branches so the hook order is stable across them.
     const frp = useFrpStatus();
 
-    const [url, setUrl] = useState("");
+    const [url, setUrl] = useState(DEFAULT_SERVER_URL);
+    const [customServer, setCustomServer] = useState(false);
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
     const [busy, setBusy] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
 
     if (isMobileApp()) return <MobileServerPage/>;
+
+    const toggleServer = () => {
+        // Both edges reset the field: expanding starts EMPTY (the
+        // official address must not sit in the custom box as if it
+        // were the user's own server); collapsing restores the
+        // official default so the collapsed form never signs in to a
+        // stale custom value.
+        setUrl(customServer ? DEFAULT_SERVER_URL : "");
+        setCustomServer(!customServer);
+    };
 
     const signIn = async () => {
         const normalized = normalizeServerUrl(url);
@@ -113,7 +140,8 @@ export default function ServerSettings() {
                 username: login.username,
                 remoteEnabled: false,
             });
-            setUrl("");
+            setUrl(DEFAULT_SERVER_URL);
+            setCustomServer(false);
             setUsername("");
             setPassword("");
             logInfo(`Signed in to lumina-code-server at ${normalized}`).catch(() => {});
@@ -191,7 +219,7 @@ export default function ServerSettings() {
             <div className="flex flex-col gap-4 p-4 overflow-y-auto">
                 <SettingRow
                     label={t["Remote access"]}
-                    description={t["Expose this machine's OpenCode directly to your signed-in mobile clients through the server."]}
+                    description={t["Allow mobile devices to connect"]}
                 >
                     <Switch
                         checked={connection.remoteEnabled}
@@ -216,11 +244,24 @@ export default function ServerSettings() {
                 )}
                 <SettingRow
                     label={t["Signed in"]}
-                    description={<span className="font-mono">{connection.url}</span>}
+                    description={
+                        connection.url === DEFAULT_SERVER_URL
+                            ? t["Official server"]
+                            : <span className="font-mono">{connection.url}</span>
+                    }
                 >
                     <span className="text-xs opacity-70">{connection.username}</span>
                 </SettingRow>
-                <div className="self-end">
+                <div className="flex items-center gap-3 self-end">
+                    <Button
+                        size="sm"
+                        label={t["Web console"]}
+                        onClick={() => {
+                            openExternalUrl(connection.url).catch((e) => {
+                                logError(`open web console failed: ${e}`).catch(() => {});
+                            });
+                        }}
+                    />
                     <Button label={t["Sign out"]} onClick={() => void signOut()} disabled={busy}/>
                 </div>
             </div>
@@ -230,11 +271,22 @@ export default function ServerSettings() {
     return (
         <div className="flex flex-col gap-4 p-4 overflow-y-auto">
             <p className="text-xs opacity-55 -mt-2">
-                {t["Sign in to your self-hosted lumina-code-server to enable remote access from your mobile devices."]}
+                {t["Sign in to the server to enable remote access from your mobile devices."]}
             </p>
-            <div className="flex flex-col gap-2 max-w-[340px]">
-                <div className="text-sm">{t["Server address"]}</div>
-                <TextInput value={url} placeholder="https://lumina.example.com" onChange={setUrl} mono/>
+            <div className="flex flex-col gap-2 max-w-[400px]">
+                <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm">
+                        {customServer ? t["Server address"] : t["Official server"]}
+                    </div>
+                    <Button
+                        size="sm"
+                        label={customServer ? t["Use the official server"] : t["Use a custom server"]}
+                        onClick={toggleServer}
+                    />
+                </div>
+                {customServer && (
+                    <TextInput value={url} placeholder="https://lumina.example.com" onChange={setUrl} mono/>
+                )}
                 <div className="text-sm mt-1">{t["Username"]}</div>
                 <TextInput value={username} onChange={setUsername}/>
                 <div className="text-sm mt-1">{t["Password"]}</div>
@@ -249,17 +301,35 @@ export default function ServerSettings() {
             </div>
             {errorText != null && (
                 <div
-                    className="text-xs rounded-[var(--radius-sm)] px-2.5 py-2 max-w-[340px]"
+                    className="text-xs rounded-[var(--radius-sm)] px-2.5 py-2 max-w-[400px]"
                     style={{color: "var(--color-danger-text)"}}
                 >
                     {errorText}
                 </div>
             )}
-            <div className="self-start">
+            <div className="flex items-center gap-3 self-start">
                 <Button
                     label={busy ? t["Signing in…"] : t["Sign in"]}
                     onClick={() => void signIn()}
                     disabled={busy}
+                />
+                <Button
+                    size="sm"
+                    label={t["Register account"]}
+                    onClick={() => {
+                        openExternalUrl(`${normalizeServerUrl(url) ?? DEFAULT_SERVER_URL}/register`).catch((e) => {
+                            logError(`open register page failed: ${e}`).catch(() => {});
+                        });
+                    }}
+                />
+                <Button
+                    size="sm"
+                    label={t["Self-host a server"]}
+                    onClick={() => {
+                        openExternalUrl(SELF_HOST_DOC_URL).catch((e) => {
+                            logError(`open self-host doc failed: ${e}`).catch(() => {});
+                        });
+                    }}
                 />
             </div>
         </div>

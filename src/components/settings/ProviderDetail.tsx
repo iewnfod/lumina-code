@@ -1,6 +1,6 @@
 import {useState} from "react";
 import {Check, Copy, Globe} from "lucide-react";
-import {openUrl} from "@tauri-apps/plugin-opener";
+import {openExternalUrl} from "../../lib/openExternal.ts";
 import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
@@ -263,7 +263,7 @@ export default function ProviderDetail({
                                             label={t["Open in browser"]}
 
                                             onClick={() => {
-                                                openUrl(oauth.attempt.url).catch((e) => {
+                                                openExternalUrl(oauth.attempt.url).catch((e) => {
                                                     logWarn(`Failed to open OAuth URL: ${e}`).catch(() => {});
                                                 });
                                             }}

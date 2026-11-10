@@ -7,7 +7,7 @@ import rehypeKatex from "rehype-katex";
 // see the note there: a component-level CSS import rides the JS chunk's
 // injection, which a long-lived dev webview's HMR can fail to deliver.
 import {rehypeInlineStyles} from "./rehypeStyles.ts";
-import {openUrl} from "@tauri-apps/plugin-opener";
+import {openExternalUrl} from "../../lib/openExternal.ts";
 import {Check, Copy} from "lucide-react";
 import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {useCopy} from "../../hooks/useCopy.ts";
@@ -185,7 +185,7 @@ function MdLink({href, children}: {href?: string; children?: ReactNode}) {
             rel="noreferrer"
             onClick={(e) => {
                 e.preventDefault();
-                if (href) openUrl(href).catch(() => {});
+                if (href) openExternalUrl(href).catch(() => {});
             }}
         >
             {children}

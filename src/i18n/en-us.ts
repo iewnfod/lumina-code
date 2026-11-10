@@ -347,8 +347,7 @@ const enUs = {
     // --- Server (self-hosted lumina-code-server) ---
     "Server": "Server",
     "Remote access": "Remote access",
-    "Expose this machine's OpenCode directly to your signed-in mobile clients through the server.":
-        "Expose this machine's OpenCode directly to your signed-in mobile clients through the server.",
+    "Allow mobile devices to connect": "Allow mobile devices to connect",
     "Connection status": "Connection status",
     "Disconnected, reconnecting...": "Disconnected, reconnecting...",
     "Connection failed, retrying...": "Connection failed, retrying...",
@@ -356,8 +355,18 @@ const enUs = {
     "Route ID": "Route ID",
     "Server address": "Server address",
     "Server address must start with http:// or https://": "Server address must start with http:// or https://",
-    "Sign in to your self-hosted lumina-code-server to enable remote access from your mobile devices.":
-        "Sign in to your self-hosted lumina-code-server to enable remote access from your mobile devices.",
+    "Official server": "Official server",
+    "Use a custom server": "Use a custom server",
+    "Use the official server": "Use the official server",
+    "Register account": "Register account",
+    "Self-host a server": "Self-host a server",
+    "Web console": "Web console",
+    "No desktop registered for this account. Enable remote access in the desktop app's Server settings first.":
+        "No desktop registered for this account. Enable remote access in the desktop app's Server settings first.",
+    "Cannot reach your desktop. Make sure Lumina Code is running on your computer with remote access enabled.":
+        "Cannot reach your desktop. Make sure Lumina Code is running on your computer with remote access enabled.",
+    "Sign in to the server to enable remote access from your mobile devices.":
+        "Sign in to the server to enable remote access from your mobile devices.",
     "Username": "Username",
     "Password": "Password",
     "Sign in": "Sign in",

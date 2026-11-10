@@ -60,6 +60,44 @@ pub fn set_sandbox_dirs(files_dir: String, cache_dir: String) -> napi_ohos::Resu
 }
 
 
+/// ohos only — the external-URL opener bridge. tauri's mobile plugin
+/// channel (run_mobile_plugin) is a TODO stub on the feat/open-harmony
+/// branch (crates/tauri/src/plugin/mobile.rs: run_command returns Ok
+/// without ever firing the response channel), so tauri-plugin-opener's
+/// openUrl promise hangs forever on HarmonyOS — live-observed as the
+/// login screen's register / self-host buttons doing nothing at all.
+///
+/// The bridge is PULL-based: the `open_external_url` command only
+/// STORES the URL, and EntryAbility polls `take_pending_url` on a 500ms
+/// interval to open it (UIAbilityContext.openLink). Calling ArkTS from
+/// the tauri IPC thread the other way (napi ThreadsafeFunction) KILLS
+/// the process — live-observed on device as
+/// `ArkCompiler: [CallForNapi] occur exception need return` followed by
+/// the whole app dying on every button press. ArkTS→Rust is the one
+/// direction proven safe (set_sandbox_dirs rides it).
+#[cfg(target_env = "ohos")]
+mod ohos_url {
+    use std::sync::{Mutex, OnceLock};
+
+    static PENDING_URL: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+    #[tauri::command]
+    pub fn open_external_url(url: String) -> Result<(), String> {
+        if !url.starts_with("https://") && !url.starts_with("http://") {
+            return Err(format!("refusing non-http(s) url: {url}"));
+        }
+        *PENDING_URL.get_or_init(|| Mutex::new(None)).lock().unwrap() = Some(url);
+        Ok(())
+    }
+
+    /// EntryAbility's poll target: the URL the webview asked to open,
+    /// handed over once (None when nothing is pending).
+    #[napi_derive_ohos::napi]
+    pub fn take_pending_url() -> Option<String> {
+        PENDING_URL.get()?.lock().unwrap().take()
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // The universal plugin set — verified to compile AND initialize on
@@ -88,6 +126,12 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init());
+
+    // The ohos URL bridge command (see the ohos_url module above); on
+    // every other target the frontend's openExternal helper goes
+    // straight to tauri-plugin-opener after this command rejects.
+    #[cfg(target_env = "ohos")]
+    let builder = builder.invoke_handler(tauri::generate_handler![ohos_url::open_external_url]);
 
     builder
         .run(tauri::generate_context!())

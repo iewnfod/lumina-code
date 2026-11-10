@@ -306,3 +306,20 @@ body,
     word-break: break-word;
     margin: 0;
 }
+
+/* The server row (desktop-shaped): the label (official server / server
+ * address) on the left, the custom-server toggle button on the right —
+ * same layout as the desktop Server pane's form. */
+.lum-m-server-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+}
+
+.lum-m-link-row {
+    display: flex;
+    justify-content: center;
+    gap: 18px;
+}
