@@ -253,6 +253,15 @@ body,
     gap: 12px;
 }
 
+/* The card's semantic <form> layer (password-manager recognition —
+ * see LoginScreen): takes over the card's column layout 1:1 so the
+ * inserted wrapper never changes the spacing. */
+.lum-m-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
 .lum-m-field {
     display: flex;
     flex-direction: column;

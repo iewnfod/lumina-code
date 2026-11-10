@@ -13,6 +13,9 @@ export default function TextInput({
     type = "text",
     disabled = false,
     mono = false,
+    name,
+    autoComplete,
+    id,
     onChange,
     onKeyDown,
 }: {
@@ -21,6 +24,12 @@ export default function TextInput({
     type?: "text" | "password";
     disabled?: boolean;
     mono?: boolean;
+    /** Semantic identity for password managers / autofill (the
+     * username+password pair is recognized by name + autocomplete, not
+     * by placeholder text — see ServerSettings' sign-in form). */
+    name?: string;
+    autoComplete?: string;
+    id?: string;
     onChange: (text: string) => void;
     onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
 }) {
@@ -31,6 +40,9 @@ export default function TextInput({
             value={value}
             placeholder={placeholder}
             disabled={disabled}
+            name={name}
+            autoComplete={autoComplete}
+            id={id}
             onChange={(e) => onChange(e.currentTarget.value)}
             onKeyDown={onKeyDown}
             className={`h-9 w-full px-3 rounded-[var(--radius-sm)] text-sm outline-none placeholder:opacity-40 focus:ring-1 focus:ring-[var(--lum-input-ring)] disabled:opacity-50 disabled:cursor-not-allowed ${mono ? "font-mono" : ""}`}

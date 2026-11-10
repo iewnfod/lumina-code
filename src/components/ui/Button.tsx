@@ -24,7 +24,7 @@ export default function Button({
     label: string;
     primary?: boolean;
     disabled?: boolean;
-    onClick: () => void;
+    onClick?: () => void;
     type?: "button" | "submit";
     size?: "sm" | "md";
 }) {

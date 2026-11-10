@@ -125,13 +125,29 @@ export default function LoginScreen() {
         }
     };
 
-    const inputEl = (value: string, onChange: (v: string) => void, type?: "password", mono?: boolean, placeholder?: string) => (
+    const inputEl = (
+        value: string,
+        onChange: (v: string) => void,
+        opts?: {
+            type?: "password";
+            mono?: boolean;
+            placeholder?: string;
+            name?: string;
+            autoComplete?: string;
+            id?: string;
+            enterKeyHint?: "next" | "go" | "done";
+        },
+    ) => (
         <input
-            type={type ?? "text"}
+            type={opts?.type ?? "text"}
             value={value}
             onChange={(e) => onChange(e.currentTarget.value)}
-            placeholder={placeholder}
-            className={`lum-m-input ${mono ? "lum-m-mono" : ""}`}
+            placeholder={opts?.placeholder}
+            name={opts?.name}
+            autoComplete={opts?.autoComplete}
+            id={opts?.id}
+            enterKeyHint={opts?.enterKeyHint}
+            className={`lum-m-input ${opts?.mono ? "lum-m-mono" : ""}`}
             style={{
                 background: colors.recessedBg,
                 border: `1px solid ${colors.glassBorder}`,
@@ -143,10 +159,15 @@ export default function LoginScreen() {
         />
     );
 
-    const field = (value: string, onChange: (v: string) => void, label: string, type?: "password", mono?: boolean) => (
-        <label className="lum-m-field">
+    const field = (
+        value: string,
+        onChange: (v: string) => void,
+        label: string,
+        opts?: Parameters<typeof inputEl>[2],
+    ) => (
+        <label className="lum-m-field" htmlFor={opts?.id}>
             <span>{label}</span>
-            {inputEl(value, onChange, type, mono)}
+            {inputEl(value, onChange, opts)}
         </label>
     );
 
@@ -160,53 +181,82 @@ export default function LoginScreen() {
                 className="lum-m-card"
                 style={{background: colors.recessedBg, border: `1px solid ${colors.glassBorder}`}}
             >
-                <div className="lum-m-server-row">
-                    <span>{customServer ? t["Server address"] : t["Official server"]}</span>
-                    <button
-                        type="button"
-                        className="lum-m-button small"
-                        onClick={toggleServer}
-                    >
-                        {customServer ? t["Use the official server"] : t["Use a custom server"]}
-                    </button>
-                </div>
-                {customServer && inputEl(url, setUrl, undefined, true, "https://lumina.example.com")}
-                {field(username, setUsername, t["Username"])}
-                {field(password, setPassword, t["Password"], "password")}
-                {errorText != null && (
-                    <p className="lum-m-error" style={{color: "var(--color-danger-text)"}}>
-                        {errorText}
-                    </p>
-                )}
-                <button
-                    type="button"
-                    className="lum-m-button primary"
-                    disabled={busy}
-                    style={{background: colors.accentOverlay}}
-                    onClick={() => void signIn()}
+                {/* A real <form> so password managers (1Password, the
+                 * system autofill) recognize the username+password
+                 * group and get a submit event to save against —
+                 * name + autocomplete on the inputs carry the field
+                 * semantics the managers key on. */}
+                <form
+                    className="lum-m-form"
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!busy) void signIn();
+                    }}
                 >
-                    {busy ? t["Signing in…"] : t["Sign in"]}
-                </button>
-                <div className="lum-m-link-row">
+                    <div className="lum-m-server-row">
+                        <span>{customServer ? t["Server address"] : t["Official server"]}</span>
+                        <button
+                            type="button"
+                            className="lum-m-button small"
+                            onClick={toggleServer}
+                        >
+                            {customServer ? t["Use the official server"] : t["Use a custom server"]}
+                        </button>
+                    </div>
+                    {customServer && inputEl(url, setUrl, {
+                        mono: true,
+                        placeholder: "https://lumina.example.com",
+                        name: "server-url",
+                        autoComplete: "url",
+                        enterKeyHint: "next",
+                    })}
+                    {field(username, setUsername, t["Username"], {
+                        name: "username",
+                        autoComplete: "username",
+                        id: "lum-login-username",
+                        enterKeyHint: "next",
+                    })}
+                    {field(password, setPassword, t["Password"], {
+                        type: "password",
+                        name: "password",
+                        autoComplete: "current-password",
+                        id: "lum-login-password",
+                        enterKeyHint: "go",
+                    })}
+                    {errorText != null && (
+                        <p className="lum-m-error" style={{color: "var(--color-danger-text)"}}>
+                            {errorText}
+                        </p>
+                    )}
                     <button
-                        type="button"
-                        className="lum-m-button small"
-                        onClick={() => openExternalUrl(`${normalizeServerUrl(url) ?? DEFAULT_SERVER_URL}/register`).catch((e) => {
-                            logError(`open register page failed: ${e}`).catch(() => {});
-                        })}
+                        type="submit"
+                        className="lum-m-button primary"
+                        disabled={busy}
+                        style={{background: colors.accentOverlay}}
                     >
-                        {t["Register account"]}
+                        {busy ? t["Signing in…"] : t["Sign in"]}
                     </button>
-                    <button
-                        type="button"
-                        className="lum-m-button small"
-                        onClick={() => openExternalUrl(SELF_HOST_DOC_URL).catch((e) => {
-                            logError(`open self-host doc failed: ${e}`).catch(() => {});
-                        })}
-                    >
-                        {t["Self-host a server"]}
-                    </button>
-                </div>
+                    <div className="lum-m-link-row">
+                        <button
+                            type="button"
+                            className="lum-m-button small"
+                            onClick={() => openExternalUrl(`${normalizeServerUrl(url) ?? DEFAULT_SERVER_URL}/register`).catch((e) => {
+                                logError(`open register page failed: ${e}`).catch(() => {});
+                            })}
+                        >
+                            {t["Register account"]}
+                        </button>
+                        <button
+                            type="button"
+                            className="lum-m-button small"
+                            onClick={() => openExternalUrl(SELF_HOST_DOC_URL).catch((e) => {
+                                logError(`open self-host doc failed: ${e}`).catch(() => {});
+                            })}
+                        >
+                            {t["Self-host a server"]}
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
     );

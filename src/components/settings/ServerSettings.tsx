@@ -273,6 +273,16 @@ export default function ServerSettings() {
             <p className="text-xs opacity-55 -mt-2">
                 {t["Sign in to the server to enable remote access from your mobile devices."]}
             </p>
+        <form
+            // A real <form> so password managers recognize the
+            // username+password group and get a submit event to save
+            // against (name + autocomplete carry the field semantics).
+            className="flex flex-col gap-4"
+            onSubmit={(e) => {
+                e.preventDefault();
+                if (!busy) void signIn();
+            }}
+        >
             <div className="flex flex-col gap-2 max-w-[400px]">
                 <div className="flex items-center justify-between gap-2">
                     <div className="text-sm">
@@ -285,18 +295,29 @@ export default function ServerSettings() {
                     />
                 </div>
                 {customServer && (
-                    <TextInput value={url} placeholder="https://lumina.example.com" onChange={setUrl} mono/>
+                    <TextInput
+                        value={url}
+                        placeholder="https://lumina.example.com"
+                        name="server-url"
+                        autoComplete="url"
+                        onChange={setUrl}
+                        mono
+                    />
                 )}
                 <div className="text-sm mt-1">{t["Username"]}</div>
-                <TextInput value={username} onChange={setUsername}/>
+                <TextInput
+                    value={username}
+                    name="username"
+                    autoComplete="username"
+                    onChange={setUsername}
+                />
                 <div className="text-sm mt-1">{t["Password"]}</div>
                 <TextInput
                     value={password}
                     type="password"
+                    name="password"
+                    autoComplete="current-password"
                     onChange={setPassword}
-                    onKeyDown={(e) => {
-                        if (e.key === "Enter" && !busy) void signIn();
-                    }}
                 />
             </div>
             {errorText != null && (
@@ -310,7 +331,7 @@ export default function ServerSettings() {
             <div className="flex items-center gap-3 self-start">
                 <Button
                     label={busy ? t["Signing in…"] : t["Sign in"]}
-                    onClick={() => void signIn()}
+                    type="submit"
                     disabled={busy}
                 />
                 <Button
@@ -332,6 +353,7 @@ export default function ServerSettings() {
                     }}
                 />
             </div>
+        </form>
         </div>
     );
 }
