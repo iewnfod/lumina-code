@@ -9,6 +9,7 @@ import type {IntegrationInfo} from "../../opencode/types.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useBackLevel} from "../../hooks/useBackLevel.ts";
 import {usePhoneLayout} from "../../hooks/useLayoutMode.ts";
+import {useDisabledProviders} from "../../hooks/useDisabledModels.ts";
 import Button from "../ui/Button.tsx";
 import IconButton from "../ui/IconButton.tsx";
 import Hint from "../ui/Hint.tsx";
@@ -152,6 +153,10 @@ export default function ModelSettings({
 
     const {oauth, startOAuth, cancelOAuth} = useIntegrationOAuth(api, setActionError, setBusy, loadIntegrations);
 
+    // Provider-level disable records (set by ProviderDetail's header
+    // switch) — the nav dot reads them: red = disabled.
+    const disabledProviders = useDisabledProviders();
+
     const customDefs = useMemo(() => customProviderDefs(rawConfig ?? ""), [rawConfig]);
     const jsoncBlocked = target?.jsonc === true;
 
@@ -166,16 +171,22 @@ export default function ModelSettings({
 
     /** The nav's official group: connected integrations, plus the one
      * currently selected even while unconnected (picked from the Add
-     * modal and not yet configured — it stays reachable in the rail). */
+     * modal and not yet configured — it stays reachable in the rail).
+     * DISABLED providers sink to the bottom (stable sort — the group's
+     * underlying order is the server's, never reshuffled for display
+     * otherwise). */
     const navIntegrations = useMemo(() => {
         if (!integrations) return [];
         const connected = integrations.filter((i) => i.connections.length > 0);
+        let list = connected;
         if (selected?.kind === "integration" && !connected.some((i) => i.id === selected.id)) {
             const picked = integrations.find((i) => i.id === selected.id);
-            if (picked) return [...connected, picked];
+            if (picked) list = [...connected, picked];
         }
-        return connected;
-    }, [integrations, selected]);
+        return [...list].sort(
+            (a, b) => Number(disabledProviders.has(a.id)) - Number(disabledProviders.has(b.id)),
+        );
+    }, [integrations, selected, disabledProviders]);
 
     // --- Custom-provider config writes (the old Custom tab's actions) ---
 
@@ -342,6 +353,7 @@ export default function ModelSettings({
                     key={i.id}
                     selected={selected?.kind === "integration" && selected.id === i.id}
                     connected={i.connections.length > 0}
+                    disabled={disabledProviders.has(i.id)}
                     onClick={() => {
                         setSelected({kind: "integration", id: i.id});
                         setActionError(null);
@@ -522,12 +534,13 @@ function GroupLabel({children}: {children: ReactNode}) {
     );
 }
 
-/** One provider row of the nav rail: avatar + name + status dot (green
- * = configured; hollow grey = not yet connected). The Tools entry hides
- * the dot. */
+/** One provider row of the nav rail: avatar + name + status dot (red =
+ * provider-level disabled, green = connected, hollow grey = not yet
+ * connected). The Tools entry hides the dot. */
 function NavRow({
     selected,
     connected,
+    disabled,
     hideDot,
     onClick,
     avatar,
@@ -535,6 +548,9 @@ function NavRow({
 }: {
     selected: boolean;
     connected: boolean;
+    /** Provider-level disabled (the detail header's switch) — the dot
+     * turns red; the provider stays in the rail with credentials. */
+    disabled?: boolean;
     hideDot?: boolean;
     onClick: () => void;
     avatar: ReactNode;
@@ -543,7 +559,10 @@ function NavRow({
     const colors = useColors();
     const t = useI18n();
     return (
-        <Hint label={hideDot ? undefined : connected ? t["Connected"] : t["Not connected"]} className="w-full">
+        <Hint
+            label={hideDot ? undefined : disabled ? t["Disabled"] : connected ? t["Connected"] : t["Not connected"]}
+            className="w-full"
+        >
             {/* No whileHoverTap: rows in the scrolling nav would clip at
              * the overflow boundary on scale — the hover wash IS the
              * affordance here (springs belong to button primitives). */}
@@ -565,9 +584,11 @@ function NavRow({
                     <span
                         className="w-1.5 h-1.5 rounded-full shrink-0 mr-1.5"
                         style={
-                            connected
-                                ? {background: "var(--color-success)"}
-                                : {background: colors.inactiveText, opacity: 0.35}
+                            disabled
+                                ? {background: "var(--color-danger)"}
+                                : connected
+                                    ? {background: "var(--color-success)"}
+                                    : {background: colors.inactiveText, opacity: 0.35}
                         }
                     />
                 )}

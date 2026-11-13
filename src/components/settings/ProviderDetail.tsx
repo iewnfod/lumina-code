@@ -1,5 +1,5 @@
 import {useEffect, useState} from "react";
-import {Check, Copy, Eye, EyeOff, MoreHorizontal} from "lucide-react";
+import {Check, Copy, Eye, EyeOff, MoreHorizontal, Trash2} from "lucide-react";
 import {openExternalUrl} from "../../lib/openExternal.ts";
 import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
@@ -24,7 +24,7 @@ import {
 import Button from "../ui/Button.tsx";
 import IconButton from "../ui/IconButton.tsx";
 import Hint from "../ui/Hint.tsx";
-import PopoverMenu, {MenuItem, MenuLabel} from "../ui/PopoverMenu.tsx";
+import PopoverMenu, {MenuItem} from "../ui/PopoverMenu.tsx";
 import {formatContextLimit, modelSupportsImage, parseOAuthInstructions, providerModels} from "./modelConfig.ts";
 import {AccentBadge, Field, ModelBadge, ProviderAvatar, TextAction, useModelsList} from "./modelSettingsChrome.tsx";
 import type {OAuthFlow} from "../../hooks/useIntegrationOAuth.ts";
@@ -187,6 +187,7 @@ export default function ProviderDetail({
                     <PopoverMenu
                         panelClassName="w-44"
                         align="end"
+                        direction="down"
                         trigger={({open, toggle}) => (
                             <IconButton
                                 size={28}
@@ -201,18 +202,15 @@ export default function ProviderDetail({
                         )}
                     >
                         {(close) => (
-                            <>
-                                <MenuLabel>{integration.name}</MenuLabel>
-                                <MenuItem
-                                    danger
-                                    onClick={() => {
-                                        close();
-                                        disconnectAll();
-                                    }}
-                                >
-                                    {t["Disconnect"]}
-                                </MenuItem>
-                            </>
+                            <MenuItem
+                                danger
+                                onClick={() => {
+                                    close();
+                                    disconnectAll();
+                                }}
+                            >
+                                {t["Disconnect"]}
+                            </MenuItem>
                         )}
                     </PopoverMenu>
                 )}
@@ -270,72 +268,86 @@ export default function ProviderDetail({
                 </section>
             )}
 
-            {/* Stored credentials. The FIRST entry is the active one — the
-             * server moves the freshly connected/activated credential to
-             * index 0 (no explicit active flag on the wire). */}
+            {/* Stored credentials — the model-list card's look: one
+             * bordered card, hairline-separated rows (the FIRST entry
+             * is the active one — the server moves the freshly
+             * connected/activated credential to index 0; the Active
+             * badge + Activate switch only render when there is more
+             * than one to disambiguate). Env connections render as
+             * their own rows of the same card. */}
             {connected && (
-                <section className="flex flex-col gap-1.5">
-                    {credentials.map((c, index) => c.type === "credential" && (
-                        <div
-                            key={c.id}
-                            className="flex items-center gap-2 px-2.5 py-1.5 rounded-[var(--radius-sm)]"
-                            style={{background: colors.recessedBg, border: `1px solid ${colors.glassBorder}`}}
-                        >
-                            <span className="min-w-0 flex-1 truncate leading-normal text-xs">{c.label}</span>
-                            {index === 0 ? (
+                <section className="flex flex-col">
+                    <div
+                        className="flex flex-col rounded-[var(--radius-lg)] overflow-hidden"
+                        style={{border: `1px solid ${colors.glassBorder}`}}
+                    >
+                        {credentials.map((c, index) => c.type === "credential" && (
+                            <div
+                                key={c.id}
+                                className={`flex items-center gap-2 px-2.5 py-2.5${index === 0 ? "" : " border-t"}`}
+                                style={index === 0 ? undefined : {borderColor: "var(--lum-neutral-hairline)"}}
+                            >
+                                <span className="min-w-0 flex-1 truncate text-xs leading-normal">{c.label}</span>
+                                {index === 0 ? (
+                                    credentials.length > 1 && <AccentBadge label={t["Active"]}/>
+                                ) : (
+                                    <TextAction
+                                        label={t["Activate"]}
+                                        disabled={busy}
+                                        onClick={() => {
+                                            if (!api) return;
+                                            onBusyChange(true);
+                                            api.activateCredential(c.id)
+                                                .then(() => {
+                                                    logInfo(`Activated credential for ${integration.id}`).catch(() => {});
+                                                    onChanged();
+                                                })
+                                                .catch((e) => {
+                                                    onActionError(String(e));
+                                                    logError(`Failed to activate credential: ${e}`).catch(() => {});
+                                                })
+                                                .finally(() => onBusyChange(false));
+                                        }}
+                                    />
+                                )}
+                                <Hint label={t["Remove"]}>
+                                    <IconButton
+                                        size={24}
+                                        hoverOverlay={colors.hoverOverlay}
+                                        activeOverlay={colors.activeOverlay}
+                                        aria-label={t["Remove"]}
+                                        disabled={busy}
+                                        onClick={() => {
+                                            if (!api) return;
+                                            onBusyChange(true);
+                                            api.deleteCredential(c.id)
+                                                .then(() => {
+                                                    logInfo(`Removed credential from ${integration.id}`).catch(() => {});
+                                                    onChanged();
+                                                })
+                                                .catch((e) => {
+                                                    onActionError(String(e));
+                                                    logError(`Failed to remove credential: ${e}`).catch(() => {});
+                                                })
+                                                .finally(() => onBusyChange(false));
+                                        }}
+                                    >
+                                        <Trash2 size={13}/>
+                                    </IconButton>
+                                </Hint>
+                            </div>
+                        ))}
+                        {envConnections.map((c) => c.type === "env" && (
+                            <div
+                                key={c.name}
+                                className={`flex items-center gap-2 px-2.5 py-2.5${credentials.length === 0 ? "" : " border-t"}`}
+                                style={credentials.length === 0 ? undefined : {borderColor: "var(--lum-neutral-hairline)"}}
+                            >
+                                <span className="min-w-0 flex-1 truncate font-mono text-2xs leading-normal">{c.name}</span>
                                 <AccentBadge label={t["Active"]}/>
-                            ) : (
-                                <Button
-                                    label={t["Activate"]}
-
-                                    disabled={busy}
-                                    onClick={() => {
-                                        if (!api) return;
-                                        onBusyChange(true);
-                                        api.activateCredential(c.id)
-                                            .then(() => {
-                                                logInfo(`Activated credential for ${integration.id}`).catch(() => {});
-                                                onChanged();
-                                            })
-                                            .catch((e) => {
-                                                onActionError(String(e));
-                                                logError(`Failed to activate credential: ${e}`).catch(() => {});
-                                            })
-                                            .finally(() => onBusyChange(false));
-                                    }}
-                                />
-                            )}
-                            <Button
-                                label={t["Remove"]}
-
-                                disabled={busy}
-                                onClick={() => {
-                                    if (!api) return;
-                                    onBusyChange(true);
-                                    api.deleteCredential(c.id)
-                                        .then(() => {
-                                            logInfo(`Removed credential from ${integration.id}`).catch(() => {});
-                                            onChanged();
-                                        })
-                                        .catch((e) => {
-                                            onActionError(String(e));
-                                            logError(`Failed to remove credential: ${e}`).catch(() => {});
-                                        })
-                                        .finally(() => onBusyChange(false));
-                                }}
-                            />
-                        </div>
-                    ))}
-                    {envConnections.map((c) => c.type === "env" && (
-                        <div
-                            key={c.name}
-                            className="flex items-center gap-2 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-xs"
-                            style={{background: colors.recessedBg, border: `1px solid ${colors.glassBorder}`}}
-                        >
-                            <span className="min-w-0 flex-1 truncate leading-normal font-mono text-2xs">{c.name}</span>
-                            <AccentBadge label={t["Active"]}/>
-                        </div>
-                    ))}
+                            </div>
+                        ))}
+                    </div>
                 </section>
             )}
 

@@ -7,7 +7,7 @@ import type {OpencodeModel} from "../../opencode/types.ts";
 import Button from "../ui/Button.tsx";
 import IconButton from "../ui/IconButton.tsx";
 import Hint from "../ui/Hint.tsx";
-import PopoverMenu, {MenuItem, MenuLabel} from "../ui/PopoverMenu.tsx";
+import PopoverMenu, {MenuItem} from "../ui/PopoverMenu.tsx";
 import {API_FORMATS, apiFormatId, formatContextLimit, modelSupportsImage, providerModels} from "./modelConfig.ts";
 import {Field, ModelBadge, ProviderAvatar, TextAction, useModelsList} from "./modelSettingsChrome.tsx";
 import type {CustomProviderDef} from "./modelConfig.ts";
@@ -105,6 +105,7 @@ export default function CustomProviderDetail({
                     <PopoverMenu
                         panelClassName="w-44"
                         align="end"
+                        direction="down"
                         trigger={({open, toggle}) => (
                             <IconButton
                                 size={28}
@@ -119,18 +120,15 @@ export default function CustomProviderDetail({
                         )}
                     >
                         {(close) => (
-                            <>
-                                <MenuLabel>{draft.id}</MenuLabel>
-                                <MenuItem
-                                    danger
-                                    onClick={() => {
-                                        close();
-                                        onDelete(def.id);
-                                    }}
-                                >
-                                    {t["Delete provider"]}
-                                </MenuItem>
-                            </>
+                            <MenuItem
+                                danger
+                                onClick={() => {
+                                    close();
+                                    onDelete(def.id);
+                                }}
+                            >
+                                {t["Delete provider"]}
+                            </MenuItem>
                         )}
                     </PopoverMenu>
                 )}
