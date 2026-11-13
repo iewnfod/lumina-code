@@ -257,8 +257,35 @@ export interface PermissionRequest {
     source?: {type: "tool"; messageID: string; id: string};
 }
 
+/** One permission rule from an opencode.json `permissions` array — the
+ * server evaluates every tool call against the ordered merged ruleset
+ * (last match wins; no match → ask, though the built-in base policy
+ * starts with `* / * → allow`). */
+export interface PermissionRule {
+    action: string;
+    resource: string;
+    effect: "allow" | "deny" | "ask";
+}
+
 /** The user's answer to a permission request. */
 export type PermissionDecision = "once" | "always" | "reject";
+
+/** A durable project-scoped allow rule the user created by answering a
+ * permission request with "always" (`GET /api/permission/saved`, verified
+ * against server v2.0.11). The server derives `resource` from the request's
+ * proposed patterns: shell asks save a command prefix (`cat *`), external
+ * directory asks save the canonical boundary (`/home/…/ref/*`). These rules
+ * cover a configured `ask` but NEVER a configured `deny`, and survive
+ * restarts — the only way to revoke one is `DELETE /api/permission/saved/{id}`
+ * (this server generation has no PATCH). */
+export interface SavedPermission {
+    id: string; // "psv_…"
+    /** Which project the rule belongs to (matches `OpencodeProject.id`). */
+    projectID: string;
+    action: string;
+    resource: string;
+    time: {created: number; updated: number};
+}
 
 /** One selectable choice of a form field. */
 export interface FormFieldOption {

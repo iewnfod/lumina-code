@@ -1088,6 +1088,48 @@ src/
 │   │                      #   (see useSessionMessages — a prompt landing
 │   │                      #   during the stop's cleanup would restart the
 │   │                      #   run server-side).
+│   ├── permissionModes.ts # THE PERMISSION-MODE LADDER (pure, node-
+│   │                      #   tested): strict / balanced / full, each a
+│   │                      #   small FIXED fingerprint rule set appended
+│   │                      #   to the END of a project config's
+│   │                      #   `permissions` array (last-match-wins ⇒ the
+│   │                      #   mode decides; manual repo rules survive
+│   │                      #   verbatim — applyPermissionMode strips only
+│   │                      #   fingerprint members). identifyPermissionMode
+│   │                      #   reads a config back to a mode with NO
+│   │                      #   fourth "default" rung: no fingerprint ⇒
+│   │                      #   strict (VIRTUAL — the server's no-rules
+│   │                      #   state is permissive: built-in base policy
+│   │                      #   `*/*→allow` + `.env` asks + external_
+│   │                      #   directory `*→ask`, all spike-verified
+│   │                      #   v2.0.11, which CONTRADICTS the docs' claimed
+│   │                      #   external default), so usePermissionsPanel
+│   │                      #   self-heals it to disk. Also hosts
+│   │                      #   permissionActionLabelKey (action → i18n
+│   │                      #   phrase, shared by PermissionCard and the
+│   │                      #   picker's approved-access rows) and
+│   │                      #   sortSavedPermissions. KNOWN EDGE: strict's
+│   │                      #   `edit *→ask` overrides the plan agent's
+│   │                      #   built-in edit deny (built-in agent add-ons
+│   │                      #   load BEFORE project rules) — plan flips to
+│   │                      #   "ask the user", matching strict's intent.
+│   ├── projectPermissions.ts # The permission mode's PROJECT-CONFIG half
+│   │                      #   (pure planning + api-bound runner, node-
+│   │                      #   tested with a fake fs): locate the
+│   │                      #   directory's opencode document (existing
+│   │                      #   opencode.json / .jsonc / .opencode/…
+│   │                      #   wins; a fresh directory gets
+│   │                      #   `.opencode/opencode.json`), read it back to
+│   │                      #   a mode, and the LOCKED read→merge→write
+│   │                      #   that switches modes (serializeConfigWrite;
+│   │                      #   unrelated fields preserved verbatim).
+│   │                      #   JSONC documents are read-only to us
+│   │                      #   (machine rewrites would kill comments —
+│   │                      #   the pluginsMcp refusal pattern; write
+│   │                      #   refuses with reason "jsonc"). fs/read's
+│   │                      #   500-missing-directory quirk reads as
+│   │                      #   absent here (fresh workspaces). Feeds
+│   │                      #   hooks/usePermissionsPanel.
 │   ├── planWorkflow.ts    # The plan workflow's transcript derivations —
 │   │                      #   the FRONTEND MIRROR of the plugin's
 │   │                      #   planStateFromEntries fold, split from
@@ -2288,7 +2330,7 @@ src/
 │   │                      #   sanitizes via sanitizeCustomBindings,
 │   │                      #   setShortcutBinding refuses non-bindable
 │   │                      #   chords (the last line of defense).
-│   └── useComposerFocus.ts # Cross-surface composer FOCUS requests (the
+│   ├── useComposerFocus.ts # Cross-surface composer FOCUS requests (the
 │                          #   useStatsPanelMode drill-request pattern):
 │                          #   requestComposerFocus() bumps a token that
 │                          #   the ONE mounted ChatInput (session or
@@ -2299,6 +2341,30 @@ src/
 │                          #   mount when the token is already > 0, so a
 │                          #   request that fires during a surface swap is
 │                          #   honored by the successor).
+│   └── usePermissionsPanel.ts # The merged Mode menu's PERMISSION state
+│                          #   half (its consumer: ComposerToolbar's
+│                          #   ComposerSettingsControls at the BUTTON
+│                          #   level — the label shows the active rung
+│                          #   while executing; the menu body renders
+│                          #   it): what the directory's config expresses
+│                          #   (projectPermissions.ts) plus the
+│                          #   directory's SAVED APPROVALS
+│                          #   (api.listSavedPermissions, filtered by
+│                          #   projectIdForDirectory; optimistic revoke,
+│                          #   404-tolerant). Also exports
+│                          #   usePermissionDirectory — WHICH directory
+│                          #   the ladder targets (DEV: staged/current
+│                          #   project; DAILY: the workspace ROOT via
+│                          #   resolveDefaultWorkspace, null on failure).
+│                          #   THE VIRTUAL-STRICT SELF-HEAL: a read that
+│                          #   comes back strict is best-effort WRITTEN
+│                          #   to disk once per app run per directory
+│                          #   (idempotent — see permissionModes for why
+│                          #   "no rules" is permissive and the display
+│                          #   must never lie). Refresh:
+│                          #   permission.replied / config.updated events,
+│                          #   debounced; api identity + directory are the
+│                          #   effect deps.
 │
 └── components/
     ├── TitleBar.tsx       # Drag region + chrome buttons (window controls in
@@ -3391,7 +3457,18 @@ src/
         │                  #   send disabled. The settings controls and
         │                  #   selectors live in EXPORTED components
         │                  #   (same file): ComposerSettingsControls
-        │                  #   (mode picker + pre-session directory/
+        │                  #   (THE MERGED MODE MENU — the button's icon +
+        │                  #   label mirror the selection: 计划模式's
+        │                  #   clipboard on plan sessions, the active
+        │                  #   PERMISSION RUNG's shield + name while
+        │                  #   executing — the rung IS the mode you
+        │                  #   execute under;
+        │                  #   the menu body is PermissionMenu: the only
+        │                  #   agent row is 计划模式, the executive agents
+        │                  #   (build / lumina-daily) are NOT listed —
+        │                  #   picking any permission rung switches back
+        │                  #   to the executive agent alongside the config
+        │                  #   write — plus the pre-session directory/
         │                  #   branch pickers) and ComposerSelectors
         │                  #   (usage ring + model + thinking depth with
         │                  #   ALL the catalog wiring: provider groups,
@@ -3480,6 +3557,41 @@ src/
                           #   staged branch (useSessionFlow's
                           #   changeDirectory — the one place the siblings
                           #   meet).
+        ├── PermissionMenu.tsx # THE MERGED MODE MENU's BODY (the whole
+                          #   panel content of ComposerSettingsControls's
+                          #   agent picker): the「模式」label (ROOT view
+                          #   only — the approved-access subview replaces
+                          #   ALL the chrome with its back row + list),
+                          #   the single 计划模式 row, the three-rung
+                          #   ladder (任何变更前需确认 / 有风险时需确认 /
+                          #   完全访问 — permissionModes fingerprint rules
+                          #   written into the directory's own opencode
+                          #   config; the server hot-reloads and enforces;
+                          #   each rung wears a NEUTRAL shield icon —
+                          # strict=? / balanced=✓ / full=! (no status
+                          # colors: a green check would endorse the risky
+                          # full rung); the selected CHECK sits at
+                          #   the row's RIGHT edge, icons inline with the
+                          #   titles, descriptions indented to the title
+                          #   text — the shared MenuOptionRow shape), and
+                          #   the APPROVED-ACCESS SUBVIEW — the menu's
+                          #   second level (a push view with a back row;
+                          #   closing the menu unmounts and resets it):
+                          #   every "always allow" ever granted to the
+                          #   project, each revocable with one click. RUNG
+                          #   PICKS ARE ALSO THE EXIT FROM 计划模式: while
+                          #   the session sits on plan, choosing a rung
+                          #   switches the agent back to the executive one
+                          #   (pickableAgents's head — build /
+                          #   lumina-daily) alongside the config write.
+                          #   Presentation only — the PANEL STATE lives at
+                          #   the button level (ComposerSettingsControls
+                          #   hosts usePermissionsPanel via
+                          #   usePermissionDirectory, so the button label
+                          #   shows the active rung while executing; also
+                          #   exports MODE_LABEL_KEY for that label). No
+                          #   target (panel.available false) renders the
+                          #   plan row alone.
 
     └── settings/           # The settings PAGE (the sidebar's bottom-left
                            #   gear; layout follows lumina-terminal's

@@ -31,3 +31,4 @@ dist-mobile/
 
 # lumina-code-server compose bind mount (docker-compose.yml ./data:/data)
 /data/
+/.opencode

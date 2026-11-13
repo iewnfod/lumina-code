@@ -19,6 +19,7 @@ import type {
     McpServerInfo,
     PermissionDecision,
     PermissionRequest,
+    SavedPermission,
     SessionInboxItem,
     SessionModelRef,
     SessionStatsInfo,
@@ -770,6 +771,29 @@ export class OpencodeApi {
     cancelForm(sessionId: string, formId: string): Promise<void> {
         return this.request<void>(
             `/api/session/${encodeURIComponent(sessionId)}/form/${encodeURIComponent(formId)}`,
+            {method: "DELETE"},
+        );
+    }
+
+    /** Saved permissions — the durable project-scoped allow rules the user
+     * created via "always allow" (spike-verified against server v2.0.11).
+     * QUIRK: the query param's shape decides the scope — NO param returns
+     * only the SERVER'S OWN location's project (useless here), `?projectID=`
+     * EMPTY returns EVERY project's rules, and a real id filters to it. We
+     * therefore always send the param: omitting `projectID` deliberately
+     * requests the full list (the caller filters client-side via the
+     * `projectID` field, which every entry carries). */
+    listSavedPermissions(projectID?: string): Promise<SavedPermission[]> {
+        return this.request<SavedPermission[]>(
+            `/api/permission/saved?projectID=${encodeURIComponent(projectID ?? "")}`,
+        );
+    }
+
+    /** Revoke one saved permission (no PATCH on this server generation —
+     * delete + re-approve is the only edit path). 204 on success. */
+    removeSavedPermission(id: string): Promise<void> {
+        return this.request<void>(
+            `/api/permission/saved/${encodeURIComponent(id)}`,
             {method: "DELETE"},
         );
     }
