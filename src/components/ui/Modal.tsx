@@ -96,7 +96,7 @@ export default function Modal({
                 >
                     <div
                         {...bind}
-                        className={`flex flex-col overflow-hidden max-h-full ${mobile ? "w-full h-full" : "rounded-[var(--radius-lg)]"} ${closing ? "lum-pop-exit" : "lum-pop"}`}
+                        className={`flex flex-col overflow-hidden max-h-full max-w-full ${mobile ? "w-full h-full" : "rounded-[var(--radius-lg)]"} ${closing ? "lum-pop-exit" : "lum-pop"}`}
                         style={{
                             width: mobile ? "100%" : width,
                             ...(mobile ? {height: "100%"} : null),

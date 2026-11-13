@@ -3734,23 +3734,81 @@ src/
     │                      #   (split out of ModelSettings.tsx): Field (the
     │                      #   labeled form row), AccentBadge (the ONE accent
     │                      #   status badge — four hand-rolled copies' text
-    │                      #   colors had already drifted), useModelsList
-    │                      #   (the cancel-safe listModels effect ToolsTab and
-    │                      #   ProviderDetail both ran).
-    ├── ToolsTab.tsx      # The Model pane's THIRD tab — Lumina Code's custom
+    │                      #   colors had already drifted), ModelBadge (the
+    │                      #   model row's neutral pill — context "1M" /
+    │                      #   「视觉」), ProviderAvatar (colored initial for
+    │                      #   official providers, the cube for custom
+    │                      #   ones), useModelsList (the cancel-safe
+    │                      #   listModels effect ToolsTab and ProviderDetail
+    │                      #   both ran).
+    ├── ToolsTab.tsx      # The Model pane's Tools view (the nav rail's
+    │                      #   bottom entry, formerly the THIRD tab) —
+    │                      #   Lumina Code's custom
     │                      #   tools (src/plugins/luminaTools.js): the vision
     │                      #   tool's model picker + on/off switch, saved
-    │                      #   through the shared installer. Split from
+    │                      #   through the shared installer; the picker's
+    │                      #   options are vision-capable models of
+    │                      #   CONNECTED providers (/api/model already
+    │                      #   scopes to active ones) that are not hidden
+    │                      #   from the composer's picker
+    │                      #   (useDisabledModels). Split from
     │                      #   ModelSettings.tsx.
-    ├── ProviderDetail.tsx # One provider's auth surface (split from
-    │                      #   ModelSettings.tsx): stored credentials
-    │                      #   (activate/remove), the API-key form, OAuth
-    │                      #   buttons + the device-code status block, the
-    │                      #   env hint, per-model picker-visibility toggles.
-    ├── CustomProviderForm.tsx # The custom provider add/edit form (split from
-    │                      #   ModelSettings.tsx); validation + config-text
-    │                      #   building live in modelConfig.ts
-    │                      #   (validateCustomProvider / customProviderText).
+    ├── ProviderDetail.tsx # One OFFICIAL provider's detail page (the
+    │                      #   provider-nav redesign): header (avatar +
+    │                      #   name + the Connected badge (env ones hint
+    │                      #   their origin) + the provider-level
+    │                      #   DISABLE switch — a CLIENT-side equivalent
+    │                      #   (the server has no provider-disable API:
+    │                      #   credentials present = active): OFF
+    │                      #   SNAPSHOTS which of the provider's models
+    │                      #   were already hidden (the
+    │                      #   "lumina-code:disabled-providers" store),
+    │                      #   hides them all, LOCKS the model rows and
+    │                      #   bulk toggles below (an effect sweeps in
+    │                      #   models that appear later); ON restores
+    │                      #   the snapshot, so per-model choices
+    │                      #   survive the round trip — deliberately
+    │                      #   distinct from the bulk「全部禁用」+ the
+    │                      #   ⋯ menu (align end) whose
+    │                      #   danger「断开连接」 drops every stored
+    │                      #   credential — deliberately NOT a switch:
+    │                      #   off is a one-way deletion that removes
+    │                      #   the provider from the rail too; the
+    │                      #   custom providers' delete menu is the
+    │                      #   same shape), the
+    │                      #   ONE connect block (unconnected: the single
+    │                      #   password field with the show/hide eye —
+    │                      #   Enter or BLUR submits, no button, per the
+    │                      #   design mock; connected: the stored
+    │                      #   credential rows with activate/remove), the
+    │                      #   OAuth buttons + device-code status block
+    │                      #   (buttons only while unconnected), the env
+    │                      #   hint, and the
+    │                      #   model-list CARD (rows: name + the context
+    │                      #   ("1M") /「视觉」badges — formatContextLimit
+    │                      #   / modelSupportsImage — a copy-reference
+    │                      #   button and the picker-visibility switch).
+    ├── AddProviderModal.tsx # The「+ 添加供应商」picker: the FULL
+    │                      #   integration catalog (~226, searchable —
+    │                      #   filterIntegrations) the left rail
+    │                      #   deliberately omits; picking an integration
+    │                      #   selects it in the pane, the custom entry
+    │                      #   hands the shell a blank custom draft.
+    ├── CustomProviderDetail.tsx # One CUSTOM provider's detail page
+    │                      #   (replaced the old CustomProviderForm):
+    │                      #   header (cube avatar + the ⋯ delete menu),
+    │                      #   inline fields (display name, Base URL,
+    │                      #   the API-format picker — API_FORMATS,
+    │                      #   openai-compatible vs anthropic vs
+    │                      #   custom npm — the API key with show/hide,
+    │                      #   stored as options.apiKey in PLAINTEXT,
+    │                      #   warned inline) and the model-list card
+    │                      #   with per-row INLINE editing (pencil),
+    │                      #   remove (bin) and badges from the
+    │                      #   server's loaded view of the same model;
+    │                      #   validation + config-text building live in
+    │                      #   modelConfig.ts (validateCustomProvider /
+    │                      #   customProviderText).
     ├── SystemPromptSection.tsx # The General pane's custom system prompt
     │                      #   editor (split from GeneralSettings.tsx — a
     │                      #   server-config editor among instant-apply
@@ -3764,32 +3822,33 @@ src/
     ├── SectionHeader.tsx  # The one settings section-header look (General's
     │                      #   Typography group + About's Dependencies —
     │                      #   two identical inline copies before).
-    ├── ModelSettings.tsx # Formerly composer/ModelConfigModal: searchable
-    │                      #   SLIMMED in the structure refactor: ToolsTab /
-    │                      #   ProviderDetail / CustomProviderForm are files
-    │                      #   now (this directory), the OAuth state machine
-    │                      #   is hooks/useIntegrationOAuth, shared chrome in
-    │                      #   modelSettingsChrome.tsx — this file is the pane
-    │                      #   shell (tabs, providers list, custom list).
-    │                      #   integration list, API-key connect, browser-OAuth
-    │                      #   flow with attempt polling, credential
-    │                      #   activate/remove, per-provider model switches
-    │                      #   (picker visibility via useDisabledModels);
-    │                      #   custom OpenAI-compatible providers written to
-    │                      #   the global opencode.json (server hot-reloads →
-    │                      #   config.updated event); THIRD tab Tools — the
-    │                      #   custom-tools surface (ToolsTab): configures
-    │                      #   Lumina Code's plugin tools, currently the
-    │                      #   vision model (picker over image-capable
-    │                      #   catalog models + Off), saving through the
-    │                      #   shared installer
-    │                      #   (opencode/useLuminaTools.ts; plan_mode needs
-    │                      #   no configuration — always-on). The OAuth
-    │                      #   PENDING block renders the attempt's
-    │                      #   `instructions` — device-code flows (xAI/Grok
-    │                      #   SuperGrok, GitHub Copilot, OpenAI Codex)
-    │                      #   embed the verification code the browser asks
-    │                      #   the user to compare/enter, so
+    ├── ModelSettings.tsx # The Model pane, redesigned as a provider NAV
+    │                      #   + detail split (the design mock): the left
+    │                      #   rail lists only CONFIGURED providers —
+    │                      #   connected official integrations under
+    │                      #   「供应商」, opencode.json entries under
+    │                      #   「自定义供应商」, the Tools entry at the
+    │                      #   bottom — while the full catalog moved into
+    │                      #   AddProviderModal; the right pane is the
+    │                      #   selected provider's detail (ProviderDetail
+    │                      #   / CustomProviderDetail / ToolsTab). The
+    │                      #   shell owns the data loads (integrations +
+    │                      #   global config), the shared action state
+    │                      #   (busy / actionError), the custom-provider
+    │                      #   config writes and the default selection
+    │                      #   (first connected provider). PHONE layout:
+    │                      #   the rail becomes the page and a selection
+    │                      #   PUSHES the detail as a sliding page
+    │                      #   (.lum-m-page-in, SettingsPage's pattern;
+    │                      #   useBackLevel pops it). The OAuth state
+    │                      #   machine is hooks/useIntegrationOAuth,
+    │                      #   shared chrome in modelSettingsChrome.tsx.
+    │                      #   The OAuth PENDING block renders the
+    │                      #   attempt's `instructions` — device-code
+    │                      #   flows (xAI/Grok SuperGrok, GitHub
+    │                      #   Copilot, OpenAI Codex) embed the
+    │                      #   verification code the browser asks the
+    │                      #   user to compare/enter, so
     │                      #   modelConfig.ts's parseOAuthInstructions
     │                      #   (pure) splits it out for a prominent mono
     │                      #   display + copy; code-less instructions

@@ -6,6 +6,7 @@ import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
+import {disabledModelKey, useDisabledModels} from "../../hooks/useDisabledModels.ts";
 import {
     luminaToolsPluginPath,
     readLuminaToolsOptions,
@@ -46,7 +47,18 @@ export default function ToolsTab({
     const colors = useColors();
     const t = useI18n();
     const [busy, setBusy] = useState(false);
-    const {models, modelsFailed} = useModelsList(api, visionCapableModels);
+    // The picker's visibility filter: /api/model already lists only
+    // CONNECTED providers' models, and rows hidden from the composer's
+    // picker (useDisabledModels) are not offered here either — the
+    // vision model is picked from what the user can actually select.
+    const disabledModels = useDisabledModels();
+    const {models: visionModels, modelsFailed} = useModelsList(api, visionCapableModels);
+    const models = useMemo(
+        () =>
+            visionModels?.filter((m) => !disabledModels.has(disabledModelKey(m.providerID, m.modelID))) ??
+            null,
+        [visionModels, disabledModels],
+    );
 
     const pluginPath = target ? luminaToolsPluginPath(target.directory) : "";
     const currentOptions = useMemo(

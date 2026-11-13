@@ -2,13 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type {IntegrationInfo, OpencodeConfigEntry, OpencodeModel} from "../../opencode/types.ts";
 import {
+    apiFormatId,
     customProviderDefs,
     customProviderText,
     filterIntegrations,
+    formatContextLimit,
     freshConfigWithProvider,
     globalConfigTarget,
     mergeCustomProvider,
+    modelSupportsImage,
     parseOAuthInstructions,
+    providerAvatarColor,
     providerModels,
     removeCustomProvider,
     validateCustomProvider,
@@ -244,4 +248,53 @@ test("customProviderText builds fresh on absent config, merges otherwise", () =>
     assert.notEqual(merged, null);
     // JSONC text (comments) is never rewritten — the merge refuses.
     assert.equal(customProviderText("{\"a\": 1} // c", def), mergeCustomProvider("{\"a\": 1} // c", def));
+});
+
+test("apiKey round-trips through options.apiKey", () => {
+    const withKey = mergeCustomProvider("{}", {...def, apiKey: "sk-secret"})!;
+    const parsed = JSON.parse(withKey) as Record<string, any>;
+    assert.equal(parsed.provider["my-custom"].options.apiKey, "sk-secret");
+    // Read-back picks the key up; a missing key leaves the field absent.
+    assert.equal(customProviderDefs(withKey)[0].apiKey, "sk-secret");
+    const withoutKey = mergeCustomProvider("{}", def)!;
+    assert.equal("apiKey" in customProviderDefs(withoutKey)[0], false);
+});
+
+test("apiFormatId classifies the known packages, flags anything else custom", () => {
+    assert.equal(apiFormatId("@ai-sdk/openai-compatible"), "openai");
+    assert.equal(apiFormatId("@ai-sdk/anthropic"), "anthropic");
+    assert.equal(apiFormatId("@ai-sdk/google"), "custom");
+    assert.equal(apiFormatId(""), "custom");
+});
+
+test("formatContextLimit badges common context windows", () => {
+    assert.equal(formatContextLimit(1_000_000), "1M");
+    assert.equal(formatContextLimit(1_048_576), "1M");
+    assert.equal(formatContextLimit(1_500_000), "1.5M");
+    assert.equal(formatContextLimit(2_000_000), "2M");
+    assert.equal(formatContextLimit(128_000), "128K");
+    assert.equal(formatContextLimit(200_000), "200K");
+    assert.equal(formatContextLimit(32_000), "32K");
+    // No badge for unknown/absent/degenerate values.
+    assert.equal(formatContextLimit(undefined), null);
+    assert.equal(formatContextLimit(null), null);
+    assert.equal(formatContextLimit(0), null);
+    assert.equal(formatContextLimit(Number.NaN), null);
+    assert.equal(formatContextLimit(-5), null);
+});
+
+test("providerAvatarColor is stable per id and theme-tuned", () => {
+    const light = providerAvatarColor("bigmodel", false);
+    const dark = providerAvatarColor("bigmodel", true);
+    assert.match(light, /^hsl\(\d+ 58% 48%\)$/);
+    assert.match(dark, /^hsl\(\d+ 38% 36%\)$/);
+    assert.equal(providerAvatarColor("bigmodel", false), light);
+    assert.notEqual(dark, light);
+});
+
+test("modelSupportsImage matches the image-input capability rule", () => {
+    assert.equal(modelSupportsImage({capabilities: {input: ["text", "image"]}}), true);
+    assert.equal(modelSupportsImage({capabilities: {input: ["text"]}}), false);
+    assert.equal(modelSupportsImage({}), false);
+    assert.equal(modelSupportsImage({capabilities: {}}), false);
 });

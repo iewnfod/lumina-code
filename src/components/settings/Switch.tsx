@@ -9,13 +9,14 @@ import {Switch as HeroUISwitch} from "@heroui/react";
  * old local signature ({checked, label, onChange}) so every pane
  * consumes it unchanged; no text label inside — aria-label only.
  */
-export default function Switch({checked, label, onChange}: {
+export default function Switch({checked, label, disabled = false, onChange}: {
     checked: boolean;
     label: string;
+    disabled?: boolean;
     onChange: (checked: boolean) => void;
 }) {
     return (
-        <HeroUISwitch isSelected={checked} aria-label={label} onChange={onChange}>
+        <HeroUISwitch isSelected={checked} isDisabled={disabled} aria-label={label} onChange={onChange}>
             <HeroUISwitch.Content>
                 <HeroUISwitch.Control>
                     <HeroUISwitch.Thumb/>

@@ -56,9 +56,10 @@ export const titleRoll: Variants = {
 /**
  * Hover/tap micro-interactions for an interactive element. Apply to a
  * `motion.button`/`motion.div` via `whileHover`/`whileTap` — no variants
- * wrapper needed.
+ * wrapper needed. Deliberately SUBTLE (±1.5%): the hover wash/tint is
+ * the primary affordance, the scale is just a whisper of life.
  */
 export const whileHoverTap = {
-    whileHover: {scale: 1.03, transition: springSnappy},
-    whileTap: {scale: 0.97, transition: springSnappy},
+    whileHover: {scale: 1.015, transition: springSnappy},
+    whileTap: {scale: 0.985, transition: springSnappy},
 };

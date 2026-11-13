@@ -1,4 +1,4 @@
-import type {CSSProperties, KeyboardEvent} from "react";
+import type {CSSProperties, FocusEvent, KeyboardEvent} from "react";
 import {useColors} from "../../hooks/colors.tsx";
 
 /**
@@ -18,6 +18,7 @@ export default function TextInput({
     id,
     onChange,
     onKeyDown,
+    onBlur,
 }: {
     value: string;
     placeholder?: string;
@@ -32,6 +33,7 @@ export default function TextInput({
     id?: string;
     onChange: (text: string) => void;
     onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
+    onBlur?: (e: FocusEvent<HTMLInputElement>) => void;
 }) {
     const colors = useColors();
     return (
@@ -45,6 +47,7 @@ export default function TextInput({
             id={id}
             onChange={(e) => onChange(e.currentTarget.value)}
             onKeyDown={onKeyDown}
+            onBlur={onBlur}
             className={`h-9 w-full px-3 rounded-[var(--radius-sm)] text-sm outline-none placeholder:opacity-40 focus:ring-1 focus:ring-[var(--lum-input-ring)] disabled:opacity-50 disabled:cursor-not-allowed ${mono ? "font-mono" : ""}`}
             style={{
                 background: colors.recessedBg,

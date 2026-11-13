@@ -1,13 +1,16 @@
 import {useEffect, useState, type ReactNode} from "react";
+import {Box} from "lucide-react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
 import type {OpencodeApi} from "../../opencode/api.ts";
 import type {OpencodeModel} from "../../opencode/types.ts";
+import {providerAvatarColor} from "./modelConfig.ts";
 
 /**
  * Shared chrome for the Model pane's sub-views (ToolsTab /
- * ProviderDetail / CustomProviderForm / the pane shell): the labeled
- * form field, the accent status badge, and the listModels loading hook.
+ * ProviderDetail / CustomProviderDetail / the pane shell): the labeled
+ * form field, the accent status badge, the provider avatar, the model
+ * row's neutral badge, and the listModels loading hook.
  * Extracted from ModelSettings.tsx when the pane split into files.
  */
 
@@ -37,6 +40,88 @@ export function AccentBadge({label}: {label: string}) {
             }}
         >
             {label}
+        </span>
+    );
+}
+
+/** The neutral pill badge a model row carries beside its name (the
+ * context-limit "1M" / the「视觉」capability) — the same look the
+ * composer's model picker badges vision models with. */
+export function ModelBadge({label}: {label: string}) {
+    const colors = useColors();
+    return (
+        <span
+            className="shrink-0 rounded-full px-1.5 py-1 text-2xs leading-none"
+            style={{background: colors.activeOverlay, color: colors.inactiveText}}
+        >
+            {label}
+        </span>
+    );
+}
+
+/** A quiet inline text action (the model lists'「全部开启/全部禁用」)
+ * — the labeled button's 2xs sibling for header rows where a full
+ * Button would outweigh the title it sits beside. */
+export function TextAction({label, onClick, disabled}: {label: string; onClick: () => void; disabled?: boolean}) {
+    const colors = useColors();
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            disabled={disabled}
+            className="shrink-0 h-6 px-1.5 rounded-[var(--radius-xs)] text-2xs leading-none cursor-pointer transition-colors duration-[var(--duration-fast)] hover:bg-[var(--lum-text-action-hover)] disabled:opacity-40 disabled:cursor-not-allowed"
+            style={
+                {
+                    color: colors.inactiveText,
+                    "--lum-text-action-hover": colors.hoverOverlay,
+                } as React.CSSProperties
+            }
+        >
+            {label}
+        </button>
+    );
+}
+
+/** A provider's identity mark. Official integrations get a colored
+ * initial (hue hashed from the id, stable across renders); custom
+ * providers get the wireframe cube the design calls for. `size` is the
+ * box's pixel edge (nav rows 24, detail headers 36). */
+export function ProviderAvatar({name, providerId, custom, size = 24}: {
+    name: string;
+    providerId: string;
+    /** Custom providers render the cube glyph on a neutral chip. */
+    custom?: boolean;
+    size?: number;
+}) {
+    const colors = useColors();
+    if (custom) {
+        return (
+            <span
+                className="inline-flex items-center justify-center shrink-0 rounded-[var(--radius-sm)]"
+                style={{
+                    width: size,
+                    height: size,
+                    background: colors.activeOverlay,
+                    color: colors.inactiveText,
+                }}
+            >
+                <Box size={Math.round(size * 0.6)}/>
+            </span>
+        );
+    }
+    const initial = (name.trim()[0] ?? "?").toUpperCase();
+    return (
+        <span
+            aria-hidden
+            className="inline-flex items-center justify-center shrink-0 rounded-[var(--radius-sm)] font-semibold text-white select-none"
+            style={{
+                width: size,
+                height: size,
+                background: providerAvatarColor(providerId, colors.dark),
+                fontSize: Math.max(10, Math.round(size * 0.45)),
+            }}
+        >
+            {initial}
         </span>
     );
 }

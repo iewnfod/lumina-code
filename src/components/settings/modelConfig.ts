@@ -28,9 +28,13 @@ export interface CustomProviderDef {
     id: string;
     /** Display name in the model picker. */
     name: string;
-    /** AI SDK package — `@ai-sdk/openai-compatible` unless overridden. */
+    /** AI SDK package — one of API_FORMATS' npm values (see apiFormatId). */
     npm: string;
     baseURL: string;
+    /** Stored as `options.apiKey` — PLAINTEXT in the config file (custom
+     * providers have no server-side credential store; the detail form
+     * warns about this). Undefined = not set. */
+    apiKey?: string;
     models: CustomProviderModelDef[];
 }
 
@@ -82,6 +86,9 @@ export function customProviderDefs(raw: string): CustomProviderDef[] {
             name: typeof e["name"] === "string" ? e["name"] : id,
             npm: e["npm"] as string,
             baseURL: typeof options["baseURL"] === "string" ? options["baseURL"] : "",
+            ...(typeof options["apiKey"] === "string" && options["apiKey"] !== ""
+                ? {apiKey: options["apiKey"] as string}
+                : {}),
             models,
         });
     }
@@ -95,7 +102,10 @@ function providerEntry(def: CustomProviderDef): Record<string, unknown> {
     return {
         npm: def.npm,
         ...(def.name ? {name: def.name} : {}),
-        options: {baseURL: def.baseURL},
+        options: {
+            baseURL: def.baseURL,
+            ...(def.apiKey ? {apiKey: def.apiKey} : {}),
+        },
         ...(Object.keys(models).length > 0 ? {models} : {}),
     };
 }
@@ -224,4 +234,60 @@ export function validateCustomProvider(def: CustomProviderDef): CustomProviderIn
  * current text is JSONC (comments) the merge must not touch. */
 export function customProviderText(rawConfig: string, def: CustomProviderDef): string | null {
     return rawConfig === "" ? freshConfigWithProvider(def) : mergeCustomProvider(rawConfig, def);
+}
+
+// --- The provider-nav redesign's pure helpers (all node-tested) ---
+
+/** The API formats the custom-provider form offers: a stable picker id
+ * plus the npm package each writes into the config. Any OTHER npm value
+ * (hand-written in the config) maps to "custom" — the picker shows it as
+ * a read-only extra option instead of silently rewriting it. */
+export interface ApiFormatOption {
+    id: "openai" | "anthropic";
+    npm: string;
+}
+
+export const API_FORMATS: readonly ApiFormatOption[] = [
+    {id: "openai", npm: "@ai-sdk/openai-compatible"},
+    {id: "anthropic", npm: "@ai-sdk/anthropic"},
+];
+
+/** Classify a def's npm package for the API-format picker. */
+export function apiFormatId(npm: string): "openai" | "anthropic" | "custom" {
+    for (const format of API_FORMATS) {
+        if (format.npm === npm) return format.id;
+    }
+    return "custom";
+}
+
+/** The context-limit badge text ("1M", "1.5M", "128K") for a model row;
+ * null = no badge (unknown/absent limit). */
+export function formatContextLimit(tokens: number | undefined | null): string | null {
+    if (tokens == null || !Number.isFinite(tokens) || tokens <= 0) return null;
+    if (tokens >= 1_000_000) {
+        const millions = tokens / 1_000_000;
+        const text = Number.isInteger(millions) ? String(millions) : String(Number(millions.toFixed(1)));
+        return `${text}M`;
+    }
+    if (tokens >= 1000) return `${Math.round(tokens / 1000)}K`;
+    return String(Math.round(tokens));
+}
+
+/** Deterministic avatar background for an official provider: a hue
+ * hashed from the provider id (stable across renders/sessions), tuned
+ * per theme so white initials stay readable on it. */
+export function providerAvatarColor(id: string, dark: boolean): string {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+        hash = (hash * 31 + id.charCodeAt(i)) % 100_000;
+    }
+    const hue = hash % 360;
+    return dark ? `hsl(${hue} 38% 36%)` : `hsl(${hue} 58% 48%)`;
+}
+
+/** Whether a model row earns the「视觉」badge — image input capability
+ * (the same rule visionCapableModels filters lists by, verified against
+ * server v2.0.11: `capabilities.input: ["text", "image", …]`). */
+export function modelSupportsImage(m: {capabilities?: {input?: string[]}}): boolean {
+    return (m.capabilities?.input ?? []).includes("image");
 }
