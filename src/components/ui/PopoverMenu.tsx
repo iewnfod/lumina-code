@@ -33,6 +33,7 @@ export default function PopoverMenu({
     panelClassName = "",
     disabled = false,
     portal = false,
+    bodyScroll = true,
 }: {
     /** Renders the visible trigger; `toggle` opens/closes the panel. */
     trigger: (props: {open: boolean; toggle: () => void}) => ReactNode;
@@ -54,6 +55,14 @@ export default function PopoverMenu({
     direction?: "up" | "down";
     panelClassName?: string;
     disabled?: boolean;
+    /** Render the panel body as ONE scrolling list (the default — every
+     * ordinary menu) or hand the layout to the children (`false`): the
+     * caller renders its own columns/scroll areas directly under the
+     * panel (which keeps its max-height + surface chrome). For panels
+     * where one column scrolls and a sibling column must stay pinned,
+     * like the merged model picker's model list beside the depth
+     * slider. */
+    bodyScroll?: boolean;
     /** Render the panel through a portal under <body> with FIXED
      *  placement, for triggers inside a scrolling container (the
      *  transcript): an in-root absolute panel would be clipped by the
@@ -241,14 +250,20 @@ export default function PopoverMenu({
                                       : panelStyle
                             }
                         >
-                            {/* The whole panel body scrolls as one list. */}
-                            <div
-                                ref={edges.ref}
-                                onScroll={edges.onScroll}
-                                className={`min-h-0 overflow-y-auto lum-fade-md${fadeClasses(edges)}`}
-                            >
-                                {children(() => setOpen(false))}
-                            </div>
+                            {/* The whole panel body scrolls as one list —
+                                unless the caller opted out (bodyScroll
+                                false) to own the layout. */}
+                            {bodyScroll ? (
+                                <div
+                                    ref={edges.ref}
+                                    onScroll={edges.onScroll}
+                                    className={`min-h-0 overflow-y-auto lum-fade-md${fadeClasses(edges)}`}
+                                >
+                                    {children(() => setOpen(false))}
+                                </div>
+                            ) : (
+                                children(() => setOpen(false))
+                            )}
                         </div>
                     );
                     // Portal keeps the React tree under this root (bind and

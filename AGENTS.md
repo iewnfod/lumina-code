@@ -2643,7 +2643,12 @@ src/
     │                      #   transcript's run-footer usage card) —
     │                      #   measured at open, following the trigger
     │                      #   on resize/scroll, above the drawer scrim
-    │                      #   and under modals. Also exports the
+    │                      #   and under modals. bodyScroll={false}
+    │                      #   opts out of the single scrolling list: the
+    │                      #   panel keeps its surface/max-height chrome
+    │                      #   while the CALLER owns the body layout
+    │                      #   (the model picker's two-column menu).
+    │                      #   Also exports the
     │                      #   details-card primitives MenuRow (static
     │                      #   label/value row) and MenuDivider, shared
     │                      #   by UsageRing and RunFooter's cards.
@@ -3448,8 +3453,9 @@ src/
         │                  #   revert failed); Esc with no popup open
         │                  #   cancels an active edit.
         ├── ComposerToolbar.tsx # Bottom toolbar: attach/mode/project on the
-        │                  #   left; usage ring, model, thinking depth on
-        │                  #   the right. The send/stop slot is CONTENT-
+        │                  #   left; usage ring, the merged model picker
+        │                  #   (model list + the current model's thinking
+        │                  #   depth) and send/stop on the right. The send/stop slot is CONTENT-
         │                  #   DRIVEN: text ready → send (mid-run it
         │                  #   QUEUES — opencode/promptQueue.ts — instead
         │                  #   of steering the run, and the title says so),
@@ -3470,12 +3476,19 @@ src/
         │                  #   to the executive agent alongside the config
         │                  #   write — plus the pre-session directory/
         │                  #   branch pickers) and ComposerSelectors
-        │                  #   (usage ring + model + thinking depth with
+        │                  #   (usage ring + THE MERGED MODEL OPTION with
         │                  #   ALL the catalog wiring: provider groups,
         │                  #   disabled-model filter, context-limit
         │                  #   resolution, variant-preserving switch, the
-        │                  #   model-config entry raising
-        │                  #   onOpenModelConfig) — because MOBILE's
+        │                  #   empty-state entry raising
+        │                  #   onOpenModelConfig — the panel body is a
+        │                  #   stacked layout (PopoverMenu
+        │                  #   bodyScroll:false): the「视觉」badged model
+        │                  #   list scrolls on top while the DepthSlider
+        │                  #   section stays pinned under it, its ladder
+        │                  #   rebuilt from the CURRENT model's variants;
+        │                  #   the button label carries the active depth
+        │                  #   suffix) — because MOBILE's
         │                  #   welcome screen hosts the whole cluster
         │                  #   BELOW the composer (five labeled controls
         │                  #   cannot fit a phone row) while the
@@ -3489,6 +3502,30 @@ src/
         │                  #   toolbar to attach + send and adds
         │                  #   .lum-toolbar-plain (send keeps its
         │                  #   right-edge spring, main.css).
+        ├── DepthSlider.tsx # The thinking-depth slider — the HORIZONTAL
+        │                  #   gradient capsule pinned under the model
+        │                  #   list inside the merged model picker (a
+        │                  #   vertical twin was tried and set aside):
+        │                  #   LEFT = 关, RIGHT = the model's strongest
+        │                  #   variant (sliding right thinks harder); one
+        │                  #   DISCRETE tick per variant the current model
+        │                  #   offers (the ladder auto-adapts per model),
+        │                  #   neutral pill track (activeOverlay — fences
+        │                  #   the travel range) with FAINT tick marks —
+        │                  #   two clip-path layers over the fill (one
+        │                  #   per stop, no text): a BRIGHT white notch
+        │                  #   where the gradient has passed, the plain
+        │                  #   grey one ahead on the track, both clips
+        │                  #   following the fill — + brand lavender→cinnabar
+        │                  #   fill (left→handle) + elevated white knob
+        │                  #   with a soft drop, fill and knob
+        │                  #   transitioning in lockstep; pointer-capture
+        │                  #   drag snapping to the nearest tick,
+        │                  #   ←/→/Home/End keys on a role="slider"; no
+        │                  #   tick labels — the active level reads out at
+        │                  #   the section title's right edge. Pure
+        │                  #   presentation — ids/labels/i18n arrive from
+        │                  #   ComposerSelectors.
         ├── composerSerialize.ts # The composer's submit serialization — the
         │                  #   editor-state → {text, paths} walk (mention
         │                  #   tokens re-prefixed "@relative"; the

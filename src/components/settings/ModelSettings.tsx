@@ -34,8 +34,8 @@ import {AccentBadge} from "./modelSettingsChrome.tsx";
 
 /**
  * The settings modal's Model pane (formerly the standalone
- * ModelConfigModal; the model picker's "Configure models…" entry now
- * opens the settings modal on this tab): manage provider credentials
+ * ModelConfigModal; the model picker's empty-state entry opens the
+ * settings modal on this tab): manage provider credentials
  * (paste an API key, log in with account providers via browser OAuth,
  * activate/remove stored keys) and define custom OpenCode-compatible
  * providers (written to the global opencode.json, which the server

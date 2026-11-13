@@ -49,7 +49,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Stop": "停止",
     "Mode": "模式",
     "Model": "模型",
-    "Thinking depth": "思考深度",
+    "Thinking depth": "思考强度",
     "Build mode": "构建模式",
     "Daily mode": "日常模式",
     "Off": "关闭",
@@ -233,7 +233,6 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "No": "否",
     // --- Model configuration ---
     "Close": "关闭",
-    "Configure models...": "配置模型...",
     "No models configured": "没有配置任何模型",
     "Model settings": "模型配置",
     "Providers": "供应商",
@@ -342,7 +341,9 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Archived": "已归档",
     // --- Custom tools (Model settings → Tools) ---
     "Tools": "工具",
-    "Vision": "识图",
+    // The model-capability badge in the picker (视觉 per the design);
+    // the vision TOOL's rows below keep their own keys.
+    "Vision": "视觉",
     "Vision model": "识图模型",
     "Plan mode": "计划模式",
     "Adds a vision tool that text-only models can call to see images": "提供识图工具：纯文字模型可以调用它查看图片",

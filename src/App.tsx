@@ -243,7 +243,7 @@ function AppBody({
     useGitProbe(api);
 
     // The settings PAGE (the sidebar's bottom-left gear toggles it, and
-    // the model picker's "Configure models…" deep-links to its Model
+    // the model picker's empty-state entry deep-links to its Model
     // tab): a full-area surface OVER the conversation canvas — the
     // conversation stays mounted underneath, its transcripts and
     // streamed deltas untouched. App owns open + tab so entry points

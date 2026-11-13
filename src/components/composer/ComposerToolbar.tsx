@@ -1,4 +1,4 @@
-import {ArrowUp, Brain, ClipboardList, Cpu, Paperclip, Settings2, Shield, Square} from "lucide-react";
+import {ArrowUp, ClipboardList, Cpu, Paperclip, Shield, SlidersHorizontal, Square} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import {pickableAgents, useAppMode} from "../../opencode/appMode.ts";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
@@ -11,9 +11,11 @@ import type {
 import type {ContextUsage} from "../chat/usageStats.ts";
 import {useI18n, type TranslationKey} from "../../hooks/i18n.tsx";
 import {disabledModelKey, useDisabledModels} from "../../hooks/useDisabledModels.ts";
-import PopoverMenu, {MenuItem, MenuLabel} from "../ui/PopoverMenu.tsx";
+import PopoverMenu, {MenuItem, MenuDivider, MenuLabel} from "../ui/PopoverMenu.tsx";
 import ToolbarButton from "./ToolbarButton.tsx";
 import UsageRing from "../chat/UsageRing.tsx";
+import DepthSlider from "./DepthSlider.tsx";
+import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import DirectoryPicker from "./DirectoryPicker.tsx";
 import BranchPicker from "./BranchPicker.tsx";
 import PermissionMenu, {MODE_LABEL_KEY, modeIcon} from "./PermissionMenu.tsx";
@@ -33,6 +35,12 @@ function depthLabel(variant: string, t: Record<TranslationKey, string>): string 
     return key ? t[key] : variant.charAt(0).toUpperCase() + variant.slice(1);
 }
 
+/** Whether a catalog model accepts image input — the「视觉」badge in
+ *  the picker (same capability source as visionAttachments' divert
+ *  check: capabilities.input carrying "image"). */
+const isVisionModel = (m: OpencodeModel) =>
+    Array.isArray(m.capabilities?.input) && m.capabilities.input.includes("image");
+
 /** Known agent ids get translated labels; foreign agents keep their name. */
 const AGENT_LABELS: Record<string, TranslationKey> = {
     build: "Build mode",
@@ -47,8 +55,9 @@ function agentLabel(id: string, name: string | null | undefined, t: Record<Trans
 
 /**
  * The composer's bottom toolbar: attachments + mode on the left (plus the
- * project picker until the conversation starts); usage ring, model,
- * thinking depth and send/stop on the right. Extracted from ChatInput so
+ * project picker until the conversation starts); usage ring, the MERGED
+ * model picker (model list + the current model's thinking-depth slider —
+ * one option) and send/stop on the right. Extracted from ChatInput so
  * the composer shell reads as layout and this file as picker wiring.
  *
  * The settings controls (mode + project/branch pickers) and the selectors
@@ -339,11 +348,15 @@ export function ComposerSettingsControls({
 
 /**
  * The selectors cluster of the composer toolbar — the session context
- * ring, the model picker and the thinking-depth picker — with all of its
- * catalog wiring: the provider grouping, the disabled-model filter, the
- * context-limit resolution and the variant-preserving model switch all
- * exist only to feed these controls (moved out of ComposerToolbar when
- * the cluster gained a second host).
+ * ring and the model picker — with all of its catalog wiring: the
+ * provider grouping, the disabled-model filter, the context-limit
+ * resolution and the variant-preserving model switch all exist only to
+ * feed these controls (moved out of ComposerToolbar when the cluster
+ * gained a second host). The thinking depth lives INSIDE the model
+ * menu (DepthSlider): one option covers the whole selection, the
+ * slider's ticks rebuild from the CURRENT model's variants, and the
+ * toolbar button's label carries the active depth so merging loses no
+ * visibility (the old dedicated depth button is gone).
  *
  * The second host is MOBILE's welcome screen: rather than crushing into
  * the composer's narrow toolbar there, the cluster renders BELOW the
@@ -385,6 +398,10 @@ export function ComposerSelectors({
     // Picker catalog + server handle from the context split.
     const {api} = useConnection();
     const {models, catalogOnly} = useCatalog();
+    // The model list scrolls ALONE (the panel body is a custom stacked
+    // layout — PopoverMenu bodyScroll false — the list over a pinned
+    // depth section), so its conditional edge fades are ours to bind.
+    const listEdges = useScrollEdges<HTMLDivElement>();
 
     /** The picker's empty-state entry shows when the user has no model
      *  provider of their own — either nothing authenticated at all (empty
@@ -437,6 +454,15 @@ export function ComposerSelectors({
         onModelChange({id: m.modelID, providerID: m.providerID, variant});
     };
 
+    // The merged button carries BOTH facts of the single selection: the
+    // model name plus (when the model offers depths to tune) the active
+    // depth — the old dedicated depth button's at-a-glance visibility
+    // moves into the label, so merging the two controls loses nothing.
+    const depthSuffix =
+        model != null && variants.length > 1 && currentVariant !== undefined
+            ? ` · ${depthLabel(currentVariant, t)}`
+            : "";
+
     return (
         <>
             {/* Session context ring — only once the conversation is real
@@ -451,97 +477,114 @@ export function ComposerSelectors({
             )}
             <PopoverMenu
                 align={align}
-                panelClassName="w-60"
+                panelClassName="w-72"
+                bodyScroll={false}
                 trigger={({open, toggle}) => (
                     <ToolbarButton
                         icon={<Cpu size={14}/>}
-                        label={currentModel?.name ?? model?.id ?? t["Model"]}
+                        label={`${currentModel?.name ?? model?.id ?? t["Model"]}${depthSuffix}`}
                         active={open}
                         onClick={toggle}
                     />
                 )}
             >
                 {(close) => (
-                    <div>
-                        {showEmptyEntry && (
-                            <>
-                                <MenuItem onClick={() => openConfig(close)}>
-                                    <span className="inline-flex items-center gap-1.5">
-                                        <Settings2 size={13} className="shrink-0 opacity-60"/>
-                                        <span>{t["No models configured"]}</span>
-                                    </span>
-                                </MenuItem>
-                                {models.length > 0 && (
-                                    <div className="my-1 border-t" style={{borderColor: colors.glassBorder}}/>
-                                )}
-                            </>
-                        )}
-                        {providerGroups.map(([provider, group]) => (
-                            <div key={provider}>
-                                <MenuLabel>{provider}</MenuLabel>
-                                {group.map((m) => (
-                                    <MenuItem
-                                        key={`${m.providerID}/${m.modelID}`}
-                                        selected={model != null &&
-                                            m.providerID === model.providerID && m.modelID === model.id}
-                                        onClick={() => {
-                                            pickModel(m);
-                                            close();
-                                        }}
-                                    >
-                                        {m.name ?? m.modelID}
+                    /* The panel body is OURS (bodyScroll={false}): the
+                     * scrolling model list on top, the thinking-depth
+                     * section PINNED under it — the slider stays reachable
+                     * under any catalog length. The root's inline
+                     * min-height keeps short lists from collapsing the
+                     * panel; the panel's max-h-72 caps the whole thing
+                     * when the list is long. */
+                    <div className="flex min-h-0 flex-1 flex-col" style={{minHeight: "15rem"}}>
+                        <div
+                            ref={listEdges.ref}
+                            onScroll={listEdges.onScroll}
+                            className={`lum-fade-md min-h-0 flex-1 overflow-y-auto py-0.5${fadeClasses(listEdges)}`}
+                        >
+                            <MenuLabel>{t["Model"]}</MenuLabel>
+                            {showEmptyEntry && (
+                                <>
+                                    <MenuItem onClick={() => openConfig(close)}>
+                                        <span className="inline-flex items-center gap-1.5">
+                                            <SlidersHorizontal size={13} className="shrink-0 opacity-60"/>
+                                            <span>{t["No models configured"]}</span>
+                                        </span>
                                     </MenuItem>
-                                ))}
+                                    {models.length > 0 && (
+                                        <div className="my-1 border-t" style={{borderColor: colors.glassBorder}}/>
+                                    )}
+                                </>
+                            )}
+                            {providerGroups.map(([provider, group]) => (
+                                <div key={provider}>
+                                    <MenuLabel>{provider}</MenuLabel>
+                                    {group.map((m) => (
+                                        <MenuItem
+                                            key={`${m.providerID}/${m.modelID}`}
+                                            selected={model != null &&
+                                                m.providerID === model.providerID && m.modelID === model.id}
+                                            onClick={() => {
+                                                pickModel(m);
+                                                close();
+                                            }}
+                                        >
+                                            <span className="flex min-w-0 items-center gap-1.5">
+                                                <span className="truncate">{m.name ?? m.modelID}</span>
+                                                {isVisionModel(m) && (
+                                                    <span
+                                                        className="shrink-0 rounded-full px-1.5 py-1 text-2xs leading-none"
+                                                        style={{
+                                                            background: colors.activeOverlay,
+                                                            color: colors.inactiveText,
+                                                        }}
+                                                    >
+                                                        {t["Vision"]}
+                                                    </span>
+                                                )}
+                                            </span>
+                                        </MenuItem>
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                        {/* THE MERGED DEPTH CONTROL: the current model's
+                          * thinking depth as the HORIZONTAL gradient
+                          * capsule (DepthSlider) — LEFT = 关, RIGHT = the
+                          * strongest variant; one tick per variant the
+                          * selected model offers, so the ladder adapts per
+                          * model (a variant-less or single-variant model
+                          * hides the section — nothing to tune). Adjusting
+                          * the depth deliberately does NOT close the menu:
+                          * it is one control with the model list now. */}
+                        {model != null && variants.length > 1 && currentVariant !== undefined && (
+                            <div className="shrink-0 pb-1.5">
+                                <MenuDivider/>
+                                {/* The section title row — MenuLabel's look,
+                                  * with the ACTIVE LEVEL riding at its right
+                                  * edge (the slider carries no tick labels).
+                                  * The divider and the title's px-2.5 sit at
+                                  * the same insets as the list's own
+                                  * divider/labels, so the section aligns with
+                                  * the「模型」title row, not the row content. */}
+                                <div className="flex items-baseline justify-between gap-2 px-2.5 pt-1.5 pb-1.5 text-2xs leading-normal font-medium uppercase tracking-wider select-none">
+                                    <span className="opacity-45">{t["Thinking depth"]}</span>
+                                    {/* The active level — no accent color: the
+                                      * reading stays as quiet as the title,
+                                      * distinguished by weight alone. */}
+                                    <span className="font-semibold">{depthLabel(currentVariant, t)}</span>
+                                </div>
+                                <DepthSlider
+                                    ticks={variants.map((v) => ({id: v.id, label: depthLabel(v.id, t)}))}
+                                    value={currentVariant}
+                                    onChange={(id) => onModelChange({...model, variant: id})}
+                                    ariaLabel={t["Thinking depth"]}
+                                />
                             </div>
-                        ))}
-                        {/* The configure entry rides at the list's very
-                         * bottom as part of the scroll (not a pinned
-                         * footer) — below every provider group. */}
-                        {api != null && (
-                            <>
-                                <div className="my-1 border-t" style={{borderColor: colors.glassBorder}}/>
-                                <MenuItem onClick={() => openConfig(close)}>
-                                    <span className="inline-flex items-center gap-1.5">
-                                        <Settings2 size={13} className="shrink-0 opacity-60"/>
-                                        <span>{t["Configure models..."]}</span>
-                                    </span>
-                                </MenuItem>
-                            </>
                         )}
                     </div>
                 )}
             </PopoverMenu>
-            {variants.length > 0 && currentVariant !== undefined && (
-                <PopoverMenu
-                    align={align}
-                    trigger={({open, toggle}) => (
-                        <ToolbarButton
-                            icon={<Brain size={14}/>}
-                            label={depthLabel(currentVariant, t)}
-                            active={open}
-                            onClick={toggle}
-                        />
-                    )}
-                >
-                    {(close) => (
-                        <div>
-                            <MenuLabel>{t["Thinking depth"]}</MenuLabel>
-                            {variants.map((v) => (
-                                <MenuItem
-                                    key={v.id}
-                                    selected={v.id === currentVariant}
-                                    onClick={() => {
-                                        if (model) onModelChange({...model, variant: v.id});
-                                        close();
-                                    }}
-                                >
-                                    {depthLabel(v.id, t)}
-                                </MenuItem>
-                            ))}
-                        </div>
-                    )}
-                </PopoverMenu>
-            )}
         </>
     );
 }

@@ -240,7 +240,6 @@ const enUs = {
     "No": "No",
     // --- Model configuration ---
     "Close": "Close",
-    "Configure models...": "Configure models...",
     "No models configured": "No models configured",
     "Model settings": "Model settings",
     "Providers": "Providers",
