@@ -43,16 +43,31 @@ export function getSyncedSettings(
   db: Db,
   userId: number,
 ): Record<SyncedSettingKey, string> {
-  const rows = db
-    .prepare("SELECT key, value FROM synced_settings WHERE user_id = ?")
-    .all(userId) as {key: string; value: string}[];
   const out = {} as Record<SyncedSettingKey, string>;
-  for (const row of rows) {
-    if ((SYNCED_KEYS as readonly string[]).includes(row.key)) {
-      out[row.key as SyncedSettingKey] = row.value;
-    }
+  for (const row of listSyncedSettings(db, userId)) {
+    out[row.key] = row.value;
   }
   return out;
+}
+
+/** One synced setting as the web console displays it. */
+export interface SyncedSettingRow {
+  key: SyncedSettingKey;
+  value: string;
+  updatedAt: string;
+}
+
+/** The console's read side: every synced setting of a user WITH its
+ * server-stamped freshness (newest first). */
+export function listSyncedSettings(db: Db, userId: number): SyncedSettingRow[] {
+  const rows = db
+    .prepare(
+      "SELECT key, value, updated_at FROM synced_settings WHERE user_id = ? ORDER BY updated_at DESC",
+    )
+    .all(userId) as {key: string; value: string; updated_at: string}[];
+  return rows
+    .filter((row) => (SYNCED_KEYS as readonly string[]).includes(row.key))
+    .map((row) => ({key: row.key as SyncedSettingKey, value: row.value, updatedAt: row.updated_at}));
 }
 
 /** Validate + store one batch of settings writes ({key: value}). Every

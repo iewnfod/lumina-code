@@ -1,6 +1,6 @@
 import {createDatabase} from "../db/db.ts";
 import {AuthError, createUser} from "./auth.ts";
-import {getSyncedSettings, putSyncedSettings} from "./settings.ts";
+import {getSyncedSettings, listSyncedSettings, putSyncedSettings} from "./settings.ts";
 
 import {describe, expect, it} from "vitest";
 
@@ -70,5 +70,28 @@ describe("putSyncedSettings", () => {
     const {db, u1} = await setup();
     const huge = `"${"x".repeat(65_537)}"`;
     expect(() => putSyncedSettings(db, u1.id, {systemPrompt: huge})).toThrow(AuthError);
+  });
+});
+
+describe("listSyncedSettings", () => {
+  it("returns rows with freshness, newest first, user-isolated", async () => {
+    const {db, u1, u2} = await setup();
+    putSyncedSettings(db, u1.id, {systemPrompt: '"a"'});
+    putSyncedSettings(db, u2.id, {visionModel: '"x/y"'});
+    const rows = listSyncedSettings(db, u1.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].key).toBe("systemPrompt");
+    expect(rows[0].value).toBe('"a"');
+    expect(typeof rows[0].updatedAt).toBe("string");
+    expect(listSyncedSettings(db, u2.id).map((r) => r.key)).toEqual(["visionModel"]);
+  });
+
+  it("matches getSyncedSettings' key/value view", async () => {
+    const {db, u1} = await setup();
+    putSyncedSettings(db, u1.id, {systemPrompt: '"a"', visionModel: '""'});
+    const flat = getSyncedSettings(db, u1.id);
+    for (const row of listSyncedSettings(db, u1.id)) {
+      expect(row.value).toBe(flat[row.key]);
+    }
   });
 });

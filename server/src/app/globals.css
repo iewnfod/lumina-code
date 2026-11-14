@@ -331,3 +331,21 @@ button.btn.danger {
   padding-left: 18px;
   color: var(--muted);
 }
+
+/* The synced-settings table's raw-JSON disclosure: a long system
+   prompt must stay readable without stretching the table. */
+.table td details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.table td details pre {
+  margin: 4px 0 0;
+  max-width: 480px;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}

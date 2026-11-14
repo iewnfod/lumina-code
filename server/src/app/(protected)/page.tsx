@@ -5,6 +5,7 @@ import {redirect} from "next/navigation";
 
 import {dataDir, getDb} from "@/db/db.ts";
 import {frpRouteOnline, listFrpRoutes, type FrpRouteRow} from "@/lib/frp.ts";
+import {listSyncedSettings, type SyncedSettingRow} from "@/lib/settings.ts";
 import {pageAuth} from "@/lib/pageAuth.ts";
 import {SERVER_VERSION} from "@/lib/version.ts";
 
@@ -38,6 +39,78 @@ function RouteRow({row, withUser}: {row: FrpRouteRow; withUser: boolean}) {
         )}
       </td>
     </tr>
+  );
+}
+
+/** One synced setting's human-readable digest (the value column of the
+ * console table; the raw JSON stays one <details> away). */
+function summarizeSetting(row: SyncedSettingRow): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(row.value);
+  } catch {
+    return row.value.slice(0, 80);
+  }
+  if (row.key === "systemPrompt") {
+    const text = typeof parsed === "string" ? parsed : "";
+    if (text === "") return "(off)";
+    return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+  }
+  if (row.key === "visionModel") {
+    return typeof parsed === "string" && parsed !== "" ? parsed : "(off)";
+  }
+  if (row.key === "modelVisibility") {
+    const v = parsed as {disabled?: unknown; providers?: unknown};
+    const hidden = Array.isArray(v.disabled) ? v.disabled.length : 0;
+    const providers = Array.isArray(v.providers) ? v.providers.length : 0;
+    if (hidden === 0 && providers === 0) return "default";
+    return `${hidden} hidden model${hidden === 1 ? "" : "s"}, ${providers} provider${providers === 1 ? "" : "s"} off`;
+  }
+  return row.value.slice(0, 80);
+}
+
+/** The user's own synced settings (Lumina Code clients' multi-device
+ * sync). Read-only — the clients own the writes; this is the "what is
+ * on the server" view. */
+function SyncedSettingsSection({rows}: {rows: SyncedSettingRow[]}) {
+  return (
+    <>
+      <h2>Synced settings</h2>
+      <p className="muted">
+        Settings your Lumina Code clients keep in sync across devices
+        (last write wins). Read-only here — edit them in the app.
+      </p>
+      {rows.length === 0 ? (
+        <p className="muted">No settings synced yet.</p>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Value</th>
+              <th>Last updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.key}>
+                <td>
+                  <code>{row.key}</code>
+                </td>
+                <td>
+                  {summarizeSetting(row)}{" "}
+                  <details>
+                    <summary>raw</summary>
+                    <pre>{row.value}</pre>
+                  </details>
+                </td>
+                <td className="muted">{fmtWhen(row.updatedAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
   );
 }
 
@@ -111,17 +184,23 @@ export default async function DashboardPage() {
           </tbody>
         </table>
       )}
+
+      <SyncedSettingsSection rows={listSyncedSettings(db, ctx.user.id)} />
     </>
   );
+}
+
+/** One SQL COUNT — the summary cards and facts rows share it. */
+function count(db: ReturnType<typeof getDb>, sql: string): number {
+  return (db.prepare(sql).get() as {c: number}).c;
 }
 
 /** Admin-only summary cards: whole-server counts. */
 function AdminSummaryCards() {
   const db = getDb();
-  const count = (sql: string) => (db.prepare(sql).get() as {c: number}).c;
-  const users = count("SELECT COUNT(*) c FROM users");
-  const tokens = count("SELECT COUNT(*) c FROM tokens");
-  const routes = count("SELECT COUNT(*) c FROM frp_routes");
+  const users = count(db, "SELECT COUNT(*) c FROM users");
+  const tokens = count(db, "SELECT COUNT(*) c FROM tokens");
+  const routes = count(db, "SELECT COUNT(*) c FROM frp_routes");
   return (
     <>
       <div className="card">
@@ -184,6 +263,13 @@ function AdminFactsRows() {
       <tr>
         <th>Last route heartbeat</th>
         <td>{fmtWhen(lastHeartbeat)}</td>
+      </tr>
+      <tr>
+        <th>Synced settings</th>
+        <td>
+          {count(db, "SELECT COUNT(*) c FROM synced_settings")} keys across{" "}
+          {count(db, "SELECT COUNT(DISTINCT user_id) c FROM synced_settings")} users
+        </td>
       </tr>
     </>
   );
