@@ -131,12 +131,16 @@ export default function ModelSettings({
 
     // Default selection: the first CONNECTED official integration once
     // the list lands (a pane that opens on something real beats an
-    // empty state). Never overrides an explicit selection.
+    // empty state). Never overrides an explicit selection. DESKTOP
+    // ONLY — the phone layout's `null` IS the list page, and an
+    // auto-select here would push the detail right back over the
+    // list after every back press, locking the user inside the
+    // first provider's page.
     useEffect(() => {
-        if (selected != null || integrations == null) return;
+        if (mobile || selected != null || integrations == null) return;
         const first = integrations.find((i) => i.connections.length > 0);
         if (first) setSelected({kind: "integration", id: first.id});
-    }, [integrations, selected]);
+    }, [mobile, integrations, selected]);
 
     // SYSTEM BACK (mobile device): the pushed detail page pops back to
     // the list (the desktop short-circuits inside the hook).
