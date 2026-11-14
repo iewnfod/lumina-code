@@ -20,9 +20,9 @@ describe("getSyncedSettings", () => {
   it("returns only that user's whitelisted keys", async () => {
     const {db, u1, u2} = await setup();
     putSyncedSettings(db, u1.id, {systemPrompt: '"hi"'});
-    putSyncedSettings(db, u2.id, {visionModel: '""'});
+    putSyncedSettings(db, u2.id, {visionModel: '""', sessionPins: '["ses_x"]'});
     expect(getSyncedSettings(db, u1.id)).toEqual({systemPrompt: '"hi"'});
-    expect(getSyncedSettings(db, u2.id)).toEqual({visionModel: '""'});
+    expect(getSyncedSettings(db, u2.id)).toEqual({visionModel: '""', sessionPins: '["ses_x"]'});
   });
 });
 

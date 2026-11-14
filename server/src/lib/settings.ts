@@ -30,7 +30,12 @@ import type {Db} from "../db/db.ts";
 
 /** The keys a client may sync — mirrors the frontend's SyncedKey union
  * (src/opencode/settingsSync.ts). Keep the two lists in lockstep. */
-export const SYNCED_KEYS = ["systemPrompt", "visionModel", "modelVisibility"] as const;
+export const SYNCED_KEYS = [
+  "systemPrompt",
+  "visionModel",
+  "modelVisibility",
+  "sessionPins",
+] as const;
 
 export type SyncedSettingKey = (typeof SYNCED_KEYS)[number];
 

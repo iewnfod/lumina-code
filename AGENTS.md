@@ -697,10 +697,15 @@ src/
 │   │                      #   settings that follow the USER across devices
 │   │                      #   (SYNCED_KEYS whitelist: systemPrompt +
 │   │                      #   visionModel — the global opencode.json's
-│   │                      #   plugin options — and modelVisibility, the
+│   │                      #   plugin options; modelVisibility, the
 │   │                      #   disabled-models/disabled-providers pair as
 │   │                      #   ONE key so a provider toggle's double write
-│   │                      #   stays atomic), reconciled against the
+│   │                      #   stays atomic; and sessionPins — the
+│   │                      #   pinned-session id SET, whose inert-entry
+│   │                      #   rule (an id matching no sidebar row is
+│   │                      #   ignored) is what makes it safe to sync
+│   │                      #   across desktops with entirely different
+│   │                      #   opencode storages), reconciled against the
 │   │                      #   account's authoritative KV on
 │   │                      #   lumina-code-server. CONFLICT POLICY: pure
 │   │                      #   LAST-WRITE-WINS by server write order, NO
@@ -724,7 +729,7 @@ src/
 │   │                      #   restart keeps pending uploads pending);
 │   │                      #   markSettingsSyncDirty is what UI SAVE paths
 │   │                      #   call (SystemPromptSection/ToolsTab/
-│   │                      #   useDisabledModels). pluginOptionIo is the
+│   │                      #   useDisabledModels/useSessionPins). pluginOptionIo is the
 │   │                      #   plugin keys' IO adapter with its
 │   │                      #   dependencies INJECTED (readGlobalConfig +
 │   │                      #   ensureLuminaToolsPlugin live in the engine

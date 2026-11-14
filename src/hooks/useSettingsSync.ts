@@ -18,6 +18,7 @@ import {
 } from "../opencode/settingsSync.ts";
 import {ensureLuminaToolsPlugin} from "../opencode/useLuminaTools.ts";
 import {modelVisibilityIo} from "./useDisabledModels.ts";
+import {sessionPinsIo} from "./useSessionPins.ts";
 
 /**
  * The settings-sync ENGINE (mounted ONCE in AppBody, beside
@@ -81,6 +82,7 @@ export function useSettingsSync(): void {
                 (options) => ensureLuminaToolsPlugin(api, options),
             ),
             modelVisibility: modelVisibilityIo(),
+            sessionPins: sessionPinsIo(),
         };
 
         let inFlight = false;

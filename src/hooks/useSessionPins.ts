@@ -1,5 +1,12 @@
 import {useSyncExternalStore} from "react";
 import {createPersistedStore} from "../lib/persistedStore.ts";
+import {
+    markSettingsSyncDirty,
+    parseSyncedValue,
+    serializeSyncedValue,
+    SYNCED_DEFAULTS,
+    type SyncedKeyIo,
+} from "../opencode/settingsSync.ts";
 
 /**
  * Sessions the user PINNED to the top of their PROJECT folder in the
@@ -15,9 +22,13 @@ import {createPersistedStore} from "../lib/persistedStore.ts";
  *
  * Entries for deleted sessions are inert (no row matches the id) and
  * simply ride along — the same no-pruning policy as the collapsed-folder
- * set. Deliberately LOCAL persistence (like every other sidebar UI
- * preference): the cross-device whitelist sync in sessionRegistry/
- * sessionWhitelistSync is membership, not ordering.
+ * set. That inertness is also what makes this set SAFE to sync across
+ * devices as the "sessionPins" key (opencode/settingsSync.ts): a second
+ * desktop's opencode storage holds different session ids entirely, so a
+ * synced id that matches nothing there is silently ignored while the
+ * desktop + its own mobile clients (one opencode) share pins fully.
+ * User toggles mark the key dirty (the sync engine uploads); the engine
+ * lands other devices' values through the silent replace below.
  */
 const store = createPersistedStore<ReadonlySet<string>>({
     key: "lumina-code:pinned-sessions",
@@ -58,5 +69,31 @@ export function toggleSessionPin(id: string): void {
     const next = new Set(current);
     if (next.has(id)) next.delete(id);
     else next.add(id);
-    store.set(next);
+    if (store.set(next)) markSettingsSyncDirty("sessionPins");
+}
+
+// --- The settings-sync landing half (the modelVisibility pattern) ---------
+
+/** Replace the set wholesale from a synced value — SILENT (landing never
+ * marks dirty, or the value would bounce straight back). */
+export function applySyncedSessionPins(ids: Iterable<string>): void {
+    store.set(new Set(ids));
+}
+
+/** The "sessionPins" sync key's IO adapter — see opencode/settingsSync.ts. */
+export function sessionPinsIo(): SyncedKeyIo {
+    return {
+        readLocal() {
+            // The store's read side already sanitizes; the default
+            // fallback is pure paranoia.
+            const wire = serializeSyncedValue("sessionPins", [...store.get()]);
+            return Promise.resolve(wire ?? SYNCED_DEFAULTS.sessionPins);
+        },
+        async applyLocal(raw: string) {
+            const value = parseSyncedValue("sessionPins", raw);
+            if (!Array.isArray(value)) return false;
+            applySyncedSessionPins(value);
+            return true;
+        },
+    };
 }

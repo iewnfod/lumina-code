@@ -211,7 +211,7 @@ export function modelVisibilityIo(): SyncedKeyIo {
         },
         async applyLocal(raw: string) {
             const value = parseSyncedValue("modelVisibility", raw);
-            if (value === null || typeof value === "string") return false;
+            if (value === null || typeof value === "string" || Array.isArray(value)) return false;
             applySyncedModelVisibility(value);
             logInfo("Applied synced model visibility").catch(() => {});
             return true;

@@ -226,7 +226,7 @@ export default function ServerSettings() {
                 </SettingRow>
                 <SettingRow
                     label={t["Settings sync"]}
-                    description={t["Synced across your devices: system prompt, vision tool, model visibility"]}
+                    description={t["Synced across your devices: system prompt, vision tool, model visibility, pinned sessions"]}
                 >
                     <span className="text-xs opacity-55">{t["Enabled"]}</span>
                 </SettingRow>

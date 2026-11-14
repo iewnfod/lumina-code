@@ -54,8 +54,13 @@ import {
  */
 
 /** The synced settings whitelist — mirrors the server's SYNCED_KEYS
- * (server/src/lib/settings.ts). Keep the two lists in lockstep. */
-export const SYNCED_KEYS = ["systemPrompt", "visionModel", "modelVisibility"] as const;
+ * (server/src/lib/settings.ts). Keep the two lists in lockstep.
+ *
+ * sessionPins' inertness rule: a synced session id that matches no row
+ * (a second desktop's opencode storage holds entirely different ids)
+ * is silently ignored — the set lands as-is and the sidebar's ordering
+ * only ever matches what it can see. */
+export const SYNCED_KEYS = ["systemPrompt", "visionModel", "modelVisibility", "sessionPins"] as const;
 
 export type SyncedKey = (typeof SYNCED_KEYS)[number];
 
@@ -75,6 +80,7 @@ export const SYNCED_DEFAULTS: Record<SyncedKey, string> = {
     systemPrompt: JSON.stringify(""),
     visionModel: JSON.stringify(""),
     modelVisibility: JSON.stringify({disabled: [], providers: []} satisfies ModelVisibilityValue),
+    sessionPins: JSON.stringify([]),
 };
 
 /** Serialize a typed value into its wire (JSON string) form, strictly
@@ -84,7 +90,16 @@ export function serializeSyncedValue(key: SyncedKey, value: unknown): string | n
     if (key === "systemPrompt" || key === "visionModel") {
         return typeof value === "string" ? JSON.stringify(value) : null;
     }
+    if (key === "sessionPins") {
+        return serializeSessionPins(value);
+    }
     return serializeModelVisibility(value);
+}
+
+function serializeSessionPins(value: unknown): string | null {
+    if (!Array.isArray(value)) return null;
+    if (!value.every((id) => typeof id === "string" && id !== "")) return null;
+    return JSON.stringify(value);
 }
 
 function serializeModelVisibility(value: unknown): string | null {
@@ -112,7 +127,10 @@ function serializeModelVisibility(value: unknown): string | null {
 /** Parse a wire value back into its typed form; null on a malformed
  * shape (forward compatibility: a value a NEWER client wrote is
  * ignored, never applied). */
-export function parseSyncedValue(key: SyncedKey, raw: string): string | ModelVisibilityValue | null {
+export function parseSyncedValue(
+    key: SyncedKey,
+    raw: string,
+): string | string[] | ModelVisibilityValue | null {
     let parsed: unknown;
     try {
         parsed = JSON.parse(raw);
@@ -121,6 +139,9 @@ export function parseSyncedValue(key: SyncedKey, raw: string): string | ModelVis
     }
     if (key === "systemPrompt" || key === "visionModel") {
         return typeof parsed === "string" ? parsed : null;
+    }
+    if (key === "sessionPins") {
+        return serializeSessionPins(parsed) === null ? null : (parsed as string[]);
     }
     return serializeModelVisibility(parsed) === null ? null : (parsed as ModelVisibilityValue);
 }

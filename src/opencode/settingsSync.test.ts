@@ -22,12 +22,14 @@ import {
 // Serialization
 // ---------------------------------------------------------------------------
 
-test("serializeSyncedValue round-trips all three keys", () => {
+test("serializeSyncedValue round-trips all four keys", () => {
     for (const key of SYNCED_KEYS) {
         const value =
             key === "modelVisibility"
                 ? {disabled: ["openai/gpt-4o"], providers: [["anthropic", ["claude-x"]]]}
-                : "some value";
+                : key === "sessionPins"
+                  ? ["ses_aaa", "ses_bbb"]
+                  : "some value";
         const wire = serializeSyncedValue(key, value);
         assert.ok(wire !== null);
         assert.deepEqual(parseSyncedValue(key, wire), value);
@@ -43,6 +45,10 @@ test("serializeSyncedValue rejects malformed shapes", () => {
     );
     assert.equal(serializeSyncedValue("modelVisibility", {disabled: [], providers: [["x"]]}), null);
     assert.equal(serializeSyncedValue("modelVisibility", {disabled: []}), null);
+    // session pins: non-array / empty-string ids rejected
+    assert.equal(serializeSyncedValue("sessionPins", "ses_x"), null);
+    assert.equal(serializeSyncedValue("sessionPins", ["ses_x", ""]), null);
+    assert.equal(serializeSyncedValue("sessionPins", [5]), null);
 });
 
 test("parseSyncedValue rejects non-JSON and wrong-typed JSON", () => {
@@ -74,6 +80,7 @@ const LOCAL = {
     systemPrompt: JSON.stringify("hello"),
     visionModel: JSON.stringify("openai/gpt-4o"),
     modelVisibility: JSON.stringify({disabled: ["x/y"], providers: []}),
+    sessionPins: JSON.stringify(["ses_a", "ses_b"]),
 };
 
 function planOf(input: Partial<Parameters<typeof planSettingsSync>[0]>) {
