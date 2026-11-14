@@ -365,4 +365,20 @@ export class LuminaServerApi {
     frpConnect(): Promise<{routeId: string; password: string; updatedAt: string}> {
         return this.request("/api/frp/connect");
     }
+
+    /** Every synced setting of the account ({settings: {key: value}} —
+     * the raw JSON value strings; the multi-client settings sync's read
+     * side). A 404 (`.status`) means this server predates the sync API. */
+    settingsGet(): Promise<{settings: Record<string, string>}> {
+        return this.request("/api/settings");
+    }
+
+    /** Publish local settings edits ({key: value}); last write wins by
+     * server write order. The batch is validated wholesale server-side. */
+    settingsPut(entries: Record<string, string>): Promise<{ok: boolean}> {
+        return this.request("/api/settings", {
+            method: "PUT",
+            body: JSON.stringify({entries}),
+        });
+    }
 }

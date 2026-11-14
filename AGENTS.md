@@ -691,6 +691,50 @@ src/
 │   │                      #   state. node-testable (serverConnection's
 │   │                      #   parameter-property constructor was made explicit
 │   │                      #   for the node strip loader).
+│   ├── settingsSync.ts   # THE MULTI-CLIENT SETTINGS SYNC, pure planning
+│   │                      #   half (server twin: server/src/lib/settings.ts;
+│   │                      #   engine: hooks/useSettingsSync.ts). The
+│   │                      #   settings that follow the USER across devices
+│   │                      #   (SYNCED_KEYS whitelist: systemPrompt +
+│   │                      #   visionModel — the global opencode.json's
+│   │                      #   plugin options — and modelVisibility, the
+│   │                      #   disabled-models/disabled-providers pair as
+│   │                      #   ONE key so a provider toggle's double write
+│   │                      #   stays atomic), reconciled against the
+│   │                      #   account's authoritative KV on
+│   │                      #   lumina-code-server. CONFLICT POLICY: pure
+│   │                      #   LAST-WRITE-WINS by server write order, NO
+│   │                      #   revision gate — a PUT is an intentional
+│   │                      #   overwrite, not a read-modify-write (the
+│   │                      #   race that matters — an in-flight reconcile
+│   │                      #   landing over an edit made mid-await — is
+│   │                      #   closed client-side by the ENGINE's
+│   │                      #   pre-apply dirty re-check; JS is
+│   │                      #   single-threaded, so the guard has no
+│   │                      #   window). planSettingsSync is the pure
+│   │                      #   decision table: dirty keys upload (local
+│   │                      #   wins), clean keys adopt the server copy,
+│   │                      #   with a FIRST-SYNC guard (a pre-sync
+│   │                      #   non-default local value uploads instead of
+│   │                      #   being overwritten) and skip rules for
+│   │                      #   unavailable locals (JSONC config) and
+│   │                      #   malformed server values (forward
+│   │                      #   compatibility). The dirty/everSynced
+│   │                      #   flags persist (createPersistedStore — a
+│   │                      #   restart keeps pending uploads pending);
+│   │                      #   markSettingsSyncDirty is what UI SAVE paths
+│   │                      #   call (SystemPromptSection/ToolsTab/
+│   │                      #   useDisabledModels). pluginOptionIo is the
+│   │                      #   plugin keys' IO adapter with its
+│   │                      #   dependencies INJECTED (readGlobalConfig +
+│   │                      #   ensureLuminaToolsPlugin live in the engine
+│   │                      #   — useLuminaTools pulls the plugin source
+│   │                      #   through vite's ?raw and would break
+│   │                      #   node-testability here); applyLocal
+│   │                      #   re-reads the config FRESH and merges only
+│   │                      #   its key, so concurrent saves of the OTHER
+│   │                      #   plugin field survive. node-testable
+│   │                      #   (settingsSync.test.ts).
 │   ├── appMode.ts         # THE DAILY/DEV MODE SPLIT. A persistedStore
 │   │                      #   ("lumina-code:app-mode", the useThemePreference
 │   │                      #   pattern) remembering which half of the app the
@@ -2230,7 +2274,15 @@ src/
 │   │                      #   (hidden from the picker — the server has no
 │   │                      #   per-model enable API, so this is client-side
 │   │                      #   only): a persistedStore.ts store, keys are
-│   │                      #   "providerID/modelID".
+│   │                      #   "providerID/modelID". BOTH stores (disabled
+│   │                      #   models + the provider-disable snapshots) are
+│   │                      #   one of the MULTI-CLIENT SYNCED settings —
+│   │                      #   the "modelVisibility" key (opencode/
+│   │                      #   settingsSync.ts): every user edit marks the
+│   │                      #   key dirty, and modelVisibilityIo() is the
+│   │                      #   sync engine's read/silent-replace adapter
+│   │                      #   (applySyncedModelVisibility never marks
+│   │                      #   dirty — landing must not bounce back).
 │   ├── useNotificationMode.ts # The desktop-notification preference: a
 │   │                      #   persistedStore.ts store ("lumina-code:
 │   │                      #   notifications") holding {mode: off/minimal/
@@ -2240,6 +2292,32 @@ src/
 │   │                      #   General pane and re-read at EVENT time by
 │   │                      #   useNotifications (a change applies to the
 │   │                      #   very next notification).
+│   ├── useSettingsSync.ts # The MULTI-CLIENT SETTINGS SYNC engine (AppBody,
+│   │                      #   beside useServerFrp): reconciles the
+│   │                      #   SYNCED_KEYS whitelist against the account's
+│   │                      #   authoritative copy on lumina-code-server
+│   │                      #   (LuminaServerApi.settingsGet/settingsPut).
+│   │                      #   Connection: the desktop's Server-pane
+│   │                      #   connection or the mobile account connection,
+│   │                      #   whichever THIS client has (both hooks called
+│   │                      #   unconditionally; the pick is isMobileApp) —
+│   │                      #   no connection = idle, local edits keep
+│   │                      #   marking dirty and flush when one appears.
+│   │                      #   Triggers: start, 5-min poll,
+│   │                      #   visibilitychange→visible (mobile resume /
+│   │                      #   desktop refocus — when another device's edit
+│   │                      #   should surface), and ~2s after any dirty
+│   │                      #   flag (a local save uploads promptly; rapid
+│   │                      #   toggles coalesce). Each round: GET → read
+│   │                      #   locals (per-key IO; JSONC/read-failure keys
+│   │                      #   skip) → planSettingsSync → PUT uploads
+│   │                      #   (dirty clears only on success) → land
+│   │                      #   applies with the PRE-APPLY dirty re-check
+│   │                      #   (THE race guard). A GET 404 (older server,
+│   │                      #   official deployments upgrade separately)
+│   │                      #   disables the engine for the session with ONE
+│   │                      #   info line; failures warn + keep the retry
+│   │                      #   state.
 │   ├── useNotifications.ts # The desktop-notification SUBSCRIBING half,
 │   │                      #   mounted once in AppBody: run ends read
 │   │                      #   straight off the bus (succeeded/failed only —
@@ -4632,6 +4710,17 @@ src/
 │   │              frp_routes table — hex-only route ids that nginx's
 │   │              `[A-Za-z0-9_-]+` capture and frp's proxy names both
 │   │              accept), getFrpConnect (the mobile's read side)
+│   ├── settings.ts  the MULTI-CLIENT SETTINGS SYNC core: the per-user
+│   │              authoritative KV (synced_settings, PK(user_id,key))
+│   │              behind GET/PUT /api/settings. getSyncedSettings +
+│   │              putSyncedSettings with a key whitelist (mirrors the
+│   │              frontend's SyncedKey) and a 64KB value ceiling; the
+│   │              server stamps updated_at ITSELF (LWW order + freshness
+│   │              — client clocks are never compared). Deliberately NO
+│   │              revision/CAS gate: a PUT is an intentional overwrite
+│   │              (see the frontend twin's rationale). Values are
+│   │              plaintext JSON (the frp-password trust model).
+│   │              vitest-covered (settings.test.ts).
 │   └── pageAuth.ts    cookie-side guard for protected pages
 ├── app/
 │   ├── actions.ts    no-JS server actions (login/register/logout/
@@ -4651,7 +4740,8 @@ src/
 │   │                 device-token revocation)
 │   └── api/         auth (register/login/me/logout), tokens (list/
 │                    revoke; admin may inspect others), admin/users
-│                    (GET/PATCH), frp (config / routes / connect)
+│                    (GET/PATCH), frp (config / routes / connect), settings
+│                    (GET/PUT — the multi-client settings sync)
 └── middleware.ts   CORS for /api/* (webview origins fetch cross-origin
                      with a bearer header; blanket origin allowance is
                      safe because no cookies ride the API path) +

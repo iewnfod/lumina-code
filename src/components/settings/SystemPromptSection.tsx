@@ -8,6 +8,7 @@ import {
     withSystemPrompt,
 } from "../../opencode/toolPluginConfig.ts";
 import {ensureLuminaToolsPlugin} from "../../opencode/useLuminaTools.ts";
+import {markSettingsSyncDirty} from "../../opencode/settingsSync.ts";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import Button from "../ui/Button.tsx";
@@ -114,6 +115,9 @@ export default function SystemPromptSection({api}: {api: OpencodeApi | null}) {
             setSaved(draft.trim());
             setActionError(null);
             setSavedFlash(true);
+            // This save is a local edit of a SYNCED setting — mark it
+            // dirty so the sync engine uploads it (multi-client sync).
+            markSettingsSyncDirty("systemPrompt");
             info("Saved custom system prompt via the lumina-tools plugin").catch(() => {});
         }).catch((e) => {
             setActionError(`${t["Save failed"]}: ${e}`);

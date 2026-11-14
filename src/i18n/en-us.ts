@@ -386,6 +386,9 @@ const enUs = {
     "Server": "Server",
     "Remote access": "Remote access",
     "Allow mobile devices to connect": "Allow mobile devices to connect",
+    "Settings sync": "Settings sync",
+    "Synced across your devices: system prompt, vision tool, model visibility":
+        "Synced across your devices: system prompt, vision tool, model visibility",
     "Connection status": "Connection status",
     "Disconnected, reconnecting...": "Disconnected, reconnecting...",
     "Connection failed, retrying...": "Connection failed, retrying...",

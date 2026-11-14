@@ -15,6 +15,10 @@
  * - frp_routes — one row per user: the CURRENT desktop's frp route id +
  *             opencode password (the direct-access credential handed to
  *             mobile clients; refreshed by the desktop's heartbeat PUT).
+ * - synced_settings — the multi-client settings sync: per user, per key,
+ *             the LAST value any device wrote (the authoritative KV the
+ *             clients reconcile against — pure LWW by server write
+ *             order; see lib/settings.ts).
  *
  * LEGACY (frp migration): sessions / messages / diffs / relay_prompts
  * held the old relay-model mirrors + prompt queue. Their code paths are
@@ -22,7 +26,7 @@
  * tables, and a fresh database simply never populates them.
  */
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS users (
@@ -84,6 +88,14 @@ CREATE TABLE IF NOT EXISTS frp_routes (
   updated_at TEXT NOT NULL         -- registration/heartbeat freshness (ISO string)
 );
 
+CREATE TABLE IF NOT EXISTS synced_settings (
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  key        TEXT NOT NULL,
+  value      TEXT NOT NULL, -- JSON string; the SHAPE is client-defined (src/opencode/settingsSync.ts)
+  updated_at TEXT NOT NULL, -- THIS server's clock — LWW order + freshness, never client time
+  PRIMARY KEY (user_id, key)
+);
+
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -116,6 +128,14 @@ CREATE TABLE IF NOT EXISTS frp_routes (
   user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   route_id   TEXT NOT NULL UNIQUE,
   password   TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);`,
+  // v5: the multi-client settings sync (per user, per key — pure LWW).
+  "schema:5": `
+CREATE TABLE IF NOT EXISTS synced_settings (
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  key        TEXT NOT NULL,
+  value      TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );`,
 };

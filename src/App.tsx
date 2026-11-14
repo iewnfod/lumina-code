@@ -28,6 +28,7 @@ import {useWindowFirstShow} from "./hooks/useWindowFirstShow.ts";
 import {useChromeThemeSync} from "./hooks/useChromeThemeSync.ts";
 import {useNotifications} from "./hooks/useNotifications.ts";
 import {useServerFrp} from "./hooks/useServerFrp.ts";
+import {useSettingsSync} from "./hooks/useSettingsSync.ts";
 import {useBackLevel} from "./hooks/useBackLevel.ts";
 import {toggleSessionPin, useSessionPins} from "./hooks/useSessionPins.ts";
 import {glassSurface, windowOutline} from "./lib/glass.ts";
@@ -234,6 +235,13 @@ function AppBody({
     // /t/<routeId>/ on the server (see hooks/useServerFrp.ts +
     // src-tauri/src/frp.rs). No-op on mobile.
     useServerFrp();
+
+    // MULTI-CLIENT SETTINGS SYNC: reconciles the synced settings (system
+    // prompt, vision tool, model visibility) against the account's
+    // authoritative copy on lumina-code-server — pure LWW per key, local
+    // edits upload, other devices' values land (hooks/useSettingsSync.ts
+    // + opencode/settingsSync.ts). Idle without a server connection.
+    useSettingsSync();
 
     // The dev-mode GIT GATE's probe (opencode/appMode.ts), mounted at
     // the CONNECTION level: the phone layout's SessionBar (the old

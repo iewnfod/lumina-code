@@ -1,6 +1,15 @@
 import {useSyncExternalStore} from "react";
 import {info as logInfo} from "@tauri-apps/plugin-log";
 import {createPersistedStore} from "../lib/persistedStore.ts";
+import {
+    modelVisibilityValue,
+    parseSyncedValue,
+    serializeSyncedValue,
+    SYNCED_DEFAULTS,
+    markSettingsSyncDirty,
+    type ModelVisibilityValue,
+    type SyncedKeyIo,
+} from "../opencode/settingsSync.ts";
 
 /**
  * Models the user switched OFF in the model settings, hidden from the
@@ -11,7 +20,12 @@ import {createPersistedStore} from "../lib/persistedStore.ts";
  * would clobber it), snapshotted via useSyncExternalStore so a toggle
  * takes effect in every open picker immediately. Sessions already using
  * a disabled model keep running server-side.
- */
+ *
+ * The two stores are one of the MULTI-CLIENT SYNCED settings (the
+ * "modelVisibility" key — see opencode/settingsSync.ts): every USER
+ * edit marks the key dirty (the sync engine uploads it), and the
+ * engine lands other devices' values through the silent replace below
+ * (which never marks dirty). */
 
 const store = createPersistedStore<ReadonlySet<string>>({
     key: "lumina-code:disabled-models",
@@ -52,6 +66,7 @@ export function setModelDisabled(providerID: string, modelID: string, disabled: 
     if (disabled) next.add(key);
     else next.delete(key);
     if (store.set(next)) {
+        markSettingsSyncDirty("modelVisibility");
         logInfo(`${disabled ? "Disabled" : "Enabled"} model ${key} in the picker`).catch(() => {});
     }
 }
@@ -76,6 +91,7 @@ export function setModelsDisabled(
         }
     }
     if (changed && store.set(next)) {
+        markSettingsSyncDirty("modelVisibility");
         logInfo(`${disabled ? "Disabled" : "Enabled"} ${models.length} models in the picker`).catch(() => {});
     }
 }
@@ -139,6 +155,7 @@ export function disableProvider(providerID: string, modelIDs: readonly string[])
     const providersChanged = providerStore.set(new Map(providerStore.get()).set(providerID, snapshot));
     const modelsChanged = store.set(next);
     if (providersChanged || modelsChanged) {
+        markSettingsSyncDirty("modelVisibility");
         logInfo(`Disabled provider ${providerID} in the picker (${snapshot.length} models were already hidden)`).catch(() => {});
     }
 }
@@ -158,6 +175,46 @@ export function enableProvider(providerID: string): void {
     const providersChanged = providerStore.set(providers);
     const modelsChanged = store.set(next);
     if (providersChanged || modelsChanged) {
+        markSettingsSyncDirty("modelVisibility");
         logInfo(`Enabled provider ${providerID} in the picker (restored ${snapshot.length} hidden models)`).catch(() => {});
     }
+}
+
+// --- The settings-sync landing half -------------------------------------------------
+//
+// The sync engine (hooks/useSettingsSync.ts) reads and replaces BOTH
+// stores through this adapter. The replace is SILENT by design — it
+// lands another device's value and must not mark the key dirty (that
+// would bounce the value straight back to the server). A replace also
+// never throws; the shapes were validated before landing.
+
+/** Replace both stores wholesale from a synced value (snapshot swap —
+ * consumers sharing references skip re-rendering when equal). */
+export function applySyncedModelVisibility(value: ModelVisibilityValue): void {
+    store.set(new Set(value.disabled));
+    providerStore.set(new Map(value.providers));
+}
+
+/** The "modelVisibility" sync key's IO adapter — see
+ * opencode/settingsSync.ts's SyncedKeyIo. */
+export function modelVisibilityIo(): SyncedKeyIo {
+    return {
+        readLocal() {
+            // The stores' read sides already sanitize their persisted
+            // shapes, so serialization cannot fail here; the default
+            // fallback is pure paranoia.
+            const wire = serializeSyncedValue(
+                "modelVisibility",
+                modelVisibilityValue(store.get(), providerStore.get()),
+            );
+            return Promise.resolve(wire ?? SYNCED_DEFAULTS.modelVisibility);
+        },
+        async applyLocal(raw: string) {
+            const value = parseSyncedValue("modelVisibility", raw);
+            if (value === null || typeof value === "string") return false;
+            applySyncedModelVisibility(value);
+            logInfo("Applied synced model visibility").catch(() => {});
+            return true;
+        },
+    };
 }

@@ -13,6 +13,7 @@ import {
     visionCapableModels,
 } from "../../opencode/toolPluginConfig.ts";
 import {ensureLuminaToolsPlugin} from "../../opencode/useLuminaTools.ts";
+import {markSettingsSyncDirty} from "../../opencode/settingsSync.ts";
 import type {GlobalConfigTarget} from "./modelConfig.ts";
 import Switch from "./Switch.tsx";
 import {AccentBadge, useModelsList} from "./modelSettingsChrome.tsx";
@@ -92,6 +93,9 @@ export default function ToolsTab({
                     logWarn(`lumina-tools save skipped: ${result.reason}`).catch(() => {});
                 } else {
                     logInfo(`Saved lumina-tools config (vision: ${model || "off"}) to ${target.file}`).catch(() => {});
+                    // A local edit of a SYNCED setting — mark it dirty so
+                    // the sync engine uploads it (multi-client sync).
+                    markSettingsSyncDirty("visionModel");
                     onActionError(null);
                     onSaved();
                 }

@@ -381,6 +381,9 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Server": "服务器",
     "Remote access": "远程访问",
     "Allow mobile devices to connect": "允许移动端连接控制",
+    "Settings sync": "设置同步",
+    "Synced across your devices: system prompt, vision tool, model visibility":
+        "以下设置随账号在多端间同步：系统提示词、视觉工具、模型可见性",
     "Connection status": "连接状态",
     "Disconnected, reconnecting...": "连接断开，正在重连...",
     "Connection failed, retrying...": "连接失败，正在重试...",

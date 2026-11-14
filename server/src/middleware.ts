@@ -21,7 +21,9 @@ export function middleware(req: NextRequest) {
 
 function applyCors(res: NextResponse): void {
   res.headers.set("Access-Control-Allow-Origin", "*");
-  res.headers.set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+  // PUT: the settings sync's batch write (mobile's webview fetch needs
+  // it in the preflight answer; the desktop rides the Rust transport).
+  res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   res.headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
   res.headers.set("Access-Control-Max-Age", "86400");
 }

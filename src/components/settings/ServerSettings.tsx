@@ -224,6 +224,12 @@ export default function ServerSettings() {
                 >
                     <span className="text-xs opacity-70">{connection.username}</span>
                 </SettingRow>
+                <SettingRow
+                    label={t["Settings sync"]}
+                    description={t["Synced across your devices: system prompt, vision tool, model visibility"]}
+                >
+                    <span className="text-xs opacity-55">{t["Enabled"]}</span>
+                </SettingRow>
                 <div className="flex items-center gap-3 self-end">
                     <Button
                         size="sm"

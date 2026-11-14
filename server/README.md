@@ -145,6 +145,9 @@ nginx 在容器里跑的话，把 `127.0.0.1:14602` 换成 compose 网络里的
 - frps 的 `auth.token` 对所有账号共享：互不信任的多租户部署里，一个
   恶意账号理论上可注册他人路由。本服务器面向自托管单操作者场景，
   不要给不信任的人开账号。
+- **多端设置同步**的值（自定义系统提示词、vision 工具配置、模型
+  可见性）以**明文 JSON** 存放在本服务器（`synced_settings` 表，
+  按账号隔离）——与上面的 opencode 密码同一信任级别。
 
 ## TLS 与网络（自行解决）
 
@@ -180,6 +183,8 @@ nginx 在容器里跑的话，把 `127.0.0.1:14602` 换成 compose 网络里的
 | `GET /api/frp/config` | 桌面用：frps 控制信道端口 + 共享 token（未配置 → `enabled:false`）；设 `LUMINA_FRPS_CONTROL` 时附带 WebSocket 接入点 `{control:{host,port,secure}}` |
 | `PUT /api/frp/routes` | 桌面用：注册/心跳 opencode 密码，铸/复用路由 id |
 | `GET /api/frp/connect` | 移动端用：当前路由 id + 密码 + 最近心跳时间 |
+| `GET /api/settings` | 任意客户端：本账号全部同步设置 `{settings:{key:value}}`（多端设置同步的读侧） |
+| `PUT /api/settings` | 任意客户端：批量写 `{entries:{key:value}}`——键白名单 + 64KB 上限，服务器自盖时间戳，纯 LWW（后写胜出，无版本闸门） |
 
 认证：`Authorization: Bearer lum_…`（API）或同名 httpOnly cookie（Web UI）。
 CORS 对 `/api/*` 全开（Bearer 认证不依赖 cookie，无凭证泄露面）。
