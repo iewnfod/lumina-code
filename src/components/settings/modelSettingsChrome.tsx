@@ -2,7 +2,7 @@ import {useEffect, useState, type ReactNode} from "react";
 import {Box} from "lucide-react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
-import type {OpencodeApi} from "../../opencode/api.ts";
+import type {OpencodeApi} from "../../opencode/api/index.ts";
 import type {OpencodeModel} from "../../opencode/types.ts";
 import {providerAvatarColor} from "./modelConfig.ts";
 

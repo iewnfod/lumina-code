@@ -1,4 +1,4 @@
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 
 /**
  * The worktree → local-branch write-back (branch-bound sessions): the

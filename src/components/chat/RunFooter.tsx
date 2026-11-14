@@ -1,5 +1,5 @@
 import {useState} from "react";
-import {Check, ChevronRight, Clock, Copy} from "lucide-react";
+import {ChevronRight, Clock} from "lucide-react";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {requestStatsFileDrill} from "../../hooks/useStatsPanelMode.ts";
@@ -11,11 +11,12 @@ import {fileIconUrl} from "../../lib/fileIcons.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
 
 import {MONO_STYLE} from "./RequestCardChrome.tsx";
-import {formatCost, formatTokens} from "./usageStats.ts";
+import {formatCost, formatDuration, formatTokens} from "./usageStats.ts";
 import type {TurnUsage} from "./runFooters.ts";
 import Hint from "../ui/Hint.tsx";
 import PopoverMenu, {MenuDivider, MenuLabel, MenuRow} from "../ui/PopoverMenu.tsx";
 import ExitPresence from "../ui/ExitPresence.tsx";
+import CopyButton from "./CopyButton.tsx";
 
 /**
  * The quiet footer under a finished run: a copy affordance for the run's
@@ -73,21 +74,16 @@ export default function RunFooter({text, durationMs, usage, enter, sessionId, tu
     return (
         <div className={enter ? "lum-enter" : undefined}>
             <div className="flex items-center gap-2 -mt-1.5">
-                <Hint label={copied ? t["Copied"] : t["Copy"]} className="-ml-1">
-                    <button
-                        type="button"
-                        onClick={() => void copy(text)}
-                        // transform-gpu: the hover fades opacity across the 1.0
-                        // boundary, which on the WebKitGTK webview churns compositing
-                        // layers under the transcript's mask — a permanent layer
-                        // stops the stutter (same reasoning as FoldRow).
-                        className="inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none opacity-50 hover:opacity-100 lum-wash transition-opacity duration-[var(--duration-fast)] transform-gpu"
-                    >
-                        {copied
-                            ? <Check size={14} className="shrink-0"/>
-                            : <Copy size={14} className="shrink-0"/>}
-                    </button>
-                </Hint>
+                <CopyButton
+                    copied={copied}
+                    onCopy={() => void copy(text)}
+                    hintClassName="-ml-1"
+                    // transform-gpu: the hover fades opacity across the 1.0
+                    // boundary, which on the WebKitGTK webview churns compositing
+                    // layers under the transcript's mask — a permanent layer
+                    // stops the stutter (same reasoning as FoldRow).
+                    className="inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none opacity-50 hover:opacity-100 lum-wash transition-opacity duration-[var(--duration-fast)] transform-gpu"
+                />
                 {durationMs != null && (
                     <span className="inline-flex items-center gap-1 text-xs opacity-45 select-none">
                         <Clock size={12} className="shrink-0"/>
@@ -264,17 +260,4 @@ function TurnFileRow({entry, directory}: {
             </span>
         </button>
     );
-}
-
-/** Compact wall-clock duration: 4.2s · 12s · 1m 03s · 2h 14m. */
-export function formatDuration(ms: number): string {
-    if (ms < 0) ms = 0;
-    const seconds = ms / 1000;
-    if (seconds < 10) return `${seconds.toFixed(1)}s`;
-    const whole = Math.floor(seconds);
-    if (whole < 60) return `${whole}s`;
-    const minutes = Math.floor(whole / 60);
-    if (minutes < 60) return `${minutes}m ${String(whole % 60).padStart(2, "0")}s`;
-    const hours = Math.floor(minutes / 60);
-    return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
 }

@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useRef, useState, type CSSProperties} from "react";
 import {motion} from "framer-motion";
-import {Terminal, Check, Copy, AlertCircle, Pencil, RotateCcw} from "lucide-react";
+import {Terminal, AlertCircle, Pencil, RotateCcw} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {ChatUserMessage} from "../../opencode/types.ts";
@@ -20,6 +20,7 @@ import AttachmentPreview from "./AttachmentPreview.tsx";
 import ExitPresence from "../ui/ExitPresence.tsx";
 import Hint from "../ui/Hint.tsx";
 import {AttachmentChipIcon, ATTACHMENT_CHIP_CLASS} from "../ui/AttachmentChip.tsx";
+import CopyButton from "./CopyButton.tsx";
 
 /**
  * The USER half of a transcript entry — the right-aligned accent bubble
@@ -257,17 +258,13 @@ export default function UserBubble({
                 reason as RunFooter. */}
             {displayText && (
                 <div className="flex items-center gap-1 mt-1">
-                    <Hint label={copied ? t["Copied"] : t["Copy"]}>
-                        <button
-                            type="button"
-                            onClick={() => void copy(displayText)}
-                            className={`inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none lum-wash transition-opacity duration-[var(--duration-fast)] transform-gpu ${copied ? "opacity-100" : "opacity-0 group-hover/msg:opacity-50 hover:opacity-100"}`}
-                        >
-                            {copied
-                                ? <Check size={14} className="shrink-0"/>
-                                : <Copy size={14} className="shrink-0"/>}
-                        </button>
-                    </Hint>
+                    <CopyButton
+                        copied={copied}
+                        onCopy={() => void copy(displayText)}
+                        // transform-gpu for the same WebKitGTK compositing
+                        // reason as RunFooter's copy.
+                        className={`inline-flex items-center justify-center h-6 w-6 rounded-[var(--radius-xs)] cursor-pointer select-none lum-wash transition-opacity duration-[var(--duration-fast)] transform-gpu ${copied ? "opacity-100" : "opacity-0 group-hover/msg:opacity-50 hover:opacity-100"}`}
+                    />
                     {/* Edit the last sent message: loads its text +
                         attachments into the composer (see ChatView's
                         edit wiring + useSessionMessages.editResend).

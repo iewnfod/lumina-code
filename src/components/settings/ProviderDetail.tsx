@@ -5,7 +5,7 @@ import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/p
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useCopy} from "../../hooks/useCopy.ts";
-import type {OpencodeApi} from "../../opencode/api.ts";
+import type {OpencodeApi} from "../../opencode/api/index.ts";
 import type {
     IntegrationInfo,
     IntegrationKeyMethod,

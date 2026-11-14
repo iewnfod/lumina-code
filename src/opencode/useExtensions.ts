@@ -1,7 +1,8 @@
 import {useCallback, useEffect, useRef, useState} from "react";
 import {warn as logWarn} from "@tauri-apps/plugin-log";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import {globalConfigTarget} from "./configFiles.ts";
+import {serializeConfigWrite} from "./pluginConfigShared.ts";
 import {useConnection} from "./connectionContext.tsx";
 import {
     disabledPluginIds,
@@ -200,26 +201,30 @@ export function useExtensions(open: boolean): ExtensionsState {
                 return next;
             });
             apply();
-            (async () => {
-                try {
-                    const raw = await readDocument(file);
-                    const text = merge(raw);
-                    if (text === null) throw "merge-refused";
-                    await current.writeTextFile(file, text);
-                } catch (e) {
-                    const reason: ToggleError = e === "read-failed" || e === "merge-refused" ? e : "write-failed";
-                    logWarn(`Plugin/MCP toggle on ${file} refused (${reason})`).catch(() => {});
-                    setErrors((prev) => new Map(prev).set(key, reason));
-                    reload();
-                } finally {
-                    inFlightRef.current.delete(key);
-                    setPending((prev) => {
-                        const next = new Set(prev);
-                        next.delete(key);
-                        return next;
-                    });
-                }
-            })();
+            // The whole read→merge→write batch rides the SHARED config
+            // write lock (pluginConfigShared): the lumina-tools and
+            // office-tools connect-time installers run their own
+            // batches against the same documents, and an unlocked batch
+            // interleaving between one of their reads and writes would
+            // clobber entries.
+            serializeConfigWrite(async () => {
+                const raw = await readDocument(file);
+                const text = merge(raw);
+                if (text === null) throw "merge-refused";
+                await current.writeTextFile(file, text);
+            }).catch((e) => {
+                const reason: ToggleError = e === "read-failed" || e === "merge-refused" ? e : "write-failed";
+                logWarn(`Plugin/MCP toggle on ${file} refused (${reason})`).catch(() => {});
+                setErrors((prev) => new Map(prev).set(key, reason));
+                reload();
+            }).finally(() => {
+                inFlightRef.current.delete(key);
+                setPending((prev) => {
+                    const next = new Set(prev);
+                    next.delete(key);
+                    return next;
+                });
+            });
         },
         [readDocument, reload],
     );

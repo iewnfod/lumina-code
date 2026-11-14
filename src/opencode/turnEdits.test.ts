@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import type {WorkspaceDiffEntry} from "./types.ts";
 import {applyTurnEditsBusEvent, ensureTurnEdits, summarizeTurnDiff} from "./turnEdits.ts";
 

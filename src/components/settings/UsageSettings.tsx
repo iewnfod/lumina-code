@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useMemo, useState} from "react";
 import {Tab, Tabs} from "@heroui/react";
 import {error as logError, info as logInfo} from "@tauri-apps/plugin-log";
-import type {OpencodeApi} from "../../opencode/api.ts";
+import type {OpencodeApi} from "../../opencode/api/index.ts";
 import type {SessionStatsInfo} from "../../opencode/types.ts";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";

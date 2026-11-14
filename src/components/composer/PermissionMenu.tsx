@@ -187,12 +187,11 @@ export default function PermissionMenu({
                         >
                             <div className="min-w-0 flex-1 flex flex-col leading-normal">
                                 <span className="text-xs truncate">{actionPhrase(s.action)}</span>
-                                <span
-                                    className="text-2xs font-mono opacity-60 truncate"
-                                    title={s.resource}
-                                >
-                                    {s.resource}
-                                </span>
+                                <Hint label={s.resource}>
+                                    <span className="text-2xs font-mono opacity-60 truncate">
+                                        {s.resource}
+                                    </span>
+                                </Hint>
                             </div>
                             <Hint label={t["Revoke"]}>
                                 <button

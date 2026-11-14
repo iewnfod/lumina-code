@@ -1054,6 +1054,9 @@ function makeWriteDocument(engines) {
             await fs.promises.writeFile(path.join(sidecarDir, sidecarName(resolved.fileName)), sidecar, "utf8");
           } catch (e) {
             // Best-effort: the document itself is fine without a preview.
+            // EXEMPT from the no-console rule (AGENTS.md §3.5): this runs
+            // inside the opencode SERVER's plugin runtime — no tauri
+            // plugin-log channel exists there, console is the only output.
             console.warn(`[office-tools] sidecar write failed: ${e?.message ?? e}`);
           }
           return {

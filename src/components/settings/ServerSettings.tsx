@@ -1,20 +1,18 @@
 import {useState} from "react";
 import {openExternalUrl} from "../../lib/openExternal.ts";
-import {error as logError, info as logInfo} from "@tauri-apps/plugin-log";
+import {error as logError} from "@tauri-apps/plugin-log";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {isMobileApp} from "../../lib/platform.ts";
 import {
     DEFAULT_SERVER_URL,
-    LuminaServerApi,
     SELF_HOST_DOC_URL,
-    clearServerConnection,
-    deviceLoginLabel,
     normalizeServerUrl,
-    setServerConnection,
     setServerRemoteEnabled,
     useServerConnection,
 } from "../../opencode/serverConnection.ts";
+import {nextServerFormState, performServerSignIn, signOutServer, validateSignInInput} from "../../opencode/serverAuth.ts";
+import {clearServerConnection, setServerConnection} from "../../opencode/serverConnection.ts";
 import {useFrpStatus} from "../../opencode/frpStatus.ts";
 import {clearMobileConnection, useMobileConnection} from "../../opencode/mobileConnection.ts";
 import Button from "../ui/Button.tsx";
@@ -49,15 +47,8 @@ function MobileServerPage() {
 
     const signOut = async () => {
         setBusy(true);
-        // Revoke server-side first (best effort), then forget locally —
-        // the desktop sign-out's order: a network failure must not
-        // strand the user in a broken state.
-        try {
-            await new LuminaServerApi(connection.url, connection.token).logout();
-        } catch (e) {
-            logError(`lumina-code-server logout failed (clearing anyway): ${e}`).catch(() => {});
-        }
-        clearMobileConnection();
+        await signOutServer(connection.url, connection.token, clearMobileConnection);
+        setBusy(false);
     };
 
     return (
@@ -106,36 +97,25 @@ export default function ServerSettings() {
     if (isMobileApp()) return <MobileServerPage/>;
 
     const toggleServer = () => {
-        // Both edges reset the field: expanding starts EMPTY (the
-        // official address must not sit in the custom box as if it
-        // were the user's own server); collapsing restores the
-        // official default so the collapsed form never signs in to a
-        // stale custom value.
-        setUrl(customServer ? DEFAULT_SERVER_URL : "");
-        setCustomServer(!customServer);
+        const next = nextServerFormState(customServer);
+        setUrl(next.url);
+        setCustomServer(next.custom);
     };
 
     const signIn = async () => {
-        const normalized = normalizeServerUrl(url);
-        if (normalized === null) {
-            setErrorText(t["Server address must start with http:// or https://"]);
-            return;
-        }
-        if (!username || !password) {
-            setErrorText(t["Enter a username and password"]);
+        const checked = validateSignInInput(url, username, password);
+        if ("error" in checked) {
+            setErrorText(checked.error === "bad-url"
+                ? t["Server address must start with http:// or https://"]
+                : t["Enter a username and password"]);
             return;
         }
         setBusy(true);
         setErrorText(null);
         try {
-            const login = await LuminaServerApi.login(
-                normalized,
-                username,
-                password,
-                await deviceLoginLabel(),
-            );
+            const login = await performServerSignIn(checked.url, username, password);
             setServerConnection({
-                url: normalized,
+                url: checked.url,
                 token: login.token,
                 username: login.username,
                 remoteEnabled: false,
@@ -144,7 +124,6 @@ export default function ServerSettings() {
             setCustomServer(false);
             setUsername("");
             setPassword("");
-            logInfo(`Signed in to lumina-code-server at ${normalized}`).catch(() => {});
         } catch (e) {
             setErrorText(String(e));
             logError(`lumina-code-server sign-in failed: ${e}`).catch(() => {});
@@ -156,14 +135,7 @@ export default function ServerSettings() {
     const signOut = async () => {
         if (!connection) return;
         setBusy(true);
-        // Revoke server-side first (best effort), then forget locally —
-        // a network failure must not strand the user in a broken state.
-        try {
-            await new LuminaServerApi(connection.url, connection.token).logout();
-        } catch (e) {
-            logError(`lumina-code-server logout failed (clearing anyway): ${e}`).catch(() => {});
-        }
-        clearServerConnection();
+        await signOutServer(connection.url, connection.token, clearServerConnection);
         setBusy(false);
     };
 

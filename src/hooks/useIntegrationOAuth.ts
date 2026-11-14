@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useState} from "react";
 import {openExternalUrl} from "../lib/openExternal.ts";
 import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
-import type {OpencodeApi} from "../opencode/api.ts";
+import type {OpencodeApi} from "../opencode/api/index.ts";
 import type {IntegrationOAuthMethod, OAuthAttempt} from "../opencode/types.ts";
 
 /** One OAuth flow's tracked state — bound to its integration + method

@@ -3,7 +3,7 @@ import {motion} from "framer-motion";
 import {ChartPie, ChevronRight, Cpu, Info, Keyboard, Puzzle, Server as ServerIcon, Settings as SettingsIcon} from "lucide-react";
 import {Tab, Tabs} from "@heroui/react";
 import {useColors} from "../../hooks/colors.tsx";
-import type {OpencodeApi} from "../../opencode/api.ts";
+import type {OpencodeApi} from "../../opencode/api/index.ts";
 import {useI18n, type TranslationKey} from "../../hooks/i18n.tsx";
 import {useBackLevel} from "../../hooks/useBackLevel.ts";
 import {usePhoneLayout} from "../../hooks/useLayoutMode.ts";

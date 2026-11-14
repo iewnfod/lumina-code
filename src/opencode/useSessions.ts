@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useRef, useState} from "react";
 import {error as logError, info, warn as logWarn} from "@tauri-apps/plugin-log";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import {applyStoppingBusEvent} from "./sessionStopping.ts";
 import {applyQueueBusEvent} from "./promptQueue.ts";
 import {applyTurnEditsBusEvent} from "./turnEdits.ts";

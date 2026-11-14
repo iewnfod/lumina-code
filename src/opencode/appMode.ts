@@ -2,7 +2,7 @@ import {useEffect, useSyncExternalStore} from "react";
 import {warn} from "@tauri-apps/plugin-log";
 import {createPersistedStore} from "../lib/persistedStore.ts";
 import {createModuleStore} from "../lib/moduleStore.ts";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import type {OpencodeSession} from "./types.ts";
 import {LUMINA_DAILY_AGENT_ID} from "./toolPluginConfig.ts";
 

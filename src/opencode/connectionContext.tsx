@@ -1,5 +1,5 @@
 import {createContext, useContext, useMemo, type ReactNode} from "react";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import type {OpencodeStatus, OpencodeEventHandler} from "./useOpencode.ts";
 
 /**

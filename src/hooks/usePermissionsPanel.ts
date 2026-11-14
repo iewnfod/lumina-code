@@ -3,7 +3,7 @@ import {error as logError, info as logInfo} from "@tauri-apps/plugin-log";
 import {useConnection} from "../opencode/connectionContext.tsx";
 import {useAppMode} from "../opencode/appMode.ts";
 import {resolveDefaultWorkspace} from "../opencode/defaultWorkspace.ts";
-import type {OpencodeApi} from "../opencode/api.ts";
+import type {OpencodeApi} from "../opencode/api/index.ts";
 import {projectIdForDirectory} from "../opencode/worktreeSessions.ts";
 import {
     readProjectPermissions,

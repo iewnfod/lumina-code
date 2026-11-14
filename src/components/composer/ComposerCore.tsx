@@ -24,7 +24,7 @@ import {
     type EditorState,
 } from "lexical";
 import {useConnection} from "../../opencode/connectionContext.tsx";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {isMacOS, isMobileApp} from "../../lib/platform.ts";
 import {clearDraft, saveDraftEditorState} from "./composerDrafts.ts";
 import type {
@@ -303,6 +303,11 @@ export default function ComposerCore({
                 }
                 clearAfterSend();
             })
+            .catch((e) => {
+                // A throwing onSubmit must not become an unhandled
+                // rejection — the buffer stays for a retry either way.
+                error(`Composer submit failed: ${e}`).catch(() => {});
+            })
             .finally(() => {
                 submitInFlightRef.current = false;
             });
@@ -516,7 +521,7 @@ export default function ComposerCore({
                         // are the STABLE hooks mobile.css sizes the
                         // resting box from (Tailwind's generated class
                         // names are not a contract).
-                        className={`lum-composer-input block w-full resize-none bg-transparent outline-none px-4 pt-3 pb-1.5 text-sm leading-5 whitespace-pre-wrap break-words overflow-y-auto min-h-[38px] lum-fade-md ${disabled ? "opacity-50" : ""}${inputEdges.top ? " lum-fade-top" : ""}${inputEdges.bottom ? " lum-fade-bottom" : ""}`}
+                        className={`lum-composer-input block w-full resize-none bg-transparent outline-none px-4 pt-3 pb-1.5 text-sm leading-5 whitespace-pre-wrap break-words overflow-y-auto min-h-[38px] lum-fade-md ${disabled ? "opacity-50" : ""}${fadeClasses(inputEdges)}`}
                         style={{maxHeight: MAX_LINES * LINE_HEIGHT + 18}}
                         readOnly={disabled}
                         spellCheck={false}

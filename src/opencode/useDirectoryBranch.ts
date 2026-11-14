@@ -1,7 +1,7 @@
 import {useEffect, useSyncExternalStore} from "react";
 import {debug as logDebug} from "@tauri-apps/plugin-log";
 import {createKeyedStore} from "../lib/moduleStore.ts";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import {parseGitHead, shortSha} from "./gitInfo.ts";
 import {
     subscribeWorktreeDirs,

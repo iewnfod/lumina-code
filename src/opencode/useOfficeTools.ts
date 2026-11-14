@@ -9,7 +9,7 @@ import officePdfVendorSource from "../plugins/officeToolsVendor/pdf.min.mjs?raw"
 import officePdfWorkerSource from "../plugins/officeToolsVendor/pdf.worker.mjs?raw";
 import officePdfDataVendorSource from "../plugins/officeToolsVendor/pdfData.mjs?raw";
 import officePptxVendorSource from "../plugins/officeToolsVendor/pptxgenjs.mjs?raw";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import {globalConfigTarget} from "./configFiles.ts";
 import {useConnection} from "./connectionContext.tsx";
 import {

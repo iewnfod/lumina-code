@@ -2,7 +2,7 @@ import {useSyncExternalStore} from "react";
 import {createListeners} from "../lib/moduleStore.ts";
 import {nextLocalId} from "./chatMessages.ts";
 import {warn as logWarn} from "@tauri-apps/plugin-log";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import type {OpencodeEvent} from "./eventStream.ts";
 import {takePendingCommand} from "./pendingCommands.ts";
 import type {ComposerAttachment, PendingCommand, SessionInboxItem, UserMessageFile} from "./types.ts";

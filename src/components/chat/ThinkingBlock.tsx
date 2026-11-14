@@ -2,6 +2,7 @@ import {Brain} from "lucide-react";
 import type {AssistantReasoningPart} from "../../opencode/types.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
+import {fadeClasses} from "../../hooks/useScrollEdges.ts";
 import {AUTO_EXPAND_MIN_DWELL_MS, useExpansion} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 
@@ -43,7 +44,7 @@ export default function ThinkingBlock({part, stateKey, live}: {part: AssistantRe
             <div
                 ref={thinkScroll}
                 onScroll={thinkScrollHandler}
-                className={`ml-5 mt-0.5 mb-1 text-sm whitespace-pre-wrap break-words max-h-64 overflow-y-auto${tailGuard ? " pb-6" : ""} opacity-60 leading-relaxed lum-fade-lg${tailTop ? " lum-fade-top" : ""}${tailBottom ? " lum-fade-bottom" : ""}`}
+                className={`ml-5 mt-0.5 mb-1 text-sm whitespace-pre-wrap break-words max-h-64 overflow-y-auto${tailGuard ? " pb-6" : ""} opacity-60 leading-relaxed lum-fade-lg${fadeClasses({top: tailTop, bottom: tailBottom})}`}
             >
                 {part.text}
             </div>

@@ -6,7 +6,7 @@ import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {useBackLevel} from "../../hooks/useBackLevel.ts";
 import {isMobileApp} from "../../lib/platform.ts";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {useScrollEdges, fadeClasses} from "../../hooks/useScrollEdges.ts";
 import {useOutsideDismiss} from "../../hooks/useOutsideDismiss.ts";
 import {useStatsExpanded, useStatsPanelMode, usePendingStatsDrill, clearStatsDrill} from "../../hooks/useStatsPanelMode.ts";
 import type {WorkspaceDiffEntry} from "../../opencode/types.ts";
@@ -582,9 +582,7 @@ const SessionStatsCard = memo(function SessionStatsCard({
                     <div
                         ref={bodyEdges.ref}
                         onScroll={bodyEdges.onScroll}
-                        className={`lum-stats-body min-h-0 flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-3 lum-fade-md${
-                            bodyEdges.top ? " lum-fade-top" : ""
-                        }${bodyEdges.bottom ? " lum-fade-bottom" : ""}`}
+                        className={`lum-stats-body min-h-0 flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-3 lum-fade-md${fadeClasses(bodyEdges)}`}
                     >
                         {view.kind === "overview" && (
                             <>

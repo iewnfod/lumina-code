@@ -1,6 +1,6 @@
 import {useEffect, useState} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {OpencodeAgent, OpencodeModel, OpencodeProvider} from "./types.ts";
 

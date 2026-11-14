@@ -4,7 +4,7 @@ import {ScanEye} from "lucide-react";
 import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
-import type {OpencodeApi} from "../../opencode/api.ts";
+import type {OpencodeApi} from "../../opencode/api/index.ts";
 import {whileHoverTap} from "../../lib/motion.ts";
 import {disabledModelKey, useDisabledModels} from "../../hooks/useDisabledModels.ts";
 import {

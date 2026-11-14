@@ -3,7 +3,6 @@ import {Bot} from "lucide-react";
 import {info as logInfo} from "@tauri-apps/plugin-log";
 import {useTranscriptScroll} from "../../hooks/useTranscriptScroll.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
-import {collectSessionSubagents, type SessionSubagentRef} from "../../opencode/sessionActivity.ts";
 import {useCatalog} from "../../opencode/catalogContext.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {usePendingRequests, useSessionData, useSessionTranscript} from "../../opencode/sessionDataContext.tsx";
@@ -17,16 +16,14 @@ import {
 } from "../../opencode/promptQueue.ts";
 import {divertAttachmentsForSend, modelAcceptsImages} from "../../opencode/visionAttachments.ts";
 import type {
-    ChatMessage,
     ChatUserMessage,
     ComposerAttachment,
     ComposerFileRef,
     PendingCommand,
-    SessionModelRef,
-    SessionUsage,
 } from "../../opencode/types.ts";
 import {appendExpeditedBubble, dropOptimisticBubble, settleExpeditedBubble} from "../../opencode/useSessionMessages.ts";
 import {filesFromMessage} from "../composer/composerAttachments.ts";
+import {useComposerSelection} from "../composer/selectionContext.tsx";
 import {lastContextMessage, type ContextUsage} from "./usageStats.ts";
 import TranscriptList from "./TranscriptList.tsx";
 import {ExitList} from "../ui/ExitPresence.tsx";
@@ -37,6 +34,8 @@ import {useGateCards} from "./useGateCards.ts";
 import {useEditLastMessage} from "./useEditLastMessage.ts";
 import {PermissionCard} from "./PermissionCard.tsx";
 import {groupPermissionRequests, groupReplyPlan} from "./permissionGroups.ts";
+import {useSubagentRequests} from "./useSubagentRequests.ts";
+import type {SessionSubagentRef} from "../../opencode/sessionActivity.ts";
 import {PlanApprovalCard} from "./PlanApprovalCard.tsx";
 import {WorkReviewCard} from "./WorkReviewCard.tsx";
 import {QuestionCard} from "./QuestionCard.tsx";
@@ -68,39 +67,12 @@ const ChatView = memo(function ChatView({
     sessionId,
     busy,
     disabled,
-    agent,
-    model,
-    onAgentChange,
-    onModelChange,
-    directory,
-    onDirectoryChange,
-    stagedBranch,
-    onStagedBranchChange,
-    onOpenModelConfig,
-    usage,
     approveAgent,
 }: {
     sessionId: string;
     busy: boolean;
     /** No connection. */
     disabled: boolean;
-    agent: string;
-    model: SessionModelRef | null;
-    onAgentChange: (agent: string) => void;
-    onModelChange: (model: SessionModelRef) => void;
-    /** The session's working directory (null = server default). */
-    directory: string | null;
-    onDirectoryChange: (directory: string | null) => void;
-    /** Staged branch binding — only meaningful before the first message
-     *  (the picker is pre-session), threaded for the composer's picker. */
-    stagedBranch: string | null;
-    onStagedBranchChange: (branch: string | null) => void;
-    /** Opens the settings modal on its Model tab (model/provider config). */
-    onOpenModelConfig: () => void;
-    /** The session's cumulative usage — tooltip reference lines for the
-     *  composer's context ring (which itself reads the transcript's last
-     *  measured step; null on the welcome screen). */
-    usage: SessionUsage | null;
     /** Agent a plan approval switches this session into — build for dev
      *  sessions, lumina-daily for daily ones (useSessionFlow derives it
      *  from the session's mode; switching a daily session to build would
@@ -110,6 +82,10 @@ const ChatView = memo(function ChatView({
     const t = useI18n();
     const {api} = useConnection();
     const {models} = useCatalog();
+    // The composer selection channel (App-provided): agent/directory feed
+    // the gate cards below; the rest (model/branch/usage/pickers) is the
+    // composer's own business, read inside ChatInput.
+    const {agent, directory, model} = useComposerSelection();
     const {permissions: allPermissions, forms: allForms, replyPermission, replyForm, cancelForm} = useSessionData();
     const {
         messages,
@@ -136,41 +112,9 @@ const ChatView = memo(function ChatView({
         () => groupPermissionRequests(pendingPermissions),
         [pendingPermissions],
     );
-    // Subagent children's asks: a child session blocked on the server
-    // (its permission/question waiting) surfaces HERE, in the
-    // conversation the user is watching — the sidebar lists root
-    // sessions only, so the child has no row to badge or open. The
-    // child link (spawn part metadata.sessionID) is in the store before
-    // the child's first ask can arrive, so this derivation is never
-    // late. Same collector + identity discipline as the stats panel
-    // (useSessionActivity re-runs it per frame too).
-    const subagentChildren = useMemo(
-        () => collectSessionSubagents(messages as ChatMessage[]),
-        [messages],
-    );
-    const childById = useMemo(
-        () => new Map(subagentChildren.map((child) => [child.id, child])),
-        [subagentChildren],
-    );
-    const childPermissionGroups = useMemo(() => {
-        if (subagentChildren.length === 0) return [];
-        return groupPermissionRequests(allPermissions.filter((p) => childById.has(p.sessionID))).map(
-            (group) => ({
-                key: `${group.requests[0].sessionID}:${group.key}`,
-                group,
-                child: childById.get(group.requests[0].sessionID)!,
-            }),
-        );
-    }, [allPermissions, subagentChildren, childById]);
-    const childForms = useMemo(
-        () =>
-            subagentChildren.length === 0
-                ? []
-                : allForms
-                      .filter((f) => childById.has(f.sessionID))
-                      .map((form) => ({form, child: childById.get(form.sessionID)!})),
-        [allForms, subagentChildren, childById],
-    );
+    // Subagent children's asks: derived in useSubagentRequests (same
+    // collector + identity discipline as the stats panel).
+    const {childPermissionGroups, childForms} = useSubagentRequests(messages, allPermissions, allForms);
     // Stop pressed, run not yet unwound — the tail's indicator says
     // "Stopping" through the interrupt latency window (sessionStopping.ts).
     const stopping = useSessionStopping(sessionId);
@@ -681,17 +625,7 @@ const ChatView = memo(function ChatView({
                     onInterrupt={handleInterrupt}
                     draftLoad={queueEdit}
                     onDraftLoaded={handleDraftLoaded}
-                    agent={agent}
-                    model={model}
-                    onAgentChange={onAgentChange}
-                    onModelChange={onModelChange}
                     conversationStarted={hasConversation}
-                    directory={directory}
-                    onDirectoryChange={onDirectoryChange}
-                    stagedBranch={stagedBranch}
-                    onStagedBranchChange={onStagedBranchChange}
-                    onOpenModelConfig={onOpenModelConfig}
-                    usage={usage}
                     contextUsage={contextUsage}
                     editMessage={editMessage}
                     onCancelEdit={onCancelEdit}

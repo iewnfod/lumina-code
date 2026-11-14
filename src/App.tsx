@@ -1,4 +1,4 @@
-import {useCallback, useMemo, useState} from "react";
+import {useCallback, useMemo} from "react";
 import TitleBar from "./components/TitleBar.tsx";
 import SessionSurface from "./components/SessionSurface.tsx";
 import StatsCardSwap from "./components/StatsCardSwap.tsx";
@@ -7,6 +7,7 @@ import SidebarResizer from "./components/SidebarResizer.tsx";
 import WelcomeScreen from "./components/WelcomeScreen.tsx";
 import BootScreen from "./components/BootScreen.tsx";
 import ChatView from "./components/chat/ChatView.tsx";
+import {ComposerSelectionProvider, useComposerSelectionValue} from "./components/composer/selectionContext.tsx";
 import WorkspaceStatsCard from "./components/stats/WorkspaceStatsCard.tsx";
 import SettingsPage, {settingsTabLabel, type SettingsTab} from "./components/settings/SettingsPage.tsx";
 import ImportSessionsModal from "./components/ImportSessionsModal.tsx";
@@ -46,6 +47,7 @@ import {ensureSessionSeeded, interruptSessionRun} from "./opencode/useSessionMes
 import {useWorktreeDirs} from "./opencode/worktreeSessions.ts";
 import {flatSessionOrder, cycleSessionId} from "./components/sessionGrouping.ts";
 import {useKeyboardShortcuts} from "./hooks/useKeyboardShortcuts.ts";
+import {useAppSurfaces} from "./hooks/useAppSurfaces.ts";
 import {requestComposerFocus} from "./hooks/useComposerFocus.ts";
 import {prefetchSessionActivity} from "./opencode/useSessionActivity.ts";
 import type {SessionUsage} from "./opencode/types.ts";
@@ -242,18 +244,13 @@ function AppBody({
     // short-circuits re-probes.
     useGitProbe(api);
 
-    // The settings PAGE (the sidebar's bottom-left gear toggles it, and
-    // the model picker's empty-state entry deep-links to its Model
-    // tab): a full-area surface OVER the conversation canvas — the
-    // conversation stays mounted underneath, its transcripts and
-    // streamed deltas untouched. App owns open + tab so entry points
-    // can preselect the pane. A NULL tab is the mobile root (the
-    // settings CATEGORY LIST — the second-level page navigation); the
-    // desktop page reads it as "general".
-    const [settings, setSettings] = useState<{open: boolean; tab: SettingsTab | null}>({open: false, tab: null});
-    const openSettings = useCallback((tab: SettingsTab | null = null) => {
-        setSettings({open: true, tab});
-    }, []);
+    // Overlay-surface orchestration (settings page / mobile drawer /
+    // import modal) — hooks/useAppSurfaces.ts.
+    const {
+        settings, openSettings, closeSettings, toggleSettings, setSettingsTab,
+        drawerOpen, setDrawerOpen, closeDrawer,
+        importOpen, setImportOpen,
+    } = useAppSurfaces();
 
     // The MOBILE chrome splits along the device/layout line (see
     // hooks/useLayoutMode.ts — tablet mode): `mobile` keeps the DEVICE
@@ -273,19 +270,11 @@ function AppBody({
     // row-level pin button is desktop-only; the sidebar reads the same
     // store through SessionBar's own subscription).
     const pinnedIds = useSessionPins();
-    const [drawerOpen, setDrawerOpen] = useState(false);
-    const closeDrawer = useCallback(() => setDrawerOpen(false), []);
     // SYSTEM BACK closes the drawer (phone layout): it is the top page
     // level while open — same as tapping the scrim.
     useBackLevel(phoneLayout && drawerOpen, closeDrawer);
-    const closeSettings = useCallback(() => {
-        setSettings((prev) => ({...prev, open: false}));
-    }, []);
     // The sidebar gear's toggle: opening RESUMES the last-viewed pane
     // (the tab survives a close; only a deep-link overrides it).
-    const toggleSettings = useCallback(() => {
-        setSettings((prev) => (prev.open ? {...prev, open: false} : {open: true, tab: prev.tab}));
-    }, []);
     // Sidebar navigation LEAVES the settings surface: clicking a session
     // (or new-session) is an explicit intent to view the conversation —
     // the settings page is a PEER surface of the session/welcome swap,
@@ -302,7 +291,7 @@ function AppBody({
         closeSettings();
     }, [newSession, closeSettings]);
     const changeSettingsTab = useCallback((tab: SettingsTab | null) => {
-        setSettings((prev) => (prev.tab === tab ? prev : {...prev, tab}));
+        setSettingsTab(tab);
     }, []);
     // Stable so the memoized ChatView/ChatInput subtree skips re-rendering.
     const openModelConfig = useCallback(() => openSettings("model"), [openSettings]);
@@ -312,9 +301,6 @@ function AppBody({
     // The modal consumes the session-data context itself; App owns only
     // the open flag, like the settings modal. (The Plugins & MCP manager
     // moved INTO the settings page — the extensions tab.)
-    const [importOpen, setImportOpen] = useState(false);
-    const openImportPicker = useCallback(() => setImportOpen(true), []);
-    const closeImportPicker = useCallback(() => setImportOpen(false), []);
 
     const sessionInfos = sessions.map((s) => ({
         id: s.id,
@@ -409,6 +395,37 @@ function AppBody({
         ? (settings.tab != null ? settingsTabLabel(settings.tab, t) : t["Settings"])
         : null;
 
+    // A branch pick on an EXISTING (empty) session cannot rehome it —
+    // the session's directory is immutable server-side — so it takes the
+    // changeDirectory route: drop the empty session (nothing to lose
+    // before the first message), stage the branch, back to the welcome
+    // screen where sendFirst honors it. On the welcome screen (no
+    // activeId) the wrapper degrades to a plain stage.
+    const handleStagedBranchChange = useCallback((branch: string | null) => {
+        if (branch !== null && activeId) {
+            changeDirectory(activeDirectory);
+        }
+        changeStagedBranch(branch);
+    }, [activeId, activeDirectory, changeDirectory, changeStagedBranch]);
+
+    // The composer's selection channel (selectionContext): App-level
+    // state, provided once instead of threading through ChatView →
+    // ChatInput → ComposerToolbar. directory/usage switch source with
+    // the surface (session-bound vs the welcome screen's staged picks),
+    // exactly as the two former prop call sites passed them.
+    const composerSelection = useComposerSelectionValue({
+        agent: effectiveAgent,
+        model: effectiveModel,
+        onAgentChange: changeAgent,
+        onModelChange: changeModel,
+        directory: activeSession ? activeDirectory : pendingDirectory,
+        onDirectoryChange: changeDirectory,
+        stagedBranch: pendingBranch,
+        onStagedBranchChange: handleStagedBranchChange,
+        onOpenModelConfig: openModelConfig,
+        usage: activeUsage,
+    });
+
     return (
         <div
             className="relative w-full h-full overflow-hidden flex flex-row"
@@ -453,9 +470,9 @@ function AppBody({
                             closeDrawer();
                         } : startNewSession}
                         onImport={phoneLayout ? () => {
-                            openImportPicker();
+                            setImportOpen(true);
                             closeDrawer();
-                        } : openImportPicker}
+                        } : () => setImportOpen(true)}
                         onSettings={phoneLayout ? () => {
                             toggleSettings();
                             closeDrawer();
@@ -577,6 +594,12 @@ function AppBody({
                                     it is always-ready, so it enters
                                     right after the exit with no loading
                                     phase. */}
+                                {/* The composer's selection channel — provided
+                                    around the surface swap so BOTH surfaces
+                                    (welcome composer + session transcript)
+                                    and every picker below them read the same
+                                    App-level state (selectionContext). */}
+                                <ComposerSelectionProvider value={composerSelection}>
                                 <SessionSurface
                                     targetKey={settings.open ? "settings" : activeSession ? `session-${activeSession.id}` : "welcome"}
                                     render={(key) =>
@@ -594,48 +617,18 @@ function AppBody({
                                                 disabled={!connected}
                                                 onSend={(text, files, fileRefs, command) => void sendFirst(text, files, fileRefs, command)}
                                                 sendBlocked={sendBlocked}
-                                                agent={effectiveAgent}
-                                                model={effectiveModel}
-                                                onAgentChange={changeAgent}
-                                                onModelChange={changeModel}
-                                                directory={pendingDirectory}
-                                                onDirectoryChange={changeDirectory}
-                                                stagedBranch={pendingBranch}
-                                                onStagedBranchChange={changeStagedBranch}
-                                                onOpenModelConfig={openModelConfig}
                                             />
                                         ) : (
                                             <ChatView
                                                 sessionId={activeSession?.id ?? ""}
                                                 busy={busy}
                                                 disabled={!connected}
-                                                agent={effectiveAgent}
-                                                model={effectiveModel}
-                                                onAgentChange={changeAgent}
-                                                onModelChange={changeModel}
-                                                directory={activeDirectory}
-                                                onDirectoryChange={changeDirectory}
                                                 approveAgent={approveAgent}
-                                                stagedBranch={pendingBranch}
-                                                onStagedBranchChange={(branch) => {
-                                                    // A branch pick on an EXISTING (empty) session
-                                                    // cannot rehome it — the session's directory
-                                                    // is immutable server-side — so it takes the
-                                                    // changeDirectory route: drop the empty
-                                                    // session (nothing to lose before the first
-                                                    // message), stage the branch, back to the
-                                                    // welcome screen where sendFirst honors it.
-                                                    if (branch !== null && activeId) {
-                                                        changeDirectory(activeDirectory);
-                                                    }
-                                                    changeStagedBranch(branch);
-                                                }}
-                                                onOpenModelConfig={openModelConfig}
-                                                usage={activeUsage}
                                             />
                                         )
                                     }
                                 />
+                                </ComposerSelectionProvider>
                                 {/* Workspace stats panel — shows the DIRECTORY's
                                     working-copy diff plus the ACTIVE session's
                                     terminals/subagents. Keyed by directory so
@@ -687,7 +680,7 @@ function AppBody({
             {/* The session-import picker (the sidebar's Import row). */}
             <ImportSessionsModal
                 open={importOpen}
-                onClose={closeImportPicker}
+                onClose={() => setImportOpen(false)}
             />
             {/* Linux window outline: some desktop environments draw no
                 compositor shadow, so the borderless window's edge is

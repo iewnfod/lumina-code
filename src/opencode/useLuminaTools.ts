@@ -4,7 +4,7 @@ import {error as logError, info, warn as logWarn} from "@tauri-apps/plugin-log";
 // global config's `plugins/` (the plan_mode tool ships always-on, so the
 // app ensures the install instead of waiting for a settings save).
 import luminaToolsPluginSource from "../plugins/luminaTools.js?raw";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import {globalConfigTarget} from "./configFiles.ts";
 import {useConnection} from "./connectionContext.tsx";
 import {

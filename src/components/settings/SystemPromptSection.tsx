@@ -1,7 +1,7 @@
 import {useEffect, useState} from "react";
 import {info, warn as logWarn, error as logError} from "@tauri-apps/plugin-log";
-import type {OpencodeApi} from "../../opencode/api.ts";
-import {globalConfigTarget} from "../../opencode/configFiles.ts";
+import type {OpencodeApi} from "../../opencode/api/index.ts";
+import {readGlobalConfig} from "../../opencode/configFiles.ts";
 import {
     luminaToolsPluginPath,
     readLuminaToolsOptions,
@@ -52,38 +52,32 @@ export default function SystemPromptSection({api}: {api: OpencodeApi | null}) {
     useEffect(() => {
         if (!api) return;
         let cancelled = false;
-        api.listConfigEntries().then((entries) => {
-            const target = globalConfigTarget(entries ?? []);
-            if (!target) {
-                if (!cancelled) setLoadFailed(true);
-                return;
-            }
-            if (target.jsonc) {
-                if (!cancelled) setLocked(true);
-                return;
-            }
-            const name = target.file.split("/").pop() ?? "opencode.json";
-            api.readTextFile(target.directory, name).then((text) => {
-                if (cancelled) return;
-                // null (absent) and "" (empty file) both mean "nothing
-                // configured yet"; a null parse means JSONC/garbage — the
-                // installer would refuse the write, so degrade to locked.
-                const options = text === null || text === "" ? {} : readLuminaToolsOptions(text, luminaToolsPluginPath(target.directory));
-                if (options === null) {
-                    setLocked(true);
-                    return;
-                }
-                setSaved(options.systemPrompt?.trim() ?? "");
-                setDraft(options.systemPrompt?.trim() ?? "");
-            }).catch((e) => {
-                if (cancelled) return;
+        readGlobalConfig(api).then((doc) => {
+            if (cancelled) return;
+            if (!doc) {
                 setLoadFailed(true);
-                logError(`Failed to read global config for the system prompt: ${e}`).catch(() => {});
-            });
+                return;
+            }
+            if (doc.target.jsonc) {
+                setLocked(true);
+                return;
+            }
+            // null (absent) and "" (empty file) both mean "nothing
+            // configured yet"; a null parse means JSONC/garbage — the
+            // installer would refuse the write, so degrade to locked.
+            const options = doc.text === null || doc.text === ""
+                ? {}
+                : readLuminaToolsOptions(doc.text, luminaToolsPluginPath(doc.target.directory));
+            if (options === null) {
+                setLocked(true);
+                return;
+            }
+            setSaved(options.systemPrompt?.trim() ?? "");
+            setDraft(options.systemPrompt?.trim() ?? "");
         }).catch((e) => {
             if (cancelled) return;
             setLoadFailed(true);
-            logError(`Failed to discover config location for the system prompt: ${e}`).catch(() => {});
+            logError(`Failed to read global config for the system prompt: ${e}`).catch(() => {});
         });
         return () => {
             cancelled = true;
@@ -104,15 +98,13 @@ export default function SystemPromptSection({api}: {api: OpencodeApi | null}) {
     const save = () => {
         if (!api || busy || saved === null) return;
         setBusy(true);
-        api.listConfigEntries().then((entries) => {
-            const target = globalConfigTarget(entries ?? []);
-            if (!target) throw new Error("no-config-target");
-            const name = target.file.split("/").pop() ?? "opencode.json";
-            return api.readTextFile(target.directory, name).then((text) => {
-                const current = text === null || text === "" ? {} : readLuminaToolsOptions(text, luminaToolsPluginPath(target.directory));
-                if (current === null) throw new Error("invalid-config");
-                return ensureLuminaToolsPlugin(api, withSystemPrompt(current, draft));
-            });
+        readGlobalConfig(api).then((doc) => {
+            if (!doc) throw new Error("no-config-target");
+            const current = doc.text === null || doc.text === ""
+                ? {}
+                : readLuminaToolsOptions(doc.text, luminaToolsPluginPath(doc.target.directory));
+            if (current === null) throw new Error("invalid-config");
+            return ensureLuminaToolsPlugin(api, withSystemPrompt(current, draft));
         }).then((result) => {
             if (result.status === "skipped") {
                 setActionError(`${t["Save failed"]}: ${result.reason}`);

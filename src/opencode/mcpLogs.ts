@@ -1,5 +1,5 @@
 import {error as logError, warn as logWarn} from "@tauri-apps/plugin-log";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 
 /**
  * Reading ONE MCP server's log out of the opencode main log — the only

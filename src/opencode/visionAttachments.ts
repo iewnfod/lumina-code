@@ -1,6 +1,6 @@
 import {error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
 import {createPersistedStore} from "../lib/persistedStore.ts";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import {globalConfigTarget} from "./configFiles.ts";
 import type {ComposerAttachment, OpencodeModel, SessionModelRef} from "./types.ts";
 

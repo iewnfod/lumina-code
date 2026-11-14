@@ -3,9 +3,10 @@ import {useCallback, useEffect, useRef, useState} from "react";
 import Switch from "./Switch.tsx";
 import SectionHeader from "./SectionHeader.tsx";
 import {Reveal} from "../ui/ExitPresence.tsx";
+import Hint from "../ui/Hint.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {folderLabel} from "../../lib/path.ts";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import {fetchMcpLogs, mcpLogFile, resolveOpencodeDataDir, type McpLogLine} from "../../opencode/mcpLogs.ts";
@@ -44,7 +45,9 @@ function StatusPill({status, error}: {status: string; error?: string}) {
         <span className="inline-flex items-center gap-1.5 text-2xs shrink-0" style={{color}}>
             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{background: color}}/>
             {error != null ? (
-                <span className="max-w-56 truncate" title={error}>{label}</span>
+                <Hint label={error} className="max-w-56">
+                    <span className="truncate">{label}</span>
+                </Hint>
             ) : label}
         </span>
     );
@@ -139,7 +142,7 @@ function McpLogPanel({
             <div
                 ref={edges.ref}
                 onScroll={edges.onScroll}
-                className={`max-h-60 overflow-y-auto px-2.5 pb-2 lum-fade-md flex flex-col${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
+                className={`max-h-60 overflow-y-auto px-2.5 pb-2 lum-fade-md flex flex-col${fadeClasses(edges)}`}
             >
                 {loading ? (
                     <div className="lum-loading py-2" aria-label={t["Loading..."]}/>
@@ -228,7 +231,9 @@ function PluginRow({
                     ) : null}
                 </div>
                 {detail != null && (
-                    <p className="text-2xs opacity-55 truncate" title={detail === row.state?.error ? detail : undefined}>{detail}</p>
+                    <Hint label={detail === row.state?.error ? detail : null}>
+                        <p className="text-2xs opacity-55 truncate">{detail}</p>
+                    </Hint>
                 )}
                 {error != null && <ToggleErrorNote reason={error}/>}
             </div>
@@ -281,7 +286,9 @@ function McpRow({
                         <StatusPill status={server.status.status}/>
                     </div>
                     {server.status.error ? (
-                        <p className="text-2xs truncate opacity-55" title={server.status.error}>{server.status.error}</p>
+                        <Hint label={server.status.error}>
+                            <p className="text-2xs truncate opacity-55">{server.status.error}</p>
+                        </Hint>
                     ) : null}
                     {error != null && <ToggleErrorNote reason={error}/>}
                 </div>
@@ -325,7 +332,7 @@ export default function ExtensionsSettings() {
             <div
                 ref={edges.ref}
                 onScroll={edges.onScroll}
-                className={`flex-1 min-h-0 overflow-y-auto lum-fade-md flex flex-col gap-1${edges.top ? " lum-fade-top" : ""}${edges.bottom ? " lum-fade-bottom" : ""}`}
+                className={`flex-1 min-h-0 overflow-y-auto lum-fade-md flex flex-col gap-1${fadeClasses(edges)}`}
             >
                 <SectionHeader label={t["Plugins"]}/>
                 {loading && plugins.length === 0 && mcpServers.length === 0 ? (

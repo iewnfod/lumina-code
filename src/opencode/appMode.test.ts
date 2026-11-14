@@ -87,7 +87,7 @@ function loadModule(tag: string): Promise<AppModeModule> {
     return import(`./appMode.ts?${tag}`) as Promise<AppModeModule>;
 }
 
-function probeApi(exit: number | Error): {api: import("./api.ts").OpencodeApi; commands: string[]} {
+function probeApi(exit: number | Error): {api: import("./api/index.ts").OpencodeApi; commands: string[]} {
     const commands: string[] = [];
     const api = {
         getLocation: () => Promise.resolve({directory: "/home/u"}),
@@ -100,7 +100,7 @@ function probeApi(exit: number | Error): {api: import("./api.ts").OpencodeApi; c
             assert.equal(id, "sh1");
             return exit instanceof Error ? Promise.reject(exit) : Promise.resolve({exit, output: ""});
         },
-    } as unknown as import("./api.ts").OpencodeApi;
+    } as unknown as import("./api/index.ts").OpencodeApi;
     return {api, commands};
 }
 

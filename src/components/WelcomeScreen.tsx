@@ -2,12 +2,13 @@ import type {
     ComposerAttachment,
     ComposerFileRef,
     PendingCommand,
-    SessionModelRef,
 } from "../opencode/types.ts";
+import {useComposerSelection} from "./composer/selectionContext.tsx";
 import {usePhoneLayout} from "../hooks/useLayoutMode.ts";
 import ChatPlaceholder from "./ChatPlaceholder.tsx";
 import ChatInput from "./composer/ChatInput.tsx";
-import {ComposerSelectors, ComposerSettingsControls} from "./composer/ComposerToolbar.tsx";
+import {ComposerSettingsControls} from "./composer/ComposerSettingsControls.tsx";
+import {ComposerSelectors} from "./composer/ComposerSelectors.tsx";
 import {WELCOME_DRAFT_KEY} from "./composer/composerDrafts.ts";
 
 /**
@@ -22,15 +23,6 @@ export default function WelcomeScreen({
     disabled,
     onSend,
     sendBlocked = false,
-    agent,
-    model,
-    onAgentChange,
-    onModelChange,
-    directory,
-    onDirectoryChange,
-    stagedBranch,
-    onStagedBranchChange,
-    onOpenModelConfig,
 }: {
     foregroundColor: string;
     /** Status line under the greeting — connection state, when relevant. */
@@ -41,19 +33,13 @@ export default function WelcomeScreen({
     /** DEV's no-default-directory rule (useSessionFlow): the send stays
      *  refused until a project directory is staged. */
     sendBlocked?: boolean;
-    agent: string;
-    model: SessionModelRef | null;
-    onAgentChange: (agent: string) => void;
-    onModelChange: (model: SessionModelRef) => void;
-    directory: string | null;
-    onDirectoryChange: (directory: string | null) => void;
-    /** Staged branch binding for the session the first send will create
-     *  (null = the project's main worktree); see DirectoryPicker. */
-    stagedBranch: string | null;
-    onStagedBranchChange: (branch: string | null) => void;
-    /** Opens the settings modal on its Model tab (model/provider config). */
-    onOpenModelConfig: () => void;
 }) {
+    // The staged selections (App's useSessionFlow via the composer
+    // selection channel — selectionContext): on the welcome screen the
+    // directory/agent/branch pickers stage what the FIRST send will use;
+    // the session is created server-side only when the first message is
+    // sent.
+    const {directory} = useComposerSelection();
     // PHONE LAYOUT: the composer's settings controls — mode, project/
     // branch pickers, model, thinking depth — move OUT of the input box
     // (five labeled controls cannot fit one phone row) into a centered,
@@ -88,16 +74,7 @@ export default function WelcomeScreen({
                         draftKey={WELCOME_DRAFT_KEY}
                         onSend={onSend}
                         onInterrupt={() => {}}
-                        agent={agent}
-                        model={model}
-                        onAgentChange={onAgentChange}
-                        onModelChange={onModelChange}
                         conversationStarted={false}
-                        directory={directory}
-                        onDirectoryChange={onDirectoryChange}
-                        stagedBranch={stagedBranch}
-                        onStagedBranchChange={onStagedBranchChange}
-                        onOpenModelConfig={onOpenModelConfig}
                         toolbarMinimal={mobile}
                     />
                     {mobile && (
@@ -117,19 +94,10 @@ export default function WelcomeScreen({
                          * always extending right off a phone's edge. */
                         <div className="lum-m-welcome-controls flex flex-wrap items-center justify-center gap-1.5 pt-2">
                             <ComposerSettingsControls
-                                agent={agent}
-                                onAgentChange={onAgentChange}
                                 conversationStarted={false}
-                                directory={directory}
-                                onDirectoryChange={onDirectoryChange}
-                                stagedBranch={stagedBranch}
-                                onStagedBranchChange={onStagedBranchChange}
                                 align="auto"
                             />
                             <ComposerSelectors
-                                model={model}
-                                onModelChange={onModelChange}
-                                onOpenModelConfig={onOpenModelConfig}
                                 conversationStarted={false}
                                 align="auto"
                             />

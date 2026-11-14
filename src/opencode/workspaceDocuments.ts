@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useState} from "react";
 import {warn} from "@tauri-apps/plugin-log";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import {SEED_FILE_NAMES, SESSION_MARKER_NAME, SESSIONS_DIR_NAME} from "./defaultWorkspace.ts";
 import {createKeyedStore} from "../lib/moduleStore.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
@@ -222,7 +222,9 @@ const entries = createKeyedStore<string, DocsEntry>(
 );
 
 // Per-key listeners (the diffListeners pattern: broadcast the key,
-// subscribers filter for their own).
+// subscribers filter for their own). Hand-rolled on purpose — the
+// payload-carrying broadcast is a shape lib/moduleStore's createListeners
+// does not model (see sessionMessageStore's twin note).
 const listeners = new Set<(key: string) => void>();
 
 function notify(key: string): void {

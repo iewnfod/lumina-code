@@ -5,7 +5,7 @@ import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {usePendingRequests} from "../../opencode/sessionDataContext.tsx";
 import {requestStatsSubagentDrill} from "../../hooks/useStatsPanelMode.ts";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {useScrollEdges, fadeClasses} from "../../hooks/useScrollEdges.ts";
 import {useExpansion, ERROR_DISCLOSURE_MS} from "./useExpansion.ts";
 import FoldRow from "./FoldRow.tsx";
 import Markdown from "./Markdown.tsx";
@@ -133,9 +133,7 @@ const SubagentCard = memo(function SubagentCard({
                     <div
                         ref={errorEdges.ref}
                         onScroll={errorEdges.onScroll}
-                        className={`max-h-64 overflow-y-auto px-3 py-2 whitespace-pre-wrap break-words${
-                            errorEdges.top ? " lum-fade-top" : ""
-                        }${errorEdges.bottom ? " lum-fade-bottom" : ""}`}
+                        className={`max-h-64 overflow-y-auto px-3 py-2 whitespace-pre-wrap break-words${fadeClasses(errorEdges)}`}
                     >
                         {output || errorText(part.state.error) || t["Subagent failed"]}
                     </div>
@@ -151,9 +149,7 @@ const SubagentCard = memo(function SubagentCard({
                     <div
                         ref={outputEdges.ref}
                         onScroll={outputEdges.onScroll}
-                        className={`max-h-80 overflow-y-auto px-3 py-2.5 text-sm lum-fade-md${
-                            outputEdges.top ? " lum-fade-top" : ""
-                        }${outputEdges.bottom ? " lum-fade-bottom" : ""}`}
+                        className={`max-h-80 overflow-y-auto px-3 py-2.5 text-sm lum-fade-md${fadeClasses(outputEdges)}`}
                     >
                         <Markdown>{output}</Markdown>
                     </div>

@@ -100,3 +100,16 @@ export function formatCost(cost: number | undefined): string | null {
     if (cost > 0 && cost < 0.01) return "<$0.01";
     return `$${cost.toFixed(2)}`;
 }
+
+/** Compact wall-clock duration: 4.2s · 12s · 1m 03s · 2h 14m. */
+export function formatDuration(ms: number): string {
+    if (ms < 0) ms = 0;
+    const seconds = ms / 1000;
+    if (seconds < 10) return `${seconds.toFixed(1)}s`;
+    const whole = Math.floor(seconds);
+    if (whole < 60) return `${whole}s`;
+    const minutes = Math.floor(whole / 60);
+    if (minutes < 60) return `${minutes}m ${String(whole % 60).padStart(2, "0")}s`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
+}

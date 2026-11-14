@@ -10,10 +10,9 @@ import type {
     ComposerFileRef,
     OpencodeCommand,
     PendingCommand,
-    SessionModelRef,
-    SessionUsage,
 } from "../../opencode/types.ts";
 import type {ContextUsage} from "../chat/usageStats.ts";
+import {useComposerSelection} from "./selectionContext.tsx";
 import {compressImageFile} from "../../lib/imageCompress.ts";
 import {isMobileApp} from "../../lib/platform.ts";
 import {splitAttachmentNote} from "../../opencode/visionAttachments.ts";
@@ -54,17 +53,7 @@ const ChatInput = memo(function ChatInput({
     onSend,
     onInterrupt,
     sendBlocked = false,
-    agent,
-    model,
-    onAgentChange,
-    onModelChange,
     conversationStarted,
-    directory,
-    onDirectoryChange,
-    stagedBranch,
-    onStagedBranchChange,
-    onOpenModelConfig,
-    usage = null,
     contextUsage = null,
     /** Draft-store key for this surface (session id, or the welcome
      *  screen's fixed key) — keeps the half-typed buffer across the
@@ -86,24 +75,9 @@ const ChatInput = memo(function ChatInput({
      *  intercepts the Enter-key submit path so a raced send keeps the
      *  buffer (ComposerCore retains it on a false return). */
     sendBlocked?: boolean;
-    /** Effective selections (session-bound once a session exists). */
-    agent: string;
-    model: SessionModelRef | null;
-    onAgentChange: (agent: string) => void;
-    onModelChange: (model: SessionModelRef) => void;
     /** False until the conversation has its first message — shows the
      *  project picker (welcome screen and freshly created sessions). */
     conversationStarted: boolean;
-    directory: string | null;
-    onDirectoryChange: (directory: string | null) => void;
-    /** Staged branch binding for the not-yet-created session (null = the
-     *  project's main worktree); see DirectoryPicker. */
-    stagedBranch: string | null;
-    onStagedBranchChange: (branch: string | null) => void;
-    /** Opens the settings modal on its Model tab (model/provider config). */
-    onOpenModelConfig: () => void;
-    /** Session cumulative usage — tooltip reference lines only. */
-    usage?: SessionUsage | null;
     /** The session's current context reading (last measured step). */
     contextUsage?: ContextUsage | null;
     draftKey: string;
@@ -134,6 +108,10 @@ const ChatInput = memo(function ChatInput({
 }) {
     const colors = useColors();
     const t = useI18n();
+    // The composer selection channel (App-provided — selectionContext):
+    // the directory scopes the slash-command fetch; every other consumer
+    // (pickers, ring) reads the context itself.
+    const {directory} = useComposerSelection();
     // Server handle from the connection context (slash commands); the
     // picker catalog is ComposerToolbar's own concern now.
     const {api} = useConnection();
@@ -439,17 +417,7 @@ const ChatInput = memo(function ChatInput({
                 onAttach={() => fileInputRef.current?.click()}
                 onSend={() => composerApiRef.current?.submit()}
                 onInterrupt={onInterrupt}
-                agent={agent}
-                model={model}
-                onAgentChange={onAgentChange}
-                onModelChange={onModelChange}
                 conversationStarted={conversationStarted}
-                directory={directory}
-                onDirectoryChange={onDirectoryChange}
-                stagedBranch={stagedBranch}
-                onStagedBranchChange={onStagedBranchChange}
-                onOpenModelConfig={onOpenModelConfig}
-                usage={usage}
                 contextUsage={contextUsage}
                 minimal={toolbarMinimal}
             />

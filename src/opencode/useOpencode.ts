@@ -2,12 +2,12 @@ import {useCallback, useEffect, useRef, useState} from "react";
 import {invoke} from "@tauri-apps/api/core";
 import {listen} from "@tauri-apps/api/event";
 import {error, info, warn} from "@tauri-apps/plugin-log";
-import {OpencodeApi} from "./api.ts";
+import {OpencodeApi} from "./api/index.ts";
 import {streamServerEvents, type OpencodeEvent} from "./eventStream.ts";
 import {isMobileApp, remoteCorsOrigins} from "../lib/platform.ts";
 import {peekMobileConnection} from "./mobileConnection.ts";
 import {LuminaServerApi} from "./serverConnection.ts";
-import {reseedAllSessions} from "./useSessionMessages.ts";
+import {reseedAllSessions} from "./sessionMessageStore.ts";
 
 /**
  * The OpenCode connection layer.

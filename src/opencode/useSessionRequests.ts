@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
 import {debug as logDebug, error as logError} from "@tauri-apps/plugin-log";
 import {createModuleStore} from "../lib/moduleStore.ts";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {ChatMessage, EventMap, FormAnswer, FormRequest, PermissionDecision, PermissionRequest} from "./types.ts";
 import {peekSessionMessages, subscribeSessionMessages, trackedSessionIds} from "./useSessionMessages.ts";

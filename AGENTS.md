@@ -558,7 +558,33 @@ src/
 │                          #   esbuild (MIT/Apache-2.0).
 │
 ├── opencode/              # THE domain layer — everything talking to the server
-│   ├── api.ts             # OpencodeApi: hand-rolled typed REST client (fetch +
+│   ├── api/               # THE opencode REST client LIBRARY — every server
+│   │                      #   interaction in the app goes through its one
+│   │                      #   entry (api/index.ts's OpencodeApi). Split 2026-11
+│   │                      #   from the former 963-line api.ts by endpoint
+│   │                      #   domain (the design note updated: the surface is
+│   │                      #   pinned in ONE LIBRARY against SDK drift, not one
+│   │                      #   file): transport.ts (ApiTransport — the protected-
+│   │                      #   for-composition fetch plumbing: request/
+│   │                      #   requestRaw/Text/Blob + httpError/locationQuery/
+│   │                      #   requestLocationData + UPLOAD_TIMEOUT_MS) +
+│   │                      #   sessions.ts (lifecycle/prompts/inbox/revert,
+│   │                      #   the endpoint map) + vcs.ts (diffs/branches/
+│   │                      #   worktrees) + shell.ts (incl. awaitShell) +
+│   │                      #   catalog.ts (models/agents/providers/projects/
+│   │                      #   commands/switches) + requests.ts (permissions/
+│   │                      #   forms/saved) + integrations.ts (auth/OAuth/
+│   │                      #   credentials) + config.ts (config/plugins/mcp) +
+│   │                      #   fs.ts (location-confined reads, absolute writes).
+│   │                      #   Each domain exports `export interface XxxApi` +
+│   │                      #   a ThisType<ApiTransport>-bound method object;
+│   │                      #   index.ts merges the interfaces onto the class
+│   │                      #   (declaration merging) and Object.assigns the
+│   │                      #   objects onto the prototype — types and runtime
+│   │                      #   in lockstep, zero inference gymnastics. The
+│   │                      #   domain files import NOTHING outside the library
+│   │                      #   but ../types.ts (type-only) — the library
+│   │                      #   boundary is absolute. OpencodeApi: hand-rolled typed REST client (fetch +
 │   │                      #   basic auth, `{"data": …}` envelope unwrap).
 │   │                      #   UPLOAD_TIMEOUT_MS: requestRaw takes an optional
 │   │                      #   abort deadline (AbortController + timer, no
@@ -644,9 +670,27 @@ src/
 │   │                      #   is what lets the optimistic queue row
 │   │                      #   adopt the server id without text matching.
 │   ├── configFiles.ts     # globalConfigTarget — where the global opencode.json
-│   │                      #   lives, derived from GET /api/config (pure; shared
-│   │                      #   by the settings config editor and the attachment
-│   │                      #   divert). node-testable via its consumers.
+│   │                      #   lives, derived from GET /api/config (pure), plus
+│   │                      #   readGlobalConfig — the ONE discovery+read step
+│   │                      #   (listConfigEntries → target → name → readTextFile)
+│   │                      #   every server-config editor shares (ModelSettings,
+│   │                      #   SystemPromptSection; the writes ride
+│   │                      #   pluginConfigShared's serializeConfigWrite lock).
+│   │                      #   node-testable via a fake api.
+│   ├── serverAuth.ts     # The shared lumina-code-server ACCOUNT flow — the ONE
+│   │                      #   sign-in/sign-out implementation behind the
+│   │                      #   settings' Server pane (desktop) and the mobile
+│   │                      #   login screen (both previously carried verbatim
+│   │                      #   clones): validateSignInInput (bad-url /
+│   │                      #   missing-credentials), nextServerFormState (the
+│   │                      #   custom/official toggle's reset rule),
+│   │                      #   performServerSignIn (login + device label) and
+│   │                      #   signOutServer (best-effort revoke + clear — a
+│   │                      #   network failure must not strand the user).
+│   │                      #   Callers own their connection-store writes + UI
+│   │                      #   state. node-testable (serverConnection's
+│   │                      #   parameter-property constructor was made explicit
+│   │                      #   for the node strip loader).
 │   ├── appMode.ts         # THE DAILY/DEV MODE SPLIT. A persistedStore
 │   │                      #   ("lumina-code:app-mode", the useThemePreference
 │   │                      #   pattern) remembering which half of the app the
@@ -1419,7 +1463,20 @@ src/
 │   │                      #   importing moves nothing but the whitelist
 │   │                      #   entry; busy state is id-tracked globally and
 │   │                      #   just works).
-│   ├── useSessionMessages.ts # React binding over a MODULE-LEVEL store (one entry per
+│   ├── useSessionMessages.ts # The message domain's React bindings + barrel: the
+│   │                      #   useSessionMessages/useSessionMessagesSnapshot/
+│   │                      #   useSessionSeeded hooks live here; the MODULE STORE
+│   │                      #   itself is sessionMessageStore.ts, the stop
+│   │                      #   discipline sessionRunFence.ts (stopInFlight +
+│   │                      #   interruptSessionRun — App's keyboard shortcut
+│   │                      #   imports it directly), the queue action set
+│   │                      #   sessionQueueActions.ts (plain (api, sid)
+│   │                      #   functions). This file re-exports them all — the
+│   │                      #   historical single-module import surface, consumer
+│   │                      #   imports unchanged. The value-import cycle with
+│   │                      #   useOpencode dissolved: reseedAllSessions now
+│   │                      #   imported from the store file (the OpencodeEvent
+│   │                      #   Handler back-edge stays type-only). One entry per
 │   │                      #   session, surviving ChatView unmounts AND webview reloads
 │   │                      #   — backgrounded sessions keep accumulating deltas; entries
 │   │                      #   drop on session.deleted). One global bus handler applies
@@ -1680,7 +1737,14 @@ src/
 │   │                      #   (work > plan > question > permission) and
 │   │                      #   the i18n title keys + notifySubject (title →
 │   │                      #   folderLabel(directory) → "Lumina Code").
-│   ├── useSessionActivity.ts # Stats-card state, split by scope, both over
+│   ├── useSessionActivity.ts # Stats-card state — the WIRING layer (bus handler
+│   │                      #   + message watcher + the useWorkspaceDiff/
+│   │                      #   useSessionActivity/prefetchSessionActivity hooks)
+│   │                      #   over TWO module stores split 2026-11:
+│   │                      #   workspaceDiffStore.ts (the per-directory diff
+│   │                      #   cache + debounce/warmup logic) and
+│   │                      #   sessionShellsStore.ts (per-session running-shell
+│   │                      #   sets + the shellBus). Both over
 │   │                      #   MODULE-LEVEL stores (the useSessionMessages
 │   │                      #   pattern): (1) the WORKSPACE DIFF — one entry
 │   │                      #   per DIRECTORY (GET /api/vcs/diff?mode=working,
@@ -2341,6 +2405,10 @@ src/
 │                          #   mount when the token is already > 0, so a
 │                          #   request that fires during a surface swap is
 │                          #   honored by the successor).
+│   ├── useAppSurfaces.ts # App's overlay-surface orchestration — the settings
+│   │                      #   page state (open/tab + open/close/toggle/
+│   │                      #   setSettingsTab), the MOBILE drawer and the
+│   │                      #   session-import modal. Extracted from AppBody.
 │   └── usePermissionsPanel.ts # The merged Mode menu's PERMISSION state
 │                          #   half (its consumer: ComposerToolbar's
 │                          #   ComposerSettingsControls at the BUTTON
@@ -2909,6 +2977,17 @@ src/
     │   │                  #   data-lum-stats-drill exempts the click
     │   │                  #   from the panel's outside-click collapse.
     │   │                  #   Parts without a link keep the fold
+    │   ├── CopyButton.tsx  # The transcript's ONE copy affordance — Hint-wrapped
+    │   │                  #   icon button (copied check swap + i18n hint) shared
+    │   │                  #   by RunFooter / UserBubble / Markdown's code blocks;
+    │   │                  #   the reveal/wash styling arrives per host via
+    │   │                  #   className (always-on vs hover-revealed vs
+    │   │                  #   .lum-md-copy), useCopy stays at the call site.
+    │   ├── useSubagentRequests.ts # Subagent children's pending asks (permission
+    │   │                  #   groups + forms, keyed by child id) derived for the
+    │   │                  #   conversation surface — extracted from ChatView's
+    │   │                  #   inline memos; same collector + identity discipline
+    │   │                  #   as the stats panel.
     │   ├── RunFooter.tsx + runFooters.ts # Per-turn summary footer (pure collector in
     │   │                  #   runFooters.ts — node-testable; the footer
     │   │                  #   info carries the run's opening userMessageId).
@@ -3452,7 +3531,30 @@ src/
         │                  #   resolve false to KEEP the buffer (edit's
         │                  #   revert failed); Esc with no popup open
         │                  #   cancels an active edit.
-        ├── ComposerToolbar.tsx # Bottom toolbar: attach/mode/project on the
+        ├── selectionContext.tsx # The composer's SELECTION channel —
+        │                  #   ComposerSelectionProvider + useComposerSelection
+        │                  #   carrying the 10 values (agent/model/directory/
+        │                  #   stagedBranch + callbacks + usage) that used to
+        │                  #   thread App → ChatView → ChatInput →
+        │                  #   ComposerToolbar as pure pass-through props
+        │                  #   (14→24→19). App provides ONCE (the value
+        │                  #   useMemo'd via useComposerSelectionValue —
+        │                  #   ChatInput's memo depends on the reference
+        │                  #   stability); directory/usage switch source with
+        │                  #   the surface (session-bound vs the welcome
+        │                  #   screen's staged picks) exactly as the two former
+        │                  #   prop call sites passed them. The branch-stage
+        │                  #   wrapper (a pick on an EXISTING empty session
+        │                  #   drops it and returns to the welcome screen)
+        │                  #   lives at the App provider site.
+        ├── ComposerToolbar.tsx # Bottom toolbar SHELL: attach + the send/stop
+        │                  #   slot + the two composed clusters — slimmed to
+        │                  #   ~130 lines when ComposerSettingsControls and
+        │                  #   ComposerSelectors moved to their own files
+        │                  #   (both are hosted directly by MOBILE's welcome
+        │                  #   cluster too, below-composer; the model/agent/
+        │                  #   branch/usage props they used to receive now
+        │                  #   arrive through selectionContext).
         │                  #   left; usage ring, the merged model picker
         │                  #   (model list + the current model's thinking
         │                  #   depth) and send/stop on the right. The send/stop slot is CONTENT-
@@ -3502,6 +3604,17 @@ src/
         │                  #   toolbar to attach + send and adds
         │                  #   .lum-toolbar-plain (send keeps its
         │                  #   right-edge spring, main.css).
+        ├── ComposerSettingsControls.tsx # The pre-send SETTINGS controls (the
+        │                  #   merged Mode menu + DEV's directory/branch
+        │                  #   pickers) — its own file since the toolbar slim,
+        │                  #   hosted by BOTH the in-session toolbar and
+        │                  #   MOBILE's welcome cluster; reads agent/directory/
+        │                  #   stagedBranch through selectionContext.
+        ├── ComposerSelectors.tsx # The merged MODEL picker (provider-grouped
+        │                  #   list + the current model's DepthSlider ladder,
+        │                  #   bodyScroll:false stacked panel) + the usage ring;
+        │                  #   reads model/usage through selectionContext. Same
+        │                  #   dual host as ComposerSettingsControls.
         ├── DepthSlider.tsx # The thinking-depth slider — the HORIZONTAL
         │                  #   gradient capsule pinned under the model
         │                  #   list inside the merged model picker (a
@@ -3822,6 +3935,13 @@ src/
     ├── SectionHeader.tsx  # The one settings section-header look (General's
     │                      #   Typography group + About's Dependencies —
     │                      #   two identical inline copies before).
+    ├── ProviderNavRail.tsx # The Model pane's provider NAV RAIL — the grouped
+    │                      #   rows (connected providers with status dots,
+    │                      #   custom providers, the fixed Tools entry) shared by
+    │                      #   BOTH layouts (the desktop rail + the phone root
+    │                      #   page); NavSelection lives here. Extracted from
+    │                      #   ModelSettings when the pane slimmed to shell +
+    │                      #   detail wiring.
     ├── ModelSettings.tsx # The Model pane, redesigned as a provider NAV
     │                      #   + detail split (the design mock): the left
     │                      #   rail lists only CONFIGURED providers —

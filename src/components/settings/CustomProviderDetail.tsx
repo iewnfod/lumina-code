@@ -11,7 +11,7 @@ import PopoverMenu, {MenuItem} from "../ui/PopoverMenu.tsx";
 import {API_FORMATS, apiFormatId, formatContextLimit, modelSupportsImage, providerModels} from "./modelConfig.ts";
 import {Field, ModelBadge, ProviderAvatar, TextAction, useModelsList} from "./modelSettingsChrome.tsx";
 import type {CustomProviderDef} from "./modelConfig.ts";
-import type {OpencodeApi} from "../../opencode/api.ts";
+import type {OpencodeApi} from "../../opencode/api/index.ts";
 import TextInput from "./TextInput.tsx";
 import Switch from "./Switch.tsx";
 

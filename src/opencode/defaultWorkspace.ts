@@ -1,5 +1,5 @@
 import {warn} from "@tauri-apps/plugin-log";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 
 /**
  * The DAILY-MODE workspace (~/Documents/LuminaWorkspace): the fixed

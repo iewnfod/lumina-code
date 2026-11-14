@@ -4,7 +4,7 @@ import {error as logError} from "@tauri-apps/plugin-log";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useColors} from "../../hooks/colors.tsx";
 import {useFollowBottom} from "../../hooks/useFollowBottom.ts";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {useScrollEdges, fadeClasses} from "../../hooks/useScrollEdges.ts";
 import {useConnection} from "../../opencode/connectionContext.tsx";
 import type {SessionShellRef} from "../../opencode/sessionActivity.ts";
 import IconButton from "../ui/IconButton.tsx";
@@ -298,9 +298,7 @@ export const TerminalBody = memo(function TerminalBody({
                     <div
                         ref={cmdEdges.ref}
                         onScroll={cmdEdges.onScroll}
-                        className={`max-h-24 overflow-auto px-3 py-2 text-2xs leading-relaxed whitespace-pre-wrap break-words${
-                            cmdEdges.top ? " lum-fade-top" : ""
-                        }${cmdEdges.bottom ? " lum-fade-bottom" : ""}`}
+                        className={`max-h-24 overflow-auto px-3 py-2 text-2xs leading-relaxed whitespace-pre-wrap break-words${fadeClasses(cmdEdges)}`}
                     >
                         {shell.command}
                     </div>

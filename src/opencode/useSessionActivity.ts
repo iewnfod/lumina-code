@@ -1,7 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from "react";
-import {debug as logDebug, error as logError, info as logInfo} from "@tauri-apps/plugin-log";
-import {createKeyedStore, createListeners} from "../lib/moduleStore.ts";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {ChatMessage, WorkspaceDiffEntry} from "./types.ts";
 import {peekSessionMessages, subscribeSessionMessages, useSessionMessagesSnapshot} from "./useSessionMessages.ts";
@@ -16,38 +14,51 @@ import {
     type SessionTodos,
 } from "./sessionActivity.ts";
 import {getGateDecisionsSnapshot, subscribeGateDecisions} from "./gateDecisions.ts";
+import {
+    directoryEntryOf,
+    diffSnapshotOf,
+    directoryKey,
+    loadWorkspaceDiff,
+    refreshWorkspaceDiff,
+    scheduleDiffLoad,
+    setDiffApi,
+    subscribeDiff,
+} from "./workspaceDiffStore.ts";
+import {
+    deleteSessionEntry,
+    EMPTY_SHELLS,
+    notifyShellChange,
+    peekSessionEntry,
+    seedRunningShells,
+    sessionEntryOf,
+    setShellsApi,
+    shellBus,
+    snapshotSessionEntries,
+    stopShell as stopShellInStore,
+} from "./sessionShellsStore.ts";
 
-/** Debounce for diff re-pulls while a burst of edits streams in. */
-const DIFF_DEBOUNCE_MS = 800;
-
-/**
- * v2.0.11 warmup race: the FIRST `/api/vcs/diff` call a server instance
- * makes for a location returns `[]` while its VCS backend lazily
- * initializes (verified live: restart → query#1 empty, query#2+ real).
- * An empty answer to a session's FIRST load is therefore re-checked once
- * after this delay instead of painting a false "clean workspace".
- */
-const DIFF_WARMUP_RETRY_MS = 400;
+export {peekWorkspaceDiff} from "./workspaceDiffStore.ts";
 
 /**
  * Stats-card state, split by scope:
  *
  * - WORKSPACE DIFF (`GET /api/vcs/diff?mode=working` — HEAD vs the working
  *   copy of a directory, untracked files included): cached in a
- *   module-level store keyed by DIRECTORY. This replaced the per-session
- *   diff endpoint, which compares whole-worktree snapshot trees over the
- *   session's TIME WINDOW — any other session editing the same project
- *   leaked into it (sessions in one directory share one physical worktree
- *   and one snapshot repository), so an idle session would inherit a
- *   sibling's edits. The workspace diff is honest by construction, and all
- *   sessions in a directory share one cache entry — a same-directory
- *   session switch paints instantly with identical numbers.
+ *   module-level store keyed by DIRECTORY (workspaceDiffStore.ts). This
+ *   replaced the per-session diff endpoint, which compares
+ *   whole-worktree snapshot trees over the session's TIME WINDOW — any
+ *   other session editing the same project leaked into it (sessions in
+ *   one directory share one physical worktree and one snapshot
+ *   repository), so an idle session would inherit a sibling's edits. The
+ *   workspace diff is honest by construction, and all sessions in a
+ *   directory share one cache entry — a same-directory session switch
+ *   paints instantly with identical numbers.
  * - TERMINALS: the shell list comes from the session's own tool parts
  *   (`metadata.shellID`, background results only); "running" is the
  *   server's live shell list (`GET /api/shell`, running-only) seeded on
  *   activation and patched by the global shell.created/exited bus
- *   events. A completion notification message (collector: `finished`)
- *   always wins over the live set.
+ *   events (sessionShellsStore.ts). A completion notification message
+ *   (collector: `finished`) always wins over the live set.
  * - SUBAGENTS: child ids from subagent tool parts; "running" is the app's
  *   busy set, which the execution events of child sessions already feed.
  * - Both lists are CURRENT-TURN scoped: completed items spawned before
@@ -56,109 +67,22 @@ const DIFF_WARMUP_RETRY_MS = 400;
  *   the live activity at the bottom of the list. RUNNING items stay
  *   visible whatever their turn.
  *
- * The consumer is the stats card living OUTSIDE the session swap (App),
- * so the session-scoped hook reads the message store through a SNAPSHOT
+ * The session-scoped hook reads the message store through a SNAPSHOT
  * binding instead of ChatView's messages — the card must not render the
  * previous session's terminals/subagents for a frame on a switch.
  */
 
-/** One directory's cached workspace diff. */
-interface DirectoryEntry {
-    /** The directory the location-scoped request is addressed with. */
-    directory: string | null;
-    diff: WorkspaceDiffEntry[] | null;
-    diffLoading: boolean;
-    /** Guards in-flight requests: only the latest one applies. */
-    seq: number;
-    /** Debounced re-pull timer. */
-    debounce: ReturnType<typeof setTimeout> | null;
-}
-
-/** One session's cached activity state (running shells + freshness watch). */
-interface SessionEntry {
-    /** Live RUNNING shell ids (server truth + bus). */
-    runningShellIds: ReadonlySet<string>;
-    /** Directory the location-scoped endpoints are addressed with. */
-    directory: string | null;
-    /** Mutation signature last seen, plus the messages it was computed
-     *  on (identity cache — the message store notifies per change). */
-    signature: string;
-    signatureMessages: readonly ChatMessage[] | null;
-    /** listShells seeded at least once (prefetch guards on this). */
-    shellsSeeded: boolean;
-}
-
-const EMPTY_SHELLS: ReadonlySet<string> = new Set();
-const directories = createKeyedStore<string, DirectoryEntry>(
-    (key) => ({directory: key === "" ? null : key, diff: null, diffLoading: false, seq: 0, debounce: null}),
-);
-const sessions = createKeyedStore<string, SessionEntry>(() => ({
-    runningShellIds: EMPTY_SHELLS,
-    directory: null,
-    signature: "",
-    signatureMessages: null,
-    shellsSeeded: false,
-}));
-// Diff subscriptions carry the directory KEY (an "any change" subscriber
-// filters for its own key) — a payload shape createListeners does not
-// model, so this one broadcast stays hand-rolled.
-const diffListeners = new Set<(key: string) => void>();
-const shellBus = createListeners();
-
-function directoryKey(directory: string | null): string {
-    return directory ?? "";
-}
-
-function directoryEntryOf(directory: string | null): DirectoryEntry {
-    return directories.entryOf(directoryKey(directory));
-}
-
-function sessionEntryOf(sessionId: string): SessionEntry {
-    return sessions.entryOf(sessionId);
-}
-
-function notifyDiff(directory: string | null) {
-    const key = directoryKey(directory);
-    for (const listener of diffListeners) listener(key);
-}
-
-function notifyShellChange() {
-    shellBus.notify();
-}
-
-/** Snapshot the workspace hook renders from (cached by reference — the
- *  downstream memos only see new identities when a value really moved). */
-function diffSnapshotOf(directory: string | null): {
-    diff: WorkspaceDiffEntry[] | null;
-    diffLoading: boolean;
-} {
-    const entry = directories.peek(directoryKey(directory));
-    return {
-        diff: entry?.diff ?? null,
-        diffLoading: entry?.diffLoading ?? false,
-    };
-}
-
-
-/** Read a directory's cached workspace diff OUTSIDE React — the
- * server-sync engine mirrors whatever the stats card has loaded (null
- * when this app never opened the directory: no push, no block). */
-export function peekWorkspaceDiff(directory: string | null): WorkspaceDiffEntry[] | null {
-    return diffSnapshotOf(directory).diff;
-}
-
 // --- Module wiring: api handle + one bus handler + one message watcher ---
-let apiSingleton: OpencodeApi | null = null;
 let busUnsubscribe: (() => void) | null = null;
 
 /** Re-pull a directory's workspace diff when a tracked session's messages'
  *  mutation signature moved (edits landed — backgrounded sessions
  *  included, keeping their directory's numbers fresh). */
 function watchSignature(sessionId: string) {
-    const entry = sessions.peek(sessionId);
+    const entry = peekSessionEntry(sessionId);
     const messages = peekSessionMessages(sessionId);
     if (!entry || !messages || entry.signatureMessages === messages) return;
-    const next = mutationSignature(messages);
+    const next = mutationSignature(messages as ChatMessage[]);
     const seeded = entry.signatureMessages !== null;
     entry.signatureMessages = messages;
     if (!seeded) {
@@ -170,114 +94,18 @@ function watchSignature(sessionId: string) {
     scheduleDiffLoad(entry.directory);
 }
 
-function scheduleDiffLoad(directory: string | null) {
-    const entry = directories.peek(directoryKey(directory));
-    if (!entry) return;
-    if (entry.debounce) clearTimeout(entry.debounce);
-    entry.debounce = setTimeout(() => {
-        entry.debounce = null;
-        void loadWorkspaceDiff(directory);
-    }, DIFF_DEBOUNCE_MS);
-}
-
-async function loadWorkspaceDiff(directory: string | null): Promise<void> {
-    const api = apiSingleton;
-    const entry = directories.peek(directoryKey(directory));
-    if (!api || !entry) return;
-    const seq = ++entry.seq;
-    entry.diffLoading = true;
-    notifyDiff(directory);
-    try {
-        const list = await api.vcsDiff(directory);
-        if (seq !== entry.seq) return;
-        const wasFirstLoad = entry.diff === null;
-        entry.diff = list;
-        if (wasFirstLoad && list.length === 0) {
-            // Warmup race (see DIFF_WARMUP_RETRY_MS): one delayed re-check.
-            // One-shot by construction — the retry's own load completes with
-            // entry.diff already set ([]), so it never schedules another.
-            setTimeout(() => {
-                if (entry.seq === seq) void loadWorkspaceDiff(directory);
-            }, DIFF_WARMUP_RETRY_MS);
-        }
-    } catch (e) {
-        if (seq !== entry.seq) return;
-        const msg = String(e);
-        if (/503|service/i.test(msg)) {
-            // The directory has no VCS (not a git repo): no Changes
-            // section there — expected, not worth a warn.
-            logDebug(`No VCS behind the workspace diff: ${msg}`).catch(() => {});
-            entry.diff = [];
-        } else {
-            logError(`Failed to load workspace diff: ${msg}`).catch(() => {});
-        }
-    } finally {
-        if (seq === entry.seq) {
-            entry.diffLoading = false;
-            notifyDiff(directory);
-        }
-    }
-}
-
-/** Seed the running set from the server's live shell list (activation and
- *  once per prefetch). Location-scoped — the entry's directory rides along. */
-function seedRunningShells(sessionId: string): void {
-    const api = apiSingleton;
-    const entry = sessions.peek(sessionId);
-    if (!api || !entry) return;
-    entry.shellsSeeded = true;
-    api.listShells(entry.directory).then((list) => {
-        const current = sessions.peek(sessionId);
-        if (!current) return; // session dropped while the request was out
-        current.runningShellIds = new Set(
-            list
-                .filter((s) => (s.metadata?.sessionID ?? undefined) === sessionId)
-                .map((s) => s.id),
-        );
-        notifyShellChange();
-    }).catch((e) => {
-        logError(`Failed to load running shells: ${e}`).catch(() => {});
-    });
-}
-
-/** Manually stop one shell (DELETE /api/shell/{id}). Optimistic: the id
- *  leaves the running set immediately — the server confirms via
- *  `shell.exited` and the completion notification message. A failed DELETE
- *  restores server truth (the optimistic flip must be undoable — §3.3). */
-function stopShell(sessionId: string, shellId: string): void {
-    const api = apiSingleton;
-    const entry = sessions.peek(sessionId);
-    if (!api || !entry || !entry.runningShellIds.has(shellId)) return;
-    entry.runningShellIds = new Set([...entry.runningShellIds].filter((id) => id !== shellId));
-    notifyShellChange();
-    const directory = entry.directory;
-    api.removeShell(shellId, directory).then(() => {
-        logInfo(`Terminal ${shellId} stopped`).catch(() => {});
-    }).catch((e) => {
-        logError(`Failed to stop terminal ${shellId}: ${e}`).catch(() => {});
-        api.getShell(shellId, directory).then((shell) => {
-            if (shell.status !== "running") return;
-            const current = sessions.peek(sessionId);
-            if (!current || current.runningShellIds.has(shellId)) return;
-            current.runningShellIds = new Set([...current.runningShellIds, shellId]);
-            notifyShellChange();
-        }).catch((e2) => {
-            logError(`Failed to re-read terminal ${shellId} after a failed stop: ${e2}`).catch(() => {});
-        });
-    });
-}
-
 /** Install the api handle + the global bus handler + the message watcher
  *  (once per app run; `subscribe` is stable). */
 function ensureWiring(
     api: OpencodeApi,
     subscribe: (handler: OpencodeEventHandler) => () => void,
 ): void {
-    apiSingleton = api;
+    setDiffApi(api);
+    setShellsApi(api);
     if (busUnsubscribe) return;
     busUnsubscribe = subscribe((event) => {
         if (event.type === "session.deleted") {
-            sessions.delete((event.data as {sessionID?: string} | null)?.sessionID ?? "");
+            deleteSessionEntry((event.data as {sessionID?: string} | null)?.sessionID ?? "");
             return;
         }
         if (event.type === "shell.created") {
@@ -285,16 +113,16 @@ function ensureWiring(
             const sid = info?.id ? (info.metadata?.sessionID ?? undefined) : undefined;
             const id = info?.id;
             if (typeof sid !== "string" || !id) return;
-            const entry = sessions.peek(sid);
+            const entry = peekSessionEntry(sid);
             if (!entry || entry.runningShellIds.has(id)) return;
             entry.runningShellIds = new Set([...entry.runningShellIds, id]);
             notifyShellChange();
         } else if (event.type === "shell.exited") {
             const {id} = event.data as {id?: string};
             if (!id) return;
-            for (const entry of sessions.snapshot().values()) {
-                if (!entry.runningShellIds.has(id)) continue;
-                entry.runningShellIds = new Set([...entry.runningShellIds].filter((x) => x !== id));
+            for (const entry of snapshotSessionEntries()) {
+                if (!entry[1].runningShellIds.has(id)) continue;
+                entry[1].runningShellIds = new Set([...entry[1].runningShellIds].filter((x) => x !== id));
                 notifyShellChange();
             }
         }
@@ -354,18 +182,13 @@ export function useWorkspaceDiff(
         directoryEntryOf(directory);
         setSnap(diffSnapshotOf(directory));
         const key = directoryKey(directory);
-        const listener = (changed: string) => {
+        return subscribeDiff((changed) => {
             if (changed === key) setSnap(diffSnapshotOf(directory));
-        };
-        diffListeners.add(listener);
-        void loadWorkspaceDiff(directory);
-        return () => {
-            diffListeners.delete(listener);
-        };
+        });
     }, [api, directory]);
 
     const refreshDiff = useCallback(() => {
-        if (directories.peek(directoryKey(directory)) !== undefined) void loadWorkspaceDiff(directory);
+        refreshWorkspaceDiff(directory);
     }, [directory]);
 
     const diffTotals = useMemo(() => {
@@ -396,8 +219,8 @@ export function useSessionActivity(
     busyIds: ReadonlySet<string>,
     directory: string | null,
     /** The session's CURRENT agent — the plan fold's restart-recovery
-     * rule reads it (a plan_submit frozen running under "build" counts
-     * as approved; see sessionActivity's GateContext). */
+     *  rule reads it (a plan_submit frozen running under "build" counts
+     *  as approved; see sessionActivity's GateContext). */
     agent: string | undefined,
 ): {
     /** The session's background shells (spawn order) with live state. */
@@ -414,7 +237,7 @@ export function useSessionActivity(
     // Follow the session entry's running-set changes (bus + seeding).
     const subscribeShells = useCallback((notify: () => void) => shellBus.subscribe(notify), []);
     const getRunningShellIds = useCallback(
-        () => (sessionId !== null ? sessions.peek(sessionId)?.runningShellIds ?? EMPTY_SHELLS : EMPTY_SHELLS),
+        () => (sessionId !== null ? peekSessionEntry(sessionId)?.runningShellIds ?? EMPTY_SHELLS : EMPTY_SHELLS),
         [sessionId],
     );
     const runningShellIds = useSyncExternalStore(subscribeShells, getRunningShellIds, getRunningShellIds);
@@ -434,7 +257,7 @@ export function useSessionActivity(
 
     const stopShellCb = useCallback(
         (shellId: string) => {
-            if (sessionId !== null) stopShell(sessionId, shellId);
+            if (sessionId !== null) stopShellInStore(sessionId, shellId);
         },
         [sessionId],
     );

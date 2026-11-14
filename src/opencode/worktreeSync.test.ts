@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import {
     WORKTREE_SYNC_COMMIT_MESSAGE,
     driftNeedsSync,

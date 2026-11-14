@@ -4,7 +4,7 @@ import ReactDOM from "react-dom/client";
 // @theme font stacks at module init, which in dev-mode Vite happens in
 // import order (the built app uses a blocking <link> either way).
 import "./main.css";
-import { attachConsole } from "@tauri-apps/plugin-log";
+import { attachConsole, error as logError } from "@tauri-apps/plugin-log";
 import {initPersistedState} from "./lib/persistedStore.ts";
 import {prewarmKatexFonts} from "./lib/katexFonts.ts";
 
@@ -37,5 +37,16 @@ initPersistedState().finally(() => {
                 <App/>
             </React.StrictMode>,
         );
+    }).catch((e) => {
+        // A failed app-bundle load (dev server gone mid-session, a broken
+        // cache) must not die silently: the window would stay blank with
+        // zero diagnostics. Plain-DOM fallback — React itself may be part
+        // of what failed to load, and i18n lives inside the App bundle, so
+        // this is the one string that cannot go through useI18n.
+        logError(`App bundle failed to load: ${e}`).catch(() => {});
+        const root = document.getElementById("root");
+        if (root) {
+            root.textContent = `Lumina Code failed to start: ${e}`;
+        }
     });
 });

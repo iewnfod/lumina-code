@@ -1,4 +1,4 @@
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import {readStoredZipEntry} from "../lib/zipReader.ts";
 
 /**

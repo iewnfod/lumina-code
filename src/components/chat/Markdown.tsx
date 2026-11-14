@@ -8,17 +8,15 @@ import rehypeKatex from "rehype-katex";
 // injection, which a long-lived dev webview's HMR can fail to deliver.
 import {rehypeInlineStyles} from "./rehypeStyles.ts";
 import {openExternalUrl} from "../../lib/openExternal.ts";
-import {Check, Copy} from "lucide-react";
 import {fadeClasses, useScrollEdges} from "../../hooks/useScrollEdges.ts";
 import {useCopy} from "../../hooks/useCopy.ts";
-import {useI18n} from "../../hooks/i18n.tsx";
 import {isOfficeDocument} from "../../opencode/docstruct.ts";
 import {requestStatsDocumentDrill} from "../../hooks/useStatsPanelMode.ts";
 import {fileIconUrl} from "../../lib/fileIcons.ts";
-import Hint from "../ui/Hint.tsx";
 import {splitMarkdownBlocks} from "./markdownBlocks.ts";
 import {normalizeMathDelimiters} from "./markdownMath.ts";
 import {mdCodeText} from "./mdCodeText.ts";
+import CopyButton from "./CopyButton.tsx";
 
 /**
  * Markdown renderer for assistant text. Scoped styles live under `.lum-md`
@@ -78,7 +76,6 @@ import {mdCodeText} from "./mdCodeText.ts";
 function MdPre({children}: {children?: ReactNode}) {
     const edges = useScrollEdges<HTMLSpanElement>();
     const {copied, copy} = useCopy();
-    const t = useI18n();
     return (
         <span className="lum-md-pre-host">
             <pre>
@@ -90,17 +87,11 @@ function MdPre({children}: {children?: ReactNode}) {
                     {children}
                 </span>
             </pre>
-            <Hint label={copied ? t["Copied"] : t["Copy"]}>
-                <button
-                    type="button"
-                    onClick={() => void copy(mdCodeText(children))}
-                    className={`lum-md-copy${copied ? " copied" : ""}`}
-                >
-                    {copied
-                        ? <Check size={14} className="shrink-0"/>
-                        : <Copy size={14} className="shrink-0"/>}
-                </button>
-            </Hint>
+            <CopyButton
+                copied={copied}
+                onCopy={() => void copy(mdCodeText(children))}
+                className={`lum-md-copy${copied ? " copied" : ""}`}
+            />
         </span>
     );
 }

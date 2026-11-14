@@ -262,10 +262,16 @@ export async function deviceLoginLabel(): Promise<string> {
  * `status` on the thrown Error, like OpencodeApi.
  */
 export class LuminaServerApi {
-    constructor(
-        private baseUrl: string,
-        private token: string,
-    ) {}
+    // Explicit fields (not constructor parameter properties): node's
+    // type-stripping test loader rejects that syntax, and this module
+    // sits in the import chain of node-tested pure modules.
+    private baseUrl: string;
+    private token: string;
+
+    constructor(baseUrl: string, token: string) {
+        this.baseUrl = baseUrl;
+        this.token = token;
+    }
 
     private async request<T>(
         path: string,

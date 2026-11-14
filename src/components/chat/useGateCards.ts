@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useMemo, useSyncExternalStore} from "react";
 import {debug as logDebug, warn as logWarn} from "@tauri-apps/plugin-log";
-import type {OpencodeApi} from "../../opencode/api.ts";
+import type {OpencodeApi} from "../../opencode/api/index.ts";
 import type {FormRequest, PermissionRequest} from "../../opencode/types.ts";
 import type {ChatMessage} from "../../opencode/chatMessages.ts";
 import {

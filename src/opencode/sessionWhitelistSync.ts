@@ -1,5 +1,5 @@
 import {error as logError, info, warn as logWarn} from "@tauri-apps/plugin-log";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import {globalConfigTarget} from "./configFiles.ts";
 import {parseRegistryRaw} from "./sessionRegistry.ts";
 

@@ -12,7 +12,7 @@ import {useCompositorBlurActive} from "../hooks/useBlurMyShell.ts";
 import {glassSurface} from "../lib/glass.ts";
 import {whileHoverTap} from "../lib/motion.ts";
 import {useI18n} from "../hooks/i18n.tsx";
-import {useScrollEdges, type ScrollEdges} from "../hooks/useScrollEdges.ts";
+import {useScrollEdges, type ScrollEdges, fadeClasses} from "../hooks/useScrollEdges.ts";
 import {useSidebarResizing, useSidebarWidth} from "../hooks/useSidebarWidth.ts";
 import {getCollapsedFolders, setCollapsedFolders, useCollapsedFolders} from "../hooks/useCollapsedFolders.ts";
 import {groupByDirectory, orderSessions, projectDirOf, type SessionInfo} from "./sessionGrouping.ts";
@@ -228,9 +228,7 @@ export default function SessionBar(props: SessionBarProps) {
         <div
             ref={edges.ref}
             onScroll={edges.onScroll}
-            className={`h-full overflow-y-auto overflow-x-hidden px-1.5 lum-fade-md ${isMacOS() ? "pt-1.5" : ""}${
-                edges.top ? " lum-fade-top" : ""
-            }${edges.bottom ? " lum-fade-bottom" : ""}`}
+            className={`h-full overflow-y-auto overflow-x-hidden px-1.5 lum-fade-md ${isMacOS() ? "pt-1.5" : ""}${fadeClasses(edges)}`}
             data-tauri-drag-region
         >
             {renderGroups(list, plain)}

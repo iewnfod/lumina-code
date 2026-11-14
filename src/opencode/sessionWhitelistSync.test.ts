@@ -23,7 +23,7 @@ class MemoryStorage {
 
 const {unionIds, readWhitelist, mergeWhitelist, serverWhitelistIds} = await import("./sessionWhitelistSync.ts");
 
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 
 /**
  * A minimal fake of the api surface the sync touches: config entries

@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useState} from "react";
 import {Box, Search} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
-import {useScrollEdges} from "../../hooks/useScrollEdges.ts";
+import {useScrollEdges, fadeClasses} from "../../hooks/useScrollEdges.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 import type {IntegrationInfo} from "../../opencode/types.ts";
 import Modal from "../ui/Modal.tsx";
@@ -64,9 +64,7 @@ export default function AddProviderModal({
                 <div
                     ref={edges.ref}
                     onScroll={edges.onScroll}
-                    className={`lum-fade-md flex flex-col min-h-0 max-h-[50vh] overflow-y-auto overflow-x-hidden${
-                        edges.top ? " lum-fade-top" : ""
-                    }${edges.bottom ? " lum-fade-bottom" : ""}`}
+                    className={`lum-fade-md flex flex-col min-h-0 max-h-[50vh] overflow-y-auto overflow-x-hidden${fadeClasses(edges)}`}
                 >
                     {integrations === null && (
                         <p className="text-xs py-4 text-center" style={{color: colors.inactiveText}}>

@@ -1,7 +1,7 @@
 import {useEffect, useSyncExternalStore} from "react";
 import {error as logError} from "@tauri-apps/plugin-log";
 import {createKeyedStore} from "../lib/moduleStore.ts";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import type {WorkspaceDiffEntry} from "./types.ts";
 
 /**

@@ -1,7 +1,7 @@
 import {useEffect, useSyncExternalStore} from "react";
 import {debug as logDebug, error as logError, info as logInfo, warn as logWarn} from "@tauri-apps/plugin-log";
 import {createKeyedStore} from "../lib/moduleStore.ts";
-import type {OpencodeApi} from "./api.ts";
+import type {OpencodeApi} from "./api/index.ts";
 import {useConnection} from "./connectionContext.tsx";
 import {worktreeBindingOf} from "./worktreeSessions.ts";
 import {probeWorktreeDrift, syncWorktreeToBranch} from "./worktreeSync.ts";

@@ -704,6 +704,9 @@ export async function writeTasksState(directory, sessionID, state) {
     await fs.promises.writeFile(path.join(dir, "tasks.md"), composeTasksDoc(sessionID, state.title, state.items), "utf8");
     return dirName;
   } catch (e) {
+    // EXEMPT from the no-console rule (AGENTS.md §3.5): this runs inside
+    // the opencode SERVER's plugin runtime — no tauri plugin-log channel
+    // exists there, console is the only output.
     console.warn(`[lumina-tools] tasks.md refresh failed: ${e?.message ?? e}`);
     return null;
   }
@@ -886,6 +889,8 @@ export async function sweepOrphanAcceptance(ctx, sessionID, agentNow) {
       error: String(e?.message ?? e),
     }));
     if (archived?.error) {
+      // EXEMPT from the no-console rule: server-side plugin runtime, no
+      // plugin-log channel exists there (same as tasks.md above).
       console.warn(`[lumina-tools] orphan-acceptance sweep could not archive: ${archived.error}`);
     }
   }

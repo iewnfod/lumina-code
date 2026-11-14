@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import {error, info, warn} from "@tauri-apps/plugin-log";
 import {loadState, saveState} from "../lib/persist.ts";
-import {fileRefToPromptFile, OpencodeApi} from "./api.ts";
+import {fileRefToPromptFile, OpencodeApi} from "./api/index.ts";
 import {type AppMode, pickableAgents, sessionMode, useAppMode} from "./appMode.ts";
 import {LUMINA_DAILY_AGENT_ID} from "./toolPluginConfig.ts";
 import {ensureDefaultWorkspace, resolveDefaultWorkspace, resolveSessionDirectory} from "./defaultWorkspace.ts";

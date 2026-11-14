@@ -6,11 +6,10 @@ import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {
     DEFAULT_SERVER_URL,
-    LuminaServerApi,
     SELF_HOST_DOC_URL,
-    deviceLoginLabel,
     normalizeServerUrl,
 } from "../../opencode/serverConnection.ts";
+import {nextServerFormState, performServerSignIn, validateSignInInput} from "../../opencode/serverAuth.ts";
 import {setMobileConnection} from "../../opencode/mobileConnection.ts";
 
 /**
@@ -38,35 +37,24 @@ export default function LoginScreen() {
     const [errorText, setErrorText] = useState<string | null>(null);
 
     const toggleServer = () => {
-        // Both edges reset the field: expanding starts EMPTY (the
-        // official address must not sit in the custom box as if it
-        // were the user's own server); collapsing restores the
-        // official default so the collapsed form never signs in to a
-        // stale custom value.
-        setUrl(customServer ? DEFAULT_SERVER_URL : "");
-        setCustomServer(!customServer);
+        const next = nextServerFormState(customServer);
+        setUrl(next.url);
+        setCustomServer(next.custom);
     };
 
     const signIn = async () => {
-        const normalized = normalizeServerUrl(url);
-        if (normalized === null) {
-            setErrorText(t["Server address must start with http:// or https://"]);
-            return;
-        }
-        if (!username || !password) {
-            setErrorText(t["Enter a username and password"]);
+        const checked = validateSignInInput(url, username, password);
+        if ("error" in checked) {
+            setErrorText(checked.error === "bad-url"
+                ? t["Server address must start with http:// or https://"]
+                : t["Enter a username and password"]);
             return;
         }
         setBusy(true);
         setErrorText(null);
         try {
-            const login = await LuminaServerApi.login(
-                normalized,
-                username,
-                password,
-                await deviceLoginLabel(),
-            );
-            setMobileConnection({url: normalized, token: login.token, username: login.username});
+            const login = await performServerSignIn(checked.url, username, password);
+            setMobileConnection({url: checked.url, token: login.token, username: login.username});
         } catch (e) {
             setErrorText(String(e));
             logError(`mobile sign-in failed: ${e}`).catch(() => {});

@@ -2,7 +2,7 @@ import {info} from "@tauri-apps/plugin-log";
 import {motion} from "framer-motion";
 import {Button as HeroUIButton, ButtonGroup} from "@heroui/react";
 import {type CSSProperties} from "react";
-import type {OpencodeApi} from "../../opencode/api.ts";
+import type {OpencodeApi} from "../../opencode/api/index.ts";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n, useLanguageChoice, setLanguage, type Language} from "../../hooks/i18n.tsx";
 import {setThemePreference, useThemePreference, type ThemePreference} from "../../hooks/useThemePreference.ts";
@@ -22,6 +22,7 @@ import {
     isDefaultTypography,
 } from "../../lib/typography.ts";
 import Button from "../ui/Button.tsx";
+import Hint from "../ui/Hint.tsx";
 import SettingRow from "./SettingRow.tsx";
 import Switch from "./Switch.tsx";
 import TextInput from "./TextInput.tsx";
@@ -123,20 +124,21 @@ function SizeStepper({
     const colors = useColors();
     const t = useI18n();
     const step = (delta: -1 | 1, glyph: string, hint: string, disabled: boolean) => (
-        <motion.button
-            type="button"
-            disabled={disabled}
-            aria-label={hint}
-            title={hint}
-            onClick={() => onChange(value + delta)}
-            {...whileHoverTap}
-            className={`h-9 w-9 shrink-0 rounded-[var(--radius-sm)] text-sm font-medium transition-colors duration-[var(--duration-fast)] ${
-                disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:bg-[var(--lum-step-hover)]"
-            }`}
-            style={{"--lum-step-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
-        >
-            {glyph}
-        </motion.button>
+        <Hint label={hint}>
+            <motion.button
+                type="button"
+                disabled={disabled}
+                aria-label={hint}
+                onClick={() => onChange(value + delta)}
+                {...whileHoverTap}
+                className={`h-9 w-9 shrink-0 rounded-[var(--radius-sm)] text-sm font-medium transition-colors duration-[var(--duration-fast)] ${
+                    disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:bg-[var(--lum-step-hover)]"
+                }`}
+                style={{"--lum-step-hover": colors.hoverOverlay, color: colors.inactiveText} as CSSProperties}
+            >
+                {glyph}
+            </motion.button>
+        </Hint>
     );
     return (
         <div className="flex items-center gap-1.5" role="group" aria-label={t["Font size"]}>
