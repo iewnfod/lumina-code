@@ -7,6 +7,7 @@ import {
     setCompositorBlurEnabled,
     useBmsStatus,
     useCompositorBlurEnabled,
+    useNativeBlurAvailable,
 } from "../../hooks/useBlurMyShell.ts";
 import {isLinux} from "../../lib/platform.ts";
 import Button from "../ui/Button.tsx";
@@ -14,30 +15,62 @@ import SettingRow from "./SettingRow.tsx";
 import Switch from "./Switch.tsx";
 
 /**
- * The Blur my Shell settings rows (General pane, Linux + GNOME): the
- * extension has no API — Lumina renders translucent pixels, gets its
- * wm_class into the extension's whitelist (the button writes it via
- * gsettings, src-tauri/src/blur.rs) and reads the state back to decide
- * translucency (hooks/useBlurMyShell.ts). The rows guide through the
- * extension's own gates; "unsupported" (no GNOME / no gsettings) renders
- * nothing. Split from GeneralSettings.tsx; the isLinux() gate lives HERE
- * (one check, not one per row).
+ * The window-blur settings rows (General pane, Linux): with NATIVE
+ * compositor blur (ext-background-effect-v1 — Mutter 51, KWin 6.7+,
+ * COSMIC; hooks/useBlurMyShell.ts probes it) this is a plain toggle,
+ * like macOS/Windows glass — no extension involved. Only when the
+ * compositor does NOT speak the protocol do the Blur my Shell guide
+ * rows render (older GNOME): the extension has no API — Lumina
+ * renders translucent pixels, gets its wm_class into the extension's
+ * whitelist (the button writes it via gsettings,
+ * src-tauri/src/blur.rs) and reads the state back. Split from
+ * GeneralSettings.tsx; the isLinux() gate lives HERE (one check, not
+ * one per row).
  */
 export default function BlurMyShellSettings() {
     const t = useI18n();
+    const native = useNativeBlurAvailable();
     const bms = useBmsStatus();
     const blurEnabled = useCompositorBlurEnabled();
     const [joining, setJoining] = useState(false);
 
     // Opening the settings pane refreshes the Blur my Shell snapshot:
     // the user may have installed/enabled/configured the extension since
-    // our last probe (startup / focus-regain). Off-Linux the probe
-    // short-circuits to "unsupported" without spawning anything.
+    // our last probe (startup / focus-regain). The NATIVE capability
+    // never changes for a connection's lifetime — no refresh needed.
+    // Off-Linux the probe short-circuits to "unsupported" without
+    // spawning anything.
     useEffect(() => {
         if (isLinux()) probeBms();
     }, []);
 
     if (!isLinux()) return null;
+
+    const blurSwitch = (
+        <Switch
+            checked={blurEnabled}
+            label={blurEnabled ? t["Enabled"] : t["Disabled"]}
+            onChange={(next) => {
+                info(`Compositor blur set to ${next} from settings`).catch(() => {});
+                setCompositorBlurEnabled(next);
+            }}
+        />
+    );
+
+    // Native compositor blur: a plain user toggle, nothing to guide
+    // through. (The extension rows below never render in this mode —
+    // even a machine that also runs Blur my Shell needs no guidance,
+    // the native path is what drives the window.)
+    if (native) {
+        return (
+            <SettingRow
+                label={t["Window blur"]}
+                description={t["Blur the desktop behind the window, natively provided by your compositor — no extension needed"]}
+            >
+                {blurSwitch}
+            </SettingRow>
+        );
+    }
 
     if (bms.state === "active") {
         return (
@@ -61,14 +94,7 @@ export default function BlurMyShellSettings() {
                     </>
                 }
             >
-                <Switch
-                    checked={blurEnabled}
-                    label={blurEnabled ? t["Enabled"] : t["Disabled"]}
-                    onChange={(next) => {
-                        info(`Compositor blur set to ${next} from settings`).catch(() => {});
-                        setCompositorBlurEnabled(next);
-                    }}
-                />
+                {blurSwitch}
             </SettingRow>
         );
     }

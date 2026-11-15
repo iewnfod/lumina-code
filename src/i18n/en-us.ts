@@ -168,8 +168,9 @@ const enUs = {
     "Desktop": "Desktop",
     "Window outline": "Window outline",
     "Show a thin window edge when the desktop draws no shadow": "Show a thin window edge when the desktop draws no shadow",
-    // --- Blur my Shell (Linux/GNOME window blur) ---
+    // --- Window blur (Linux: native compositor effect, Blur my Shell fallback) ---
     "Window blur": "Window blur",
+    "Blur the desktop behind the window, natively provided by your compositor — no extension needed": "Blur the desktop behind the window, natively provided by your compositor — no extension needed",
     "Blur the desktop behind the window via the Blur my Shell extension": "Blur the desktop behind the window via the Blur my Shell extension",
     "Install the Blur my Shell extension, then reopen settings": "Install the Blur my Shell extension, then reopen settings",
     "Enable the Blur my Shell extension in GNOME's extension manager, then reopen settings": "Enable the Blur my Shell extension in GNOME's extension manager, then reopen settings",

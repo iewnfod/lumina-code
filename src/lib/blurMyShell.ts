@@ -90,3 +90,23 @@ export function composeWhitelist(existing: string[], wmClass: string): string[] 
     if (matchesAny(existing, wmClass)) return existing;
     return [...existing, wmClass];
 }
+
+/**
+ * The render decision for the translucent compositor-blur material:
+ * the user's preference AND at least one blur provider live. The
+ * NATIVE ext-background-effect-v1 path (Mutter 51 / KWin 6.7+ /
+ * COSMIC — the protocol global probe) takes priority; the Blur my
+ * Shell chain is the fallback for older GNOME. `nativeAvailable`
+ * implies the whole render path is safe: App paints the window base
+ * translucent and the compositor blurs behind the whole window
+ * (glass.ts's compositorBlur option) — the store that feeds this
+ * (useBlurMyShell.ts) only reports available when the effect can
+ * actually be driven, falling back to opaque otherwise.
+ */
+export function deriveBlurActive(
+    nativeAvailable: boolean,
+    bms: BlurStatus,
+    enabled: boolean,
+): boolean {
+    return enabled && (nativeAvailable || bms.state === "active");
+}

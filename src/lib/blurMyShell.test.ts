@@ -4,6 +4,7 @@ import {
     bmsWildcardMatch,
     composeWhitelist,
     deriveBmsStatus,
+    deriveBlurActive,
     type BlurSnapshot,
 } from "./blurMyShell.ts";
 
@@ -91,4 +92,18 @@ test("composeWhitelist never duplicates a covered entry", () => {
     assert.deepEqual(composeWhitelist(["Lumina-code"], "lumina-code"), ["Lumina-code"]);
     // A wildcard already matching us counts as covered.
     assert.deepEqual(composeWhitelist(["lum*", "firefox"], "lumina-code"), ["lum*", "firefox"]);
+});
+
+test("deriveBlurActive prefers the native path, falls back to BMS", () => {
+    const active = deriveBmsStatus(snapshot({whitelist: ["lumina-code"]}));
+    const notListed = deriveBmsStatus(snapshot({whitelist: ["firefox"]}));
+    // Native availability alone is enough — no extension needed.
+    assert.ok(deriveBlurActive(true, notListed, true));
+    assert.ok(deriveBlurActive(true, {state: "unsupported"}, true));
+    // Without native, the BMS chain decides.
+    assert.ok(deriveBlurActive(false, active, true));
+    assert.ok(!deriveBlurActive(false, notListed, true));
+    // The preference vetoes every provider.
+    assert.ok(!deriveBlurActive(true, active, false));
+    assert.ok(!deriveBlurActive(false, active, false));
 });

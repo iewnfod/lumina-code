@@ -37,8 +37,19 @@ tauri-plugin-store = "=2.4.3"
 # src/notify.rs for why the plugin's per-send connection gets GNOME
 # notifications destroyed. Already in the tree via notify-rust; same
 # default features, so this adds no new code.
+#
+# The native window-blur path (src/background_effect.rs) — the
+# ext-background-effect-v1 Wayland protocol spoken over GDK's own
+# connection. `system` selects the FFI backend (foreign-display
+# support); `staging` unlocks the protocol bindings (0.32.9+). gtk is
+# tauri 2's own GTK3 line (0.18) — only used for the widget walk down
+# to the GdkWindow (the Wayland accessors themselves are dlopen'd).
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = "5"
+wayland-client = { version = "0.31", features = ["system"] }
+wayland-protocols = { version = "0.32", features = ["staging", "client"] }
+gtk = "0.18"
+libloading = "0.8"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

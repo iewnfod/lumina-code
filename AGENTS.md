@@ -1985,24 +1985,32 @@ src/
 │   ├── glass.ts           # glassSurface / windowOutline — the ONLY place
 │   │                      #   backdrop-filter is written (Wayland fallback lives
 │   │                      #   here). THREE glass modes: supportsGlass → tint +
-│   │      backdrop-filter; compositorBlur (GNOME + Blur my Shell, see
-│   │      hooks/useBlurMyShell.ts) → the SAME translucent tint with NO
-│   │      filter (the extension blurs behind the whole window in the
-│   │      compositor); neither → opaque adjustColor fallback. A
+│   │      backdrop-filter; compositorBlur (native
+│   │      ext-background-effect-v1 or Blur my Shell — see
+│   │      hooks/useBlurMyShell.ts) → the SAME translucent tint with
+│   │      NO filter (the compositor blurs behind the whole window);
+│   │      neither → opaque adjustColor fallback. A
 │   │      lumina-code addition, deliberately diverged from lumina-terminal.
 │   ├── color.ts           # color math (luminance, foreground, adjust,
 │   │                      #   withAlpha — the rgba() feed of the compositor-
 │   │                      #   blur window base)
-│   ├── blurMyShell.ts     # The Blur my Shell integration's PURE decision
-│   │                      #   layer (node-testable): bmsWildcardMatch
-│   │                      #   mirrors the extension's whitelist matcher
-│   │                      #   (wildcards * / ?, everything else literal,
-│   │      case-insensitive — wildcardToRegex in its applications.js),
-│   │      deriveBmsStatus walks the extension's own gate chain
-│   │      (unsupported / notInstalled / extensionDisabled / disabled /
-│   │      notListed / blacklisted / active{staticBlur, opacity}) over
-│   │      the Rust probe's raw snapshot, composeWhitelist appends our
-│   │      wmClass without duplicating an already-covering pattern.
+│   ├── blurMyShell.ts     # The compositor-blur PURE decision layer
+│   │                      #   (node-testable): the Blur my Shell half —
+│   │                      #   bmsWildcardMatch mirrors the extension's
+│   │                      #   whitelist matcher (wildcards * / ?, everything
+│   │                      #   else literal, case-insensitive —
+│   │                      #   wildcardToRegex in its applications.js),
+│   │                      #   deriveBmsStatus walks the extension's own
+│   │                      #   gate chain (unsupported / notInstalled /
+│   │                      #   extensionDisabled / disabled / notListed /
+│   │                      #   blacklisted / active{staticBlur, opacity})
+│   │                      #   over the Rust probe's raw snapshot,
+│   │                      #   composeWhitelist appends our wmClass without
+│   │                      #   duplicating an already-covering pattern —
+│   │                      #   PLUS deriveBlurActive, the ONE render
+│   │                      #   decision the whole app consumes: the
+│   │                      #   persisted pref AND (native-available OR
+│   │                      #   BMS active), native priority.
 │   ├── motion.ts          # The framer-motion RESIDUE: only the button
 │   │                      #   hover/tap spring (whileHoverTap +
 │   │                      #   springSnappy) and RollingTitle's timer
@@ -2185,35 +2193,61 @@ src/
 │   ├── surfaceColors.ts   # useSurfaceColors(bg) → derived border/overlay/accent colors
 │   ├── useGlass.ts        # backdrop-filter capability (disabled on Linux/WebKitGTK);
 │   │                      #   ONLY about the in-page filter — window-level
-│   │                      #   translucency on GNOME is useBlurMyShell below
-│   ├── useBlurMyShell.ts  # The Blur my Shell integration's stateful half
-│   │                      #   (GNOME gives apps no blur API: the extension
-│   │                      #   matches wm_class/app_id against a GSettings
-│   │                      #   whitelist and blurs BEHIND whitelisted windows;
-│   │                      #   "integration" = render translucent pixels +
-│   │                      #   join the whitelist + detect the state, so
-│   │                      #   non-BMS systems keep the opaque fallback —
-│   │                      #   never translucentize unconditionally). Module
-│   │                      #   snapshot store (the sessionStopping pattern;
-│   │                      #   probes deduped through one in-flight promise)
-│   │                      #   over the blur_my_shell_probe Rust command;
-│   │                      #   addToBmsWhitelist writes our wmClass into the
-│   │                      #   extension's whitelist (blur_my_shell_set_
-│   │                      #   whitelist; BMS re-scans all windows on the
+│   │                      #   translucency on Linux is useBlurMyShell below
+│   ├── useBlurMyShell.ts  # The compositor-blur stateful half — TWO
+│   │                      #   providers behind ONE render capability:
+│   │                      #   (1) NATIVE ext-background-effect-v1
+│   │                      #   (Mutter 51 / GNOME 51, KWin 6.7+, COSMIC
+│   │                      #   — src-tauri/src/background_effect.rs
+│   │                      #   speaks the protocol over GDK's own
+│   │                      #   connection), PREFERRED everywhere it is
+│   │                      #   advertised: no extension, no whitelist —
+│   │                      #   a plain toggle like macOS/Windows glass.
+│   │                      #   probeNativeBlur runs ONCE (availability is
+│   │                      #   fixed for the connection's lifetime);
+│   │                      #   ensureNativeBlur drives the effect with
+│   │                      #   ~1s of retries (the wl_surface doesn't
+│   │                      #   exist until the window is mapped — called
+│   │                      #   from useWindowFirstShow right after
+│   │                      #   show() and from setCompositorBlurEnabled
+│   │                      #   on toggle; every retry failing retracts
+│   │                      #   availability so the render heals to
+│   │                      #   opaque instead of translucent-with-
+│   │                      #   nothing-blurring; a latest-wins token
+│   │                      #   cancels superseded loops); (2) Blur my
+│   │                      #   Shell — the old-GNOME fallback (the
+│   │                      #   extension matches wm_class/app_id against
+│   │                      #   a GSettings whitelist and blurs BEHIND
+│   │                      #   whitelisted windows; "integration" =
+│   │                      #   render translucent pixels + join the
+│   │                      #   whitelist + detect the state, so non-BMS
+│   │                      #   systems keep the opaque fallback — never
+│   │                      #   translucentize unconditionally). Module
+│   │                      #   snapshot stores (the sessionStopping
+│   │                      #   pattern; probes deduped through one
+│   │                      #   in-flight promise) over the
+│   │                      #   blur_my_shell_probe / background_effect_
+│   │                      #   probe Rust commands; addToBmsWhitelist
+│   │                      #   writes our wmClass into the extension's
+│   │                      #   whitelist (BMS re-scans all windows on the
 │   │                      #   key's changed:: signal, so it takes effect
-│   │                      #   immediately); useCompositorBlurActive is the
-│   │                      #   RENDER capability (live AND the persisted
-│   │                      #   lumina-code:compositor-blur pref on) consumed
-│   │                      #   by App's root bg + the chrome glass surfaces
-│   │                      #   via glassSurface's compositorBlur option.
-│   │                      #   Probes fire BEFORE the window is shown (first
-│   │                      #   visible frame already correct; a 400ms race
-│   │                      #   caps the wait), on focus REGAIN debounced
-│   │                      #   (the user toggles the extension while we are
-│   │                      #   unfocused — a stale active would leave the
-│   │                      #   window see-through with nothing blurring
-│   │                      #   behind it), when the settings row mounts, and
-│   │                      #   after our own write.
+│   │                      #   immediately); useCompositorBlurActive is
+│   │                      #   the RENDER capability (lib/blurMyShell's
+│   │                      #   deriveBlurActive: the persisted
+│   │                      #   lumina-code:compositor-blur pref AND
+│   │                      #   (native available OR BMS active) — native
+│   │                      #   priority) consumed by App's root bg + the
+│   │                      #   chrome glass surfaces via glassSurface's
+│   │                      #   compositorBlur option. Probes fire BEFORE
+│   │                      #   the window is shown (first visible frame
+│   │                      #   already correct; a 400ms race caps the
+│   │                      #   wait), on focus REGAIN debounced (BMS only
+│   │                      #   — the user toggles the extension while we
+│   │                      #   are unfocused; a stale active would leave
+│   │                      #   the window see-through with nothing
+│   │                      #   blurring behind it), when the settings
+│   │                      #   row mounts (BMS), and after our own
+│   │                      #   whitelist write.
 │   ├── useSystemTheme.ts  # OS light/dark (module-cached)
 │   ├── useThemePreference.ts # Manual light/dark override ("system" follows
 │   │                      #   the OS) — a persistedStore.ts store, consumed
@@ -2436,8 +2470,11 @@ src/
 │   │                      #   effects before; exempt/escapeBusy params
 │   │                      #   carry the stats panel's drill/modal rules).
 │   ├── useWindowFirstShow.ts # Show the hidden window after first paint,
-│   │                      #   racing the BMS probe (App's old inline
-│   │                      #   effect, extracted).
+│   │                      #   racing BOTH blur probes (BMS + native
+│   │                      #   background-effect — App's old inline
+│   │                      #   effect, extracted); once show() resolves,
+│   │                      #   ensureNativeBlur pushes the native effect
+│   │                      #   (the wl_surface only exists once mapped).
 │   ├── useChromeThemeSync.ts # HeroUI dark-class sync + the mobile
 │   │                      #   setChromeBackground push (App's old inline
 │   │                      #   effects, extracted; the glassSurfaceEquivalent
@@ -3906,13 +3943,17 @@ src/
     │                      #   notification tier OptionRow + focus-mute
     │                      #   Switch (useNotificationMode), the
     │                      #   Linux-only window-outline Switch, the
-    │                      #   Linux+GNOME Blur my Shell rows (state-
-    │                      #   guided: notInstalled/disabled/blacklisted
+    │                      #   Linux window-blur rows (native
+    │                      #   compositor effect → a plain Switch, like
+    │                      #   macOS/Windows; no native support → the
+    │                      #   state-guided Blur my Shell rows:
+    │                      #   notInstalled/disabled/blacklisted
     │                      #   hint, notListed offers the one-click
-    │                      #   "接入" button — addToBmsWhitelist — and
-    │                      #   active binds the translucent render's
-    │                      #   Switch + the opacity/static-blur advice
-    │                      #   lines; the pane mount re-probes), a Fonts
+    │                      #   "接入" button — addToBmsWhitelist —
+    │                      #   and active binds the translucent
+    │                      #   render's Switch + the opacity/static-
+    │                      #   blur advice lines; the pane mount
+    │                      #   re-probes BMS), a Fonts
     │                      #   section (AboutSettings-style header; one
     │                      #   control per row — family input / size
     │                      #   stepper — plus reset), and the CUSTOM
@@ -4013,9 +4054,18 @@ src/
     │                      #   option, saves through ensureLuminaToolsPlugin
     │                      #   with withSystemPrompt, JSONC/read-failure
     │                      #   degrade to the manual-edit notice.
-    ├── BlurMyShellSettings.tsx # The Blur my Shell rows (split from
+    ├── BlurMyShellSettings.tsx # The window-blur rows (split from
     │                      #   GeneralSettings.tsx; the isLinux() gate lives
-    │                      #   HERE — one check, not one per row).
+    │                      #   HERE — one check, not one per row): with
+    │                      #   NATIVE compositor blur (the
+    │                      #   ext-background-effect-v1 probe in
+    │                      #   useBlurMyShell) a PLAIN toggle like
+    │                      #   macOS/Windows glass; without it, the
+    │                      #   state-guided Blur my Shell guide rows
+    │                      #   (notInstalled/extensionDisabled/disabled/
+    │                      #   blacklisted hints, notListed's one-click
+    │                      #   接入 button, active's translucent-render
+    │                      #   Switch + advice lines).
     ├── SectionHeader.tsx  # The one settings section-header look (General's
     │                      #   Typography group + About's Dependencies —
     │                      #   two identical inline copies before).
@@ -4238,10 +4288,70 @@ src-tauri/src/
 │                  #   command is a never-routed stub (the plugin serves
 │                  #   macOS/Windows); the zbus dep is Linux-gated (already
 │                  #   in the tree via notify-rust).
+├── background_effect.rs # NATIVE window blur — the ext-background-effect-v1
+│                  #   Wayland protocol (wayland-protocols staging; Mutter 51
+│                  #   / GNOME 51, KWin 6.7+, COSMIC 1.11+, niri), the
+│                  #   PREFERRED compositor-blur path everywhere the
+│                  #   compositor advertises it: no shell extension, a
+│                  #   plain user toggle like macOS/Windows glass (Blur
+│                  #   my Shell — blur.rs below — stays the old-GNOME
+│                  #   fallback). GTK3 has no API for this protocol (and
+│                  #   never will), so the module bridges to GDK's OWN
+│                  #   Wayland connection: GDK symbols via
+│                  #   dlopen("libgdk-3.so.0") — ZERO link-time
+│                  #   dependency (a link-time extern would make the
+│                  #   binary refuse to LOAD on a Wayland-less custom
+│                  #   gtk3 build); gdk_display_get_name verifies the
+│                  #   backend is Wayland before any gdk_wayland_* call
+│                  #   (the X11 display is a different struct — UB
+│                  #   otherwise); the wl_display/wl_surface are wrapped
+│                  #   through wayland-client's system backend
+│                  #   (Backend::from_foreign_display + ObjectId::from_ptr,
+│                  #   private event queue whose roundtrips never touch
+│                  #   GDK's proxies — the documented foreign-connection
+│                  #   pattern); the wl_surface comes from tauri's
+│                  #   gtk_window() + WidgetExt::window(). Protocol
+│                  #   facts that shape the code: the INITIAL blur
+│                  #   region is EMPTY (a full-surface rect must be set
+│                  #   explicitly; NULL removes the effect), state lands
+│                  #   on the next wl_surface.commit — which must be
+│                  #   GDK's OWN commit (a third-party commit races
+│                  #   GDK's frame state machine and Mutter 51 kills
+│                  #   the connection, live-verified Gdk "Error 71";
+│                  #   every apply accompanies a render change, so the
+│                  #   next GDK commit always carries the state), there
+│                  #   is NO radius
+│                  #   parameter (compositor policy — no strength UI),
+│                  #   ONE effect object per surface (a repeated
+│                  #   get_background_effect raises a protocol error —
+│                  #   created ONCE per surface generation, toggles
+│                  #   never destroy it: off is set_blur_region(None),
+│                  #   the protocol's official removal, because
+│                  #   wayland-client's Proxy drop does NOT send the
+│                  #   destructor request — a drop→recreate cycle
+│                  #   raised background_effect_exists on the next
+│                  #   create and Mutter 51 killed the connection
+│                  #   (live-verified, the Gdk "Error 71" crash); the
+│                  #   object goes inert
+│                  #   once the wl_surface is destroyed (apply
+│                  #   re-resolves the CURRENT surface pointer each
+│                  #   call; NULL while unmapped — the frontend retries
+│                  #   ~1s, then retracts availability so the render
+│                  #   heals to opaque). SYNC commands on purpose: wry
+│                  #   invokes sync handlers on the GTK main thread, and
+│                  #   the Wayland proxies live in a thread_local (they
+│                  #   are !Send) — background_effect_probe (windowless,
+│                  #   runs before first show) / background_effect_apply.
+│                  #   WEBKIT SHELL ONLY: the CEF shell (transparent:
+│                  #   false — blur would be invisible) does not mount
+│                  #   this file nor register the commands; the
+│                  #   frontend's invoke rejects → native unavailable →
+│                  #   BMS/opaque fallback unchanged.
 ├── blur.rs        # Blur my Shell integration, gsettings IO half (the pure
 │                  #   decision layer is src/lib/blurMyShell.ts, the state/
-│                  #   render half hooks/useBlurMyShell.ts). GNOME gives apps
-│                  #   no blur API — the extension matches wm_class/app_id
+│                  #   render half hooks/useBlurMyShell.ts) — the FALLBACK
+│                  #   blur provider (the preferred one is
+│                  #   background_effect.rs above). GNOME gives apps
 │                  #   against its applications whitelist and blurs behind
 │                  #   matched windows — but its config is PLAIN GSETTINGS
 │                  #   (org.gnome.shell.extensions.blur-my-shell.applications),

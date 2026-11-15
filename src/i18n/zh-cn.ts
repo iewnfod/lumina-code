@@ -162,8 +162,9 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Desktop": "桌面",
     "Window outline": "窗口描边",
     "Show a thin window edge when the desktop draws no shadow": "在无窗口阴影的桌面显示窗口边缘",
-    // --- Blur my Shell（Linux/GNOME 窗口模糊）---
+    // --- 窗口模糊（Linux：原生合成器效果优先，Blur my Shell 回退）---
     "Window blur": "窗口模糊",
+    "Blur the desktop behind the window, natively provided by your compositor — no extension needed": "由系统合成器原生提供（GNOME 51+、KDE Plasma 6.7+），模糊窗口背后的桌面，无需任何扩展",
     "Blur the desktop behind the window via the Blur my Shell extension": "通过 Blur my Shell 扩展模糊窗口后面的桌面",
     "Install the Blur my Shell extension, then reopen settings": "安装 Blur my Shell 扩展后重新打开设置",
     "Enable the Blur my Shell extension in GNOME's extension manager, then reopen settings": "在 GNOME 的扩展管理器中启用 Blur my Shell 扩展，然后重新打开设置",

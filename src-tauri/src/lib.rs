@@ -1,3 +1,4 @@
+mod background_effect;
 mod blur;
 mod frp;
 mod lumina_http;
@@ -60,7 +61,9 @@ pub fn run() {
             lumina_http::lumina_request,
             notify::desktop_notify,
             blur::blur_my_shell_probe,
-            blur::blur_my_shell_set_whitelist
+            blur::blur_my_shell_set_whitelist,
+            background_effect::background_effect_probe,
+            background_effect::background_effect_apply
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
