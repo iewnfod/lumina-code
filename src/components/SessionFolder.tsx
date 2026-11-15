@@ -206,20 +206,30 @@ export default function SessionFolder({
                                         onPointerEnter={() => onSessionHover?.(session.id)}
                                     >
                                         {/* The INDICATOR SLOT (the indent gutter left of the row) is
-                                            shared by the busy dot and the pin button (DESKTOP only —
-                                            a phone has no hover to reveal the button, its pin
-                                            surface is the title-bar ⋯ menu): busy → the pulsing dot
-                                            (a transient state wins the slot, the pin steps aside);
-                                            pinned → the always-on filled pin (click unpins);
-                                            otherwise a hover-revealed pin outline (click pins) —
-                                            the delete-X pattern. MOBILE renders only the busy dot;
-                                            pin state reads through the folder's ordering. */}
+                                            shared by the busy dot and the pin: busy → the pulsing
+                                            dot (a transient state wins the slot, the pin steps
+                                            aside); pinned → the always-on filled pin; otherwise
+                                            (DESKTOP) a hover-revealed pin outline that pins — the
+                                            delete-X pattern. MOBILE has no hover, so its pin is
+                                            DISPLAY-ONLY: a pinned row still shows the filled pin
+                                            (state must be visible, not just implied by the
+                                            folder's ordering), but it never takes a tap — the
+                                            toggle surface stays the title-bar ⋯ menu. */}
                                         {busyIds?.has(session.id) ? (
                                             <span
                                                 className="absolute left-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full animate-pulse pointer-events-none"
                                                 style={{backgroundColor: "var(--color-brand-lavender)"}}
                                             />
-                                        ) : !mobile && onTogglePin && (
+                                        ) : mobile ? (
+                                            isPinned && (
+                                                <span
+                                                    className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-3.5 h-3.5 pointer-events-none"
+                                                    style={{color: isActive ? foregroundColor : colors.inactiveText}}
+                                                >
+                                                    <Pin size={11} fill="currentColor"/>
+                                                </span>
+                                            )
+                                        ) : onTogglePin && (
                                             <Hint
                                                 label={isPinned ? t["Unpin session"] : t["Pin session"]}
                                                 className="absolute left-2 top-1/2 -translate-y-1/2"

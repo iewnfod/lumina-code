@@ -2622,14 +2622,15 @@ src/
     │                      #   hover-debounced HeroUI tooltip when overflowing.
     ├── SessionFolder.tsx  # One PROJECT group: collapsible header (+/chevron),
     │                      #   animated session rows (the left INDICATOR
-    │                      #   SLOT — DESKTOP only for the pin half, a
-    │                      #   phone's pin surface is the title-bar ⋯
-    │                      #   menu — is three-state: busy → pulsing dot,
-    │                      #   pinned → always-on filled pin (click
-    │                      #   unpins), else a hover-revealed pin outline
-    │                      #   that pins, the delete-X pattern; MOBILE
-    │                      #   renders only the busy dot, pin state reads
-    │                      #   through the folder's ordering;
+    │                      #   SLOT is three-state: busy → pulsing dot,
+    │                      #   pinned → always-on filled pin (DESKTOP:
+    │                      #   click unpins; MOBILE: display-only,
+    │                      #   pointer-events-none — a phone's pin TOGGLE
+    │                      #   surface is the title-bar ⋯ menu), else a
+    │                      #   hover-revealed pin outline that pins, the
+    │                      #   delete-X pattern (desktop only); MOBILE
+    │                      #   renders the busy dot + the static pinned
+    │                      #   pin, never the outline button;
     │                      #   branch-worktree
     │                      #   sessions wear their branch as a quiet chip after
     │                      #   the title — hint carries the worktree path;
