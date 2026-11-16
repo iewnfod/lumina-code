@@ -69,7 +69,9 @@ pnpm server:build && (cd server && npx next start)
 | `LUMINA_COOKIE_SECURE` | `0` | `1` 时登录 cookie 标记 Secure（仅当本服务自身走 TLS） |
 | `LUMINA_FRPS_TOKEN` | 空 | frp 远程访问开关：与 `server/deploy/frps.toml` 的 `auth.token` 一致；留空 = 不提供远程访问 |
 | `LUMINA_FRPS_BIND_PORT` | `7000` | frps 控制信道的【宿主机】端口（传统直连模式下桌面 frpc 连它；compose 里是 14601） |
-| `LUMINA_FRPS_CONTROL` | 空 | 控制信道走 WebSocket 的接入点（如 `wss://lumina.example.com`）：frpc 拨 `wss://…/~!frp` 经 nginx 转发到 frps。**Cloudflare 橙云代理的部署必须设置**（CF 只转 HTTP(S)，frp 裸 TCP 过不去）；设置后 14601 无需公网发布。留空 = 传统直连（裸 TCP + frp TLS，14601 需公网可达） |
+| `LUMINA_FRPS_CONTROL` | 空 | 控制信道走 WebSocket 的接入点（如 `wss://lumina.example.com`）：frpc 拨 `wss://…/~!frp` 经反代转发到 frps。**Cloudflare 橙云代理的部署必须设置**（CF 只转 HTTP(S)，frp 裸 TCP 过不去）；设置后 14601 无需公网发布。留空 = 传统直连（裸 TCP + frp TLS，14601 需公网可达） |
+| `LUMINA_FRPS_VHOST_URL` | `http://127.0.0.1:14602` | **Traefik 部署用**：动态配置端点生成的 `/t/` 路由指向的 frps vhost 地址（Traefik 视角；Traefik 在 compose 网络内时用 `http://frps:7100`）。nginx 部署无需设置 |
+| `LUMINA_TRAEFIK_TOKEN` | 空 | **Traefik 部署用**：设置后 `GET /api/frp/traefik` 要求 `Authorization: Bearer <token>`（Traefik 以 `providers.http.headers` 携带）；留空 = 开放（端点只暴露 route id，见信任模型） |
 | `PORT` | Next 默认 | 容器内监听 3000，compose 映射到 14600 |
 
 ## 桌面端接入
@@ -96,7 +98,7 @@ SSE 流式）。服务器只做凭证交换：
 1. **改 token**：`server/deploy/frps.toml` 的 `auth.token` 与 compose 里
    `LUMINA_FRPS_TOKEN` 填同一个随机串（`openssl rand -hex 16`）。
 2. **设 `LUMINA_FRPS_CONTROL`**（compose 里已带示例）：`wss://<你的域名>`
-   —— 控制信道走 WebSocket 经 nginx（见第 4 步的 `/~!frp`），frps 的
+   —— 控制信道走 WebSocket 经反代（见第 4 步的 `/~!frp`），frps 的
    14601 从此无需公网发布。传统直连部署（服务器不经任何 HTTP 反代）
    留空即可，但需把 compose 里 frps 的 14601 改回公网发布。
 3. **`docker compose up -d`**：frps 服务随 compose 一起起来
@@ -137,6 +139,79 @@ location ~ ^/t/(?<frp_route>[A-Za-z0-9_-]+)/(?<frp_path>.*) {
 nginx 在容器里跑的话，把 `127.0.0.1:14602` 换成 compose 网络里的
 `frps:7100`（容器内端口），并去掉 compose 里 14602 的回环发布。
 
+### 用 Traefik 代替 nginx（http provider 动态路由）
+
+Traefik 的 header 改写（`customRequestHeaders` 等）只能取静态值，
+做不到 nginx 那样「从 `/t/<routeId>/` 路径捕获 routeId 改写 Host」。
+为此 lumina-code-server 内置了 **Traefik 动态配置端点**
+（`GET /api/frp/traefik`）：按 `frp_routes` 里的当前路由生成
+`/t/<routeId>/` 的 router —— 剥前缀 + Host 改写 + SSE 即时冲刷，
+全部等价上面 nginx 的 `/t/` location。Traefik 以 **http provider**
+轮询该端点：新桌面注册后路由在下一次轮询自动出现（默认 5s，可调
+`pollInterval`），服务器短暂不可达时 Traefik 沿用最后一份有效配置。
+
+lumina-code-server 侧的环境变量（均可选，nginx 部署无需设置）：
+
+- `LUMINA_FRPS_VHOST_URL`：生成的路由指向的 frps vhost 地址
+  （**Traefik 视角**），默认 `http://127.0.0.1:14602`；Traefik 跑在
+  compose 网络里时改成 `http://frps:7100`。
+- `LUMINA_TRAEFIK_TOKEN`：设置后端点要求
+  `Authorization: Bearer <token>`（Traefik 侧用
+  `providers.http.headers` 静态携带）。留空 = 开放 —— 端点只暴露
+  route id（随机不可枚举、无桌面密码不可访问），但仍建议只允许
+  回环 / Traefik 网络可达。
+
+Traefik 侧：本体与 `/~!frp` 是静态的（file provider），`/t/` 走
+http provider：
+
+```yaml
+# traefik.yml —— 静态配置
+entryPoints:
+  websecure:
+    address: ":443"
+    http:
+      tls: {}                    # 证书按你的 ACME / 静态证书方式配
+providers:
+  file:
+    filename: /etc/traefik/dynamic.yml
+  http:
+    endpoint: "http://127.0.0.1:14600/api/frp/traefik"
+    pollInterval: "5s"
+    # LUMINA_TRAEFIK_TOKEN 设置时取消注释（同一串 token）：
+    # headers:
+    #   Authorization: "Bearer CHANGE_ME"
+
+# dynamic.yml —— file provider 半边：本体 + frpc 控制信道
+http:
+  routers:
+    lumina-main:
+      rule: "Host(`lumina.example.com`)"
+      service: lumina-server
+    lumina-frp-ws:
+      rule: "Host(`lumina.example.com`) && Path(`/~!frp`)"
+      priority: 200              # 压过上面的 catch-all
+      service: frps-control
+  services:
+    lumina-server:
+      loadBalancer:
+        servers: [{url: "http://127.0.0.1:14600"}]
+    frps-control:
+      loadBalancer:
+        servers: [{url: "http://127.0.0.1:14601"}]
+```
+
+与 nginx 样例的行为对照（这些 Traefik **免配**）：
+
+- **WebSocket 升级**：Traefik 原生透传，无需手写
+  `Upgrade` / `Connection` 头。
+- **SSE 冲刷**：`/t/` 路由的 `flushInterval: 1ms`（等价
+  `proxy_buffering off`）已由动态端点生成，无需自配。
+- **请求体上限**：Traefik 默认不限制请求体大小，无需对应
+  `client_max_body_size`。
+- **X-Forwarded-For**：默认携带（登录限流按它计数）。
+- **长连接超时**：Traefik 的 idle 超时只回收空闲连接，不会掐
+  活跃的 SSE / WebSocket 流，无需对应 nginx 的 24h 读写超时。
+
 **信任模型（务必知悉）**：
 
 - 桌面 opencode 的 Basic-auth 密码会**存放在本服务器**并发放给任何
@@ -145,6 +220,11 @@ nginx 在容器里跑的话，把 `127.0.0.1:14602` 换成 compose 网络里的
 - frps 的 `auth.token` 对所有账号共享：互不信任的多租户部署里，一个
   恶意账号理论上可注册他人路由。本服务器面向自托管单操作者场景，
   不要给不信任的人开账号。
+- **Traefik 部署**的动态配置端点（`GET /api/frp/traefik`）在未设
+  `LUMINA_TRAEFIK_TOKEN` 时对任何可达方开放，暴露全部当前 route id
+  ——它们本身就是 URL 路径段（随机不可枚举），单独拿到无法访问桌面
+  （还需要 `/api/frp/connect` 发放的密码，而它按账号 token 隔离）。
+  需要收紧就设 token。
 - **多端设置同步**的值（自定义系统提示词、vision 工具配置、模型
   可见性、置顶会话）以**明文 JSON** 存放在本服务器（`synced_settings`
   表，按账号隔离）——与上面的 opencode 密码同一信任级别。
@@ -163,7 +243,7 @@ nginx 在容器里跑的话，把 `127.0.0.1:14602` 换成 compose 网络里的
 **Cloudflare（或任何 CDN/HTTP 反代）前置时**：
 
 - Web/API 流量（443）正常代理即可；远程访问的 frps 控制信道**必须**
-  走 `LUMINA_FRPS_CONTROL`（wss WebSocket 模式，经 nginx 的 `/~!frp`）
+  走 `LUMINA_FRPS_CONTROL`（wss WebSocket 模式，经反代的 `/~!frp`）
   ——CDN 只转 HTTP(S) 端口且按 HTTP 解析，frp 的裸 TCP 控制协议会被
   边缘直接掐断（表现为桌面端 `session shutdown`）。免费版 CF 即支持
   WebSocket；frp 默认 30s 心跳足以维持长连接。
@@ -183,6 +263,7 @@ nginx 在容器里跑的话，把 `127.0.0.1:14602` 换成 compose 网络里的
 | `GET /api/frp/config` | 桌面用：frps 控制信道端口 + 共享 token（未配置 → `enabled:false`）；设 `LUMINA_FRPS_CONTROL` 时附带 WebSocket 接入点 `{control:{host,port,secure}}` |
 | `PUT /api/frp/routes` | 桌面用：注册/心跳 opencode 密码，铸/复用路由 id |
 | `GET /api/frp/connect` | 移动端用：当前路由 id + 密码 + 最近心跳时间 |
+| `GET /api/frp/traefik` | Traefik 反代用：当前全部路由的动态配置（http provider 轮询；`LUMINA_TRAEFIK_TOKEN` 可选门）——见「用 Traefik 代替 nginx」 |
 | `GET /api/settings` | 任意客户端：本账号全部同步设置 `{settings:{key:value}}`（多端设置同步的读侧） |
 | `PUT /api/settings` | 任意客户端：批量写 `{entries:{key:value}}`——键白名单 + 64KB 上限，服务器自盖时间戳，纯 LWW（后写胜出，无版本闸门） |
 

@@ -9,7 +9,9 @@ import {
   mintRouteId,
   parseControlUrl,
   parsePassword,
+  parseVhostUrl,
   registerFrpRoute,
+  traefikDynamicConfig,
 } from "./frp.ts";
 
 import {describe, expect, it} from "vitest";
@@ -194,5 +196,79 @@ describe("frpRouteOnline", () => {
   it("junk timestamps read as offline, future ones as online", () => {
     expect(frpRouteOnline("not-a-date", now)).toBe(false);
     expect(frpRouteOnline(new Date(now + 5_000).toISOString(), now)).toBe(true);
+  });
+});
+
+describe("traefikDynamicConfig", () => {
+  it("one router + middleware pair per route id, sharing one service", () => {
+    const cfg = traefikDynamicConfig(["u1-abcd1234"], "http://127.0.0.1:14602");
+    expect(Object.keys(cfg.http.routers)).toEqual(["frp-t-u1-abcd1234"]);
+    expect(cfg.http.routers["frp-t-u1-abcd1234"]).toEqual({
+      rule: "PathPrefix(`/t/u1-abcd1234/`)",
+      priority: 100,
+      service: "frp-vhost",
+      middlewares: ["frp-strip-u1-abcd1234", "frp-host-u1-abcd1234"],
+    });
+    // nginx's two rewrites, as middlewares: strip the prefix (query
+    // survives), rewrite Host to what frps routes on.
+    expect(cfg.http.middlewares["frp-strip-u1-abcd1234"]).toEqual({
+      replacePathRegex: {regex: "^/t/u1-abcd1234/(.*)", replacement: "/${1}"},
+    });
+    expect(cfg.http.middlewares["frp-host-u1-abcd1234"]).toEqual({
+      headers: {customRequestHeaders: {Host: "u1-abcd1234.frp.internal"}},
+    });
+    expect(cfg.http.services["frp-vhost"]).toEqual({
+      loadBalancer: {
+        servers: [{url: "http://127.0.0.1:14602"}],
+        responseForwarding: {flushInterval: "1ms"}, // SSE
+      },
+    });
+  });
+
+  it("every registered route becomes a router, independent of owners", async () => {
+    const {db, u1, u2} = await setup();
+    const a = registerFrpRoute(db, u1.id, "pw-a");
+    const b = registerFrpRoute(db, u2.id, "pw-b");
+    const cfg = traefikDynamicConfig(
+      listFrpRoutes(db).map((r) => r.routeId),
+      "http://frps:7100",
+    );
+    expect(Object.keys(cfg.http.routers).sort()).toEqual(
+      [`frp-t-${a.routeId}`, `frp-t-${b.routeId}`].sort(),
+    );
+    // never leaks the password
+    expect(JSON.stringify(cfg)).not.toContain("pw-");
+    // container-network vhost URL rides the service
+    const service = cfg.http.services["frp-vhost"] as {
+      loadBalancer: {servers: {url: string}[]};
+    };
+    expect(service.loadBalancer.servers).toEqual([{url: "http://frps:7100"}]);
+  });
+
+  it("empty routes serve an empty-but-valid config (no stray service)", () => {
+    const cfg = traefikDynamicConfig([], "http://127.0.0.1:14602");
+    expect(cfg).toEqual({
+      http: {routers: {}, middlewares: {}, services: {}},
+    });
+  });
+});
+
+describe("parseVhostUrl", () => {
+  it("default when unset or blank", () => {
+    expect(parseVhostUrl(undefined)).toBe("http://127.0.0.1:14602");
+    expect(parseVhostUrl("   ")).toBe("http://127.0.0.1:14602");
+  });
+
+  it("accepts http(s) origins, normalizing any path away", () => {
+    expect(parseVhostUrl("http://frps:7100")).toBe("http://frps:7100");
+    expect(parseVhostUrl("http://frps:7100/")).toBe("http://frps:7100");
+    expect(parseVhostUrl("http://frps:7100/some/path")).toBe("http://frps:7100");
+    expect(parseVhostUrl("https://proxy.internal:8443")).toBe("https://proxy.internal:8443");
+  });
+
+  it("junk degrades to the default, never a half-parsed origin", () => {
+    expect(parseVhostUrl("ftp://frps:7100")).toBe("http://127.0.0.1:14602");
+    expect(parseVhostUrl("http://user:pass@frps:7100")).toBe("http://127.0.0.1:14602");
+    expect(parseVhostUrl("not a url")).toBe("http://127.0.0.1:14602");
   });
 });

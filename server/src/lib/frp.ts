@@ -228,3 +228,112 @@ export function frpRouteOnline(updatedAt: string, now = Date.now()): boolean {
   const t = Date.parse(updatedAt);
   return Number.isFinite(t) && now - t <= FRP_ONLINE_AFTER_MS;
 }
+
+/**
+ * Traefik support: a dynamic configuration for the reverse proxy's
+ * HTTP PROVIDER (Traefik polls GET /api/frp/traefik, see that route).
+ *
+ * Why a provider at all: the nginx sample rewrites `/t/<routeId>/` with a
+ * location REGEX CAPTURE — strip the prefix, set Host to
+ * `<routeId>.frp.internal` (what frps routes on). Traefik has no native
+ * middleware that can inject a PATH-DERIVED value into the Host header
+ * (`customRequestHeaders` is static, v3.1 URLRewrite takes a static
+ * hostname, v3.7 UpstreamVHost templates only inbound/provider vars) —
+ * so the dynamic side moves to the one party that knows the current
+ * route ids: this server. Each registered route becomes a router with
+ * two middlewares carrying the same rewrites nginx does inline, and a
+ * NEW desktop registration appears in Traefik on the provider's next
+ * poll (if this server is briefly unreachable, Traefik keeps the last
+ * valid payload).
+ */
+export interface TraefikDynamicConfig {
+  http: {
+    routers: Record<string, unknown>;
+    middlewares: Record<string, unknown>;
+    services: Record<string, unknown>;
+  };
+}
+
+/** The one shared upstream every /t/<routeId>/ router sends to (the
+ * frps HTTP vhost, as seen FROM Traefik — LUMINA_FRPS_VHOST_URL). */
+export const TRAEFIK_FRP_SERVICE = "frp-vhost";
+
+/** Must sit above a typical `Host(...)` catch-all router (default
+ * priority = rule segment count, so those rank ~1-2). */
+const TRAEFIK_ROUTE_PRIORITY = 100;
+
+export function traefikDynamicConfig(
+  routeIds: string[],
+  vhostUrl: string,
+): TraefikDynamicConfig {
+  const routers: Record<string, unknown> = {};
+  const middlewares: Record<string, unknown> = {};
+  for (const id of routeIds) {
+    // route ids are minted hex/word chars (mintRouteId's charset), safe
+    // to interpolate into rules and regexes verbatim.
+    routers[`frp-t-${id}`] = {
+      // trailing slash kept: a bare `/t/<id>` falls through to the main
+      // router, same as the nginx regex.
+      rule: `PathPrefix(\`/t/${id}/\`)`,
+      priority: TRAEFIK_ROUTE_PRIORITY,
+      service: TRAEFIK_FRP_SERVICE,
+      middlewares: [`frp-strip-${id}`, `frp-host-${id}`],
+    };
+    // query strings survive replacePathRegex (nginx spells this
+    // `$is_args$args`); the replacement uses Go's ${1} capture syntax.
+    middlewares[`frp-strip-${id}`] = {
+      replacePathRegex: {regex: `^/t/${id}/(.*)`, replacement: "/${1}"},
+    };
+    // the Host rewrite nginx does with `proxy_set_header Host` — this
+    // form (static value per router) is exactly what Traefik CAN do.
+    middlewares[`frp-host-${id}`] = {
+      headers: {customRequestHeaders: {Host: `${id}.frp.internal`}},
+    };
+  }
+  return {
+    http: {
+      routers,
+      middlewares,
+      services: routeIds.length
+        ? {
+            [TRAEFIK_FRP_SERVICE]: {
+              loadBalancer: {
+                servers: [{url: vhostUrl}],
+                // SSE: flush every write instead of Traefik's 100ms
+                // batching — the equivalent of nginx `proxy_buffering off`.
+                responseForwarding: {flushInterval: "1ms"},
+              },
+            },
+          }
+        : {},
+    },
+  };
+}
+
+/** Default frps vhost address as seen from a same-host Traefik (the
+ * compose loopback publish of the vhost port). */
+export const DEFAULT_FRPS_VHOST_URL = "http://127.0.0.1:14602";
+
+/** Parse LUMINA_FRPS_VHOST_URL (how Traefik reaches the frps HTTP
+ * vhost — `http://frps:7100` when Traefik runs inside the compose
+ * network). http(s) only, no credentials/query/fragment, and the path
+ * is normalized away (a service URL must be a bare origin). Malformed
+ * input degrades to the default, the parseControlUrl philosophy: an
+ * operator typo must not half-break the generated config. Pure. */
+export function parseVhostUrl(raw: string | undefined): string {
+  const trimmed = (raw ?? "").trim();
+  if (trimmed === "") return DEFAULT_FRPS_VHOST_URL;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return DEFAULT_FRPS_VHOST_URL;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return DEFAULT_FRPS_VHOST_URL;
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    return DEFAULT_FRPS_VHOST_URL;
+  }
+  return url.origin;
+}

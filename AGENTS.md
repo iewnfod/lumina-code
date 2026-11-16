@@ -4826,6 +4826,22 @@ src/
 │   │              frp_routes table — hex-only route ids that nginx's
 │   │              `[A-Za-z0-9_-]+` capture and frp's proxy names both
 │   │              accept), getFrpConnect (the mobile's read side)
+│   │              + THE TRAEFIK half: traefikDynamicConfig/
+│   │              parseVhostUrl (pure, vitest-covered) behind GET
+│   │              /api/frp/traefik — a Traefik HTTP-PROVIDER
+│   │              endpoint that serves one router + strip/host
+│   │              middleware pair per registered route (shared
+│   │              frps-vhost service, flushInterval 1ms for SSE).
+│   │              WHY a provider: Traefik cannot inject a
+│   │              PATH-DERIVED value into the Host header (its
+│   │              header rewrites are static), so the nginx-style
+│   │              `/t/<routeId>/` capture moves to the one party
+│   │              that knows the current ids — Traefik polls (new
+│   │              routes appear on the next poll; outages keep the
+│   │              last payload). Optional LUMINA_TRAEFIK_TOKEN gates
+│   │              the endpoint (Bearer), LUMINA_FRPS_VHOST_URL sets
+│   │              the service's upstream URL from Traefik's vantage
+│   │              (loopback default, `http://frps:7100` in-compose).
 │   ├── settings.ts  the MULTI-CLIENT SETTINGS SYNC core: the per-user
 │   │              authoritative KV (synced_settings, PK(user_id,key))
 │   │              behind GET/PUT /api/settings. getSyncedSettings +
