@@ -176,7 +176,8 @@ export function mcpCommandTemplate(configFile: string): string {
         "3. Read the file first; preserve every unrelated key and add only your entry — merge, " +
         "never rewrite wholesale, and keep the JSON valid.\n" +
         "4. After saving, tell the user they can inspect and toggle servers (and read each one's " +
-        "log) in Lumina Code: Settings → Extensions. If a server fails, check its log there.\n\n" +
+        "log) in Lumina Code: Settings → Plugins & MCP Servers (插件与 MCP 服务器). " +
+        "If a server fails, check its log there.\n\n" +
         "User request: $ARGUMENTS"
     );
 }
@@ -199,7 +200,8 @@ export function pluginCommandTemplate(configFile: string): string {
         "3. Read the file first; preserve every unrelated entry — append yours, never rewrite " +
         "the array wholesale, and keep the JSON valid.\n" +
         "4. npm packages download on first load (may take a moment); config saves hot-reload " +
-        "immediately. Tell the user plugins can be toggled in Lumina Code: Settings → Extensions.\n\n" +
+        "immediately. Tell the user plugins can be toggled in Lumina Code: Settings → " +
+        "Plugins & MCP Servers (插件与 MCP 服务器).\n\n" +
         "User request: $ARGUMENTS"
     );
 }

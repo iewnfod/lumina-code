@@ -1175,7 +1175,8 @@ const MCP_GUIDE =
   "{\"type\": \"local\", \"command\": \"npx\", \"args\": [\"-y\", \"@scope/mcp-server\"], \"env\": {...}}; " +
   "a remote one is {\"type\": \"remote\", \"url\": \"https://...\", \"headers\": {...}}. Read the file " +
   "first, add only your entry, preserve every unrelated key, keep the JSON valid. " + GUIDE_NO_CLI +
-  " Servers can be inspected and toggled (with per-server logs) in Lumina Code: Settings → Extensions.";
+  " Servers can be inspected and toggled (with per-server logs) in Lumina Code: Settings → " +
+  "Plugins & MCP Servers (插件与 MCP 服务器).";
 
 /** The plugin quick guide — configGuideFor's plugin branch. */
 const PLUGIN_GUIDE =
@@ -1184,7 +1185,8 @@ const PLUGIN_GUIDE =
   "\"package-name\" (or {\"package\": \"package-name\", \"options\": {...}} to configure it); a local " +
   "plugin directory is {\"package\": \"/abs/path/to/plugin\"}. Read the file first, append your entry, " +
   "preserve every unrelated one, keep the JSON valid; npm packages download on first load. " +
-  GUIDE_NO_CLI + " Plugins can be toggled in Lumina Code: Settings → Extensions.";
+  GUIDE_NO_CLI + " Plugins can be toggled in Lumina Code: Settings → " +
+  "Plugins & MCP Servers (插件与 MCP 服务器).";
 
 /** Keyword sets for the on-demand guide decision (configGuideFor). MCP
  * terms are distinctive enough to stand alone; plugin/extension terms
