@@ -48,6 +48,7 @@ const enUs = {
     "Choose a project directory first": "Choose a project directory first",
     "Daily": "Daily",
     "Development": "Development",
+    "Install git to use development mode": "Development mode needs git. Install git and restart the app to enable it.",
     "Stop": "Stop",
     "Mode": "Mode",
     "Model": "Model",

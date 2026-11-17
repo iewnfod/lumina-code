@@ -751,7 +751,7 @@ src/
 │   │                      #   across restarts. THE GIT GATE: dev's features
 │   │                      #   all assume a git machine (branch pickers,
 │   │                      #   worktrees, diffs), so a machine WITHOUT git
-│   │                      #   gets NO dev mode at all — probeGitAvailability
+│   │                      #   gets a DISABLED dev tab — probeGitAvailability
 │   │                      #   runs `git --version` through the server's
 │   │                      #   shell API once per connection (spawnShell, the
 │   │                      #   worktreeSync precedent; the command is legal
@@ -761,7 +761,10 @@ src/
 │   │                      #   absence (an UNKNOWN probe keeps the stored
 │   │                      #   choice — a flaked probe must not yank a
 │   │                      #   restored dev session to the welcome screen;
-│   │                      #   the switcher renders only on confirmed true).
+│   │                      #   the switcher renders once the probe SETTLES:
+│   │                      #   confirmed-absent keeps the dev tab visible
+│   │                      #   but disabled + install-git hover hint,
+│   │                      #   unknown hides the row entirely).
 │   │                      #   The probe's ATTEMPT also settles a probed
 │   │                      #   flag (gitProbed/useGitProbed) that feeds the
 │   │                      #   BOOT GATE (BootScreen): the reveal's first
@@ -2563,16 +2566,18 @@ src/
     │                      #   the right-side BRANCH chip (GitBranch icon +
     │                      #   name, non-interactive; null = no repo, hidden)
     │                      #   — App feeds it useDirectoryBranch's reading,
-    │                      #   or the welcome screen's STAGED branch. MOBILE:
-    │                      #   an optional ⋯ menu (onTogglePin +
-    │                      #   onDeleteSession props, App passes them on a
-    │                      #   phone while a session is open) carrying
-    │                      #   置顶/取消置顶 + 删除会话 — the pin and
-    │                      #   delete entries' mobile home, relocated from
-    │                      #   the sidebar rows (a finger press synthesizes
-    │                      #   hover and reveals the row's hover-only
-    │                      #   buttons mid-tap: the tap meant to open the
-    │                      #   session would hit them). NOTE the bar's root
+    │                      #   or the welcome screen's STAGED branch. ALL
+    │                      #   PLATFORMS: an optional ⋯ menu (SessionMenu,
+    │                      #   onTogglePin + onDeleteSession props, App
+    │                      #   passes them while a session is open) carrying
+    │                      #   置顶/取消置顶 + 删除会话 — the always-visible
+    │                      #   pin/delete surface, originally relocated from
+    │                      #   the sidebar rows because a finger press
+    │                      #   synthesizes hover and reveals the row's
+    │                      #   hover-only buttons mid-tap on touch (the tap
+    │                      #   meant to open the session would hit them);
+    │                      #   desktop keeps the sidebar row affordances
+    │                      #   beside it. NOTE the bar's root
     │                      #   wears relative z-50: its glass backdrop-filter
     │                      #   creates a STACKING CONTEXT, so the downward
     │                      #   menu panel needs the whole bar hoisted above
@@ -2580,8 +2585,14 @@ src/
     │                      #   conversation (live-observed on Android).
     ├── SessionBar.tsx     # Left glass sidebar shell: brand row, THE MODE
     │                      #   SWITCHER (HeroUI Tabs — 日常/开发, rendered
-    │                      #   ONLY once git availability is CONFIRMED
-    │                      #   (the probe itself fires at the CONNECTION
+    │                      #   once the git probe SETTLES: confirmed
+    │                      #   git-less keeps the dev tab visible but
+    │                      #   DISABLED (isDisabled + the install-git
+    │                      #   hover hint; .lum-mode-tabs restores
+    │                      #   pointer-events on the disabled tab so the
+    │                      #   hint can fire), still-unknown hides the
+    │                      #   row entirely (the probe itself fires at
+    │                      #   the CONNECTION
     │                      #   level in AppBody — this bar is lazily
     │                      #   mounted in the phone drawer; appMode.ts),
     │                      #   the TWO-PAGE session

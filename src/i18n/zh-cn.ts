@@ -46,6 +46,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Choose a project directory first": "请先选择项目目录",
     "Daily": "日常",
     "Development": "开发",
+    "Install git to use development mode": "开发模式需要 git，请安装 git 并重启应用后使用。",
     "Stop": "停止",
     "Mode": "模式",
     "Model": "模型",

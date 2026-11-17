@@ -20,6 +20,7 @@ import {setAppMode, useAppMode, useGitAvailable} from "../opencode/appMode.ts";
 import {useWorktreeDirs} from "../opencode/worktreeSessions.ts";
 import {toggleSessionPin, useSessionPins} from "../hooks/useSessionPins.ts";
 import SessionFolder, {MAX_PLAIN_VISIBLE_SESSIONS, MAX_VISIBLE_SESSIONS} from "./SessionFolder.tsx";
+import Hint from "./ui/Hint.tsx";
 import type {CSSProperties} from "react";
 
 /**
@@ -87,14 +88,23 @@ export default function SessionBar(props: SessionBarProps) {
     const {supportsGlass} = useGlass();
     const compositorBlur = useCompositorBlurActive();
     // The DAILY/DEV split (opencode/appMode.ts): the HeroUI tabs row is
-    // the mode switcher, shown ONLY once git availability is CONFIRMED
-    // — a git-less machine gets the plain daily sidebar, no dev half to
-    // enter (its features all assume git). The probe itself fires at
-    // the CONNECTION level (AppBody's useGitProbe — this bar is lazily
+    // the mode switcher, rendered once the git probe has SETTLED either
+    // way — a CONFIRMED git-less machine keeps the tabs visible with
+    // the dev half DISABLED (hovering it asks for a git install; its
+    // features all assume git), while an UNKNOWN probe hides the row
+    // entirely (nothing to switch yet). The probe itself fires at the
+    // CONNECTION level (AppBody's useGitProbe — this bar is lazily
     // mounted inside the phone drawer); this component only READS the
     // verdict.
     const mode = useAppMode();
-    const switcher = useGitAvailable() === true;
+    const git = useGitAvailable();
+    const showSwitcher = git !== null;
+    // The TWO-PAGE slider exists only on a confirmed git machine: with
+    // git missing, useAppMode forces "daily", so the dev page would be
+    // unreachable dead weight — the list renders as the plain single
+    // page instead.
+    const dualPage = git === true;
+    const devDisabled = git === false;
     const dailySessions = sessions.filter((s) => s.mode === "daily");
     const devSessions = sessions.filter((s) => s.mode === "dev");
     // The expanded width comes from the sidebar-width module store (the
@@ -284,11 +294,12 @@ export default function SessionBar(props: SessionBarProps) {
             </div>
 
             {/* The mode switcher — HeroUI tabs with the sliding selection
-                indicator. Hidden until git availability is CONFIRMED: a
-                git-less machine is daily-only by design (a crippled dev
-                half is worse than none), and while the probe is still
+                indicator. Rendered once the git probe has SETTLED: a
+                confirmed git-less machine shows the dev tab DISABLED
+                (isDisabled + the install-git hover hint — discoverable
+                rather than vanished), and while the probe is still
                 pending there is simply nothing to switch yet. */}
-            {switcher && (
+            {showSwitcher && (
                 <div className="lum-mode-tabs shrink-0 px-3 pt-1 pb-2" data-tauri-drag-region>
                     <Tabs
                         aria-label={t["Mode"]}
@@ -310,13 +321,19 @@ export default function SessionBar(props: SessionBarProps) {
                                 SELECTED tab and animates across via the
                                 SharedElement transition — as a TabList
                                 sibling it renders outside the transition
-                                scope and crashes). */}
+                                scope and crashes). The disabled dev tab
+                                carries its hint INSIDE the tab (Hint's
+                                tooltip trigger must not wrap a Tab —
+                                TabList builds its collection from direct
+                                Tab children). */}
                             <Tab id="daily">
                                 {t["Daily"]}
                                 <Tabs.Indicator/>
                             </Tab>
-                            <Tab id="dev">
-                                {t["Development"]}
+                            <Tab id="dev" isDisabled={devDisabled}>
+                                <Hint label={devDisabled ? t["Install git to use development mode"] : null}>
+                                    {t["Development"]}
+                                </Hint>
                                 <Tabs.Indicator/>
                             </Tab>
                         </Tabs.List>
@@ -325,7 +342,7 @@ export default function SessionBar(props: SessionBarProps) {
             )}
 
             {/* The session list: a TWO-PAGE HORIZONTAL SLIDER when the
-                switcher exists (both halves stay MOUNTED — collapsed
+                dev half is enterable (both halves stay MOUNTED — collapsed
                 folders, scroll positions and "show more" states survive
                 a switch; only the strip translates, CSS owns the motion
                 per §3.7), or a plain single scrolling page on a
@@ -333,18 +350,18 @@ export default function SessionBar(props: SessionBarProps) {
             <div className="flex-1 min-h-0 overflow-hidden" data-tauri-drag-region>
                 <div
                     className={
-                        switcher
+                        dualPage
                             ? "flex h-full w-[200%] transition-transform duration-[var(--duration-slow)] ease-[var(--ease-glass)]"
                             : "h-full"
                     }
-                    style={switcher
+                    style={dualPage
                         ? {transform: mode === "daily" ? "translateX(0)" : "translateX(-50%)"}
                         : undefined}
                 >
-                    <div className={switcher ? "w-1/2 h-full min-w-0" : "h-full"}>
+                    <div className={dualPage ? "w-1/2 h-full min-w-0" : "h-full"}>
                         {page(dailySessions, dailyEdges, true)}
                     </div>
-                    {switcher && (
+                    {dualPage && (
                         <div className="w-1/2 h-full min-w-0">{page(devSessions, devEdges, false)}</div>
                     )}
                 </div>

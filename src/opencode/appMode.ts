@@ -25,17 +25,21 @@ import {LUMINA_DAILY_AGENT_ID} from "./toolPluginConfig.ts";
  *
  * THE GIT GATE: dev mode's features assume a git-equipped machine
  * (branch pickers, worktrees, per-turn diffs…) — a machine WITHOUT git
- * gets NO dev mode at all rather than a crippled one. Availability is
- * probed once per server connection (`git --version` through the
- * server's shell API — the worktreeSync/mcpLogs precedent; the command
- * is legal in every login-shell dialect incl. PowerShell). While
- * unknown (null, probing or a failed probe) the mode SWITCHER stays
- * hidden — dev must be a confirmed capability, never a guess — and
- * {@link useAppMode} only forces "daily" on a CONFIRMED absence: an
- * unknown state must not yank a restored dev session back to the
- * welcome screen mid-boot (the mode-switch effect reacts to effective
- * mode changes). A confirmed absence mid-run (git uninstalled since
- * last boot) does exactly that through the same path. The BOOT GATE
+ * gets a DISABLED dev tab (SessionBar renders the switcher with the
+ * dev half non-enterable and an install-git hover hint) rather than a
+ * crippled dev mode, and {@link useAppMode} forces "daily" so the
+ * session list stays on the single daily page. Availability is probed
+ * once per server connection (`git --version` through the server's
+ * shell API — the worktreeSync/mcpLogs precedent; the command is legal
+ * in every login-shell dialect incl. PowerShell). While unknown
+ * (null, probing or a failed probe) the mode SWITCHER stays hidden —
+ * dev must be a confirmed capability, never a guess — and a confirmed
+ * git-less machine keeps it visible-but-disabled instead. An unknown
+ * state must not yank a restored dev session back to the welcome
+ * screen mid-boot (the mode-switch effect reacts to effective mode
+ * changes), so {@link useAppMode} only forces "daily" on a CONFIRMED
+ * absence. A confirmed absence mid-run (git uninstalled since last
+ * boot) does exactly that through the same path. The BOOT GATE
  * (BootScreen) also waits on the attempt's SETTLEMENT (the probed
  * flag) — the reveal's first frame must carry the final mode state,
  * not a switcher that pops in after.
@@ -71,16 +75,17 @@ export function useAppMode(): AppMode {
     return git === false ? "daily" : pref;
 }
 
-/** Switch modes and persist; never throws. Only reachable while the
- *  switcher is rendered (git confirmed — see the gate above). */
+/** Switch modes and persist; never throws. The dev half is only
+ *  ENTERABLE while git is confirmed available (see the gate above). */
 export function setAppMode(mode: AppMode): void {
     store.set(mode);
 }
 
 // --- Git availability (the dev-mode gate) ---
 
-/** The probe's result; `true` is the ONLY state that may show the dev
- *  half (the switcher, and dev's composer pickers). */
+/** The probe's result; `true` is the only state that may ENTER the dev
+ *  half (the switcher's dev tab, and dev's composer pickers) — `false`
+ *  renders the same tab disabled with the install-git hint. */
 export function useGitAvailable(): boolean | null {
     return useSyncExternalStore(gitStore.subscribe, gitStore.get);
 }
