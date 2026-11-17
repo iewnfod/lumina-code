@@ -2,7 +2,7 @@ import {useCallback, useEffect, useState} from "react";
 import {motion} from "framer-motion";
 import {FolderInput, Plus, Settings} from "lucide-react";
 import {Tab, Tabs} from "@heroui/react";
-import Icon from "../assets/icon.svg";
+import Icon from "../assets/CO.svg";
 import {isMacOS} from "../lib/platform.ts";
 import {useNow} from "../hooks/useNow.ts";
 import {CHROME_TITLE_BAR_HEIGHT} from "../constants.ts";
