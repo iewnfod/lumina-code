@@ -458,6 +458,14 @@ const enUs = {
     "Reset all": "Reset all",
     "Reserved combination": "Reserved combination",
     "Already bound to {action}": "Already bound to {action}",
+    // --- Dev mode · non-repo directory confirmation (NonGitRepoModal) ---
+    "Not a Git Repository": "Not a Git Repository",
+    "This directory is not inside a Git repository. Git-dependent features (branch picking, change stats, per-turn edit summaries) may not work.":
+        "This directory is not inside a Git repository. Git-dependent features (branch picking, change stats, per-turn edit summaries) may not work.",
+    "Create Repository": "Create Repository",
+    "Creating repository...": "Creating repository...",
+    "Ignore Risk and Continue": "Ignore Risk and Continue",
+    "Failed to create repository": "Failed to create repository",
 } as const;
 
 export type TranslationKey = keyof typeof enUs;

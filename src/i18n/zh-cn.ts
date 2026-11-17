@@ -453,6 +453,14 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Reset all": "全部重置",
     "Reserved combination": "该组合不可绑定",
     "Already bound to {action}": "已绑定：{action}",
+    // --- 开发模式 · 非 Git 仓库目录确认（NonGitRepoModal） ---
+    "Not a Git Repository": "非 Git 仓库",
+    "This directory is not inside a Git repository. Git-dependent features (branch picking, change stats, per-turn edit summaries) may not work.":
+        "所选目录不在 Git 仓库中。依赖 Git 的功能（分支选择、变更统计、每轮编辑摘要等）可能无法正常工作。",
+    "Create Repository": "创建仓库",
+    "Creating repository...": "创建仓库中...",
+    "Ignore Risk and Continue": "无视风险并继续",
+    "Failed to create repository": "创建仓库失败",
 };
 
 export default zhCn;

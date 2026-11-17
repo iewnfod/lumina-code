@@ -5,6 +5,7 @@ import {warn} from "@tauri-apps/plugin-log";
 import {useColors} from "../../hooks/colors.tsx";
 import {sessionMode} from "../../opencode/appMode.ts";
 import {useConnection} from "../../opencode/connectionContext.tsx";
+import {probeDirectoryInRepo} from "../../opencode/gitRepo.ts";
 import {registeredSessionIds, unionMembership} from "../../opencode/sessionRegistry.ts";
 import {serverWhitelistIds} from "../../opencode/sessionWhitelistSync.ts";
 import type {OpencodeProject} from "../../opencode/types.ts";
@@ -12,6 +13,8 @@ import {folderLabel} from "../../lib/path.ts";
 import PopoverMenu, {MenuItem, MenuLabel} from "../ui/PopoverMenu.tsx";
 import ToolbarButton from "./ToolbarButton.tsx";
 import Hint from "../ui/Hint.tsx";
+import NonGitRepoModal from "./NonGitRepoModal.tsx";
+import {acceptNonRepoDir, isNonRepoAccepted} from "./nonRepoAcceptance.ts";
 import {useI18n} from "../../hooks/i18n.tsx";
 
 /**
@@ -42,6 +45,33 @@ export default function DirectoryPicker({
     const t = useI18n();
     const {api} = useConnection();
     const [projects, setProjects] = useState<OpencodeProject[]>([]);
+    // The directory awaiting the NON-REPO confirmation (dev mode): a
+    // picked directory that probed as "not inside a git work tree"
+    // parks here until the modal's verdict — 创建仓库 / 无视风险继续
+    // applies it via onChange, closing abandons the choice.
+    const [pendingRepo, setPendingRepo] = useState<string | null>(null);
+
+    /** Apply a directory choice through the non-repo gate. Quick picks
+     * carrying the server's vcs marker skip the probe, and so do
+     * directories the user has ALREADY accepted (nonRepoAcceptance —
+     * 无视风险并继续 persists, the modal never re-asks); everything
+     * else (the native browse, unmarked quick picks) is probed through
+     * the server's shell (opencode/gitRepo.ts — exit-code semantics,
+     * repo subdirectories count as inside). A FAILED probe reads as
+     * unknown and never blocks the choice; only a confirmed non-repo
+     * opens the confirmation modal. */
+    const selectDirectory = async (dir: string, knownGit: boolean) => {
+        if (knownGit || !api || isNonRepoAccepted(dir)) {
+            onChange(dir);
+            return;
+        }
+        const inRepo = await probeDirectoryInRepo(api, dir);
+        if (inRepo !== false) {
+            onChange(dir);
+            return;
+        }
+        setPendingRepo(dir);
+    };
 
     // The server's project list accumulates every directory it ever touched
     // (probe runs, deleted sessions, the root, the home itself) and can hold
@@ -110,7 +140,7 @@ export default function DirectoryPicker({
                 defaultPath: directory ?? undefined,
             });
             if (typeof chosen === "string" && chosen.trim() !== "") {
-                onChange(chosen);
+                await selectDirectory(chosen, false);
             }
         } catch (e) {
             warn(`Native folder dialog failed: ${e}`).catch(() => {});
@@ -118,6 +148,7 @@ export default function DirectoryPicker({
     };
 
     return (
+        <>
         <PopoverMenu
             align={align}
             trigger={({open, toggle}) => (
@@ -142,8 +173,10 @@ export default function DirectoryPicker({
                             <MenuItem
                                 selected={directory === p.canonical}
                                 onClick={() => {
-                                    onChange(p.canonical);
                                     close();
+                                    // The server's vcs marker is the free fast
+                                    // path; unmarked picks still probe.
+                                    void selectDirectory(p.canonical, !!p.vcs);
                                 }}
                             >
                                 <span className="inline-flex items-center gap-1.5 min-w-0">
@@ -168,5 +201,22 @@ export default function DirectoryPicker({
                 </div>
             )}
         </PopoverMenu>
+        {pendingRepo != null && (
+            <NonGitRepoModal
+                directory={pendingRepo}
+                onCancel={() => setPendingRepo(null)}
+                onConfirm={(initialized) => {
+                    // Both verdicts apply the selection; only cancel
+                    // abandons it. An IGNORED risk is remembered — the
+                    // modal never re-asks for this directory (an
+                    // initialized one is a real repo now; the probe
+                    // passes on its own).
+                    if (!initialized) acceptNonRepoDir(pendingRepo);
+                    onChange(pendingRepo);
+                    setPendingRepo(null);
+                }}
+            />
+        )}
+        </>
     );
 }

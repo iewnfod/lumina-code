@@ -1907,6 +1907,18 @@ src/
 │                          #   local, else conventional main → master, else
 │                          #   null — no chip rather than a guess). Feeds the
 │                          #   title-bar chip and the picker's branch section.
+│   ├── gitRepo.ts        # The dev-mode NON-REPO check + fix (node-testable
+│                          #   with a fake api, the worktreeSync.test.ts
+│                          #   pattern): probeDirectoryInRepo — `git rev-parse
+│                          #   --is-inside-work-tree` through the server's
+│                          #   shell (exit-code semantics; repo SUBDIRS count
+│                          #   as inside; a failed probe → null = UNKNOWN,
+│                          #   which must never read as "no repo") — and
+│                          #   initGitRepo — bare `git init` (the user's
+│                          #   default-branch config decides the branch name;
+│                          #   no first commit), failures folding git's own
+│                          #   output into {ok:false}. Feeds the picker's
+│                          #   NonGitRepoModal confirmation.
 │   ├── useDirectoryBranch.ts # The title bar's per-directory branch, cached in
 │                          #   a MODULE store keyed by directory (the
 │                          #   useSessionActivity directory-map pattern —
@@ -3816,7 +3828,29 @@ src/
         │                      #   session's project. The BRANCH binding is
         │                      #   its own sibling button (BranchPicker) —
         │                      #   the two stay independent picks on the
-        │                      #   toolbar.
+        │                      #   toolbar. Every choice passes the NON-REPO
+        │                      #   GATE (selectDirectory): quick picks marked
+        │                      #   vcs by the server skip it, everything else
+        │                      #   probes gitRepo.probeDirectoryInRepo first —
+        │                      #   a confirmed non-repo opens NonGitRepoModal
+        │                      #   instead of applying (unknown probes never
+        │                      #   block; already-ACCEPTED directories skip
+        │                      #   the whole gate — nonRepoAcceptance).
+        ├── NonGitRepoModal.tsx # The dev-mode NON-REPO confirmation modal
+        │                      #   (DirectoryPicker's gate; the warning
+        │                      #   mark leads the modal TITLE, top-left):
+        │                      #   无视风险并继续 (left) applies the
+        │                      #   selection untouched AND records it in
+        │                      #   nonRepoAcceptance (persisted — the
+        │                      #   gate short-circuits before the probe,
+        │                      #   never re-asking for an accepted
+        │                      #   directory), 创建仓库 (right, primary)
+        │                      #   runs gitRepo.initGitRepo in place (busy
+        │                      #   state; failure keeps the modal open
+        │                      #   with git's own output, retryable);
+        │                      #   closing (X/Esc/backdrop/mobile back)
+        │                      #   CANCELS — the staged directory stays
+        │                      #   what it was.
         └── BranchPicker.tsx   # The pre-session BRANCH button (the project
                           #   picker's sibling): the plain LOCAL branch
                           #   list; picking a branch → sendFirst pins the
