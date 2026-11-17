@@ -179,15 +179,18 @@ src/
 │                          #   REAL sibling, KEYED BY DIRECTORY
 │                          #   (same-directory session switches keep it
 │                          #   mounted; cross-directory switches go
-│                          #   through StatsCardSwap — the keyed remount
-│                          #   gains a fade: the LEAVING card renders on
-│                          #   as a frozen-snapshot ghost
-│                          #   (.lum-card-hold, pinned top-right out of
-│                          #   flow, its own entrance suppressed) while
-│                          #   the successor mounts — float mode
-│                          #   crossfades, wide-container mode reflows at
-│                          #   once with the ghost fading over the
-│                          #   corner; never on the welcome screen). App
+│                          #   through StatsCardSwap — the SEQUENTIAL
+│                          #   twin of the conversation swap: the
+│                          #   LEAVING card renders on as a frozen-
+│                          #   snapshot ghost (.lum-card-hold, in flow
+│                          #   so a wide-container ghost keeps the
+│                          #   flex slot, its own entrance
+│                          #   suppressed) playing lum-surface-exit's
+│                          #   rise-out ALONE, then the successor
+│                          #   mounts with .lum-enter once the hold
+│                          #   ends — the conversation swap's 250ms +
+│                          #   250ms cadence; never on the welcome
+│                          #   screen). App
 │                          #   measures
 │                          #   NOTHING: the row (.lum-row) is a CSS size
 │                          #   CONTAINER — the column's width cap + gutters
@@ -2710,11 +2713,16 @@ src/
     │                      #   the first frame is renderable. The settings
     │                      #   PAGE is the third peer surface — always
     │                      #   ready, so it enters right after the exit).
-    ├── StatsCardSwap.tsx  # The stats card's DIRECTORY-keyed swap fade
-    │                      #   (extracted from App.tsx): a cross-directory
-    │                      #   switch holds the previous card as a frozen
-    │                      #   snapshot (.lum-card-hold) for a short fade
-    │                      #   while the successor mounts.
+    ├── StatsCardSwap.tsx  # The stats card's DIRECTORY-keyed SEQUENTIAL
+    │                      #   swap (extracted from App.tsx): a
+    │                      #   cross-directory switch (daily↔dev mode
+    │                      #   switch, cross-project jump) holds the
+    │                      #   previous card as a frozen snapshot
+    │                      #   (.lum-card-hold) playing lum-surface-exit's
+    │                      #   rise-out ALONE — the successor stays
+    │                      #   unmounted until the hold ends, then mounts
+    │                      #   with .lum-enter (the conversation swap's
+    │                      #   cadence; see SessionSurface).
     ├── ChatPlaceholder.tsx # Welcome-screen logo + greeting
     │                      #   (picked once per mount via greetings.ts).
     ├── BootScreen.tsx     # THE BOOT GATE (mobile-first): a full-screen

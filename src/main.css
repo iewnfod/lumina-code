@@ -1276,28 +1276,38 @@ button.lum-md-doc:focus-visible {
 
 /*
  * The stats-card swap GHOST (App's StatsCardSwap): the layer holding a
- * cross-directory switch's LEAVING card through its fade. inset-0 over
- * the row and out of flow, so the successor (float mode) overlaps it
- * at the top-right for a crossfade; flex justify-end keeps a
- * WIDE-container ghost (position: static through its own container
- * query, which still resolves — .lum-row remains its ancestor) pinned
- * to the same corner instead of dropping to the wrapper's origin.
- * The ghost mounts FRESH, so the card's own entrance animation is
- * switched off — the wrapper's fade-out is the only motion (two fades
- * fighting read as a flicker). Never interactive.
+ * cross-directory switch's LEAVING card through its rise-out — the
+ * SEQUENTIAL half of the card swap (the successor mounts only after
+ * the hold ends; see StatsCardSwap.tsx). The wrapper is deliberately
+ * NOT positioned and carries NO transform: it stays IN FLOW, so a
+ * WIDE-container ghost (the card position: static through its own
+ * container query, which still resolves — .lum-row remains its
+ * ancestor) keeps occupying the flex slot for the exit's duration and
+ * the conversation never reflows mid-swap; in float mode the card is
+ * position: absolute against .lum-row either way and the zero-height
+ * wrapper costs nothing. The exit animation itself lives on the CARD
+ * (the child rule below), never on this wrapper: an animated transform
+ * here would create a containing block and yank the absolutely
+ * positioned float-mode card to the wrapper's empty origin. The ghost
+ * mounts FRESH, so the card's own entrance animation is switched off —
+ * the rise-out is the only motion (two animations fighting read as a
+ * flicker). Never interactive.
  */
 .lum-card-hold {
-    position: absolute;
-    inset: 0;
-    z-index: 40;
-    display: flex;
-    justify-content: flex-end;
-    align-items: flex-start;
     pointer-events: none;
 }
 
 .lum-card-hold .lum-enter {
     animation: none;
+}
+
+/* The leaving card's rise-out — lum-surface-exit's keyframes (the
+ * conversation swap's exit), applied to the frozen snapshot's root.
+ * Written AFTER the .lum-enter suppression above so it wins the
+ * equal-specificity tie on the card root (which carries both
+ * classes). */
+.lum-card-hold > .lum-stats {
+    animation: lum-surface-exit var(--duration-base) var(--ease-glass) both;
 }
 
 /*

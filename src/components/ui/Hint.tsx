@@ -29,7 +29,12 @@ export default function Hint({label, className, children}: {
                 {children}
             </Tooltip.Trigger>
             <Tooltip.Content>
-                <p className="text-xs max-w-64 break-words">{label}</p>
+                {/* max-h + scroll: some labels are unbounded (a slash-command
+                 * bubble hovers to reveal the server's EXPANDED template —
+                 * /mcp and /plugin carry multi-screen manuals), which would
+                 * push the tooltip past the viewport. Short labels never hit
+                 * the cap. */}
+                <p className="text-xs max-w-64 max-h-[60vh] overflow-y-auto break-words">{label}</p>
             </Tooltip.Content>
         </Tooltip>
     );

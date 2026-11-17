@@ -643,11 +643,16 @@ function AppBody({
                                     same-directory session switches keep it
                                     mounted (content swaps in place, instantly
                                     on wholesale swaps — ExitList enter); a
-                                    cross-directory switch goes through
-                                    StatsCardSwap: the previous card fades out
-                                    (frozen snapshot) while the successor
-                                    mounts. Never rendered on the welcome
-                                    screen. On the MOBILE app the panel mounts
+                                    cross-directory switch (a daily↔dev mode
+                                    switch, a cross-project jump) goes through
+                                    StatsCardSwap's SEQUENTIAL swap — the
+                                    leaving card rises out ALONE (frozen
+                                    snapshot, lum-surface-exit's keyframes)
+                                    and the successor mounts with .lum-enter
+                                    once the hold ends, the conversation
+                                    swap's 250ms + 250ms cadence. Never
+                                    rendered on the welcome screen. On the
+                                    MOBILE app the panel mounts
                                     too — on the phone layout it is always an
                                     overlay over the conversation (mobile.css
                                     widens the expanded panel to span the row;
