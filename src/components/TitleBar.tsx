@@ -1,4 +1,5 @@
 import {ArrowLeft, Ellipsis, GitBranch, Menu, Pin, PinOff, Trash2} from "lucide-react";
+import {useEffect, useRef, useState} from "react";
 import type {ChromeTheme} from "../lib/theme.ts";
 import {isMacOS, isMobileApp} from "../lib/platform.ts";
 import {useSurfaceColors} from "../hooks/surfaceColors.ts";
@@ -6,6 +7,7 @@ import {useGlass} from "../hooks/useGlass.ts";
 import {useCompositorBlurActive} from "../hooks/useBlurMyShell.ts";
 import {useI18n} from "../hooks/i18n.tsx";
 import {glassSurface} from "../lib/glass.ts";
+import {durationTitleRoll} from "../lib/motion.ts";
 import { info } from "@tauri-apps/plugin-log";
 import IconButton from "./ui/IconButton.tsx";
 import PopoverMenu, {MenuDivider, MenuItem} from "./ui/PopoverMenu.tsx";
@@ -49,22 +51,22 @@ export default function TitleBar({
      *  surface's second level is pushed: the pane's title rides in the
      *  bar and the pushed page itself renders bare (SettingsPage). */
     onBack?: () => void,
-    /** Toggle the ACTIVE session's pin (MOBILE only): App passes it on
-     *  a phone while a session is open, and the ⋯ menu grows the pin
-     *  entry. The row-level pin button is desktop-only — a phone has no
-     *  hover to reveal it, so the MENU is the mobile pin surface (the
-     *  delete-entry pattern). */
+    /** Toggle the ACTIVE session's pin: App passes it while a session is
+     *  open (all platforms), and the ⋯ menu grows the pin entry. The
+     *  sidebar row's hover pin button remains the desktop quick path —
+     *  the MENU is the always-visible surface (phones have no hover,
+     *  which is why the entry exists). */
     onTogglePin?: () => void,
     /** Whether the active session is pinned (labels the ⋯ menu's pin
      *  entry 置顶/取消置顶). Only read while onTogglePin is passed. */
     sessionPinned?: boolean,
-    /** Delete the ACTIVE session (MOBILE only): App passes it on a phone
-     *  while a session is open, and the bar shows a ⋯ menu with the
-     *  delete action. Relocated here from the sidebar rows because the
-     *  row's hover-revealed X is a touch trap — a finger press first
-     *  synthesizes hover (revealing the X mid-tap), so the tap that
-     *  meant to OPEN the session lands on the revealed delete button.
-     *  Absent on desktop, where the row X stays. */
+    /** Delete the ACTIVE session: App passes it while a session is open
+     *  (all platforms), and the bar shows a ⋯ menu with the delete
+     *  action. Originally relocated here from the sidebar rows because
+     *  the row's hover-revealed X is a touch trap on phones (a finger
+     *  press first synthesizes hover, revealing the X mid-tap); now the
+     *  desktop keeps it too as an always-visible affordance beside the
+     *  row X. */
     onDeleteSession?: () => void,
 }) {
     const t = useI18n();
@@ -94,9 +96,16 @@ export default function TitleBar({
                 <div className="relative flex-1 min-w-0 flex items-center self-stretch overflow-hidden" data-tauri-drag-region>
                     <RollingTitle text={title} className="px-2 text-sm font-medium truncate" style={{color: fg}}/>
                 </div>
-                {branch && (
-                    <TitleBranchChip branch={branch} fg={fg}/>
-                )}
+                <TitleBranchChip branch={branch} fg={fg}/>
+                <SessionMenu
+                    onTogglePin={onTogglePin}
+                    sessionPinned={sessionPinned}
+                    onDeleteSession={onDeleteSession}
+                    fg={fg}
+                    hoverOverlay={hoverOverlay}
+                    activeOverlay={activeOverlay}
+                    size={size}
+                />
             </div>
         );
     }
@@ -108,7 +117,7 @@ export default function TitleBar({
             // area: the glass material's backdrop-filter (live wherever
             // supportsGlass is true — Android/macOS/Windows) makes this
             // element a STACKING CONTEXT, so a downward-opening PopoverMenu
-            // panel (the mobile ⋯ menu) would be trapped inside it while
+            // panel (the session ⋯ menu) would be trapped inside it while
             // the flex-1 content sibling (relative, later in DOM, carrying
             // MaskedSurface z:1) paints OVER the hanging panel — the menu
             // opens but stays invisible. z-50 beats the content's root-level
@@ -153,67 +162,16 @@ export default function TitleBar({
                 <RollingTitle text={title} className="pl-3 pr-2 text-sm font-medium truncate" style={{color: fg}}/>
             </div>
             <div className="flex flex-row items-center h-full">
-                {branch && (
-                    <TitleBranchChip branch={branch} fg={fg}/>
-                )}
-                {/* MOBILE session menu (⋯): the pin and delete entries'
-                 * mobile home — see the props' doc notes. PopoverMenu opens DOWN
-                 * from the bar (a title-bar menu, like the composer's
-                 * upward menus are bottom-anchored); the trigger keeps the
-                 * gear's exact geometry (36px, square) so the bar reads as
-                 * one cluster. */}
-                {(onTogglePin || onDeleteSession) && (
-                    <PopoverMenu
-                        direction="down"
-                        align="end"
-                        trigger={({open, toggle}) => (
-                            <IconButton
-                                size={size}
-                                isActive={open}
-                                hoverOverlay={hoverOverlay}
-                                activeOverlay={activeOverlay}
-                                style={{color: fg, borderRadius: 0}}
-                                onClick={toggle}
-                                aria-label={t["Session actions"]}
-                            >
-                                <Ellipsis size={18}/>
-                            </IconButton>
-                        )}
-                    >
-                        {(close) => (<>
-                            {onTogglePin && (
-                                <MenuItem
-                                    onClick={() => {
-                                        info(`Session pin toggle requested from title bar (${sessionPinned ? "unpin" : "pin"})`).catch(() => {});
-                                        close();
-                                        onTogglePin();
-                                    }}
-                                >
-                                    <span className="flex items-center gap-2">
-                                        {sessionPinned ? <PinOff size={13} className="shrink-0"/> : <Pin size={13} className="shrink-0"/>}
-                                        {sessionPinned ? t["Unpin session"] : t["Pin session"]}
-                                    </span>
-                                </MenuItem>
-                            )}
-                            {onTogglePin && onDeleteSession && <MenuDivider/>}
-                            {onDeleteSession && (
-                                <MenuItem
-                                    danger
-                                    onClick={() => {
-                                        info("Session delete requested from title bar").catch(() => {});
-                                        close();
-                                        onDeleteSession();
-                                    }}
-                                >
-                                    <span className="flex items-center gap-2">
-                                        <Trash2 size={13} className="shrink-0"/>
-                                        {t["Delete session"]}
-                                    </span>
-                                </MenuItem>
-                            )}
-                        </>)}
-                    </PopoverMenu>
-                )}
+                <TitleBranchChip branch={branch} fg={fg}/>
+                <SessionMenu
+                    onTogglePin={onTogglePin}
+                    sessionPinned={sessionPinned}
+                    onDeleteSession={onDeleteSession}
+                    fg={fg}
+                    hoverOverlay={hoverOverlay}
+                    activeOverlay={activeOverlay}
+                    size={size}
+                />
                 {!isMobileApp() && (
                     <WindowControl size={size} isMaximized={isMaximized} hoverOverlay={hoverOverlay} activeOverlay={activeOverlay} closeHover={closeHover} fg={fg} />
                 )}
@@ -222,18 +180,165 @@ export default function TitleBar({
     );
 }
 
+/** The bar's session ⋯ menu (pin / delete the ACTIVE session) — App
+ *  passes the handlers while a session is open, on every platform
+ *  (mobile's only surface for these actions, desktop's always-visible
+ *  one beside the sidebar row affordances). PopoverMenu opens DOWN
+ *  from the bar (a title-bar menu, like the composer's upward menus
+ *  are bottom-anchored); the trigger keeps the bar button geometry
+ *  (full height, square) so the bar reads as one cluster. Rendered
+ *  only when at least one action is passed. */
+function SessionMenu({
+    onTogglePin,
+    sessionPinned,
+    onDeleteSession,
+    fg,
+    hoverOverlay,
+    activeOverlay,
+    size,
+} : {
+    onTogglePin?: () => void,
+    sessionPinned?: boolean,
+    onDeleteSession?: () => void,
+    fg: string,
+    hoverOverlay: string,
+    activeOverlay: string,
+    size: number,
+}) {
+    const t = useI18n();
+    if (!onTogglePin && !onDeleteSession) return null;
+    return (
+        <PopoverMenu
+            direction="down"
+            align="end"
+            trigger={({open, toggle}) => (
+                <IconButton
+                    size={size}
+                    isActive={open}
+                    hoverOverlay={hoverOverlay}
+                    activeOverlay={activeOverlay}
+                    style={{color: fg, borderRadius: 0}}
+                    onClick={toggle}
+                    aria-label={t["Session actions"]}
+                >
+                    <Ellipsis size={18}/>
+                </IconButton>
+            )}
+        >
+            {(close) => (<>
+                {onTogglePin && (
+                    <MenuItem
+                        onClick={() => {
+                            info(`Session pin toggle requested from title bar (${sessionPinned ? "unpin" : "pin"})`).catch(() => {});
+                            close();
+                            onTogglePin();
+                        }}
+                    >
+                        <span className="flex items-center gap-2">
+                            {sessionPinned ? <PinOff size={13} className="shrink-0"/> : <Pin size={13} className="shrink-0"/>}
+                            {sessionPinned ? t["Unpin session"] : t["Pin session"]}
+                        </span>
+                    </MenuItem>
+                )}
+                {onTogglePin && onDeleteSession && <MenuDivider/>}
+                {onDeleteSession && (
+                    <MenuItem
+                        danger
+                        onClick={() => {
+                            info("Session delete requested from title bar").catch(() => {});
+                            close();
+                            onDeleteSession();
+                        }}
+                    >
+                        <span className="flex items-center gap-2">
+                            <Trash2 size={13} className="shrink-0"/>
+                            {t["Delete session"]}
+                        </span>
+                    </MenuItem>
+                )}
+            </>)}
+        </PopoverMenu>
+    );
+}
+
+/** The fold's own transition length in ms (main.css --duration-base,
+ *  .lum-fold-x) — mirrored here the way lib/motion.ts mirrors the
+ *  CSS durations it needs to sequence against. */
+const FOLD_OPEN_MS = 250;
+
 /** The bar's quiet branch readout (right cluster): icon + name,
  *  non-interactive display — switching branches is not a title-bar
  *  action (branch-bound sessions are chosen per session in the
- *  composer's project picker). */
-function TitleBranchChip({branch, fg}: {branch: string; fg: string}) {
+ *  composer's project picker).
+ *
+ *  ALWAYS MOUNTED, the slot on a horizontal fold (.lum-fold-x) and
+ *  the name on a drum, so the daily↔dev mode switch (git workspace ⇔
+ *  plain folder) plays as one continuous gesture instead of the chip
+ *  popping out of / into existence. The two timers below are the
+ *  choreography, one per direction:
+ *  · OPENING opens the fold first and rolls the name in only after
+ *    the slot has widened — a drum turning inside a still-widening
+ *    slot gets unmasked by the clip edge character by character
+ *    (m… ma… mas… master), which is not a drum at all;
+ *  · CLOSING rolls the name out first with the slot still wide open
+ *    (the exiting span pops out of layout, so a collapsing slot
+ *    would clip the whole turn away) and folds only afterwards;
+ *    through the whole close the content is fading OUT in sync
+ *    (data-fade is the branch's direct mirror — the icon never sits
+ *    still and then snaps away).
+ *  Branch→branch switches delay nothing — the plain drum turn. */
+function TitleBranchChip({branch, fg}: {branch?: string | null; fg: string}) {
+    const text = branch ?? "";
+    const [rolledText, setRolledText] = useState(text);
+    const rolledRef = useRef(text);
+    const [open, setOpen] = useState(!!branch);
+
+    useEffect(() => {
+        const timers: ReturnType<typeof setTimeout>[] = [];
+        if (text) {
+            setOpen(true);
+            if (rolledRef.current) {
+                rolledRef.current = text;
+                setRolledText(text);
+            } else {
+                // the drum waits out the fold's widening
+                timers.push(setTimeout(() => {
+                    rolledRef.current = text;
+                    setRolledText(text);
+                }, FOLD_OPEN_MS));
+            }
+        } else {
+            rolledRef.current = "";
+            setRolledText(""); // the roll-out starts NOW, slot still open
+            // one full drum turn — fold only after the name is gone
+            timers.push(setTimeout(() => setOpen(false), Math.round(durationTitleRoll * 1000)));
+        }
+        return () => { for (const timer of timers) clearTimeout(timer); };
+    }, [text]);
+
     return (
         <span
-            className="flex flex-row items-center gap-1 min-w-0 shrink px-2 select-none"
-            style={{color: fg, opacity: 0.7}}
+            className="lum-fold-x"
+            data-open={open ? "true" : "false"}
+            // The DIRECT mirror of the branch prop, no sequencing: the
+            // icon and name slot start fading the instant the branch
+            // goes away — in sync with the roll-out — instead of the
+            // icon sitting fully opaque through the whole turn and
+            // only then snapping into its fade.
+            data-fade={text ? "true" : "false"}
         >
-            <GitBranch size={12} className="shrink-0"/>
-            <span className="text-xs truncate">{branch}</span>
+            <span
+                className="flex flex-row items-center gap-1 min-w-0 px-2 select-none"
+                style={{color: fg, opacity: 0.7}}
+            >
+                <GitBranch size={12} className="shrink-0"/>
+                {/* The wrapper is the positioned edge-clipping container
+                 * the drum requires (RollingValue's pattern in
+                 * stats/statsChrome.tsx). */}
+                <span className="relative min-w-0 overflow-hidden inline-flex">
+                    <RollingTitle text={rolledText} className="text-xs truncate"/>
+                </span>
+            </span>
         </span>
     );
 }

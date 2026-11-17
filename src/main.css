@@ -1104,6 +1104,38 @@ button.lum-md-doc:focus-visible {
 }
 
 /*
+ * .lum-fold's horizontal twin: WIDTH animates between 0 and content
+ * width via grid-template-columns (0fr → 1fr), same one clip-layer
+ * child. Visibility is split onto its OWN attribute: `data-open`
+ * drives the columns, `data-fade` the opacity — decoupled on purpose,
+ * so a consumer can keep the slot wide (data-open held true) while the
+ * content is already fading (data-fade false), e.g. the title bar's
+ * branch chip letting the name roll out inside the still-open slot
+ * with the icon fading in sync, and folding the slot only afterwards.
+ */
+.lum-fold-x {
+    display: inline-grid;
+    grid-template-columns: 0fr;
+    opacity: 0;
+    transition:
+        grid-template-columns var(--duration-base) var(--ease-spring),
+        opacity var(--duration-base) var(--ease-glass);
+}
+
+.lum-fold-x[data-open="true"] {
+    grid-template-columns: 1fr;
+}
+
+.lum-fold-x[data-fade="true"] {
+    opacity: 1;
+}
+
+.lum-fold-x > * {
+    overflow: hidden;
+    min-width: 0;
+}
+
+/*
  * Unified hover wash. The provider (App) seeds `--lum-wash` (and the
  * active/accent variants) from SurfaceColors on the app root, so a
  * hoverable row is just `className="lum-wash"` — no per-site CSS var,
@@ -1361,6 +1393,17 @@ button.lum-md-doc:focus-visible {
 .lum-model-tabs .tabs__tab:focus-visible,
 .lum-model-tabs .tabs__tab[data-focus-visible="true"] {
     box-shadow: none;
+}
+
+/* The mode switcher's DISABLED dev tab (git-less machine,
+ * SessionBar.tsx): heroui's status-disabled sets pointer-events:none,
+ * which would kill the install-git HOVER HINT living inside the tab —
+ * restore events for this one scope only. React-aria still refuses
+ * the selection (aria-disabled + keyboard skip), and the dimmed
+ * opacity + not-allowed cursor survive. Scoped to .lum-mode-tabs so
+ * every other Tabs keeps heroui's default disabled behavior. */
+.lum-mode-tabs .tabs__tab[data-disabled="true"] {
+    pointer-events: auto;
 }
 
 /* The HORIZONTAL segmented tabs: taller than heroui's default h-8
