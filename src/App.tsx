@@ -260,23 +260,19 @@ function AppBody({
         importOpen, setImportOpen,
     } = useAppSurfaces();
 
-    // The MOBILE chrome splits along the device/layout line (see
-    // hooks/useLayoutMode.ts — tablet mode): `mobile` keeps the DEVICE
-    // semantics that never change with the layout (the TitleBar ⋯
-    // delete entry below — touch has no hover, SessionFolder's row X
-    // stays off), while `phoneLayout` drives the LAYOUT branches — the
-    // sidebar as a DRAWER (TitleBar hamburger, the only session
-    // navigation on a phone) vs DOCKED, the stats resize seam, the
-    // corner cutaways. In tablet mode (layout pinned/auto-resolved to
-    // "desktop") the sidebar docks like the desktop's, the resize seam
-    // mounts, and the stats panel's flex-sibling container-query tier
-    // becomes reachable (a wide row) with no further gating here.
-    const mobile = isMobileApp();
+    // The mobile LAYOUT split (see hooks/useLayoutMode.ts — tablet
+    // mode): `phoneLayout` drives the LAYOUT branches — the sidebar as
+    // a DRAWER (TitleBar hamburger, the only session navigation on a
+    // phone) vs DOCKED, the stats resize seam, the corner cutaways. In
+    // tablet mode (layout pinned/auto-resolved to "desktop") the
+    // sidebar docks like the desktop's, the resize seam mounts, and
+    // the stats panel's flex-sibling container-query tier becomes
+    // reachable (a wide row) with no further gating here.
     const phoneLayout = usePhoneLayout();
     // The user's pinned sessions (hooks/useSessionPins.ts) — feeds the
-    // MOBILE title-bar ⋯ menu's pin entry for the ACTIVE session (the
-    // row-level pin button is desktop-only; the sidebar reads the same
-    // store through SessionBar's own subscription).
+    // title-bar ⋯ menu's pin entry for the ACTIVE session (all
+    // platforms; the sidebar reads the same store through SessionBar's
+    // own subscription).
     const pinnedIds = useSessionPins();
     // SYSTEM BACK closes the drawer (phone layout): it is the top page
     // level while open — same as tapping the scrim.
@@ -352,6 +348,11 @@ function AppBody({
         () => ({
             newSession: startNewSession,
             toggleSettings,
+            importSessions: () => {
+                // Opens the session-import picker — same as the sidebar's
+                // Import row (an overlay modal, safe over any surface).
+                setImportOpen(true);
+            },
             interruptSession: () => {
                 // Only a genuinely running session stops; the shared
                 // discipline (stopping marker + inbox sweep) is the
@@ -376,7 +377,7 @@ function AppBody({
                 requestComposerFocus();
             },
         }),
-        [api, activeId, busy, cycleOrder, startNewSession, toggleSettings, selectSession, settings.open, closeSettings],
+        [api, activeId, busy, cycleOrder, startNewSession, toggleSettings, setImportOpen, selectSession, settings.open, closeSettings],
     );
     useKeyboardShortcuts(shortcutActions);
 
@@ -527,19 +528,18 @@ function AppBody({
                     // hamburger) while a pane is pushed — the pushed page
                     // itself renders bare.
                     onBack={phoneLayout && settings.open && settings.tab != null ? () => changeSettingsTab(null) : undefined}
-                    // MOBILE pin entry: same surface rule as delete — only
-                    // while a session is open (the ⋯ menu's pin item acts
-                    // on the ACTIVE session; desktop uses the sidebar row's
-                    // own pin button instead).
-                    onTogglePin={mobile && activeId && !settings.open ? () => toggleSessionPin(activeId) : undefined}
-                    sessionPinned={mobile && activeId ? pinnedIds.has(activeId) : undefined}
-                    // MOBILE delete entry: only while a session is open
-                    // (TitleBar renders the ⋯ menu only when this is
-                    // passed — desktop never does, its sidebar row X
-                    // stays). Hidden on the settings surface too: there
-                    // is no "current session" while settings is live
-                    // (the welcome-screen reading).
-                    onDeleteSession={mobile && activeId && !settings.open ? () => deleteSession(activeId) : undefined}
+                    // Pin entry (all platforms): only while a session is
+                    // open — the ⋯ menu's pin item acts on the ACTIVE
+                    // session. Desktop keeps the sidebar row's hover pin
+                    // too; the menu is the always-visible surface.
+                    onTogglePin={activeId && !settings.open ? () => toggleSessionPin(activeId) : undefined}
+                    sessionPinned={activeId ? pinnedIds.has(activeId) : undefined}
+                    // Delete entry (all platforms): only while a session
+                    // is open (TitleBar renders the ⋯ menu only when this
+                    // is passed). Hidden on the settings surface too:
+                    // there is no "current session" while settings is
+                    // live (the welcome-screen reading).
+                    onDeleteSession={activeId && !settings.open ? () => deleteSession(activeId) : undefined}
                 />
                 <div className="flex-1 relative overflow-hidden">
                     {/* Chrome glass layer filling the content area. The

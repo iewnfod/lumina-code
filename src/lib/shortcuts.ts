@@ -28,6 +28,7 @@ import type {TranslationKey} from "../i18n/en-us.ts";
 export type ShortcutAction =
     | "newSession"
     | "toggleSettings"
+    | "importSessions"
     | "interruptSession"
     | "nextSession"
     | "prevSession"
@@ -46,6 +47,7 @@ export interface ShortcutDef {
 export const SHORTCUTS: readonly ShortcutDef[] = [
     {id: "newSession", labelKey: "New Session", defaultChord: "mod+n"},
     {id: "toggleSettings", labelKey: "Settings", defaultChord: "mod+,"},
+    {id: "importSessions", labelKey: "Import Session", defaultChord: "mod+i"},
     {id: "interruptSession", labelKey: "Stop the running session", defaultChord: "mod+."},
     {id: "nextSession", labelKey: "Next session", defaultChord: "mod+alt+arrowright"},
     {id: "prevSession", labelKey: "Previous session", defaultChord: "mod+alt+arrowleft"},
