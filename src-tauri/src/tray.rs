@@ -145,14 +145,17 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
                 show_main_window(tray.app_handle());
             }
         });
-    // The CO wordmark as the tray's identity: src/assets/CO.svg rendered
-    // into a 512² transparent PNG (icons/tray.png, rsvg-convert + magick
-    // extent — the wordmark is a 498×290 banner, so a square canvas keeps
-    // libappindicator from squashing it). Compile-time embedded via
-    // include_bytes! and decoded with the image-png feature. Fallback to
-    // the app icon keeps the tray from ever being blank — tauri's builder
-    // does NOT pick up tauri.conf.json's app.trayIcon by itself (verified
-    // against tauri 2.11.6's TrayIconBuilder build path).
+    // The CO mark (two overlapping circles, white + soft shadow) as the
+    // tray's identity: src/assets/CO-Shadow@4x.png (the designer's export
+    // — the shadow only exists in the PNG, the SVG source carries no
+    // filter) rendered into a 512² transparent PNG (icons/tray.png,
+    // magick trim + Lanczos resize + extent — a square canvas keeps
+    // libappindicator from squashing the banner). Compile-time embedded
+    // via include_bytes! and decoded with the image-png feature. Note the
+    // mark is pure white: invisible on light-themed panels by design.
+    // Fallback to the app icon keeps the tray from ever being blank —
+    // tauri's builder does NOT pick up tauri.conf.json's app.trayIcon by
+    // itself (verified against tauri 2.11.6's TrayIconBuilder build path).
     let icon = match tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png")) {
         Ok(img) => Some(img),
         Err(e) => {

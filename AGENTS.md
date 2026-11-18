@@ -4342,11 +4342,15 @@ src-tauri/src/
 │                  #   Close-to-tray's visible handle: 「显示主界面」/「退出」
 │                  #   menu (zh/en copy picked via sys-locale — a native menu
 │                  #   never passes through the frontend i18n), left-click
-│                  #   activate, tooltip, and the CO wordmark as the icon —
-│                  #   src/assets/CO.svg rendered into the 512² transparent
-│                  #   icons/tray.png (rsvg-convert + magick extent; the
-│                  #   wordmark is a 498×290 banner, a square canvas keeps
-│                  #   libappindicator from squashing it), compile-time
+│                  #   activate, tooltip, and the CO mark (two overlapping
+│                  #   circles, white + soft shadow) as the icon —
+│                  #   src/assets/CO-Shadow@4x.png (the designer's export;
+│                  #   the shadow only exists in the PNG, the SVG source
+│                  #   carries no filter) rendered into the 512² transparent
+│                  #   icons/tray.png (magick trim + Lanczos resize + extent;
+│                  #   a square canvas keeps libappindicator from squashing
+│                  #   the banner; pure white = invisible on light panels,
+│                  #   by design), compile-time
 │                  #   embedded via include_bytes! and decoded through the
 │                  #   image-png tauri feature — tauri 2.11's TrayIconBuilder
 │                  #   does NOT pick up tauri.conf.json's app.trayIcon by
