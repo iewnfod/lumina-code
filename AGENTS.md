@@ -3762,7 +3762,14 @@ src/
         │                  #   hosted by BOTH the in-session toolbar and
         │                  #   MOBILE's welcome cluster; reads agent/directory/
         │                  #   stagedBranch through selectionContext.
-        ├── ComposerSelectors.tsx # The merged MODEL picker (provider-grouped
+        ├── ComposerSelectors.tsx # The merged MODEL picker (provider-AGGREGATED
+                          #   list — Map by providerID, first-appearance
+                          #   order, NEVER adjacent-run merging: the
+                          #   catalog's global release-date+name sort
+                          #   interleaves providers (custom-provider
+                          #   models carry no release date and scatter by
+                          #   name — run-merging split them into repeated
+                          #   same-label blocks),
         │                  #   list + the current model's DepthSlider ladder,
         │                  #   bodyScroll:false stacked panel) + the usage ring;
         │                  #   reads model/usage through selectionContext. Same
@@ -4094,9 +4101,36 @@ src/
     │                      #   custom npm — the API key with show/hide,
     │                      #   stored as options.apiKey in PLAINTEXT,
     │                      #   warned inline) and the model-list card
-    │                      #   with per-row INLINE editing (pencil),
-    │                      #   remove (bin) and badges from the
-    │                      #   server's loaded view of the same model;
+    │                      #   with per-row INLINE editing (pencil — id,
+    │                      #   name, plus the CAPABILITY fields: context
+    │                      #   length + max output + a vision switch —
+    │                      #   written as `limit` / `modalities.input`;
+    │                      #   both API packages default to image input,
+    │                      #   verified live on v2.0.11, so an unset row
+    │                      #   edits as vision-ON). MODEL EDITS COMMIT
+    │                      #   IMMEDIATELY: ✓/add/remove write the config
+    │                      #   on the spot via commitModels (based on the
+    │                      #   SAVED def, so unsaved top-level edits stay
+    │                      #   in the draft; a brand-new provider draft
+    │                      #   keeps the save-button flow — validation
+    │                      #   needs its half-typed fields), and the row
+    │                      #   badges read the DRAFT values — the config's
+    │                      #   truth at ✓ time — because the server's
+    │                      #   mirror lags the ~2s hot reload and the
+    │                      #   model list only re-pulls on remount/length
+    │                      #   changes (the picker-visibility Switch is
+    │                      #   the one server-view consumer left); the
+    │                      #   HEADER also carries the provider-level
+    │                      #   DISABLE switch — the same client-side
+    │                      #   snapshot mechanism the official providers
+    │                      #   use (useDisabledModels' disableProvider/
+    │                      #   enableProvider: OFF snapshots per-model
+    │                      #   hides, hides all, locks row switches +
+    │                      #   bulk actions and self-heals models added
+    │                      #   later; ON restores; rides the synced
+    │                      #   modelVisibility key), and the nav rail's
+    │                      #   custom rows read its red dot like the
+    │                      #   official ones;
     │                      #   validation + config-text building live in
     │                      #   modelConfig.ts (validateCustomProvider /
     │                      #   customProviderText).
@@ -4259,6 +4293,17 @@ src/
     │                      #   system prompt.
     ├── modelConfig.ts    # Pure model-config logic: integration search,
     │                      #   custom-provider config merge/remove/read-back
+    │                      #   incl. the model capability fields — `limit`
+    │                      #   (the server REQUIRES context+output as a
+    │                      #   pair: a limit missing output makes v2.0.11
+    │                      #   silently drop the WHOLE provider entry,
+    │                      #   verified live, so it is only ever written
+    │                      #   and read back paired; parseLimitInput adopts
+    │                      #   DEFAULT_MODEL_OUTPUT when the user enters a
+    │                      #   context alone) and vision as
+    │                      #   `modalities.input` (["text","image"] /
+    │                      #   ["text"]; unset = the package default, image
+    │                      #   on both) —
     │                      #   (globalConfigTarget itself lives in
     │                      #   opencode/configFiles.ts; the custom-tools
     │                      #   twin toolPluginConfig.ts also lives in

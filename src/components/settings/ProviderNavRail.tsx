@@ -154,6 +154,7 @@ export default function ProviderNavRail({
                             key={d.id}
                             selected={selected?.kind === "custom" && selected.id === d.id}
                             connected
+                            disabled={disabledProviders.has(d.id)}
                             onClick={() => {
                                 onSelect({kind: "custom", id: d.id});
                             }}

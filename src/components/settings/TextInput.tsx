@@ -16,6 +16,7 @@ export default function TextInput({
     name,
     autoComplete,
     id,
+    inputMode,
     onChange,
     onKeyDown,
     onBlur,
@@ -31,6 +32,9 @@ export default function TextInput({
     name?: string;
     autoComplete?: string;
     id?: string;
+    /** Numeric semantics for soft keyboards / IME (the value stays a plain
+     * string — parsing belongs to the consumer). */
+    inputMode?: "numeric";
     onChange: (text: string) => void;
     onKeyDown?: (e: KeyboardEvent<HTMLInputElement>) => void;
     onBlur?: (e: FocusEvent<HTMLInputElement>) => void;
@@ -45,6 +49,7 @@ export default function TextInput({
             name={name}
             autoComplete={autoComplete}
             id={id}
+            inputMode={inputMode}
             onChange={(e) => onChange(e.currentTarget.value)}
             onKeyDown={onKeyDown}
             onBlur={onBlur}

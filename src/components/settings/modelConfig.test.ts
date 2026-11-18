@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type {IntegrationInfo, OpencodeConfigEntry, OpencodeModel} from "../../opencode/types.ts";
 import {
+    DEFAULT_MODEL_OUTPUT,
     apiFormatId,
     customProviderDefs,
     customProviderText,
@@ -11,6 +12,7 @@ import {
     globalConfigTarget,
     mergeCustomProvider,
     modelSupportsImage,
+    parseLimitInput,
     parseOAuthInstructions,
     providerAvatarColor,
     providerModels,
@@ -297,4 +299,107 @@ test("modelSupportsImage matches the image-input capability rule", () => {
     assert.equal(modelSupportsImage({capabilities: {input: ["text"]}}), false);
     assert.equal(modelSupportsImage({}), false);
     assert.equal(modelSupportsImage({capabilities: {}}), false);
+});
+
+const capableDef = {
+    id: "my-custom",
+    name: "My Custom (local)",
+    npm: "@ai-sdk/openai-compatible",
+    baseURL: "http://127.0.0.1:9999/v1",
+    models: [
+        {id: "sighted", name: "Sighted", limit: {context: 200000, output: 8192}, vision: true},
+        {id: "blind", limit: {context: 128000, output: 4096}, vision: false},
+        {id: "untouched"},
+    ],
+};
+
+test("model limit and vision serialize into limit + modalities shapes", () => {
+    const parsed = JSON.parse(mergeCustomProvider("{}", capableDef)!) as Record<string, any>;
+    const models = parsed.provider["my-custom"].models;
+    assert.deepEqual(models.sighted, {name: "Sighted", limit: {context: 200000, output: 8192}, modalities: {input: ["text", "image"]}});
+    assert.deepEqual(models.blind, {limit: {context: 128000, output: 4096}, modalities: {input: ["text"]}});
+    // Untouched entries stay bare — nothing is invented for them.
+    assert.deepEqual(models.untouched, {});
+});
+
+test("customProviderDefs reads limit and vision back (round-trip)", () => {
+    const raw = mergeCustomProvider("{}", capableDef)!;
+    assert.deepEqual(customProviderDefs(raw)[0].models, capableDef.models);
+});
+
+test("a hand-written limit missing output reads back as unset (self-heal)", () => {
+    // The server drops the ENTIRE provider over such a limit (verified live
+    // on v2.0.11) — reading it as unset means the next save drops the broken
+    // key instead of preserving the poison.
+    const raw = JSON.stringify({
+        provider: {
+            p: {
+                npm: "@ai-sdk/openai-compatible",
+                options: {baseURL: "http://x/v1"},
+                models: {m: {name: "M", limit: {context: 64000}}},
+            },
+        },
+    });
+    assert.deepEqual(customProviderDefs(raw)[0].models, [{id: "m", name: "M"}]);
+});
+
+test("model limit parsing rejects non-numeric and non-positive pairs", () => {
+    const raw = JSON.stringify({
+        provider: {
+            p: {
+                npm: "@ai-sdk/openai-compatible",
+                options: {baseURL: "http://x/v1"},
+                models: {
+                    a: {limit: {context: "200000", output: 100}},
+                    b: {limit: {context: 0, output: 100}},
+                    c: {limit: 5},
+                    d: {limit: {context: 200000, output: 8192}},
+                },
+            },
+        },
+    });
+    const models = customProviderDefs(raw)[0].models;
+    assert.equal("limit" in models.find((m) => m.id === "a")!, false);
+    assert.equal("limit" in models.find((m) => m.id === "b")!, false);
+    assert.equal("limit" in models.find((m) => m.id === "c")!, false);
+    assert.deepEqual(models.find((m) => m.id === "d")!.limit, {context: 200000, output: 8192});
+});
+
+test("modalities.input folds into the vision flag, absent modalities stays unset", () => {
+    const raw = JSON.stringify({
+        provider: {
+            p: {
+                npm: "@ai-sdk/anthropic",
+                options: {baseURL: "http://x/v1"},
+                models: {
+                    on: {modalities: {input: ["text", "image"]}},
+                    off: {modalities: {input: ["text"]}},
+                    unset: {},
+                    outputOnly: {modalities: {output: ["text"]}},
+                },
+            },
+        },
+    });
+    const models = customProviderDefs(raw)[0].models;
+    assert.equal(models.find((m) => m.id === "on")!.vision, true);
+    assert.equal(models.find((m) => m.id === "off")!.vision, false);
+    assert.equal("vision" in models.find((m) => m.id === "unset")!, false);
+    // modalities without an input array is not a vision statement.
+    assert.equal("vision" in models.find((m) => m.id === "outputOnly")!, false);
+});
+
+test("parseLimitInput maps editor strings onto the required pair", () => {
+    // Blank / invalid context → no limit at all.
+    assert.equal(parseLimitInput("", ""), null);
+    assert.equal(parseLimitInput("  ", "4096"), null);
+    assert.equal(parseLimitInput("abc", "4096"), null);
+    assert.equal(parseLimitInput("-5", "4096"), null);
+    assert.equal(parseLimitInput("1.5", "4096"), null);
+    // Context alone adopts the documented default output.
+    assert.deepEqual(parseLimitInput("200000", ""), {context: 200000, output: DEFAULT_MODEL_OUTPUT});
+    assert.deepEqual(parseLimitInput(" 128000 ", "  "), {context: 128000, output: DEFAULT_MODEL_OUTPUT});
+    // Both given → verbatim.
+    assert.deepEqual(parseLimitInput("200000", "32768"), {context: 200000, output: 32768});
+    // Output alone is meaningless without a context window.
+    assert.equal(parseLimitInput("", "4096"), null);
 });

@@ -12,12 +12,21 @@ import {globalConfigTarget, type GlobalConfigTarget} from "../../opencode/config
 
 export {globalConfigTarget, type GlobalConfigTarget};
 
-/** One model entry of a custom provider (`models: {"<id>": {name}}`). */
-
-/** One model entry of a custom provider (`models: {"<id>": {name}}`). */
+/** One model entry of a custom provider (`models: {"<id>": {name, limit,
+ * modalities}}`). */
 export interface CustomProviderModelDef {
     id: string;
     name?: string;
+    /** Token limits, written as `limit: {context, output}` — the server
+     * (v2.0.11, verified live) REQUIRES both fields: a `limit` missing
+     * `output` makes it silently drop the ENTIRE provider entry, so this is
+     * only ever carried as a pair. */
+    limit?: {context: number; output: number};
+    /** Explicit image-input override (`modalities: {input: [...]}`).
+     * Undefined = not set, inheriting the package default — which is image
+     * input on BOTH API packages (verified live), so a model that cannot
+     * see images needs an explicit false. */
+    vision?: boolean;
 }
 
 /** Authoring shape of one custom provider entry in opencode.json — the
@@ -57,6 +66,35 @@ function providerMap(root: Record<string, unknown>): Record<string, unknown> | n
     return section as Record<string, unknown>;
 }
 
+function finitePositive(n: unknown): n is number {
+    return typeof n === "number" && Number.isFinite(n) && n > 0;
+}
+
+/** A model entry's `limit`, adopted only when BOTH context and output are
+ * finite positives — a hand-written limit missing `output` would make the
+ * server drop the whole provider entry (verified live on v2.0.11), so it
+ * reads back as unset and the next save drops it, healing the entry. */
+function parseModelLimit(model: Record<string, unknown> | null): {context: number; output: number} | undefined {
+    if (!model) return undefined;
+    const limit = model["limit"];
+    if (limit === null || typeof limit !== "object" || Array.isArray(limit)) return undefined;
+    const l = limit as Record<string, unknown>;
+    if (!finitePositive(l["context"]) || !finitePositive(l["output"])) return undefined;
+    return {context: l["context"], output: l["output"]};
+}
+
+/** A model entry's `modalities.input` folded into the vision flag: the
+ * array's image membership when `modalities` is present, undefined when
+ * absent (inherit the package default — image on both API packages). */
+function parseModelVision(model: Record<string, unknown> | null): boolean | undefined {
+    if (!model) return undefined;
+    const modalities = model["modalities"];
+    if (modalities === null || typeof modalities !== "object" || Array.isArray(modalities)) return undefined;
+    const input = (modalities as Record<string, unknown>)["input"];
+    if (!Array.isArray(input)) return undefined;
+    return input.includes("image");
+}
+
 /** The custom providers defined in the raw config (entries carrying a
  *  `npm` package — fully self-defined, vs. overrides of known providers). */
 export function customProviderDefs(raw: string): CustomProviderDef[] {
@@ -74,11 +112,20 @@ export function customProviderDefs(raw: string): CustomProviderDef[] {
         const modelsMap = e["models"];
         if (modelsMap !== null && typeof modelsMap === "object" && !Array.isArray(modelsMap)) {
             for (const [modelId, model] of Object.entries(modelsMap as Record<string, unknown>)) {
+                const entry =
+                    model !== null && typeof model === "object" && !Array.isArray(model)
+                        ? model as Record<string, unknown>
+                        : null;
                 const name =
-                    model !== null && typeof model === "object" && typeof (model as Record<string, unknown>)["name"] === "string"
-                        ? (model as Record<string, unknown>)["name"] as string
-                        : undefined;
-                models.push({id: modelId, ...(name ? {name} : {})});
+                    entry !== null && typeof entry["name"] === "string" ? entry["name"] as string : undefined;
+                const limit = parseModelLimit(entry);
+                const vision = parseModelVision(entry);
+                models.push({
+                    id: modelId,
+                    ...(name ? {name} : {}),
+                    ...(limit ? {limit} : {}),
+                    ...(vision !== undefined ? {vision} : {}),
+                });
             }
         }
         defs.push({
@@ -95,10 +142,25 @@ export function customProviderDefs(raw: string): CustomProviderDef[] {
     return defs;
 }
 
+/** The config object for one model entry: name, the token-limit PAIR
+ * (never half-written — the server drops the whole provider on a limit
+ * missing `output`, verified live on v2.0.11), and the explicit
+ * image-input override. */
+function modelEntry(m: CustomProviderModelDef): Record<string, unknown> {
+    const entry: Record<string, unknown> = {};
+    if (m.name) entry["name"] = m.name;
+    if (m.limit && finitePositive(m.limit.context) && finitePositive(m.limit.output)) {
+        entry["limit"] = {context: m.limit.context, output: m.limit.output};
+    }
+    if (m.vision === true) entry["modalities"] = {input: ["text", "image"]};
+    else if (m.vision === false) entry["modalities"] = {input: ["text"]};
+    return entry;
+}
+
 /** The opencode.json entry for one custom provider (docs' dialect). */
 function providerEntry(def: CustomProviderDef): Record<string, unknown> {
-    const models: Record<string, {name?: string}> = {};
-    for (const m of def.models) models[m.id] = m.name ? {name: m.name} : {};
+    const models: Record<string, Record<string, unknown>> = {};
+    for (const m of def.models) models[m.id] = modelEntry(m);
     return {
         npm: def.npm,
         ...(def.name ? {name: def.name} : {}),
@@ -258,6 +320,27 @@ export function apiFormatId(npm: string): "openai" | "anthropic" | "custom" {
         if (format.npm === npm) return format.id;
     }
     return "custom";
+}
+
+/** Output limit assumed when the user enters only a context window — the
+ * server requires the pair (see CustomProviderModelDef.limit). */
+export const DEFAULT_MODEL_OUTPUT = 8192;
+
+/** Editor strings → a model limit: both blank/non-positive → null (no limit
+ * written); context alone adopts {@link DEFAULT_MODEL_OUTPUT} (the common
+ * "the model card only states the context window" case); output alone is
+ * meaningless without a context window and reads as null too. */
+export function parseLimitInput(contextText: string, outputText: string): {context: number; output: number} | null {
+    const context = parsePositiveInt(contextText);
+    if (context == null) return null;
+    return {context, output: parsePositiveInt(outputText) ?? DEFAULT_MODEL_OUTPUT};
+}
+
+function parsePositiveInt(text: string): number | null {
+    const trimmed = text.trim();
+    if (trimmed === "") return null;
+    const n = Number(trimmed);
+    return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 /** The context-limit badge text ("1M", "1.5M", "128K") for a model row;

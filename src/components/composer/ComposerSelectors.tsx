@@ -110,17 +110,23 @@ export function ComposerSelectors({
     // the user switched off in the model settings (a client-side
     // preference — the resolved current-model lookups above stay on the
     // full list so an in-session disabled model keeps its label and
-    // context limit).
+    // context limit). AGGREGATING by provider (Map, first-appearance
+    // order) — NOT adjacent-run merging: the catalog is sorted globally
+    // by release date then name, which interleaves one provider's models
+    // with another's (a custom provider's entries carry no release date,
+    // so they scatter by name) and run-merging split such providers into
+    // several same-label blocks.
     const disabledModels = useDisabledModels();
     const pickableModels = disabledModels.size === 0
         ? models
         : models.filter((m) => !disabledModels.has(disabledModelKey(m.providerID, m.modelID)));
-    const providerGroups: [string, OpencodeModel[]][] = [];
+    const groupMap = new Map<string, OpencodeModel[]>();
     for (const m of pickableModels) {
-        const last = providerGroups[providerGroups.length - 1];
-        if (last && last[0] === m.providerID) last[1].push(m);
-        else providerGroups.push([m.providerID, [m]]);
+        const bucket = groupMap.get(m.providerID);
+        if (bucket) bucket.push(m);
+        else groupMap.set(m.providerID, [m]);
     }
+    const providerGroups = [...groupMap.entries()];
 
     /** Switching models keeps the current depth when the new model has it. */
     const pickModel = (m: OpencodeModel) => {
