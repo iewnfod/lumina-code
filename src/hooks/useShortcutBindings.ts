@@ -3,6 +3,7 @@ import {warn} from "@tauri-apps/plugin-log";
 import {
     isBindableChord,
     sanitizeCustomBindings,
+    UNBOUND_CHORD,
     type ShortcutAction,
 } from "../lib/shortcuts.ts";
 import {createPersistedStore} from "../lib/persistedStore.ts";
@@ -70,6 +71,15 @@ export function setShortcutBinding(action: ShortcutAction, chord: string | null)
     const next = {...store.get()};
     if (chord === null) delete next[action];
     else next[action] = chord;
+    store.set(next);
+}
+
+/** Explicitly UNBIND an action (Delete while recording): it keeps firing
+ *  on NO key until a new chord is recorded or the row is reset — distinct
+ *  from setShortcutBinding(action, null), which restores the default. */
+export function unsetShortcutBinding(action: ShortcutAction): void {
+    const next = {...store.get()};
+    next[action] = UNBOUND_CHORD;
     store.set(next);
 }
 

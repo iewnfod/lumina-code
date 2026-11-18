@@ -3,7 +3,7 @@ import {RotateCcw} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {setShortcutRecording} from "../../hooks/useKeyboardShortcuts.ts";
-import {resetShortcutBindings, setShortcutBinding, useShortcutBindings} from "../../hooks/useShortcutBindings.ts";
+import {resetShortcutBindings, setShortcutBinding, unsetShortcutBinding, useShortcutBindings} from "../../hooks/useShortcutBindings.ts";
 import {isMacOS} from "../../lib/platform.ts";
 import {
     chordFromEvent,
@@ -26,12 +26,13 @@ import SettingRow from "./SettingRow.tsx";
  * RECORDING: clicking a keycap arms that row — the pane then captures
  * keydown on document (capture phase, everything consumed) while the
  * global listener stands down (setShortcutRecording). The next valid
- * chord commits immediately; Esc cancels; Backspace/Delete restores the
- * action's DEFAULT. Unbindable presses (plain keys, pure modifiers, the
- * reserved text/reload chords) flash a notice and keep waiting. While
- * armed, conflicts are permitted — both rows then carry the warning and
- * the FIRST registry action wins at runtime (lib/shortcuts.ts'
- * documented rule).
+ * chord commits immediately; Esc cancels; Backspace restores the
+ * action's DEFAULT; Delete UNBINDS it (no key fires the action — the
+ * keycap shows 未设置 until a new chord or a reset). Unbindable presses
+ * (plain keys, pure modifiers, the reserved text/reload chords) flash a
+ * notice and keep waiting. While armed, conflicts are permitted — both
+ * rows then carry the warning and the FIRST registry action wins at
+ * runtime (lib/shortcuts.ts' documented rule).
  */
 
 export default function ShortcutsSettings() {
@@ -62,8 +63,14 @@ export default function ShortcutsSettings() {
                 setRefused(null);
                 return;
             }
-            if (e.key === "Backspace" || e.key === "Delete") {
+            if (e.key === "Backspace") {
                 setShortcutBinding(recording, null); // restore the default
+                setRecording(null);
+                setRefused(null);
+                return;
+            }
+            if (e.key === "Delete") {
+                unsetShortcutBinding(recording); // no key fires the action
                 setRecording(null);
                 setRefused(null);
                 return;
@@ -86,9 +93,12 @@ export default function ShortcutsSettings() {
     }, [recording, isMac]);
 
     /** The row label for a conflict notice: the registry-first action
-     *  that OWNS the shared chord (the runtime winner). */
+     *  that OWNS the shared chord (the runtime winner). Unbound actions
+     *  never conflict — they hold no chord. */
     const conflictWinner = (action: ShortcutAction): string | null => {
-        const bucket = conflicts.get(bindings[action]);
+        const chord = bindings[action];
+        if (chord === undefined) return null;
+        const bucket = conflicts.get(chord);
         if (!bucket || bucket.length < 2) return null;
         const winner = bucket[0];
         return winner === action ? null : t[SHORTCUTS.find((d) => d.id === winner)!.labelKey];
@@ -128,7 +138,7 @@ export default function ShortcutsSettings() {
                                             borderColor: armed ? colors.textPrimary : colors.glassBorder,
                                         }}
                                     >
-                                        {armed ? t["Recording…"] : formatChord(chord, isMac)}
+                                        {armed ? t["Recording…"] : chord === undefined ? t["Not set"] : formatChord(chord, isMac)}
                                     </button>
                                     {customized && (
                                         <button

@@ -455,8 +455,9 @@ const enUs = {
     // --- Settings · Keyboard shortcuts pane ---
     "Keyboard Shortcuts": "Keyboard Shortcuts",
     "Click a key to rebind it": "Click a key to rebind it",
-    "Recording hint": "While recording: Esc cancels; Backspace restores the default",
+    "Recording hint": "While recording: Esc cancels; Backspace restores the default; Delete unbinds the key",
     "Recording…": "Recording…",
+    "Not set": "Not set",
     "Reset": "Reset",
     "Reset all": "Reset all",
     "Reserved combination": "Reserved combination",

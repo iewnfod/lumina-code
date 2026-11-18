@@ -10,6 +10,7 @@ import {
     resolveBindings,
     sanitizeCustomBindings,
     SHORTCUTS,
+    UNBOUND_CHORD,
 } from "./shortcuts.ts";
 
 /** Minimal event factory. */
@@ -120,6 +121,29 @@ test("resolveBindings: overrides win, garbage falls back to defaults", () => {
     assert.equal(bindings.toggleSettings, def.defaultChord);
 });
 
+test("UNBOUND_CHORD: the action fires on no key", () => {
+    const bindings = resolveBindings({newSession: UNBOUND_CHORD});
+    assert.equal(bindings.newSession, undefined);
+    // Even the action's own DEFAULT no longer triggers it…
+    assert.equal(matchChord("mod+n", bindings), null);
+    // …and the freed chord may be taken over by another action.
+    const rebound = resolveBindings({focusComposer: "mod+n", newSession: UNBOUND_CHORD});
+    assert.equal(matchChord("mod+n", rebound), "focusComposer");
+});
+
+test("findConflicts ignores unbound actions (no phantom undefined bucket)", () => {
+    const bindings = resolveBindings({newSession: UNBOUND_CHORD, focusComposer: UNBOUND_CHORD});
+    const conflicts = findConflicts(bindings);
+    // The five still-default actions keep their own buckets; the two
+    // unbound ones share "no chord" WITHOUT colliding there.
+    assert.equal(conflicts.size, 5);
+    assert.equal(conflicts.has(undefined as unknown as string), false);
+    for (const bucket of conflicts.values()) assert.equal(bucket.length, 1);
+    // Reset path: clearing the override (null semantics live in the store)
+    // is simulated by absence — defaults return.
+    assert.equal(resolveBindings({}).newSession, "mod+n");
+});
+
 test("matchChord: first registry action wins on conflicts", () => {
     const bindings = resolveBindings({focusComposer: "mod+n"}); // collides with newSession
     assert.equal(matchChord("mod+n", bindings), "newSession");
@@ -158,6 +182,13 @@ test("sanitizeCustomBindings drops unknown actions, non-strings and malformed ch
     );
     assert.deepEqual(sanitizeCustomBindings(null), {});
     assert.deepEqual(sanitizeCustomBindings("mod+n"), {});
+});
+
+test("sanitizeCustomBindings keeps the unbound sentinel across re-reads", () => {
+    assert.deepEqual(
+        sanitizeCustomBindings({newSession: UNBOUND_CHORD, focusComposer: "mod+k"}),
+        {newSession: UNBOUND_CHORD, focusComposer: "mod+k"},
+    );
 });
 
 // --- formatChord ---

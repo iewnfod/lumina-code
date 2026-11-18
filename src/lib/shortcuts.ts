@@ -42,6 +42,12 @@ export interface ShortcutDef {
     defaultChord: string;
 }
 
+/** Override sentinel for an EXPLICITLY unbound action (Delete while
+ *  recording): distinct from absence (= registry default) — the action
+ *  then has NO chord at all and resolveBindings yields undefined. Never
+ *  a real chord (parseChord rejects it), so it cannot collide. */
+export const UNBOUND_CHORD = "none";
+
 /** The action registry, in MATCH ORDER (a conflicting chord fires the
  *  FIRST action listed here — deterministic, documented in the pane). */
 export const SHORTCUTS: readonly ShortcutDef[] = [
@@ -203,23 +209,29 @@ export function isBindableChord(chord: string): boolean {
 
 /** Effective bindings: every action → its chord (custom override ?? the
  *  registry default; invalid overrides fall back to the default too — the
- *  persisted read side sanitizes, but callers may pass anything). */
+ *  persisted read side sanitizes, but callers may pass anything). The
+ *  UNBOUND_CHORD sentinel yields UNDEFINED — the action fires on no key. */
 export function resolveBindings(
     custom: Readonly<Partial<Record<ShortcutAction, string>>>,
-): Record<ShortcutAction, string> {
-    const out = {} as Record<ShortcutAction, string>;
+): Record<ShortcutAction, string | undefined> {
+    const out = {} as Record<ShortcutAction, string | undefined>;
     for (const def of SHORTCUTS) {
         const chord = custom[def.id];
+        if (chord === UNBOUND_CHORD) {
+            out[def.id] = undefined;
+            continue;
+        }
         out[def.id] = typeof chord === "string" && parseChord(chord) !== null ? chord : def.defaultChord;
     }
     return out;
 }
 
 /** Which action does this event chord fire? FIRST registry match wins —
- *  the documented conflict rule (the pane warns, this stays deterministic). */
+ *  the documented conflict rule (the pane warns, this stays deterministic).
+ *  An unbound action (undefined) matches nothing. */
 export function matchChord(
     chord: string | null,
-    bindings: Readonly<Record<ShortcutAction, string>>,
+    bindings: Readonly<Record<ShortcutAction, string | undefined>>,
 ): ShortcutAction | null {
     if (chord === null) return null;
     for (const def of SHORTCUTS) {
@@ -229,13 +241,15 @@ export function matchChord(
 }
 
 /** chord → the actions bound to it (length > 1 = conflict). The settings
- *  pane's warning source. */
+ *  pane's warning source. Unbound actions (undefined) sit out entirely —
+ *  they share "no chord" but that is not a conflict. */
 export function findConflicts(
-    bindings: Readonly<Record<ShortcutAction, string>>,
+    bindings: Readonly<Record<ShortcutAction, string | undefined>>,
 ): Map<string, ShortcutAction[]> {
     const map = new Map<string, ShortcutAction[]>();
     for (const def of SHORTCUTS) {
         const chord = bindings[def.id];
+        if (chord === undefined) continue;
         const bucket = map.get(chord);
         if (bucket) bucket.push(def.id);
         else map.set(chord, [def.id]);
@@ -245,13 +259,18 @@ export function findConflicts(
 
 /** Sanitize an UNTRUSTED value into custom overrides (the persisted
  *  store's read side): unknown actions, non-strings and malformed chords
- *  are dropped — never throws. */
+ *  are dropped — never throws. The UNBOUND_CHORD sentinel survives (an
+ *  explicit "no key" must not fall back to the default on re-read). */
 export function sanitizeCustomBindings(raw: unknown): Partial<Record<ShortcutAction, string>> {
     const out: Partial<Record<ShortcutAction, string>> = {};
     if (raw === null || typeof raw !== "object") return out;
     const known = new Set(SHORTCUTS.map((def) => def.id));
     for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
         if (!known.has(id as ShortcutAction)) continue;
+        if (value === UNBOUND_CHORD) {
+            out[id as ShortcutAction] = value;
+            continue;
+        }
         if (typeof value !== "string") continue;
         if (parseChord(value) === null) continue;
         out[id as ShortcutAction] = value;

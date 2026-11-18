@@ -2190,9 +2190,14 @@ src/
 │                        #   isBindableChord (reserved: escape/tab, f5,
 │                        #   mod-family text keys a/c/v/x/z/y/r —
 │                        #   mod(+shift) with no alt), resolveBindings
-│                        #   (custom ?? default), matchChord, findConflicts,
+│                        #   (custom ?? default, string | undefined — the
+│                        #   UNBOUND_CHORD "none" sentinel override yields
+│                        #   undefined: the action fires on NO key),
+│                        #   matchChord, findConflicts (unbound actions
+│                        #   sit out — no phantom bucket),
 │                        #   formatChord (⌘⇧N / Ctrl+Shift+N display) and
-│                        #   sanitizeCustomBindings (storage read side).
+│                        #   sanitizeCustomBindings (storage read side,
+│                        #   keeps the unbound sentinel).
 │                        #   Consumers: hooks/useKeyboardShortcuts.ts
 │                        #   (dispatch), hooks/useShortcutBindings.ts
 │                        #   (persistence), settings/ShortcutsSettings.tsx
@@ -4271,8 +4276,12 @@ src/
     │                      #   (capture phase) while the global listener
     │                      #   stands down (setShortcutRecording); the next
     │                      #   valid chord commits instantly, Esc cancels,
-    │                      #   Backspace/Delete restores the default,
-    │                      #   unbindable presses flash 保留组合 and keep
+    │                      #   Backspace restores the default, Delete
+    │                      #   UNBINDS the action (no key fires it — the
+    │                      #   keycap reads 未设置 until rebound/reset;
+    │                      #   unsetShortcutBinding writes the
+    │                      #   UNBOUND_CHORD sentinel), unbindable presses
+    │                      #   flash 保留组合 and keep
     │                      #   waiting. Conflicts are permitted with a
     │                      #   per-row 已绑定 warning (the registry-first
     │                      #   winner — matchChord's rule). 全部重置 at

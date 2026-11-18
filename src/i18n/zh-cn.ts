@@ -450,8 +450,9 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     // --- 设置 · 快捷键面板 ---
     "Keyboard Shortcuts": "快捷键",
     "Click a key to rebind it": "点击键位可重新绑定",
-    "Recording hint": "录制中：Esc 取消；Backspace 恢复默认键",
+    "Recording hint": "录制中：Esc 取消；Backspace 恢复默认；Delete 清除键位",
     "Recording…": "录制中…",
+    "Not set": "未设置",
     "Reset": "重置",
     "Reset all": "全部重置",
     "Reserved combination": "该组合不可绑定",
