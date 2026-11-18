@@ -30,8 +30,9 @@
 //! for development; a PATH scan is the last resort.
 
 use std::io::{BufRead, BufReader, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -64,6 +65,11 @@ fn emit_status(app: &AppHandle, state: &str, message: impl Into<String>) {
 #[derive(Default)]
 pub struct FrpState {
     child: Mutex<Option<Child>>,
+    /// Bumped by every frp_start/frp_stop — each health-watchdog thread
+    /// carries the generation it was spawned with and exits once a newer
+    /// call supersedes it (the idempotent-restart discipline the child
+    /// gets from stop_child, applied to the watchdog).
+    health_generation: AtomicU64,
 }
 
 /// Escape a value for a TOML basic string (the token/addr come from the
@@ -173,6 +179,15 @@ fn spawn_log_reader(stream: impl Read + Send + 'static, warn: bool) {
     });
 }
 
+/// How often the health watchdog probes the public route (also the
+/// detection latency: HEALTH_FAILURE_LIMIT × this ≈ 90s worst case —
+/// fast enough to matter, slow enough that a freshly spawned frpc has
+/// registered long before the counter can exhaust).
+const HEALTH_PROBE_INTERVAL: Duration = Duration::from_secs(30);
+/// Consecutive dead probes tolerated before the wedged frpc is killed.
+const HEALTH_FAILURE_LIMIT: u32 = 3;
+const HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Start (or restart) the frpc sidecar with fresh coordinates. Killing
 /// any previous child first makes this idempotent — the frontend calls
 /// it on every enable/reconnect, and a stale frpc would keep holding
@@ -186,6 +201,10 @@ pub fn frp_start(
     route_id: String,
     local_port: u16,
     secure: bool,
+    // The PUBLIC route URL (`https://<server>/t/<routeId>/api/session?limit=1`)
+    // the health watchdog probes end-to-end — the same path mobile
+    // clients take. None disables the watchdog (older callers).
+    health_url: Option<String>,
 ) -> Result<(), String> {
     if !valid_route_id(&route_id) {
         return Err(format!("invalid route id: {route_id:?}"));
@@ -195,6 +214,8 @@ pub fn frp_start(
     }
     let state: tauri::State<FrpState> = app.state();
     stop_child(&state);
+    // Retire any watchdog still watching a previous run's child.
+    let generation = state.health_generation.fetch_add(1, Ordering::SeqCst) + 1;
 
     let bin = resolve_frpc(&app).ok_or_else(|| {
         "frpc binary not found: bundled sidecar missing and none on PATH \
@@ -202,6 +223,11 @@ pub fn frp_start(
             .to_string()
     })?;
     let config = write_config(&app, &addr, port, &token, &route_id, local_port, secure)?;
+    // Clear any orphaned/sibling frpc holding our config BEFORE spawning:
+    // frps rejects a same-name proxy registration while the old connection
+    // lives, which is exactly the 13-minute mobile blackout of the
+    // 2026-11-18 incident (see reap_stale_frpcs).
+    reap_stale_frpcs(&config);
     log::info!(
         "Starting frpc ({} -> 127.0.0.1:{local_port}, route {route_id}, {})",
         bin.display(),
@@ -255,6 +281,12 @@ pub fn frp_start(
         }
     });
 
+    // E2E health watchdog — catches the wedged-but-alive shape the exit
+    // monitor cannot see (see spawn_health_watchdog).
+    if let Some(url) = health_url {
+        spawn_health_watchdog(&app, url, generation);
+    }
+
     Ok(())
 }
 
@@ -262,6 +294,9 @@ pub fn frp_start(
 #[tauri::command]
 pub fn frp_stop(app: AppHandle) -> Result<(), String> {
     let state: tauri::State<FrpState> = app.state();
+    // Retire the watchdog first — it must not kill a child we are about
+    // to stop on our own (or race the next frp_start's fresh one).
+    state.health_generation.fetch_add(1, Ordering::SeqCst);
     if stop_child(&state) {
         // The generated config may hold a token — remove it with the child.
         if let Ok(dir) = app.path().app_data_dir() {
@@ -294,6 +329,161 @@ fn stop_child(state: &tauri::State<FrpState>) -> bool {
 pub fn shutdown(app: &AppHandle) {
     let state: tauri::State<FrpState> = app.state();
     stop_child(&state);
+}
+
+/// Kill any frpc processes still carrying OUR config path before a fresh
+/// spawn. E2E-observed (2026-11-18): a crashed/killed app instance leaves
+/// its frpc behind (the Exit hook never fires) — and that orphan KEEPS
+/// RECONNECTING, holding the route's proxy name inside frps so the next
+/// instance's frpc is rejected with `proxy already exists` for as long
+/// as the orphan lives (13 minutes in the incident). A sibling app
+/// instance's tracked frpc matches the same rule deliberately: the
+/// caller just refreshed the password registration, so the route must
+/// follow it or mobile clients deadlock on 401. The config path embeds
+/// the app identifier, so a user's own frp projects and the other shell
+/// (different identifier → different app data dir) are never touched.
+/// The /proc-scan pattern mirrors opencode/reap.rs.
+#[cfg(target_os = "linux")]
+fn reap_stale_frpcs(config_path: &Path) {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return;
+    };
+    let config_str = config_path.to_string_lossy();
+    let mut killed = false;
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let Ok(raw) = std::fs::read(format!("/proc/{pid}/cmdline")) else {
+            continue; // gone already (or a kernel thread)
+        };
+        let args: Vec<&str> = raw
+            .split(|b| *b == 0)
+            .filter_map(|s| std::str::from_utf8(s).ok())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if is_frcpc_with_config(&args, &config_str) {
+            log::info!("Reaping stale frpc (pid {pid}) holding config {config_str}");
+            let _ = Command::new("kill").arg(pid.to_string()).status();
+            killed = true;
+        }
+    }
+    if killed {
+        // SIGTERM is async; give the dying processes a beat to drop their
+        // frps proxy registration before our replacement comes up (same
+        // rhythm as opencode/reap.rs). If frps is slow to release, the new
+        // frpc retries `already exists` on its own and the health watchdog
+        // (below) eventually bounces it — both paths self-heal.
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+/// argv[0] is the frpc binary (basename starting with "frpc" — the
+/// resource sidecar, dev checkout and PATH resolutions all end in it)
+/// and one argument equals the config path exactly.
+#[cfg(target_os = "linux")]
+fn is_frcpc_with_config(args: &[&str], config_str: &str) -> bool {
+    let is_frpc = args
+        .first()
+        .is_some_and(|a| a.rsplit('/').next().is_some_and(|b| b.starts_with("frpc")));
+    is_frpc && args.iter().any(|a| *a == config_str)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn reap_stale_frpcs(_config_path: &Path) {
+    // Same platform reality as opencode/reap.rs: the /proc scan is
+    // Linux-only for now; other platforms skip the sweep (an orphan there
+    // still starves the route, but never crashes anything).
+    log::debug!("frpc stale-process reap is linux-only; skipped");
+}
+
+/// The E2E health watchdog: frpc can wedge on a half-open control
+/// connection (TCP established, no bytes ever arriving — live-observed
+/// 2026-11-18: 17 minutes stuck while frp-status kept reporting
+/// "running", because the process never exits and the exit monitor only
+/// watches exits). The watchdog probes the SAME public path mobile
+/// clients take and needs NO credential: **401 is the healthy answer**
+/// (opencode's unauthorized reply proves CF → traefik → frps → frpc →
+/// the local opencode all answered). After HEALTH_FAILURE_LIMIT
+/// consecutive dead probes it kills the wedged child IN PLACE — the
+/// exit monitor then emits frp-status "exited", driving the frontend's
+/// 30s restart: the one recovery path, no second restart machinery.
+/// Transport: reqwest with proxies DISABLED (the lumina_http.rs lesson —
+/// user proxy software must not decide the route looks dead).
+fn spawn_health_watchdog(app: &AppHandle, health_url: String, generation: u64) {
+    let watchdog_app = app.clone();
+    std::thread::spawn(move || {
+        let client = match reqwest::blocking::Client::builder()
+            .timeout(HEALTH_PROBE_TIMEOUT)
+            .no_proxy()
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("frpc health watchdog: cannot build client ({e}) — not watching");
+                return;
+            }
+        };
+        let mut failures: u32 = 0;
+        loop {
+            std::thread::sleep(HEALTH_PROBE_INTERVAL);
+            let state: tauri::State<FrpState> = watchdog_app.state();
+            if state.health_generation.load(Ordering::SeqCst) != generation {
+                return; // superseded by a newer frp_start/frp_stop
+            }
+            let (healthy, detail) = match client.get(&health_url).send() {
+                Ok(resp) => {
+                    let code = resp.status().as_u16();
+                    if matches!(code, 200 | 401) {
+                        (true, String::new())
+                    } else {
+                        (false, format!("HTTP {code}"))
+                    }
+                }
+                Err(e) => (false, format!("{e}")),
+            };
+            if healthy {
+                failures = 0;
+                continue;
+            }
+            failures += 1;
+            log::warn!(
+                "frpc health watchdog: route unhealthy ({detail}) — failure {failures}/{HEALTH_FAILURE_LIMIT}"
+            );
+            if failures < HEALTH_FAILURE_LIMIT {
+                continue;
+            }
+            failures = 0;
+            kill_wedged_child(&watchdog_app);
+        }
+    });
+}
+
+/// The watchdog's kill step — a function boundary, so the borrowed
+/// `State` never has to live across the watchdog loop.
+fn kill_wedged_child(app: &AppHandle) {
+    let state: tauri::State<FrpState> = app.state();
+    // Bind the lock result first: an `if let` scrutinee's temporaries
+    // (the Result holding the MutexGuard) would otherwise outlive `state`.
+    let guard = state.child.lock();
+    if let Ok(mut slot) = guard {
+        if let Some(child) = slot.as_mut() {
+            log::warn!(
+                "frpc health watchdog: {HEALTH_FAILURE_LIMIT} consecutive dead probes — killing wedged frpc (pid {})",
+                child.id()
+            );
+            if let Err(e) = child.kill() {
+                log::error!("frpc health watchdog: failed to kill frpc: {e}");
+            }
+            // Deliberately NOT taking the child out of the slot: the exit
+            // monitor must still observe the exit and emit the "exited"
+            // status the frontend restarts on.
+        }
+    }
 }
 
 /// Locate the frpc binary, in order:

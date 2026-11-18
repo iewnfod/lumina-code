@@ -212,8 +212,11 @@ export function useOpencode(): {
                     // confirmed-live data path. A 401 means the desktop
                     // restarted and rotated its opencode password —
                     // re-fetch the connect info, rebuild the handle +
-                    // stream, reseed. Non-401 blips stay connected (the
-                    // stream's own heal covers them).
+                    // stream, reseed, and KEEP WATCHING: the watch used
+                    // to exit after one heal, leaving a SECOND rotation
+                    // (another desktop restart) with an SSE loop retrying
+                    // stale credentials forever. Non-401 blips stay
+                    // connected (the stream's own heal covers them).
                     const gate = async () => {
                         for (;;) {
                             await new Promise((r) => setTimeout(r, 30_000));
@@ -227,13 +230,14 @@ export function useOpencode(): {
                                 if ((e as {status?: number}).status !== 401) continue;
                                 info("Remote credentials rotated — re-fetching frp connect info").catch(() => {});
                                 try {
-                                    const fresh = build(await server.frpConnect());
-                                    openStream(fresh);
-                                    setApi(fresh);
-                                    reseedAllSessions(fresh);
-                                    setStatus({state: "connected", baseUrl: fresh.baseUrl, version: null});
-                                    settleServerVersion(fresh);
-                                    return; // healed; later drops are the stream's own heal
+                                    client = build(await server.frpConnect());
+                                    openStream(client);
+                                    setApi(client);
+                                    reseedAllSessions(client);
+                                    setStatus({state: "connected", baseUrl: client.baseUrl, version: null});
+                                    settleServerVersion(client);
+                                    // No return — the loop keeps guarding
+                                    // against every LATER rotation too.
                                 } catch (re) {
                                     error(`frp connect re-fetch failed: ${re}`).catch(() => {});
                                 }

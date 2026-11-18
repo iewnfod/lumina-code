@@ -4424,15 +4424,40 @@ src-tauri/src/
 │                  #   shell mounts it single-source via #[path].
 ├── frp.rs         # REMOTE ACCESS: the frpc sidecar lifecycle (the tunnel's
 │                  #   replacement). frp_start {addr, port, token, routeId,
-│                  #   localPort, secure} writes a throwaway frpc.toml into
-│                  #   the app data dir (TOML-escaped, routeId
+│                  #   localPort, secure, healthUrl?} writes a throwaway
+│                  #   frpc.toml into the app data dir (TOML-escaped, routeId
 │                  #   charset-validated — it doubles as the frp proxy name
 │                  #   AND the nginx /t/<id>/ segment) and spawns the
 │                  #   resource sidecar (fetch-frp.mjs; $FRPC_BIN
 │                  #   overrides); a monitor thread emits "frp-status"
 │                  #   running/exited, frp_stop kills + removes the config,
 │                  #   and the app-exit hook calls frp::shutdown so the
-│                  #   route drops with the app. TRANSPORT, by the secure
+│                  #   route drops with the app. TWO crash-recovery halves
+│                  #   (both born of the 2026-11-18 mobile blackout):
+│                  #   (1) reap_stale_frpcs — before every spawn, a
+│                  #   /proc cmdline scan (the reap.rs pattern, Linux-only)
+│                  #   SIGTERMs any frpc still carrying OUR config path:
+│                  #   a crashed/killed app leaves its frpc behind and the
+│                  #   orphan KEEPS RECONNECTING, holding the proxy name so
+│                  #   the next instance's frpc starves on `proxy already
+│                  #   exists` (13 min in the incident); sibling instances'
+│                  #   frpcs match too, deliberately — the caller just
+│                  #   refreshed the password, the route must follow it or
+│                  #   mobile deadlocks on 401. (2) the HEALTH WATCHDOG —
+│                  #   frpc can wedge on a HALF-OPEN control connection
+│                  #   (TCP established, no bytes; 17 min stuck while
+│                  #   frp-status kept saying "running"), so when the
+│                  #   frontend passes healthUrl (the same public
+│                  #   /t/<routeId>/api/session path mobile takes) a
+│                  #   watchdog thread probes it every 30s via
+│                  #   reqwest-blocking with proxies OFF — 401 IS the
+│                  #   healthy answer (opencode's unauthorized reply proves
+│                  #   the whole chain) — and after 3 consecutive dead
+│                  #   probes kills the child IN PLACE, letting the exit
+│                  #   monitor's "exited" drive the frontend's 30s restart
+│                  #   (the ONE recovery path; a generation counter in
+│                  #   FrpState retires superseded watchdogs).
+│                  #   TRANSPORT, by the secure
 │                  #   flag (server's LUMINA_FRPS_CONTROL decides):
 │                  #   secure=true → transport.protocol = "wss" — frpc
 │                  #   dials wss://addr:port/~!frp (path FIXED in frp
@@ -4688,9 +4713,12 @@ CONNECTION_ERROR_TEXT key map) while the retry loop waits, so a
 re-opened signed-in app never lands in a silently broken surface; the
 login screen does NO desktop pre-flight of its own (both entries and
 re-opens share this one gate). Post-connect: SSE reconnects re-seed
-every tracked session (the mobile-network heal) and a 401 (desktop
-restarted → password rotated) re-fetches the connect info, rebuilds
-client + stream and reseeds.
+every tracked session (the mobile-network heal) and a 30s credential
+watch handles a 401 (desktop restarted → password rotated) by
+re-fetching the connect info, rebuilding client + stream and reseeding
+— the watch then KEEPS LOOPING (one-shot heals used to strand a SECOND
+rotation on an SSE loop retrying stale credentials forever,
+live-observed 2026-11-18).
 The v1 custom screens (SessionList/Session/ComposerBar/ActivityPanel)
 are DELETED; only LoginScreen + the kv gate remain under
 src/mobile/ (kv.ts now only plants the __LUMINA_MOBILE__ flag and

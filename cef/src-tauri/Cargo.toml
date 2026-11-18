@@ -38,8 +38,9 @@ tauri-plugin-notification = "3.0.0-alpha.1"
 tauri-plugin-store = "3.0.0-alpha.3"
 log = "0.4"
 # The lumina-code-server HTTP transport (lumina_http.rs, single-sourced from the
-# webkit shell — see its header there).
-reqwest = { version = "0.12", default-features = true }
+# webkit shell — see its header there). "blocking" rides along for the
+# single-sourced frp.rs health watchdog thread.
+reqwest = { version = "0.12", default-features = true, features = ["blocking"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

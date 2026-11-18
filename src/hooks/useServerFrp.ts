@@ -138,6 +138,12 @@ export function useServerFrp(): void {
                 // `host:bindPort`.
                 const frpsHost = config.control?.host ?? new URL(url).hostname;
                 const frpsPort = config.control?.port ?? config.bindPort;
+                // The E2E health watchdog's probe target: the same public
+                // path mobile clients take. frp.rs probes it every 30s and
+                // kills a wedged frpc (half-open control connection — the
+                // process never exits on its own), letting the exit-monitor
+                // → frontend restart chain heal the route.
+                const healthUrl = `${new URL(url).origin}/t/${route.routeId}/api/session?limit=1`;
                 await invoke("frp_start", {
                     addr: frpsHost,
                     port: frpsPort,
@@ -145,6 +151,7 @@ export function useServerFrp(): void {
                     routeId: route.routeId,
                     localPort,
                     secure: config.control?.secure === true,
+                    healthUrl,
                 });
                 if (cancelled) return;
                 setFrpStatus("running");

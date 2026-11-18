@@ -212,6 +212,14 @@ http:
 - **长连接超时**：Traefik 的 idle 超时只回收空闲连接，不会掐
   活跃的 SSE / WebSocket 流，无需对应 nginx 的 24h 读写超时。
 
+> **不要手写静态的 `/t/` 路由兜底**（live-observed 2026-11-18，
+> dokploy 部署踩过）：手写 `replacePathRegex` 时最容易把捕获组
+> 写成字面量 —— `replacement: "/1"` 会把**所有** `/t/<id>/xxx`
+> 改写成 `/1`（必须写 `"/${1}"`，YAML 里 `$` 不需要转义）；且静态
+> 兜底与 http provider 生成的路由并存时同 priority 的 tie-break
+> 不确定，一次 reload 就可能换成坏的那份。http provider 接管后
+> **删除**静态 `/t/` 段（保留静态的 `/~!frp` —— 动态端点不生成它）。
+
 **信任模型（务必知悉）**：
 
 - 桌面 opencode 的 Basic-auth 密码会**存放在本服务器**并发放给任何
