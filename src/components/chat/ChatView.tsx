@@ -33,6 +33,8 @@ import QueuedPromptList from "./QueuedPromptList.tsx";
 import {useGateCards} from "./useGateCards.ts";
 import {useEditLastMessage} from "./useEditLastMessage.ts";
 import {PermissionCard} from "./PermissionCard.tsx";
+import {JudgeAuditRow} from "./JudgeAuditRow.tsx";
+import {useJudgeHeld} from "../../hooks/usePermissionJudge.ts";
 import {groupPermissionRequests, groupReplyPlan} from "./permissionGroups.ts";
 import {useSubagentRequests} from "./useSubagentRequests.ts";
 import type {SessionSubagentRef} from "../../opencode/sessionActivity.ts";
@@ -102,15 +104,15 @@ const ChatView = memo(function ChatView({
         rewriteQueuedOrder,
     } = useSessionTranscript(sessionId);
     const {permissions: pendingPermissions, forms: pendingForms} = usePendingRequests(sessionId);
-    // Identical asks (same action + resources) merge into ONE card: the
-    // server fires one permission assert per tool invocation with no
-    // cross-call dedup, so parallel reads of the same external directory
-    // stack 2+ indistinguishable asks. Memoized on the store array — the
-    // group list keeps its identity across streaming frames so the
-    // memoized cards skip re-renders.
+    // Asks the permission judge is silently evaluating stay INVISIBLE
+    // (permissionJudge's SILENT-HOLD contract): the card mounts only
+    // when the judge releases the ask back (ask / timeout / failure) —
+    // an allow never surfaces it at all. Memoized with the held set so
+    // the group list keeps its identity across streaming frames.
+    const held = useJudgeHeld();
     const permissionGroups = useMemo(
-        () => groupPermissionRequests(pendingPermissions),
-        [pendingPermissions],
+        () => groupPermissionRequests(pendingPermissions.filter((p) => !held.has(p.id))),
+        [pendingPermissions, held],
     );
     // Subagent children's asks: derived in useSubagentRequests (same
     // collector + identity discipline as the stats panel).
@@ -529,6 +531,10 @@ const ChatView = memo(function ChatView({
                  * (permissionGroups) whose decision replies to the whole
                  * group. Answered cards collapse away in place (the exit
                  * engine). */}
+                {/* The permission judge's audit line — the newest auto-allow
+                 * of THIS session, dismissible; sits above the cards it
+                 * used to occupy. */}
+                <JudgeAuditRow sessionID={sessionId}/>
                 <ExitList
                     items={permissionGroups}
                     keyOf={(group) => group.key}

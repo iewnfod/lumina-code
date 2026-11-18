@@ -43,7 +43,18 @@ export interface SessionApi {
     listActiveSessions(): Promise<Record<string, {type: string}>>;
     sessionStats(opts?: {from?: number; to?: number; tools?: "none" | "summary" | "detail"}): Promise<SessionStatsInfo>;
     createSession(
-        body: {title?: string; directory?: string; metadata?: Record<string, unknown>},
+        body: {
+            title?: string;
+            directory?: string;
+            metadata?: Record<string, unknown>;
+            /** Pin the session to a specific agent (config `agents` id) —
+             *  the permission judge's helper session uses this. */
+            agent?: string;
+            /** Pin the model ({providerID, modelID} — the compact
+             *  "providerID/modelID" string is NOT accepted here; the echo
+             *  normalizes a `variant: "default"` back). */
+            model?: {providerID: string; modelID: string};
+        },
     ): Promise<OpencodeSession>;
     deleteSession(sessionId: string): Promise<void>;
     renameSession(sessionId: string, title: string): Promise<void>;
@@ -129,23 +140,52 @@ export const sessionsApi: SessionApi & ThisType<ApiTransport> = {
      *  `metadata` IS accepted (curl-verified on v2.0.11: echoed on the
      *  create response and present in GET /api/session payloads) — the
      *  auto-whitelist channel for Lumina Code's own clients, see
-     *  sessionRegistry.ts's CLIENT_SOURCE. NOTE metadata is
+     *  sessionRegistry.ts's CLIENT_SOURCE.
+     *
+     *  `agent` (string id) + `model` ({providerID, id}) are ALSO accepted
+     *  and echoed (spike-verified 2026-11 against v2.0.11 via POST +
+     *  /openapi.json — the same shape the plugin ctx and the ACP layer
+     *  use): the permission judge's helper session pins its restricted
+     *  agent + the user-selected judge model this way; there is no
+     *  per-prompt model field. An agent id that exists in NO config is
+     *  not validated at create time — the definition must already be
+     *  installed (the lumina-tools installer guarantees it) or the first
+     *  prompt fails. The echo normalizes the model with
+     *  `variant: "default"`.
+     *
+     *  SPIKE NOTE (config hot-reload latency): a config write takes ~1s
+     *  to hot-reload server-side (watcher + debounce); asserting
+     *  permissions or creating agent-bound sessions IMMEDIATELY after a
+     *  config write can evaluate against the STALE ruleset — wait or
+     *  retry (verified while proving the balanced V2 fingerprint).
+     *
+     *  NOTE metadata is
      *  CREATE-ONLY: PATCH /api/session/{id} answers 204 but silently
      *  DROPS a metadata field (only `title` sticks — live-verified),
      *  which is why cross-client membership for ALREADY-EXISTING
      *  sessions rides the shared whitelist file instead
      *  (sessionWhitelistSync.ts). */
     createSession(
-        body: {title?: string; directory?: string; metadata?: Record<string, unknown>} = {},
+        body: {
+            title?: string;
+            directory?: string;
+            metadata?: Record<string, unknown>;
+            agent?: string;
+            model?: {providerID: string; modelID: string};
+        } = {},
     ): Promise<OpencodeSession> {
         const payload: {
             title?: string;
             location?: {directory: string};
             metadata?: Record<string, unknown>;
+            agent?: string;
+            model?: {providerID: string; id: string};
         } = {};
         if (body.title !== undefined) payload.title = body.title;
         if (body.directory) payload.location = {directory: body.directory};
         if (body.metadata !== undefined) payload.metadata = body.metadata;
+        if (body.agent) payload.agent = body.agent;
+        if (body.model) payload.model = {providerID: body.model.providerID, id: body.model.modelID};
         return this.request<OpencodeSession>("/api/session", {
             method: "POST",
             body: JSON.stringify(payload),

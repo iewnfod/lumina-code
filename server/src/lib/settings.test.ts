@@ -51,13 +51,13 @@ describe("putSyncedSettings", () => {
     expect(getSyncedSettings(db, u1.id)).toEqual({});
   });
 
-  it("rejects a non-whitelisted key without writing the batch", async () => {
+  it("skips a non-whitelisted key but writes the rest of the batch", async () => {
     const {db, u1} = await setup();
-    expect(() => putSyncedSettings(db, u1.id, {systemPrompt: '"a"', evil: '"x"'})).toThrow(
-      AuthError,
-    );
-    // The batch is validated first — the valid key must not have landed.
-    expect(getSyncedSettings(db, u1.id)).toEqual({});
+    // Unknown keys are skipped, not rejected: clients evolve faster
+    // than self-hosted servers upgrade, and a whole-batch 400 would
+    // strand the established keys' uploads.
+    expect(putSyncedSettings(db, u1.id, {systemPrompt: '"a"', evil: '"x"'})).toEqual({ok: true});
+    expect(getSyncedSettings(db, u1.id)).toEqual({systemPrompt: '"a"'});
   });
 
   it("rejects non-string values", async () => {
@@ -95,3 +95,9 @@ describe("listSyncedSettings", () => {
     }
   });
 });
+
+  it("stores the permissionJudge key (the AI permission evaluation's model)", async () => {
+    const {db, u1} = await setup();
+    putSyncedSettings(db, u1.id, {permissionJudge: '"deepseek/deepseek-flash"'});
+    expect(getSyncedSettings(db, u1.id)).toEqual({permissionJudge: '"deepseek/deepseek-flash"'});
+  });

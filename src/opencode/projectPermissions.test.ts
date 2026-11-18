@@ -104,7 +104,7 @@ test("freshModeDocument: strict rules with the schema key", () => {
 
 test("readProjectPermissions: fresh directory → virtual strict", async () => {
     const s = await readProjectPermissions(fakeApi(), DIR);
-    assert.deepEqual(s, {kind: "ok", mode: "strict", manualCount: 0, target: {file: `${DIR}/.opencode/opencode.json`, jsonc: false, existed: false}});
+    assert.deepEqual(s, {kind: "ok", mode: "strict", manualCount: 0, rules: [], target: {file: `${DIR}/.opencode/opencode.json`, jsonc: false, existed: false}});
 });
 
 test("readProjectPermissions: balanced config + manual rule", async () => {

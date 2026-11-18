@@ -699,8 +699,8 @@ src/
 │   │                      #   engine: hooks/useSettingsSync.ts). The
 │   │                      #   settings that follow the USER across devices
 │   │                      #   (SYNCED_KEYS whitelist: systemPrompt +
-│   │                      #   visionModel — the global opencode.json's
-│   │                      #   plugin options; modelVisibility, the
+│   │                      #   visionModel + permissionJudge — the global
+│   │                      #   opencode.json's plugin options; modelVisibility, the
 │   │                      #   disabled-models/disabled-providers pair as
 │   │                      #   ONE key so a provider toggle's double write
 │   │                      #   stays atomic; and sessionPins — the
@@ -731,7 +731,7 @@ src/
 │   │                      #   flags persist (createPersistedStore — a
 │   │                      #   restart keeps pending uploads pending);
 │   │                      #   markSettingsSyncDirty is what UI SAVE paths
-│   │                      #   call (SystemPromptSection/ToolsTab/
+│   │                      #   call (SystemPromptSection/ToolModelPane/
 │   │                      #   useDisabledModels/useSessionPins). pluginOptionIo is the
 │   │                      #   plugin keys' IO adapter with its
 │   │                      #   dependencies INJECTED (readGlobalConfig +
@@ -839,6 +839,11 @@ src/
 │   │                      #   useLuminaToolsInstall (AppBody, once per
 │   │                      #   connection) keeps both current so the always-on
 │   │                      #   plan_mode tool exists from the first prompt on.
+│   │                      #   BESIDE the daily-agent probe, luminaJudgeAgent
+│   │                      #   Missing (toolPluginConfig) is a second upgrade
+│   │                      #   trigger: while the permission judge's model is
+│   │                      #   configured, a missing judge agent rewrites the
+│   │                      #   config once (see permissionJudge.ts).
 │   │                      #   The same rewrite ALSO plants the MANAGED SLASH
 │   │                      #   COMMANDS (/mcp, /plugin — toolPluginConfig's
 │   │                      #   managedCommandsCurrent probe is an upgrade
@@ -888,7 +893,21 @@ src/
 │   │                      #   duplicate guide injection). managedCommands
 │   │                      #   Current is the installer's stale-template
 │   │                      #   probe. + the vision-capable
-│   │                      #   model filter. ALSO OWNS the
+│   │                      #   model filter. ALSO the PERMISSION JUDGE's
+│   │                      #   option (permissionJudge.model — the
+│   │                      #   frontend judge's selected model, NOT a
+│   │                      #   plugin tool; systemPrompt precedent) and
+│   │                      #   its restricted helper agent
+│   │                      #   lumina-permission-judge (planted while the
+│   │                      #   model is configured: hidden, steps:1,
+│   │                      #   deny-all, request.body {max_tokens:300,
+│   │                      #   temperature:0} — the per-agent request
+│   │                      #   override is a spike-verified v2.0.11
+│   │                      #   field; luminaJudgeAgentMissing is the
+│   │                      #   installer's upgrade probe; the definition
+│   │                      #   carries no `model` — the frontend pins it
+│   │                      #   per call — see permissionJudge.ts).
+│   │                      #   ALSO OWNS the
 │   │                      #   HARNESS-PERFORMANCE config half
 │   │                      #   (LUMINA_DAILY_AGENT_ID, spike-verified
 │   │                      #   2026-10-23): lumina-daily — a PRIMARY agent
@@ -1194,7 +1213,24 @@ src/
 │   │                      #   `permissions` array (last-match-wins ⇒ the
 │   │                      #   mode decides; manual repo rules survive
 │   │                      #   verbatim — applyPermissionMode strips only
-│   │                      #   fingerprint members). identifyPermissionMode
+│   │                      #   fingerprint members). BALANCED HAS
+│   │                      #   GENERATIONS: V2 (2026-11) = V1's two asks
+│   │                      #   + three public-temp-dir allowances
+│   │                      #   (/tmp/**, /private/tmp/** for macOS symlink
+│   │                      #   canonicalization, /var/tmp/** — spike-
+│   │                      #   verified via POST /api/session/{id}/
+│   │                      #   permission: the assert's resource is the
+│   │                      #   external path's DIRNAME + "/*" and rules
+│   │                      #   match with minimatch semantics, so only
+│   │                      #   `**` covers nested paths; ~/.opencode
+│   │                      #   stays asked — writing opencode.json =
+│   │                      #   MCP/plugin injection = escalation, that
+│   │                      #   call belongs to the AI judge below);
+│   │                      #   identification uses the V1 MINIMAL set
+│   │                      #   forever (V2 ⊇ V1; older configs still read
+│   │                      #   as balanced) and needsPermissionUpgrade
+│   │                      #   drives the panel's V1→V2 self-heal.
+│   │                      #   identifyPermissionMode
 │   │                      #   reads a config back to a mode with NO
 │   │                      #   fourth "default" rung: no fingerprint ⇒
 │   │                      #   strict (VIRTUAL — the server's no-rules
@@ -1212,6 +1248,56 @@ src/
 │   │                      #   built-in edit deny (built-in agent add-ons
 │   │                      #   load BEFORE project rules) — plan flips to
 │   │                      #   "ask the user", matching strict's intent.
+│   ├── permissionJudge.ts # THE PERMISSION JUDGE (L2 of the AI permission
+│   │                      #   evaluation) — the PURE planning half; the
+│   │                      #   stateful runner is hooks/usePermissionJudge
+│   │                      #   .ts (mounted beside useSessionRequests in
+│   │                      #   SessionDataProvider). When a permission
+│   │                      #   .asked arrives: cheapGate (enabled /
+│   │                      #   action ∈ {external_directory, shell} —
+│   │                      #   shell's resources ARE the command line,
+│   │                      #   observed live as action "shell" /
+│   │                      #   HARD_PROTECTED credential paths no verdict
+│   │                      #   may ever allow / DANGEROUS_COMMAND table
+│   │                      #   (sudo, rm -rf, dd, curl|sh, block
+│   │                      #   devices… never auto-allowed, never even
+│   │                      #   judged) / verdict cache) → async
+│   │                      #   directory-mode check (balanced ONLY — a
+│   │                      #   strict user chose "ask me for everything")
+│   │                      #   → ONE model call through a transient
+│   │                      #   helper session (agent lumina-permission-
+│   │                      #   judge from toolPluginConfig: hidden,
+│   │                      #   steps:1, deny-all, request.body
+│   │                      #   {max_tokens:300, temperature:0} the hard
+│   │                      #   speed/schema caps; model = the Tools tab's
+│   │                      #   user-selected one, pinned at createSession
+│   │                      #   — agent/model are create-body fields,
+│   │                      #   spike-verified 2026-11; metadata {source:
+│   │                      #   "lumina-tools"} = sidebar-hidden +
+│   │                      #   notification-filtered + swept). resolve-
+│   │                      #   JudgeContext pulls the triggering tool
+│   │                      #   call (the ask's source part — its NAME
+│   │                      #   separates read from edit) + the user's
+│   │                      #   latest message; parseVerdict leniently
+│   │                      #   extracts one flat JSON {decision, reason},
+│   │                      #   ANYTHING malformed reading as "ask" (the
+│   │                      #   fail-safe that makes a misbehaving judge
+│   │                      #   model harmless). SILENT HOLD: while a
+│   │                      #   judgment runs the ask is INVISIBLE — the card never mounts (ChatView
+│   │                      #   filters held ids) and the badge / desktop notification stay quiet
+│   │                      #   (useSessionRequests filters them out of pendingCounts, so the
+│   │                      #   notification's 0→N fires only when the judge hands the ask BACK);
+│   │                      #   allow → reply "once" (NEVER a saved rule) and the ask never surfaces —
+│   │                      #   a 5s transient audit line (JudgeAuditRow, ChatView) previews it, the
+│   │                      #   PERSISTED audit store (50 entries, createPersistedStore — survives
+│   │                      #   restarts) is queried in the AI 权限评估 settings page
+│   │                      #   (JudgeAuditHistory), and the log carries the authoritative line; ask / timeout /
+│   │                      #   failure release the hold and the card appears THEN (the 10s
+│   │                      #   JUDGE_TIMEOUT_MS bounds the silent window; every skip logs its reason;
+│   │                      #   the hold auto-lifts past its ceiling so a lost event can never suppress
+│   │                      #   an ask forever). A 5-min signature cache (permissionGroups'
+│   │                      #   composition) collapses re-asserted identical dirs into one call.
+│   │                      #   node-tested.
 │   ├── projectPermissions.ts # The permission mode's PROJECT-CONFIG half
 │   │                      #   (pure planning + api-bound runner, node-
 │   │                      #   tested with a fake fs): locate the
@@ -4082,20 +4168,34 @@ src/
     │                      #   「视觉」), ProviderAvatar (colored initial for
     │                      #   official providers, the cube for custom
     │                      #   ones), useModelsList (the cancel-safe
-    │                      #   listModels effect ToolsTab and ProviderDetail
-    │                      #   both ran).
-    ├── ToolsTab.tsx      # The Model pane's Tools view (the nav rail's
-    │                      #   bottom entry, formerly the THIRD tab) —
-    │                      #   Lumina Code's custom
-    │                      #   tools (src/plugins/luminaTools.js): the vision
-    │                      #   tool's model picker + on/off switch, saved
-    │                      #   through the shared installer; the picker's
-    │                      #   options are vision-capable models of
-    │                      #   CONNECTED providers (/api/model already
-    │                      #   scopes to active ones) that are not hidden
-    │                      #   from the composer's picker
-    │                      #   (useDisabledModels). Split from
-    │                      #   ModelSettings.tsx.
+    │                      #   listModels effect ToolModelPane and
+    │                      #   ProviderDetail both ran).
+    ├── ToolModelPane.tsx # One "pick a model to enable a feature" pane —
+    │                      #   the parameterized form (feature: "vision" |
+    │                      #   "judge") of what the old single Tools page
+    │                      #   crowded together, now INSTANTIATED TWICE as
+    │                      #   the provider nav rail's two fixed bottom
+    │                      #   entries (识图模型 ScanEye / AI 权限评估
+    │                      #   ShieldCheck), each its own page: picker
+    │                      #   rows + a switch where "on" = a model is
+    │                      #   selected. The FEATURES table fixes what the
+    │                      #   two instances differ in — icon/titles, the
+    │                      #   picker's model filter (vision-capable only
+    │                      #   vs ANY model — the judge description nudges
+    │                      #   toward a fast/cheap one since judging sits
+    │                      #   on the ask's blocking path), which plugin
+    │                      #   OPTION the choice lands in (vision.model /
+    │                      #   permissionJudge.model), and which SYNCED
+    │                      #   setting a save marks dirty (visionModel AND
+    │                      #   permissionJudge both follow the user — an
+    │                      #   older server rejecting the newer key
+    │                      #   degrades per-key in the sync engine so the
+    │                      #   established keys never stall; the server
+    │                      #   itself now SKIPS unknown keys). Both save
+    │                      #   through the
+    │                      #   shared installer, options spread-first so
+    │                      #   sibling fields survive. The ToolsTab file
+    │                      #   it replaces is DELETED.
     ├── ProviderDetail.tsx # One OFFICIAL provider's detail page (the
     │                      #   provider-nav redesign): header (avatar +
     │                      #   name + the Connected badge (env ones hint
@@ -4203,7 +4303,9 @@ src/
     │                      #   two identical inline copies before).
     ├── ProviderNavRail.tsx # The Model pane's provider NAV RAIL — the grouped
     │                      #   rows (connected providers with status dots,
-    │                      #   custom providers, the fixed Tools entry) shared by
+    │                      #   custom providers, the fixed two-entry Tools
+    │                      #   group: 识图模型 + AI 权限评估, each a
+    │                      #   ToolModelPane page) shared by
     │                      #   BOTH layouts (the desktop rail + the phone root
     │                      #   page); NavSelection lives here. Extracted from
     │                      #   ModelSettings when the pane slimmed to shell +
@@ -4217,7 +4319,8 @@ src/
     │                      #   bottom — while the full catalog moved into
     │                      #   AddProviderModal; the right pane is the
     │                      #   selected provider's detail (ProviderDetail
-    │                      #   / CustomProviderDetail / ToolsTab). The
+    │                      #   / CustomProviderDetail / ToolModelPane —
+    │                      #   vision or judge by NavSelection). The
     │                      #   shell owns the data loads (integrations +
     │                      #   global config), the shared action state
     │                      #   (busy / actionError), the custom-provider

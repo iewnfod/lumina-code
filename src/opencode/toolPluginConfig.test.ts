@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import {
     freshConfigWithToolsPlugin,
     LUMINA_DAILY_AGENT_ID,
+    LUMINA_JUDGE_AGENT_ID,
     luminaDailyAgentMissing,
+    luminaJudgeAgentCurrent,
+    luminaJudgeAgentMissing,
     luminaToolsEntryPresent,
     luminaToolsPluginPath,
     managedCommandsCurrent,
@@ -275,4 +278,54 @@ test("managedCommandsCurrent detects missing, stale and current states", () => {
     // Unreadable / wrong-shaped.
     assert.equal(managedCommandsCurrent("not json", CFG), false);
     assert.equal(managedCommandsCurrent('{"commands": []}', CFG), false);
+});
+
+// --- Permission judge (L2 AI permission evaluation) --------------------------
+
+test("judge agent: planted when its model is configured, removed when not", () => {
+    const withJudge = mergeLuminaToolsPlugin("{}", PATH, {permissionJudge: {model: "x/flash"}}, CFG)!;
+    let root = JSON.parse(withJudge);
+    const agent = root.agents[LUMINA_JUDGE_AGENT_ID];
+    assert.ok(agent);
+    assert.equal(agent.hidden, true);
+    assert.equal(agent.mode, "subagent");
+    assert.equal(agent.steps, 1);
+    assert.deepEqual(agent.permissions, [{action: "*", resource: "*", effect: "deny"}]);
+    // The two speed/schema knobs: hard token ceiling + zero temperature,
+    // via the per-agent request body override.
+    assert.deepEqual(agent.request, {body: {max_tokens: 300, temperature: 0}});
+    assert.ok(typeof agent.system === "string" && agent.system.includes("minified JSON"));
+
+    const without = mergeLuminaToolsPlugin(withJudge, PATH, {}, CFG)!;
+    root = JSON.parse(without);
+    assert.equal(LUMINA_JUDGE_AGENT_ID in root.agents, false);
+});
+
+test("judge agent: options round-trip through readLuminaToolsOptions", () => {
+    const out = mergeLuminaToolsPlugin("{}", PATH, {permissionJudge: {model: "x/flash"}}, CFG)!;
+    const opts = readLuminaToolsOptions(out, PATH);
+    assert.ok(opts !== null);
+    assert.deepEqual(opts!.permissionJudge, {model: "x/flash"});
+});
+
+test("luminaJudgeAgentMissing: only flags when the model is configured and the agent is absent", () => {
+    const withBoth = mergeLuminaToolsPlugin("{}", PATH, {permissionJudge: {model: "x/flash"}}, CFG)!;
+    assert.equal(luminaJudgeAgentMissing(withBoth, {permissionJudge: {model: "x/flash"}}), false);
+    // Model configured but the agents section lost the entry (an
+    // options-unchanged upgrade path).
+    assert.equal(luminaJudgeAgentMissing("{}", {permissionJudge: {model: "x/flash"}}), true);
+    assert.equal(luminaJudgeAgentMissing(withBoth, {}), false);
+    assert.equal(luminaJudgeAgentMissing("not json", {permissionJudge: {model: "x/flash"}}), false);
+});
+
+test("luminaJudgeAgentCurrent: a stale judge agent definition triggers the refresh", () => {
+    const withCurrent = mergeLuminaToolsPlugin("{}", PATH, {permissionJudge: {model: "x/flash"}}, CFG)!;
+    assert.equal(luminaJudgeAgentCurrent(withCurrent), true);
+    // The agent entry drifted (a hand edit or an older app's wording):
+    const drifted = JSON.parse(withCurrent);
+    drifted.agents[LUMINA_JUDGE_AGENT_ID].system = "old wording";
+    assert.equal(luminaJudgeAgentCurrent(JSON.stringify(drifted)), false);
+    // Absent / unreadable → not current.
+    assert.equal(luminaJudgeAgentCurrent("{}"), false);
+    assert.equal(luminaJudgeAgentCurrent("not json"), false);
 });

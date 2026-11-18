@@ -60,7 +60,7 @@ import {
  * (a second desktop's opencode storage holds entirely different ids)
  * is silently ignored — the set lands as-is and the sidebar's ordering
  * only ever matches what it can see. */
-export const SYNCED_KEYS = ["systemPrompt", "visionModel", "modelVisibility", "sessionPins"] as const;
+export const SYNCED_KEYS = ["systemPrompt", "visionModel", "permissionJudge", "modelVisibility", "sessionPins"] as const;
 
 export type SyncedKey = (typeof SYNCED_KEYS)[number];
 
@@ -79,6 +79,7 @@ export interface ModelVisibilityValue {
 export const SYNCED_DEFAULTS: Record<SyncedKey, string> = {
     systemPrompt: JSON.stringify(""),
     visionModel: JSON.stringify(""),
+    permissionJudge: JSON.stringify(""),
     modelVisibility: JSON.stringify({disabled: [], providers: []} satisfies ModelVisibilityValue),
     sessionPins: JSON.stringify([]),
 };
@@ -87,7 +88,7 @@ export const SYNCED_DEFAULTS: Record<SyncedKey, string> = {
  * shape-checked: null for anything malformed, so a garbage local state
  * never races onto the server. */
 export function serializeSyncedValue(key: SyncedKey, value: unknown): string | null {
-    if (key === "systemPrompt" || key === "visionModel") {
+    if (key === "systemPrompt" || key === "visionModel" || key === "permissionJudge") {
         return typeof value === "string" ? JSON.stringify(value) : null;
     }
     if (key === "sessionPins") {
@@ -137,7 +138,7 @@ export function parseSyncedValue(
     } catch {
         return null;
     }
-    if (key === "systemPrompt" || key === "visionModel") {
+    if (key === "systemPrompt" || key === "visionModel" || key === "permissionJudge") {
         return typeof parsed === "string" ? parsed : null;
     }
     if (key === "sessionPins") {
@@ -335,8 +336,12 @@ export function pluginOptionsFromDoc(
 }
 
 /** Read one plugin-option key's local value out of a config document. */
-export function syncedPluginValueOf(options: LuminaToolsOptions, key: "systemPrompt" | "visionModel"): string {
+export function syncedPluginValueOf(
+    options: LuminaToolsOptions,
+    key: "systemPrompt" | "visionModel" | "permissionJudge",
+): string {
     if (key === "systemPrompt") return options.systemPrompt?.trim() ?? "";
+    if (key === "permissionJudge") return options.permissionJudge?.model ?? "";
     return options.vision?.model ?? "";
 }
 
@@ -345,11 +350,16 @@ export function syncedPluginValueOf(options: LuminaToolsOptions, key: "systemPro
  * options argument replaces the stored options wholesale). */
 export function withSyncedPluginValue(
     options: LuminaToolsOptions,
-    key: "systemPrompt" | "visionModel",
+    key: "systemPrompt" | "visionModel" | "permissionJudge",
     value: string,
 ): LuminaToolsOptions {
     if (key === "systemPrompt") return withSystemPrompt(options, value);
     const next: LuminaToolsOptions = {...options};
+    if (key === "permissionJudge") {
+        if (value) next.permissionJudge = {model: value};
+        else delete next.permissionJudge;
+        return next;
+    }
     if (value) next.vision = {...next.vision, model: value};
     else {
         delete next.vision;
@@ -362,7 +372,7 @@ export function withSyncedPluginValue(
  * because useLuminaTools.ts pulls the plugin source through vite's
  * ?raw — importing it here would break node-testability. */
 export function pluginOptionIo(
-    key: "systemPrompt" | "visionModel",
+    key: "systemPrompt" | "visionModel" | "permissionJudge",
     readDoc: () => Promise<GlobalConfigDoc>,
     ensure: (options: LuminaToolsOptions) => Promise<{status: string}>,
 ): SyncedKeyIo {

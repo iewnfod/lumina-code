@@ -33,6 +33,7 @@ import type {Db} from "../db/db.ts";
 export const SYNCED_KEYS = [
   "systemPrompt",
   "visionModel",
+  "permissionJudge",
   "modelVisibility",
   "sessionPins",
 ] as const;
@@ -75,10 +76,14 @@ export function listSyncedSettings(db: Db, userId: number): SyncedSettingRow[] {
     .map((row) => ({key: row.key as SyncedSettingKey, value: row.value, updatedAt: row.updated_at}));
 }
 
-/** Validate + store one batch of settings writes ({key: value}). Every
- * key must be whitelisted and every value a string within the size
- * ceiling — junk fails loudly (AuthError 400, the parsePassword
- * contract). The server stamps updated_at itself. */
+/** Validate + store one batch of settings writes ({key: value}). Values
+ * must be strings within the size ceiling — junk fails loudly
+ * (AuthError 400, the parsePassword contract). Keys OUTSIDE the
+ * whitelist are SKIPPED (not rejected): clients evolve faster than
+ * self-hosted servers upgrade, and a whole-batch 400 over one unknown
+ * key would strand the established keys' uploads (the client also
+ * degrades per-key, but it should never need to against this server).
+ * The server stamps updated_at itself. */
 export function putSyncedSettings(
   db: Db,
   userId: number,
@@ -90,7 +95,8 @@ export function putSyncedSettings(
   const validated = new Map<string, string>();
   for (const [key, value] of Object.entries(entries as Record<string, unknown>)) {
     if (!(SYNCED_KEYS as readonly string[]).includes(key)) {
-      throw new AuthError(`unknown settings key: ${key}`, 400);
+      console.warn(`[settings] skipping unknown settings key: ${key} (client newer than server?)`);
+      continue;
     }
     if (typeof value !== "string") {
       throw new AuthError(`value for ${key} must be a string`, 400);

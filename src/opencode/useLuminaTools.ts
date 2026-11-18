@@ -11,6 +11,8 @@ import {
     freshConfigWithToolsPlugin,
     luminaDailyAgentMissing,
     LUMINA_TOOLS_PLUGIN_DIR,
+    luminaJudgeAgentCurrent,
+    luminaJudgeAgentMissing,
     luminaToolsEntryPresent,
     luminaToolsPluginPath,
     mergeLuminaToolsPlugin,
@@ -74,8 +76,18 @@ async function ensureLuminaToolsPluginLocked(
     // existing install meeting a newer app) must still rewrite the
     // config once to plant it (luminaDailyAgentMissing). The managed
     // slash commands (/mcp, /plugin) are the same story: their templates
-    // evolve with the app, so a stale pair rewrites the file too.
+    // evolve with the app, so a stale pair rewrites the file too. The
+    // permission-judge agent is conditionally the same story — present
+    // only while its model is configured (desired, not current: a save
+    // must plant it in the same write).
     const agentMissing = luminaDailyAgentMissing(raw);
+    // Stale counts as missing: the judge agent's system text evolves
+    // (the shell guidance landed after the first release), and while
+    // the model is configured an existing-but-old entry must refresh —
+    // the luminaDailyAgentMissing pattern, content-compared.
+    const judgeAgentStale =
+        luminaJudgeAgentMissing(raw, desired) ||
+        (Boolean(desired.permissionJudge?.model) && !luminaJudgeAgentCurrent(raw));
     const commandsStale = raw === "" || !managedCommandsCurrent(raw, target.file);
 
     const pluginDir = `${target.directory.replace(/\/+$/, "")}/${LUMINA_TOOLS_PLUGIN_DIR}`;
@@ -90,7 +102,7 @@ async function ensureLuminaToolsPluginLocked(
         await api.writeTextFile(`${pluginDir}/index.js`, luminaToolsPluginSource);
         wrote = true;
     }
-    if (entryMissing || optionsChanged || agentMissing || commandsStale) {
+    if (entryMissing || optionsChanged || agentMissing || judgeAgentStale || commandsStale) {
         const text = raw === ""
             ? freshConfigWithToolsPlugin(pluginPath, desired, target.file)
             : mergeLuminaToolsPlugin(raw, pluginPath, desired, target.file);

@@ -29,6 +29,21 @@ import type {TranslationKey} from "../i18n/en-us.ts";
 
 export type PermissionModeId = "strict" | "balanced" | "full";
 
+/**
+ * The balanced fingerprint's V1 shape (shipped before 2026-11): the two
+ * asks with NO allowances. Still IDENTIFIES as balanced forever — a
+ * config from an older build must not read as strict — and the panel
+ * self-heals V1 → V2 once per app run per directory
+ * (usePermissionsPanel, the virtual-strict pattern). Kept as a named
+ * constant because BOTH identifyPermissionMode and the V2 fingerprint
+ * reference it (V2 = V1 + the temp-dir allowances, so the V1 array is
+ * the minimal identification set: any V2 config contains it).
+ */
+const BALANCED_V1_RULES: readonly PermissionRule[] = [
+    {action: "external_directory", resource: "*", effect: "ask"},
+    {action: "shell", resource: "*", effect: "ask"},
+];
+
 /** One mode's ordered fingerprint — the exact array written to config. */
 export const PERMISSION_MODE_RULES: Record<PermissionModeId, readonly PermissionRule[]> = {
     /** 任何变更前需确认：every mutation (edits, commands, external paths)
@@ -41,12 +56,31 @@ export const PERMISSION_MODE_RULES: Record<PermissionModeId, readonly Permission
     ],
     /** 有风险时需确认：in-project edits pass; commands and anything
      * outside the project ask (`.env` stays asked via the built-in
-     * policy). Saved approvals ("always allow" → e.g. `git status *`)
-     * cover the ask so routine commands don't nag — spike-verified that a
-     * saved allow beats a configured ask, never a deny. */
+     * policy) — EXCEPT the public temp dirs, which the V2 allowances
+     * pass explicitly (spike-verified 2026-11 against v2.0.11 via
+     * POST /api/session/{id}/permission: the assert's resource is the
+     * external path's DIRNAME + "/*" (`/tmp/a/*` for /tmp/a/b.txt), the
+     * server matches rules with minimatch semantics — `*` stays within
+     * one segment, `**` crosses — so only the `**` form covers nested
+     * temp paths, and within one document LAST MATCH WINS, so the
+     * allowances must come after the asks). `/private/tmp/**` covers
+     * macOS (symlink canonicalization; a no-op elsewhere). Deliberately
+     * ONLY public temp dirs: `~/.opencode` stays asked (writing
+     * opencode.json = injecting MCP/plugins = a privilege-escalation
+     * path, and rule granularity cannot split read from write — that
+     * call belongs to the AI judge, permissionJudge.ts). Windows
+     * per-user temp dirs can't be spelled in a shareable project config
+     * (absolute, username-dependent) — Windows relies on the judge /
+     * saved permissions. Saved approvals ("always allow" → e.g.
+     * `git status *`) cover the ask so routine commands don't nag —
+     * spike-verified that a saved allow beats a configured ask, never
+     * a deny. */
     balanced: [
         {action: "external_directory", resource: "*", effect: "ask"},
         {action: "shell", resource: "*", effect: "ask"},
+        {action: "external_directory", resource: "/tmp/**", effect: "allow"},
+        {action: "external_directory", resource: "/private/tmp/**", effect: "allow"},
+        {action: "external_directory", resource: "/var/tmp/**", effect: "allow"},
     ],
     /** 完全访问：nothing asks — the `.env` overrides are required because
      * the built-in base policy asks for them; `external_directory * →
@@ -66,11 +100,13 @@ export const PERMISSION_MODE_ORDER: readonly PermissionModeId[] = ["strict", "ba
 const sameRule = (a: PermissionRule, b: PermissionRule) =>
     a.action === b.action && a.resource === b.resource && a.effect === b.effect;
 
-/** Every rule any fingerprint may contain (membership test for the
- * strip-then-append rewrite). */
-const ALL_FINGERPRINT_RULES: readonly PermissionRule[] = PERMISSION_MODE_ORDER.flatMap(
-    (mode) => PERMISSION_MODE_RULES[mode],
-);
+/** Every rule any fingerprint may contain — ALL generations (membership
+ * test for the strip-then-append rewrite). BALANCED_V1_RULES add no new
+ * members (V2 ⊇ V1 rule-for-rule) but stay in the union to say so. */
+const ALL_FINGERPRINT_RULES: readonly PermissionRule[] = [
+    ...PERMISSION_MODE_ORDER.flatMap((mode) => PERMISSION_MODE_RULES[mode]),
+    ...BALANCED_V1_RULES,
+];
 
 export function isFingerprintRule(rule: PermissionRule): boolean {
     return ALL_FINGERPRINT_RULES.some((f) => sameRule(f, rule));
@@ -80,18 +116,30 @@ export function isFingerprintRule(rule: PermissionRule): boolean {
  * Which mode a config's `permissions` array currently expresses. A mode
  * counts when its whole fingerprint is present ANYWHERE in the array
  * (strict ⊇ balanced, so strict is tested first — the largest match wins).
- * NO fingerprint found → `"strict"` (the virtual fallback; callers
- * self-heal it to disk so behavior matches the display).
+ * balanced is identified by its V1 MINIMAL set (any V2 config contains
+ * V1 rule-for-rule; a V1-only config from an older build still reads as
+ * balanced). NO fingerprint found → `"strict"` (the virtual fallback;
+ * callers self-heal it to disk so behavior matches the display).
  */
 export function identifyPermissionMode(rules: PermissionRule[] | undefined | null): PermissionModeId {
     const list = rules ?? [];
     // Largest fingerprint first: strict (3) before balanced (2). `full`
     // shares no rules with the others.
     for (const mode of PERMISSION_MODE_ORDER) {
-        const fingerprint = PERMISSION_MODE_RULES[mode];
+        const fingerprint = mode === "balanced" ? BALANCED_V1_RULES : PERMISSION_MODE_RULES[mode];
         if (fingerprint.every((f) => list.some((r) => sameRule(r, f)))) return mode;
     }
     return "strict";
+}
+
+/** Whether a config identified as balanced still carries the OLD (V1)
+ *  shape and should be self-healed to V2 (the panel's once-per-run
+ *  upgrade write — virtual-strict's pattern). False for every other
+ *  mode: only balanced has generations. */
+export function needsPermissionUpgrade(rules: PermissionRule[] | undefined | null): boolean {
+    if (identifyPermissionMode(rules) !== "balanced") return false;
+    const v2 = PERMISSION_MODE_RULES.balanced;
+    return !v2.every((f) => (rules ?? []).some((r) => sameRule(r, f)));
 }
 
 /** How many rules in the array are NOT part of any fingerprint — the

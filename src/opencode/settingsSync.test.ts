@@ -79,6 +79,7 @@ test("modelVisibilityValue maps the two stores' shapes", () => {
 const LOCAL = {
     systemPrompt: JSON.stringify("hello"),
     visionModel: JSON.stringify("openai/gpt-4o"),
+    permissionJudge: JSON.stringify("deepseek/deepseek-flash"),
     modelVisibility: JSON.stringify({disabled: ["x/y"], providers: []}),
     sessionPins: JSON.stringify(["ses_a", "ses_b"]),
 };

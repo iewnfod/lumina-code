@@ -81,6 +81,11 @@ export function useSettingsSync(): void {
                 () => readGlobalConfig(api),
                 (options) => ensureLuminaToolsPlugin(api, options),
             ),
+            permissionJudge: pluginOptionIo(
+                "permissionJudge",
+                () => readGlobalConfig(api),
+                (options) => ensureLuminaToolsPlugin(api, options),
+            ),
             modelVisibility: modelVisibilityIo(),
             sessionPins: sessionPinsIo(),
         };
@@ -89,6 +94,12 @@ export function useSettingsSync(): void {
         /** Set when the server answered 404 — this deployment predates
          * the sync API; stop asking for the session. */
         let unsupported = false;
+        /** Keys this server REJECTED (400 — an older deployment whose
+         * whitelist predates the key, before servers learned to skip
+         * unknown keys). Skipped for the rest of the session so one new
+         * key can never block the established ones (the batch PUT would
+         * otherwise 400 whole, stranding systemPrompt uploads too). */
+        const rejectedKeys = new Set<string>();
         /** Set by the cleanup: an in-flight reconcile holding the OLD
          * connection's client must stop touching the old server the
          * moment its effect run is superseded (sign-out / account
@@ -127,13 +138,37 @@ export function useSettingsSync(): void {
                     everSynced: flags.synced,
                 });
 
-                const uploadKeys = Object.keys(plan.uploads) as SyncedKey[];
+                const uploadKeys = (Object.keys(plan.uploads) as SyncedKey[])
+                    .filter((key) => !rejectedKeys.has(key));
                 if (uploadKeys.length > 0) {
-                    // A failed PUT throws past the uploads — dirty keys
-                    // survive for the next round.
-                    await client.settingsPut(plan.uploads as Record<string, string>);
-                    settingsSyncUploaded(uploadKeys);
-                    logInfo(`[settings-sync] uploaded: ${uploadKeys.join(", ")}`).catch(() => {});
+                    // Fast path: one batched PUT. A 400 means the server
+                    // rejected the WHOLE batch (an older deployment whose
+                    // whitelist predates one of the keys — servers now
+                    // skip unknown keys instead) — degrade to per-key
+                    // PUTs so the established keys still upload and only
+                    // the unknown one latches into rejectedKeys.
+                    try {
+                        await client.settingsPut(plan.uploads as Record<string, string>);
+                        settingsSyncUploaded(uploadKeys);
+                        logInfo(`[settings-sync] uploaded: ${uploadKeys.join(", ")}`).catch(() => {});
+                    } catch (batchError) {
+                        if ((batchError as {status?: number}).status !== 400) throw batchError;
+                        logWarn(`[settings-sync] batch PUT rejected, retrying per key: ${batchError}`).catch(() => {});
+                        for (const key of uploadKeys) {
+                            try {
+                                await client.settingsPut({[key]: plan.uploads[key]} as Record<string, string>);
+                                settingsSyncUploaded([key]);
+                                logInfo(`[settings-sync] uploaded: ${key}`).catch(() => {});
+                            } catch (keyError) {
+                                if ((keyError as {status?: number}).status === 400) {
+                                    rejectedKeys.add(key);
+                                    logWarn(`[settings-sync] ${key} rejected by this server; skipping it this session`).catch(() => {});
+                                    continue;
+                                }
+                                throw keyError;
+                            }
+                        }
+                    }
                 }
                 if (cancelled) return;
 

@@ -24,7 +24,9 @@ function permissionPhrase(action: string, t: ReturnType<typeof useI18n>): string
 /** One pending permission ask, rendered as the representative of its
  * group (identical asks — same action + resources — merge into one
  * card; see permissionGroups.ts). Memoized — the card is static until
- * it disappears. */
+ * it disappears. When the permission judge is evaluating the ask
+ * silently, this card is NOT mounted at all (ChatView filters held
+ * ids) — it appears only once the judge hands the ask back. */
 export const PermissionCard = memo(function PermissionCard({
     request,
     onDecision,

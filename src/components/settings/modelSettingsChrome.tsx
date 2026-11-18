@@ -7,7 +7,7 @@ import type {OpencodeModel} from "../../opencode/types.ts";
 import {providerAvatarColor} from "./modelConfig.ts";
 
 /**
- * Shared chrome for the Model pane's sub-views (ToolsTab /
+ * Shared chrome for the Model pane's sub-views (ToolModelPane /
  * ProviderDetail / CustomProviderDetail / the pane shell): the labeled
  * form field, the accent status badge, the provider avatar, the model
  * row's neutral badge, and the listModels loading hook.
@@ -127,7 +127,7 @@ export function ProviderAvatar({name, providerId, custom, size = 24}: {
 }
 
 /** Load the model list through the api once per (api, deps) with the
- *  pane's shared cancel-safe shape — ToolsTab and ProviderDetail both
+ *  pane's shared cancel-safe shape — ToolModelPane and ProviderDetail both
  *  filter the full list differently; the loading/failure handling is
  *  identical. `filter` runs on the raw list; `deps` refetch when they
  *  change (ProviderDetail passes the integration's connections so a

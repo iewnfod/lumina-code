@@ -2,6 +2,7 @@ import {createContext, useContext, useMemo, type ReactNode} from "react";
 import {useConnection} from "./connectionContext.tsx";
 import {useSessions} from "./useSessions.ts";
 import {useSessionRequests} from "./useSessionRequests.ts";
+import {usePermissionJudge} from "../hooks/usePermissionJudge.ts";
 import {useSessionMessages, useSessionSeeded} from "./useSessionMessages.ts";
 import {useSessionActivity, useWorkspaceDiff} from "./useSessionActivity.ts";
 import {useWorkspaceDocuments} from "./workspaceDocuments.ts";
@@ -60,6 +61,10 @@ const SessionDataContext = createContext<SessionDataContextValue | null>(null);
 export function SessionDataProvider({children}: {children: ReactNode}) {
     const {api, subscribe} = useConnection();
     const {sessions, loaded, busyIds, create, remove, rename, patch, foreignSessions, importSessions} = useSessions(api, subscribe);
+    // The permission judge rides the same provider: it needs the session
+    // list (ask → directory) and the bus (permission.asked) — mounted
+    // once here, useSessionRequests above stays untouched.
+    usePermissionJudge(sessions);
     const {
         permissions,
         forms,

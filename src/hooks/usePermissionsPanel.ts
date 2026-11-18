@@ -9,7 +9,11 @@ import {
     readProjectPermissions,
     writeProjectPermissionMode,
 } from "../opencode/projectPermissions.ts";
-import {sortSavedPermissions, type PermissionModeId} from "../opencode/permissionModes.ts";
+import {
+    needsPermissionUpgrade,
+    sortSavedPermissions,
+    type PermissionModeId,
+} from "../opencode/permissionModes.ts";
 import type {SavedPermission} from "../opencode/types.ts";
 
 /**
@@ -27,6 +31,9 @@ import type {SavedPermission} from "../opencode/types.ts";
  * write the strict fingerprint ONCE per app run per directory (the write
  * is idempotent — a directory that already carries the fingerprint just
  * gets it re-declared); failures log and retry on the next entry.
+ * The SAME once-per-run gate also upgrades a balanced V1 config (the
+ * pre-2026-11 two-ask shape) to V2 (asks + temp-dir allowances) —
+ * needsPermissionUpgrade drives it.
  *
  * Refresh triggers: `permission.replied` (a new "always allow" may have
  * landed) and `config.updated` (any config write — ours included, plus
@@ -104,6 +111,21 @@ export function usePermissionsPanel(directory: string | null): PermissionsPanelS
                     logInfo(`Permission mode self-healed to strict for ${directory}`).catch(() => {});
                 } else {
                     logError(`Permission mode self-heal failed (${heal.reason}) for ${directory}`).catch(() => {});
+                }
+            }
+            // Self-heal the balanced V1 shape (pre-2026-11 config) to V2:
+            // same once-per-run-per-directory gate, same idempotent write —
+            // the rewrite only strips fingerprint members and re-appends
+            // the CURRENT balanced fingerprint, manual rules survive.
+            if (state.mode === "balanced" && needsPermissionUpgrade(state.rules) &&
+                !healedDirs.has(directory) && !state.target.jsonc
+            ) {
+                healedDirs.add(directory);
+                const heal = await writeProjectPermissionMode(api, directory, "balanced");
+                if (heal.ok) {
+                    logInfo(`Permission mode upgraded to balanced V2 for ${directory}`).catch(() => {});
+                } else {
+                    logError(`Permission mode V2 upgrade failed (${heal.reason}) for ${directory}`).catch(() => {});
                 }
             }
         }).catch((e) => {

@@ -34,7 +34,7 @@ export const fsApi: FsApi & ThisType<ApiTransport> = {
      *  a failed read as "absent" — rewriting on that assumption would
      *  clobber a config we failed to read. v2.0.11 quirk: a directory
      *  that doesn't exist yet yields 500, NOT 404 (first-save flows must
-     *  catch and treat as absent themselves — see ToolsTab). */
+     *  catch and treat as absent themselves — see the model-tools pane). */
     async readTextFile(directory: string, name: string): Promise<string | null> {
         const path = `/api/fs/read/${encodeURIComponent(name)}${this.locationQuery(directory)}`;
         return readOrNull(() => this.requestRawText(path));

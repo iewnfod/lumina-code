@@ -27,7 +27,8 @@ import {
     type GlobalConfigTarget,
 } from "./modelConfig.ts";
 
-import ToolsTab from "./ToolsTab.tsx";
+import ToolsPane from "./ToolModelPane.tsx";
+import {JudgeAuditHistory} from "./JudgeAuditHistory.tsx";
 import ProviderDetail from "./ProviderDetail.tsx";
 import CustomProviderDetail from "./CustomProviderDetail.tsx";
 import AddProviderModal from "./AddProviderModal.tsx";
@@ -258,13 +259,15 @@ export default function ModelSettings({
         : selected.kind === "integration" ? `integration:${selected.id}`
         : selected.kind === "custom" ? `custom:${selected.id}`
         : selected.kind === "custom-new" ? "custom-new"
-        : "tools";
+        : selected.kind === "vision" ? "vision"
+        : "judge";
     const detailTitle =
         selected == null ? ""
         : selected.kind === "integration" ? (selectedIntegration?.name ?? "")
         : selected.kind === "custom" ? (selectedCustomDef?.name || selectedCustomDef?.id || "")
         : selected.kind === "custom-new" ? t["Add custom provider"]
-        : t["Tools"];
+        : selected.kind === "vision" ? t["Vision model"]
+        : t["AI permission evaluation"];
 
     const detailNode: ReactNode = selected == null ? (
         <div className="flex flex-col items-center justify-center h-full gap-2">
@@ -325,8 +328,9 @@ export default function ModelSettings({
                 onDelete={removeCustomDef}
             />
         )
-    ) : (
-        <ToolsTab
+    ) : selected.kind === "vision" ? (
+        <ToolsPane
+            feature="vision"
             api={api}
             target={target}
             rawConfig={rawConfig}
@@ -335,6 +339,23 @@ export default function ModelSettings({
             onBusyChange={setBusy}
             onSaved={loadConfig}
         />
+    ) : (
+        <>
+            <ToolsPane
+                feature="judge"
+                api={api}
+                target={target}
+                rawConfig={rawConfig}
+                configError={configError}
+                onActionError={setActionError}
+                onBusyChange={setBusy}
+                onSaved={loadConfig}
+            />
+            {/* The durable audit trail's entry — the chat line only
+             * previews the newest allow; the full history opens in a
+             * modal from here (persisted). */}
+            {rawConfig !== null && <JudgeAuditHistory/>}
+        </>
     );
 
     // The mobile page's exit freeze (SettingsPage's lastPaneRef

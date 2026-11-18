@@ -6,6 +6,7 @@ import {
     identifyPermissionMode,
     isFingerprintRule,
     manualRuleCount,
+    needsPermissionUpgrade,
     permissionActionLabelKey,
     sortSavedPermissions,
 } from "./permissionModes.ts";
@@ -15,6 +16,11 @@ const strict = PERMISSION_MODE_RULES.strict;
 const balanced = PERMISSION_MODE_RULES.balanced;
 const full = PERMISSION_MODE_RULES.full;
 const manual: PermissionRule = {action: "shell", resource: "git push *", effect: "deny"};
+/** The balanced V1 shape (pre-2026-11): the two asks, no allowances. */
+const balancedV1: PermissionRule[] = [
+    {action: "external_directory", resource: "*", effect: "ask"},
+    {action: "shell", resource: "*", effect: "ask"},
+];
 
 test("identify: absent or empty permissions read as the virtual strict fallback", () => {
     assert.equal(identifyPermissionMode(undefined), "strict");
@@ -108,4 +114,47 @@ test("permissionActionLabelKey: known actions map, unknown falls to null", () =>
     assert.equal(permissionActionLabelKey("glob"), "Search for files");
     assert.equal(permissionActionLabelKey("grep"), "Search file contents");
     assert.equal(permissionActionLabelKey("mcp_something_fetch"), null);
+});
+
+// --- Balanced V2 (temp-dir allowances) ---------------------------------------
+
+test("V2 structure: the first two rules ARE the V1 fingerprint (V2 ⊇ V1)", () => {
+    assert.deepEqual(balanced.slice(0, 2), balancedV1);
+    // Allowances land AFTER the asks (last-match-wins within the doc).
+    assert.deepEqual(
+        balanced.slice(2).map((r) => r.effect),
+        ["allow", "allow", "allow"],
+    );
+});
+
+test("identify: the V1 shape (older build's config) still reads as balanced", () => {
+    assert.equal(identifyPermissionMode([...balancedV1]), "balanced");
+    assert.equal(identifyPermissionMode([manual, ...balancedV1]), "balanced");
+});
+
+test("identify: V1 + a manual allowance completes V2 without losing the manual rule", () => {
+    const manualAllow: PermissionRule = {action: "external_directory", resource: "/srv/data/**", effect: "allow"};
+    assert.equal(identifyPermissionMode([...balancedV1, manualAllow]), "balanced");
+    assert.equal(manualRuleCount([...balancedV1, manualAllow]), 1);
+});
+
+test("needsPermissionUpgrade: only V1-shaped balanced configs want the heal", () => {
+    assert.ok(needsPermissionUpgrade([...balancedV1]));
+    assert.ok(needsPermissionUpgrade([manual, ...balancedV1]));
+    assert.ok(!needsPermissionUpgrade([...balanced]));
+    assert.ok(!needsPermissionUpgrade(undefined));
+    assert.ok(!needsPermissionUpgrade([...strict]));
+    assert.ok(!needsPermissionUpgrade([...full]));
+});
+
+test("apply: rewriting a V1-balanced config lands on V2 (strip spans generations)", () => {
+    const to = applyPermissionMode([...balancedV1, manual], "balanced");
+    assert.deepEqual(to, [manual, ...balanced]);
+});
+
+test("isFingerprintRule: the V2 allowances are fingerprint members", () => {
+    assert.ok(isFingerprintRule({action: "external_directory", resource: "/tmp/**", effect: "allow"}));
+    assert.ok(isFingerprintRule({action: "external_directory", resource: "/private/tmp/**", effect: "allow"}));
+    assert.ok(isFingerprintRule({action: "external_directory", resource: "/var/tmp/**", effect: "allow"}));
+    assert.ok(!isFingerprintRule({action: "external_directory", resource: "/srv/**", effect: "allow"}));
 });

@@ -1,5 +1,5 @@
 import type {ReactNode} from "react";
-import {Wrench} from "lucide-react";
+import {ScanEye, ShieldCheck} from "lucide-react";
 import {useColors} from "../../hooks/colors.tsx";
 import {useI18n} from "../../hooks/i18n.tsx";
 import Hint from "../ui/Hint.tsx";
@@ -8,19 +8,23 @@ import type {CustomProviderDef} from "./modelConfig.ts";
 import type {IntegrationInfo} from "../../opencode/types.ts";
 
 /**
- * The Model pane's provider NAV rail content — the grouped rows (connected
- * providers, custom providers, the fixed Tools entry) shared by BOTH
- * layouts: the desktop's left rail and the phone layout's root page
- * (ModelSettings). The pane-level state (selection, loading, errors)
- * stays with ModelSettings; this component is pure presentation over it.
+ * The Model pane's provider NAV rail content — the grouped rows
+ * (connected providers, custom providers, the fixed model-feature
+ * entries) shared by BOTH layouts: the desktop's left rail and the
+ * phone layout's root page (ModelSettings). The pane-level state
+ * (selection, loading, errors) stays with ModelSettings; this
+ * component is pure presentation over it.
  */
 
-/** The pane's selection state (the detail view's key). */
+/** The pane's selection state (the detail view's key). The two
+ * model-feature entries (识图模型 / AI 权限评估) are the rail's fixed
+ * bottom group — each renders ToolModelPane with its feature. */
 export type NavSelection =
     | {kind: "integration"; id: string}
     | {kind: "custom"; id: string}
     | {kind: "custom-new"}
-    | {kind: "tools"};
+    | {kind: "vision"}
+    | {kind: "judge"};
 
 function GroupLabel({children}: {children: ReactNode}) {
     const colors = useColors();
@@ -165,25 +169,43 @@ export default function ProviderNavRail({
                 </>
             )}
 
-            {/* Tools — the vision-model configuration; the nav's fixed
-             * bottom entry (a pane-level concern, not a provider). */}
+            {/* Model features — the rail's fixed bottom group (pane-level
+             * concerns, not providers): 识图模型 and AI 权限评估, each its
+             * own ToolModelPane page. */}
             <GroupLabel>{t["Tools"]}</GroupLabel>
             <NavRow
-                selected={selected?.kind === "tools"}
+                selected={selected?.kind === "vision"}
                 connected={false}
                 hideDot
                 onClick={() => {
-                    onSelect({kind: "tools"});
+                    onSelect({kind: "vision"});
                 }}
                 avatar={
                     <span
                         className="inline-flex items-center justify-center shrink-0 w-6 h-6 rounded-[var(--radius-sm)]"
                         style={{background: colors.activeOverlay, color: colors.inactiveText}}
                     >
-                        <Wrench size={13}/>
+                        <ScanEye size={13}/>
                     </span>
                 }
-                label={t["Tools"]}
+                label={t["Vision model"]}
+            />
+            <NavRow
+                selected={selected?.kind === "judge"}
+                connected={false}
+                hideDot
+                onClick={() => {
+                    onSelect({kind: "judge"});
+                }}
+                avatar={
+                    <span
+                        className="inline-flex items-center justify-center shrink-0 w-6 h-6 rounded-[var(--radius-sm)]"
+                        style={{background: colors.activeOverlay, color: colors.inactiveText}}
+                    >
+                        <ShieldCheck size={13}/>
+                    </span>
+                }
+                label={t["AI permission evaluation"]}
             />
         </>
     );

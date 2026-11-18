@@ -48,7 +48,7 @@ const MODE_NAME_KEY: Record<PermissionModeId, TranslationKey> = {
 };
 const MODE_DESC_KEY: Record<PermissionModeId, TranslationKey> = {
     strict: "Every edit, command and outside access asks first",
-    balanced: "In-project edits pass; commands and outside access ask",
+    balanced: "Outside access and commands ask; common temp dirs (e.g. /tmp) pass",
     full: "Nothing asks, including .env files",
 };
 

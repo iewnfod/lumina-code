@@ -6,6 +6,7 @@ import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {ChatMessage, EventMap, FormAnswer, FormRequest, PermissionDecision, PermissionRequest} from "./types.ts";
 import {peekSessionMessages, subscribeSessionMessages, trackedSessionIds} from "./useSessionMessages.ts";
 import {collectSessionSubagents, planApprovalPending, workApprovalPending} from "./sessionActivity.ts";
+import {peekHeld, subscribeHeld} from "./permissionJudge.ts";
 
 /**
  * Pending server→user requests across ALL sessions: permission asks
@@ -297,6 +298,12 @@ export function useSessionRequests(
         ensurePendingFlagsWiring();
     }, []);
 
+    // Asks the permission judge is silently evaluating are EXCLUDED
+    // from the count while held (permissionJudge's SILENT-HOLD
+    // contract): the sidebar badge and the desktop notification's 0→N
+    // transition fire only when the judge hands the ask back — or
+    // never, when it allows it.
+    const held = useSyncExternalStore(subscribeHeld, peekHeld, peekHeld);
     const pendingCounts = useMemo(() => {
         const counts = new Map<string, number>();
         const add = (sessionId: string, n: number) => {
@@ -308,6 +315,7 @@ export function useSessionRequests(
         // right before these arrays change (resolveChildParents), so the
         // memo's missing dependency on it is safe by construction.
         for (const p of permissions) {
+            if (held.has(p.id)) continue;
             add(p.sessionID, 1);
             const parent = childParents.get(p.sessionID);
             if (parent !== undefined) add(parent, 1);
@@ -321,7 +329,7 @@ export function useSessionRequests(
             add(sid, (flags.plan ? 1 : 0) + (flags.work ? 1 : 0));
         }
         return counts;
-    }, [permissions, forms, pendingFlags]);
+    }, [permissions, forms, pendingFlags, held]);
 
     return {permissions, forms, pendingCounts, replyPermission, replyForm, cancelForm};
 }

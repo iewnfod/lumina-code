@@ -89,7 +89,7 @@ export function freshModeDocument(mode: PermissionModeId): string {
 }
 
 export type ProjectPermissionState =
-    | {kind: "ok"; mode: PermissionModeId; manualCount: number; target: ProjectConfigTarget}
+    | {kind: "ok"; mode: PermissionModeId; manualCount: number; rules: PermissionRule[]; target: ProjectConfigTarget}
     /** parse = an existing document we cannot parse (JSONC comments or
      * garbage); probe = the read itself failed. */
     | {kind: "blocked"; reason: "parse" | "probe"};
@@ -99,7 +99,7 @@ export type PermissionWriteResult =
     | {ok: false; reason: "jsonc" | "parse" | "shape" | "read" | "write"};
 
 /** One candidate read, treating 404 AND 500 as "not there" — the server's
- * fs/read answers 500 for a missing DIRECTORY (the ToolsTab quirk), and a
+ * fs/read answers 500 for a missing DIRECTORY (the model-tools pane quirk), and a
  * first-run project directory may not exist yet. Anything else rethrows:
  * a genuinely failed read must never read as "absent" (we would clobber). */
 async function readCandidate(api: ProjectFsApi, directory: string, name: string): Promise<string | null> {
@@ -139,7 +139,7 @@ export async function readProjectPermissions(
     } catch {
         return {kind: "blocked", reason: "probe"};
     }
-    if (!target.existed) return {kind: "ok", mode: "strict", manualCount: 0, target};
+    if (!target.existed) return {kind: "ok", mode: "strict", manualCount: 0, rules: [], target};
     const name = target.file.slice(directory.replace(/\/+$/, "").length + 1);
     let raw: string | null;
     try {
@@ -147,12 +147,18 @@ export async function readProjectPermissions(
     } catch {
         return {kind: "blocked", reason: "probe"};
     }
-    if (raw === null) return {kind: "ok", mode: "strict", manualCount: 0, target};
+    if (raw === null) return {kind: "ok", mode: "strict", manualCount: 0, rules: [], target};
     const root = parseRoot(raw);
     if (!root) return {kind: "blocked", reason: "parse"};
     const rules = extractPermissionRules(root);
     if (!rules) return {kind: "blocked", reason: "parse"};
-    return {kind: "ok", mode: identifyPermissionMode(rules), manualCount: manualRuleCount(rules), target};
+    return {
+        kind: "ok",
+        mode: identifyPermissionMode(rules),
+        manualCount: manualRuleCount(rules),
+        rules,
+        target,
+    };
 }
 
 /** Switch the directory's mode (read → merge → write under the shared
