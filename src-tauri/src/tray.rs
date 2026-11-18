@@ -81,26 +81,56 @@ pub fn show_main_window(app: &AppHandle) {
 }
 
 /// The one-time "still running in the background" notice when the window is
-/// hidden for the first time this run. Linux only — off-Linux the plugin
-/// notification path lives in the frontend, and the tray alone is a clear
-/// enough signal there. Rides notify.rs's persistent D-Bus connection (the
-/// per-send connection of the alternative gets GNOME 46+ banners killed).
+/// hidden — ONCE EVER, not once per run: a marker file in the app data dir
+/// remembers that the user has already seen it, so restarts stay quiet.
+/// Linux only — off-Linux the plugin notification path lives in the
+/// frontend, and the tray alone is a clear enough signal there. Rides
+/// notify.rs's persistent D-Bus connection (the per-send connection of the
+/// alternative gets GNOME 46+ banners killed).
 #[cfg(target_os = "linux")]
-pub fn notify_hidden_once() {
+pub fn notify_hidden_once(app: &AppHandle) {
     use std::sync::atomic::{AtomicBool, Ordering};
+    // Same-run dedupe only (CloseRequested is serialized on the main
+    // thread, this is defense in depth); the marker file below is the
+    // cross-restart half.
     static NOTIFIED: AtomicBool = AtomicBool::new(false);
     if NOTIFIED.swap(true, Ordering::Relaxed) {
         return;
     }
+    let marker = app
+        .path()
+        .app_data_dir()
+        .ok()
+        .map(|d| d.join("tray-notice-shown"));
+    match &marker {
+        Some(p) if p.exists() => return,
+        // No data dir (path resolution failure): degrade to the old
+        // once-per-run behavior rather than never notifying at all.
+        None => log::warn!("app_data_dir unavailable — tray notice cannot be persisted"),
+        _ => {}
+    }
     let t = texts();
     tauri::async_runtime::spawn(async move {
         // The stub/Err path just logs at debug — a missing notice must never
-        // disturb the close-to-tray flow itself.
+        // disturb the close-to-tray flow itself. A FAILED send also skips
+        // writing the marker, so the user gets another chance on a later run.
         if let Err(e) =
             crate::notify::desktop_notify(t.notify_title.to_string(), t.notify_body.to_string())
                 .await
         {
             log::debug!("hidden-to-tray notice failed: {e}");
+            return;
+        }
+        if let Some(p) = marker {
+            if let Some(dir) = p.parent() {
+                if let Err(e) = std::fs::create_dir_all(dir) {
+                    log::warn!("Failed to create app data dir for tray-notice marker: {e}");
+                    return;
+                }
+            }
+            if let Err(e) = std::fs::write(&p, b"shown") {
+                log::warn!("Failed to write tray-notice marker {:?}: {e}", p);
+            }
         }
     });
 }

@@ -106,7 +106,7 @@ pub fn run() {
                          (opencode server + frpc keep running)"
                     );
                     #[cfg(all(desktop, target_os = "linux"))]
-                    tray::notify_hidden_once();
+                    tray::notify_hidden_once(tauri::Manager::app_handle(window));
                     if let Err(e) = window.hide() {
                         log::error!("Failed to hide main window: {e}");
                     }

@@ -4516,7 +4516,12 @@ src-tauri/src/
 │                  #   the wl_surface) is shared by the tray events and the
 │                  #   single-instance callback. notify_hidden_once (Linux)
 │                  #   rides notify.rs's persistent D-Bus connection for the
-│                  #   one-time "still running in the background" notice.
+│                  #   "still running in the background" notice — ONCE EVER,
+│                  #   not once per run: a marker file (app data dir,
+│                  #   tray-notice-shown) is written after the first
+│                  #   successful send, so restarts stay quiet (a failed
+│                  #   send skips the marker; the AtomicBool only dedupes
+│                  #   within a run).
 │                  #   WHY single-instance must exist: with the window hidden
 │                  #   the process outlives it, and a launcher click would
 │                  #   otherwise spawn a SECOND opencode server sharing the
