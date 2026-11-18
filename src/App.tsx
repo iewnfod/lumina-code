@@ -36,7 +36,7 @@ import {isColorDark, withAlpha} from "./lib/color.ts";
 import {isLinux, isCefRuntime, isMobileApp} from "./lib/platform.ts";
 import {appThemeFor, type ChromeTheme} from "./lib/theme.ts";
 import {useOpencode, type ConnectionErrorReason} from "./opencode/useOpencode.ts";
-import {sessionMode, useAppMode, useGitProbe} from "./opencode/appMode.ts";
+import {sessionMode, setAppMode, gitAvailable, useAppMode, useGitProbe} from "./opencode/appMode.ts";
 import {useSessionFlow} from "./opencode/useSessionFlow.ts";
 import {useDirectoryBranch} from "./opencode/useDirectoryBranch.ts";
 import {useLuminaToolsInstall} from "./opencode/useLuminaTools.ts";
@@ -376,8 +376,17 @@ function AppBody({
                 if (settings.open) closeSettings();
                 requestComposerFocus();
             },
+            switchMode: () => {
+                // Same GIT GATE as the sidebar's switcher (appMode.ts):
+                // dev is enterable only on a CONFIRMED git machine —
+                // unknown (probe pending/failed) keeps the switch hidden
+                // in the UI, so it stays inert here too, while leaving
+                // dev is always allowed.
+                if (appMode === "daily" && gitAvailable() !== true) return;
+                setAppMode(appMode === "daily" ? "dev" : "daily");
+            },
         }),
-        [api, activeId, busy, cycleOrder, startNewSession, toggleSettings, setImportOpen, selectSession, settings.open, closeSettings],
+        [api, activeId, busy, cycleOrder, appMode, startNewSession, toggleSettings, setImportOpen, selectSession, settings.open, closeSettings],
     );
     useKeyboardShortcuts(shortcutActions);
 

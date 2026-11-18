@@ -452,6 +452,7 @@ const enUs = {
     "Next session": "Next session",
     "Previous session": "Previous session",
     "Focus the message box": "Focus the message box",
+    "Switch between daily and dev mode": "Switch between daily and dev mode",
     // --- Settings · Keyboard shortcuts pane ---
     "Keyboard Shortcuts": "Keyboard Shortcuts",
     "Click a key to rebind it": "Click a key to rebind it",

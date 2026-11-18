@@ -32,7 +32,8 @@ export type ShortcutAction =
     | "interruptSession"
     | "nextSession"
     | "prevSession"
-    | "focusComposer";
+    | "focusComposer"
+    | "switchMode";
 
 export interface ShortcutDef {
     id: ShortcutAction;
@@ -58,6 +59,7 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
     {id: "nextSession", labelKey: "Next session", defaultChord: "mod+alt+arrowright"},
     {id: "prevSession", labelKey: "Previous session", defaultChord: "mod+alt+arrowleft"},
     {id: "focusComposer", labelKey: "Focus the message box", defaultChord: "mod+l"},
+    {id: "switchMode", labelKey: "Switch between daily and dev mode", defaultChord: "mod+shift+m"},
 ];
 
 // ---------------------------------------------------------------------------

@@ -134,9 +134,9 @@ test("UNBOUND_CHORD: the action fires on no key", () => {
 test("findConflicts ignores unbound actions (no phantom undefined bucket)", () => {
     const bindings = resolveBindings({newSession: UNBOUND_CHORD, focusComposer: UNBOUND_CHORD});
     const conflicts = findConflicts(bindings);
-    // The five still-default actions keep their own buckets; the two
+    // The six still-default actions keep their own buckets; the two
     // unbound ones share "no chord" WITHOUT colliding there.
-    assert.equal(conflicts.size, 5);
+    assert.equal(conflicts.size, 6);
     assert.equal(conflicts.has(undefined as unknown as string), false);
     for (const bucket of conflicts.values()) assert.equal(bucket.length, 1);
     // Reset path: clearing the override (null semantics live in the store)

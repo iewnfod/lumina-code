@@ -447,6 +447,7 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Next session": "下一个会话",
     "Previous session": "上一个会话",
     "Focus the message box": "聚焦输入框",
+    "Switch between daily and dev mode": "切换日常/开发模式",
     // --- 设置 · 快捷键面板 ---
     "Keyboard Shortcuts": "快捷键",
     "Click a key to rebind it": "点击键位可重新绑定",
