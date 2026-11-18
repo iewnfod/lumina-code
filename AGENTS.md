@@ -4267,8 +4267,9 @@ src/
 
 ### Backend (`src-tauri/src/`) — the webkit shell
 
-Intentionally thin — server lifecycle only (plus the two frontend-serving
-odd ones out, notify.rs and blur.rs). All business logic lives in the
+Intentionally thin — server lifecycle only (plus the three odd ones out:
+notify.rs, blur.rs and tray.rs — the notification sender, the gsettings
+probe and the system tray). All business logic lives in the
 frontend. `system.rs` plus the `opencode/` module:
 
 ```
@@ -4280,9 +4281,54 @@ src-tauri/src/
 │                  #   persistence behind lib/persistedStore.ts's state file),
 │                  #   Linux env workarounds set BEFORE
 │                  #   GTK init (__NV_DISABLE_EXPLICIT_SYNC; GDK_DEBUG=gl-no-fractional
-│                  #   for Wayland fractional scaling), invoke_handler, and the Exit
-│                  #   hook that kills the owned server (opencode::shutdown).
+│                  #   for Wayland fractional scaling), invoke_handler, the Exit
+│                  #   hook that kills the owned server (opencode::shutdown),
+│                  #   PLUS THE CLOSE-TO-TRAY WIRING: single-instance
+│                  #   (RELEASE-ONLY, registered FIRST — see tray.rs) wakes
+│                  #   the hidden window on a second launcher click, setup()
+│                  #   mounts the tray, and on_window_event turns the main
+│                  #   window's CloseRequested into hide() — the process (and
+│                  #   with it the opencode server, frpc, SSE streams, frp
+│                  #   heartbeat) stays alive until the tray's 退出 runs
+│                  #   app.exit(0) through the Exit hook. CEF shell: NOT wired
+│                  #   there yet (close = exit, as before).
 ├── system.rs      # is_wayland command (XDG_SESSION_TYPE, WAYLAND_DISPLAY fallback)
+├── tray.rs        # THE SYSTEM TRAY (desktop-only; not mounted by the CEF shell).
+│                  #   Close-to-tray's visible handle: 「显示主界面」/「退出」
+│                  #   menu (zh/en copy picked via sys-locale — a native menu
+│                  #   never passes through the frontend i18n), left-click
+│                  #   activate, tooltip, and the CO wordmark as the icon —
+│                  #   src/assets/CO.svg rendered into the 512² transparent
+│                  #   icons/tray.png (rsvg-convert + magick extent; the
+│                  #   wordmark is a 498×290 banner, a square canvas keeps
+│                  #   libappindicator from squashing it), compile-time
+│                  #   embedded via include_bytes! and decoded through the
+│                  #   image-png tauri feature — tauri 2.11's TrayIconBuilder
+│                  #   does NOT pick up tauri.conf.json's app.trayIcon by
+│                  #   itself (verified in its build path), the embedded
+│                  #   decode with a default_window_icon fallback is the
+│                  #   explicit way. show_main_window
+│                  #   (show + unminimize + set_focus, then emits
+│                  #   WINDOW_RESTORED_EVENT "lumina-window-restored" — the
+│                  #   frontend twin re-pushes the native blur from
+│                  #   useWindowFirstShow because a hide/show cycle rebuilds
+│                  #   the wl_surface) is shared by the tray events and the
+│                  #   single-instance callback. notify_hidden_once (Linux)
+│                  #   rides notify.rs's persistent D-Bus connection for the
+│                  #   one-time "still running in the background" notice.
+│                  #   WHY single-instance must exist: with the window hidden
+│                  #   the process outlives it, and a launcher click would
+│                  #   otherwise spawn a SECOND opencode server sharing the
+│                  #   storage (transiently-empty reads — see opencode/reap.rs);
+│                  #   it is release-only because dev and release share the
+│                  #   identifier (a dev launch would bounce onto the
+│                  #   installed app). Packaging: the tray links
+│                  #   libayatana-appindicator3 — deb Depends declared in
+│                  #   tauri.conf.json (bundle.linux.deb.depends + app.trayIcon
+│                  #   triggering the bundler's own), the COPR spec pins
+│                  #   libayatana-appindicator-gtk3, and the AUR PKGBUILD
+│                  #   already listed it; CI/release runners already install
+│                  #   the -dev build dep.
 ├── lumina_http.rs # lumina_request: the lumina-code-server HTTP transport (the Rust
 │                  #   half of opencode/serverConnection.ts's LuminaServerApi).
 │                  #   WHY requests to the self-hosted server must NOT ride

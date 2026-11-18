@@ -48,6 +48,12 @@ BuildRequires:  cpio
 # The unpacked tree installs hicolor icons; the hicolor directory layout is
 # owned by this package, not by every icon-carrying package.
 Requires:       hicolor-icon-theme
+# The system tray (src-tauri/src/tray.rs) links libayatana-appindicator3 —
+# an ELF SONAME auto-require usually covers it, but the repack skips some
+# generated scripts, so pin it explicitly (the deb side declares the same
+# via tauri.conf.json bundle.linux.deb.depends; AUR already lists
+# libayatana-appindicator).
+Requires:       libayatana-appindicator-gtk3
 # Only the arches the Release workflow publishes .rpm assets for. Any other
 # chroot arch fails fast here instead of dying in %files with "no files".
 ExclusiveArch:  x86_64 aarch64

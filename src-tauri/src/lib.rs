@@ -5,6 +5,8 @@ mod lumina_http;
 mod notify;
 mod opencode;
 mod system;
+#[cfg(desktop)]
+mod tray;
 
 use tauri_plugin_log::TargetKind;
 
@@ -36,7 +38,22 @@ pub fn run() {
         }
     }
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Single desktop instance — RELEASE ONLY. With close-to-tray the
+    // process outlives its window, so a launcher click must wake the
+    // hidden window instead of spawning a SECOND opencode server (two
+    // servers sharing the opencode storage cause transiently empty
+    // provider/model reads, see opencode/reap.rs). Dev builds skip it on
+    // purpose: dev and release share the identifier, so enabling it here
+    // would bounce a dev launch onto the installed app (and vice versa).
+    // Must be registered FIRST so a second instance exits before any other
+    // plugin initializes.
+    #[cfg(all(desktop, not(debug_assertions)))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        log::info!("Second instance launch — showing the existing main window");
+        tray::show_main_window(app);
+    }));
+    builder
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -65,6 +82,37 @@ pub fn run() {
             background_effect::background_effect_probe,
             background_effect::background_effect_apply
         ])
+        .setup(|app| {
+            // The tray is the visible handle while the window is hidden —
+            // failure degrades to "no tray" (logged), never blocks startup.
+            #[cfg(desktop)]
+            if let Err(e) = tray::setup(app.handle()) {
+                log::error!("Tray setup failed: {e} (close-to-tray degraded)");
+            }
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Close-to-tray: hiding instead of destroying the window keeps
+            // the process — and with it the opencode server, frpc, the SSE
+            // streams and the frp heartbeat — alive while the user sees no
+            // window. Restoring goes through the tray (tray.rs) or the
+            // single-instance launcher click; quitting goes through the
+            // tray menu (app.exit(0) → the ExitRequested/Exit hook below).
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    api.prevent_close();
+                    log::info!(
+                        "Main window close requested — hiding to tray \
+                         (opencode server + frpc keep running)"
+                    );
+                    #[cfg(all(desktop, target_os = "linux"))]
+                    tray::notify_hidden_once();
+                    if let Err(e) = window.hide() {
+                        log::error!("Failed to hide main window: {e}");
+                    }
+                }
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
