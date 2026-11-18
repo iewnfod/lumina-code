@@ -208,6 +208,8 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Additional instructions for the model…": "给模型的附加指令…",
     "Saved": "已保存",
     "OpenCode": "OpenCode",
+    "Repository": "仓库",
+    "Author": "作者",
     "Dependencies": "依赖",
     // --- Session usage ring ---
     "Session usage": "会话用量",

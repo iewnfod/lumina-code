@@ -4,23 +4,33 @@ import {error as logError} from "@tauri-apps/plugin-log";
 import Icon from "../../assets/icon.svg";
 import {useI18n} from "../../hooks/i18n.tsx";
 import {useConnection} from "../../opencode/connectionContext.tsx";
+import {openExternalUrl} from "../../lib/openExternal.ts";
 import pkg from "../../../package.json";
+import fetchOpencodeSrc from "../../../scripts/fetch-opencode.mjs?raw";
+import fetchFrpSrc from "../../../scripts/fetch-frp.mjs?raw";
 import SectionHeader from "./SectionHeader.tsx";
 
-/** Core runtime dependencies listed on the About pane, in display
- * order. Version strings come from package.json as written (caret
- * ranges included) — the About pane reports, it doesn't resolve. */
-const CORE_DEPS = [
-    "@tauri-apps/api",
-    "react",
-    "tailwindcss",
-    "@heroui/react",
-    "lexical",
-    "react-markdown",
-    "@git-diff-view/react",
-    "framer-motion",
-    "lucide-react",
+/** Project links shown on the About pane: the i18n label key, the
+ * short display text and the URL the row opens in the system browser
+ * (openExternalUrl — the ohos-aware wrapper). */
+const ABOUT_LINKS = [
+    {labelKey: "Repository", text: "iewnfod/lumina-code", url: "https://github.com/iewnfod/lumina-code"},
+    {labelKey: "Author", text: "Iewnfod", url: "https://github.com/iewnfod"},
 ] as const;
+
+/** The FULL runtime dependency set: package.json dependencies plus the
+ * two bundled sidecar pins (the bundled OpenCode server and the frpc
+ * remote-access binary) — derived, never hand-curated, so the list
+ * cannot drift behind reality again. The sidecar versions are parsed
+ * out of the fetch scripts' sources via ?raw (importing the scripts as
+ * modules would run their download logic), so a pin bump updates the
+ * About pane automatically. Version strings come from package.json /
+ * the pins as written — the About pane reports, it doesn't resolve. */
+const DEP_ROWS = [
+    ...Object.entries(pkg.dependencies).map(([name, version]) => ({name, version})),
+    {name: "opencode (sidecar)", version: /OPENCODE_VERSION\s*=\s*"([^"]+)"/.exec(fetchOpencodeSrc)?.[1]},
+    {name: "frpc (sidecar)", version: /FRP_VERSION\s*=\s*"([^"]+)"/.exec(fetchFrpSrc)?.[1]},
+].sort((a, b) => a.name.localeCompare(b.name));
 
 export default function AboutSettings() {
     const t = useI18n();
@@ -79,6 +89,20 @@ export default function AboutSettings() {
                         {serverVersion ?? "—"}
                     </span>
                 </div>
+                {ABOUT_LINKS.map(({labelKey, text, url}) => (
+                    <div key={labelKey} className="flex items-center justify-between gap-4">
+                        <span className="opacity-60 shrink-0">{t[labelKey]}</span>
+                        <button
+                            type="button"
+                            className="text-right truncate font-mono text-xs py-0.5 px-1.5 -mr-1.5 rounded-[var(--radius-xs)] lum-wash cursor-pointer"
+                            onClick={() => openExternalUrl(url).catch((e) => {
+                                logError(`open ${labelKey} link failed: ${e}`).catch(() => {});
+                            })}
+                        >
+                            {text}
+                        </button>
+                    </div>
+                ))}
             </div>
 
             {/* Dependencies — fine print as a two-column grid (mono,
@@ -86,10 +110,10 @@ export default function AboutSettings() {
             <div className="flex flex-col gap-4">
                 <SectionHeader label={t["Dependencies"]}/>
                 <div className="grid grid-cols-2 gap-x-8 gap-y-3">
-                    {CORE_DEPS.map((name) => (
+                    {DEP_ROWS.map(({name, version}) => (
                         <div key={name} className="flex items-baseline justify-between gap-3 text-xs">
                             <span className="truncate opacity-55">{name}</span>
-                            <span className="font-mono tabular-nums">{pkg.dependencies[name as keyof typeof pkg.dependencies]}</span>
+                            <span className="font-mono tabular-nums">{version ?? "—"}</span>
                         </div>
                     ))}
                 </div>

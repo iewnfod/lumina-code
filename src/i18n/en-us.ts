@@ -215,6 +215,8 @@ const enUs = {
     "Additional instructions for the model…": "Additional instructions for the model…",
     "Saved": "Saved",
     "OpenCode": "OpenCode",
+    "Repository": "Repository",
+    "Author": "Author",
     "Dependencies": "Dependencies",
     // --- Session usage ring ---
     "Session usage": "Session usage",
