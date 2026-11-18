@@ -9,6 +9,17 @@ import type {
 import {ApiTransport, UPLOAD_TIMEOUT_MS} from "./transport.ts";
 
 /**
+ * The session list's full-fetch limit — see listSessions' quirk note.
+ * 2000 covers the observed real-world storage (~554 after months of
+ * use) with ~4× headroom while keeping the relist payload bounded
+ * (~300KB at 554 sessions; every session.created / inbox.enqueued
+ * re-lists, including over the mobile frp route). If a user ever
+ * exceeds it, the seed's truncation guard (useSessions) keeps the
+ * whitelist safe — only display completeness degrades.
+ */
+export const SESSIONS_LIST_LIMIT = 2000;
+
+/**
  * The SESSION domain of the opencode REST client — lifecycle, prompts,
  * the pending inbox, message paging, and the edit-last-message revert
  * trio. Everything verified against server v2.0.11 unless noted.
@@ -26,7 +37,7 @@ import {ApiTransport, UPLOAD_TIMEOUT_MS} from "./transport.ts";
  *   DELETE /api/session/{id}/inbox/{iid} → cancel one pending input row
  */
 export interface SessionApi {
-    listSessions(): Promise<OpencodeSession[]>;
+    listSessions(limit?: number): Promise<OpencodeSession[]>;
     serverInfo(): Promise<OpencodeServerInfo>;
     listActiveSessions(): Promise<Record<string, {type: string}>>;
     sessionStats(opts?: {from?: number; to?: number; tools?: "none" | "summary" | "detail"}): Promise<SessionStatsInfo>;
@@ -52,8 +63,30 @@ export interface SessionApi {
 /** The sessions domain methods (see the interface); composed onto the
  *  OpencodeApi prototype in index.ts. */
 export const sessionsApi: SessionApi & ThisType<ApiTransport> = {
-    listSessions(): Promise<OpencodeSession[]> {
-        return this.request<OpencodeSession[]>("/api/session");
+    /**
+     * List sessions, newest-updated first. Pass `limit` ONLY for
+     * liveness probes that ignore the body — every data consumer wants
+     * the DEFAULT FULL LIST.
+     *
+     * QUIRK (curl-verified v2.0.11, live-diagnosed 2026-11): the
+     * endpoint has a HIDDEN DEFAULT `limit=50` — a bare GET returns
+     * only the 50 most recently updated sessions while the storage
+     * holds hundreds more. The server accepts arbitrarily large limit
+     * values (it is a plain SQL LIMIT — 1000/10000 both return the
+     * full set, no clamping), and there is NO paging: `cursor` answers
+     * 400, `offset` is silently ignored. So the one safe shape is a
+     * limit large enough to cover the whole storage — the default
+     * SESSIONS_LIST_LIMIT below. This is not just a display concern:
+     * the sidebar's whitelist derives prune/compact decisions from
+     * this list (useSessions' seed), so a truncated list silently
+     * DELETED membership for every session outside the window — the
+     * "吞会话" bug. `SESSIONS_LIST_LIMIT` is exported for that seed's
+     * truncation guard: a list of EXACTLY that length may be cut off,
+     * so destructive reconciliation must stand down (the sibling of
+     * the documented empty-list guard).
+     */
+    listSessions(limit: number = SESSIONS_LIST_LIMIT): Promise<OpencodeSession[]> {
+        return this.request<OpencodeSession[]>(`/api/session?limit=${Math.max(1, Math.floor(limit))}`);
     },
 
     /** The server's own identity report — the About pane's version source.

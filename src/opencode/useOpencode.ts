@@ -177,7 +177,10 @@ export function useOpencode(): {
                     for (;;) {
                         if (cancelled) return;
                         try {
-                            await client.listSessions();
+                            // Liveness probe only — the body is ignored,
+                            // so fetch the smallest possible list (the
+                            // full fetch is ~300KB over the frp route).
+                            await client.listSessions(1);
                             break;
                         } catch (e) {
                             if (cancelled) return;
@@ -216,7 +219,9 @@ export function useOpencode(): {
                             await new Promise((r) => setTimeout(r, 30_000));
                             if (cancelled) return;
                             try {
-                                await client.listSessions();
+                                // Liveness/401 watch — body ignored, keep
+                                // the probe cheap (frp route, every 30s).
+                                await client.listSessions(1);
                             } catch (e) {
                                 if (cancelled) return;
                                 if ((e as {status?: number}).status !== 401) continue;

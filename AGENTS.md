@@ -1411,6 +1411,21 @@ src/
 │   │                      #   server list prunes NOTHING (the documented
 │   │                      #   transient-empty storage race must never wipe
 │   │                      #   the registry; missingRegisteredIds guards).
+│   │                      #   NOR does a POSSIBLY-TRUNCATED list prune:
+│   │                      #   GET /api/session has a HIDDEN default
+│   │                      #   limit=50 (curl-verified v2.0.11 — see
+│   │                      #   api/sessions.ts' quirk note; the client
+│   │                      #   fetches with SESSIONS_LIST_LIMIT=2000),
+│   │                      #   and pruning/compacting against a partial
+│   │                      #   list silently deleted membership for every
+│   │                      #   session beyond the cut — the "吞会话" bug
+│   │                      #   (live-diagnosed 2026-11: 47 visible vs
+│   │                      #   465 roots in storage, 183 client-stamped;
+│   │                      #   the seed's `truncated` flag stands down
+│   │                      #   BOTH the local prune and the shared-file
+│   │                      #   compact — auto-register/union still run,
+│   │                      #   so recovery of lost membership is
+│   │                      #   automatic on the next full list).
 │   │                      #   Plain-function accessors, no React binding
 │   │                      #   (mutations always coincide with useSessions'
 │   │                      #   own list updates); array order = registration

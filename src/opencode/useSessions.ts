@@ -17,6 +17,7 @@ import {
     unionMembership,
     unregisterSession,
 } from "./sessionRegistry.ts";
+import {SESSIONS_LIST_LIMIT} from "./api/sessions.ts";
 import {mergeWhitelist, readWhitelist, refreshWhitelist, serverWhitelistIds} from "./sessionWhitelistSync.ts";
 import type {OpencodeEventHandler} from "./useOpencode.ts";
 import type {EventMap, OpencodeSession} from "./types.ts";
@@ -186,6 +187,14 @@ export function useSessions(
             if (cancelled) return;
             const raw = list ?? [];
             const roots = raw.filter(isRootSession);
+            // A list of EXACTLY the fetch limit may be cut off (the
+            // hidden-limit quirk — api/sessions.ts): destructive
+            // reconciliation (prune + compact) must stand down so a
+            // beyond-the-cut session never loses membership. The
+            // union/add paths below still run — the worst case is
+            // incomplete display, never data loss (the sibling of the
+            // empty-list guard).
+            const truncated = raw.length >= SESSIONS_LIST_LIMIT;
             // Whitelist reconciliation, exactly once per successful seed.
             // The SHARED file is read first (its ids are membership too);
             // then, on a fresh install/upgrade (local registry still
@@ -220,7 +229,11 @@ export function useSessions(
                     if (fileOk) await mergeWhitelist(api, {add: rootIds});
                 }
             } else {
-                for (const id of missingRegisteredIds(registered, raw.map((s) => s.id))) {
+                for (const id of missingRegisteredIds(
+                    registered,
+                    raw.map((s) => s.id),
+                    truncated,
+                )) {
                     info(`Pruning session ${id} from the registry (no longer on the server)`).catch(() => {});
                     unregisterSession(id);
                 }
@@ -236,11 +249,14 @@ export function useSessions(
                 // The shared-file reconcile: push every local member in
                 // (union) and compact dead ids out. Skipped entirely
                 // when the file could not be read — never write over
-                // the unknown (see sessionWhitelistSync).
+                // the unknown (see sessionWhitelistSync) — and the
+                // COMPACT half also stands down on a possibly-truncated
+                // list (dead-id compaction against a partial list is
+                // how beyond-the-cut sessions lost their membership).
                 if (fileOk) {
                     await mergeWhitelist(api, {
                         add: registeredSessionIds() ?? [],
-                        ...(raw.length > 0 ? {compact: raw.map((s) => s.id)} : {}),
+                        ...(!truncated && raw.length > 0 ? {compact: raw.map((s) => s.id)} : {}),
                     });
                 }
             }

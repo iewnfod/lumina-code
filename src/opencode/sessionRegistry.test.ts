@@ -101,6 +101,18 @@ test("missingRegisteredIds: intersection gap, with the empty-list guard", () => 
     assert.deepEqual(missingRegisteredIds(["ses_1"], ["ses_1"]), []);
 });
 
+test("missingRegisteredIds: a possibly-truncated list prunes NOTHING (the hidden-limit guard)", () => {
+    // The server's session list is fetched with a large explicit limit
+    // (api/sessions.ts SESSIONS_LIST_LIMIT); a list of exactly that
+    // length may be cut off, and pruning against a partial list is how
+    // older sessions silently lost membership ("吞会话"). The flag
+    // disarms pruning entirely — same shape as the empty-list guard.
+    assert.deepEqual(missingRegisteredIds(["ses_1", "ses_2"], ["ses_1"], true), []);
+    // Without the flag the original semantics apply (back-compat for
+    // existing callers/tests).
+    assert.deepEqual(missingRegisteredIds(["ses_1", "ses_2"], ["ses_1"], false), ["ses_2"]);
+});
+
 test("isRootSession: subagent children and lumina-tools helpers are not roots", () => {
     const base = {id: "ses_1", projectID: "prj"};
     assert.equal(isRootSession({...base}), true);

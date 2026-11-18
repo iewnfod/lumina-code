@@ -192,12 +192,19 @@ export function adoptSessions(ids: readonly string[]): void {
 /** Ids that are registered but MISSING from a successful server list —
  *  the seed-time prune set. An EMPTY server list prunes NOTHING: transient
  *  empty reads are a documented storage-lock race, and wiping the registry
- *  on one would be catastrophic. */
+ *  on one would be catastrophic. A POSSIBLY-TRUNCATED list prunes nothing
+ *  either: GET /api/session is fetched with a large explicit limit (see
+ *  api/sessions.ts' quirk note), and a list of exactly that length means
+ *  the storage may hold MORE sessions beyond the cut — pruning against a
+ *  partial list is what silently deleted membership for older sessions
+ *  (the "吞会话" bug). The caller (useSessions' seed) computes the flag
+ *  from `raw.length >= SESSIONS_LIST_LIMIT`. */
 export function missingRegisteredIds(
     registered: readonly string[] | null,
     serverIds: readonly string[],
+    possiblyTruncated = false,
 ): string[] {
-    if (!registered || serverIds.length === 0) return [];
+    if (!registered || serverIds.length === 0 || possiblyTruncated) return [];
     const present = new Set(serverIds);
     return registered.filter((id) => !present.has(id));
 }
