@@ -3754,16 +3754,19 @@ src/
         │                  #   (same file): ComposerSettingsControls
         │                  #   (THE MERGED MODE MENU — the button's icon +
         │                  #   label mirror the selection: 计划模式's
-        │                  #   clipboard on plan sessions, the active
-        │                  #   PERMISSION RUNG's shield + name while
-        │                  #   executing — the rung IS the mode you
-        │                  #   execute under;
+        │                  #   clipboard on plan sessions with the active
+        │                  #   PERMISSION RUNG appended in text (计划
+        │                  #   模式 · 完全访问 — plan never hides the
+        │                  #   permission state), the rung's shield +
+        │                  #   name alone while executing — the rung IS
+        │                  #   the mode you execute under;
         │                  #   the menu body is PermissionMenu: the only
-        │                  #   agent row is 计划模式, the executive agents
-        │                  #   (build / lumina-daily) are NOT listed —
-        │                  #   picking any permission rung switches back
-        │                  #   to the executive agent alongside the config
-        │                  #   write — plus the pre-session directory/
+        │                  #   agent row is 计划模式, a SELF-CONTAINED
+        │                  #   toggle (the row itself enters plan /
+        │                  #   returns to the executive agent); the
+        │                  #   permission rungs only write the config
+        │                  #   and never exit plan — plus the
+        │                  #   pre-session directory/
         │                  #   branch pickers) and ComposerSelectors
         │                  #   (usage ring + THE MERGED MODEL OPTION with
         │                  #   ALL the catalog wiring: provider groups,
@@ -3944,12 +3947,19 @@ src/
                           #   second level (a push view with a back row;
                           #   closing the menu unmounts and resets it):
                           #   every "always allow" ever granted to the
-                          #   project, each revocable with one click. RUNG
-                          #   PICKS ARE ALSO THE EXIT FROM 计划模式: while
-                          #   the session sits on plan, choosing a rung
-                          #   switches the agent back to the executive one
-                          #   (pickableAgents's head — build /
-                          #   lumina-daily) alongside the config write.
+                          #   project, each revocable with one click. 计划模式 is a
+                          #   SELF-CONTAINED toggle — the row itself is
+                          #   the ONLY thing that enters/exits plan (the
+                          #   host's onPlanSelect: into plan, or back to
+                          #   the executive agent — pickableAgents's
+                          #   head — when already on plan); RUNG PICKS
+                          #   NEVER TOUCH THE AGENT — they only write
+                          #   the directory config, which governs the
+                          #   executive agent whenever the session
+                          #   returns to it (a plan approval's
+                          #   switchAgent included), so a plan session
+                          #   can pre-pick its execution rung without
+                          #   leaving plan.
                           #   Presentation only — the PANEL STATE lives at
                           #   the button level (ComposerSettingsControls
                           #   hosts usePermissionsPanel via

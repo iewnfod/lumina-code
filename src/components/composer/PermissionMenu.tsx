@@ -18,11 +18,13 @@ import Hint from "../ui/Hint.tsx";
  * "always allow" ever granted to the project, each revocable with one
  * click.
  *
- * The executive agents (build / lumina-daily) are NOT rows: picking any
- * rung IS "back to executing" — while the session sits on plan, a rung
- * pick switches the agent back to the executive one (execAgent =
- * pickableAgents's head) alongside the config write, so the agent
- * dimension collapses to planning-vs-executing.
+ * The executive agents (build / lumina-daily) are NOT rows: 计划模式 is a
+ * SELF-CONTAINED toggle (the row itself enters plan and, via the host's
+ * onPlanSelect, exits back to the executive agent). RUNG PICKS NEVER
+ * TOUCH THE AGENT — they only write the directory config, which governs
+ * the executive agent whenever the session returns to it (a plan
+ * approval's switchAgent included), so a plan session can pre-pick its
+ * execution rung without leaving plan.
  *
  * STATE LIVES AT THE BUTTON LEVEL (ComposerSettingsControls hosts
  * usePermissionsPanel via usePermissionDirectory) so the toolbar label
@@ -123,23 +125,18 @@ function MenuOptionRow({
 export default function PermissionMenu({
     panel,
     agent,
-    execAgent,
-    onAgentChange,
     onPlanSelect,
     onClose,
 }: {
     /** The button-level panel state (usePermissionsPanel via
      * usePermissionDirectory) — presentation only. */
     panel: PermissionsPanelState;
-    /** The session's CURRENT agent. */
+    /** The session's CURRENT agent (drives the 计划模式 row's selected
+     * state — the toggle itself is the host's onPlanSelect). */
     agent: string;
-    /** The executive agent for this app mode (build / lumina-daily —
-     * pickableAgents's head). Null while the catalog loads: rung picks
-     * then only switch the config. */
-    execAgent: string | null;
-    onAgentChange: (agent: string) => void;
-    /** Plan row click — the host closes the menu (agent switches close
-     * it, the agent-picking convention). */
+    /** 计划模式 row click — the host's TOGGLE: into plan, or back to
+     * the executive agent when already on plan (agent switches close
+     * the menu, the agent-picking convention). */
     onPlanSelect: () => void;
     /** Close the menu — rung picks close it too, same as 计划模式 (the
      * write continues in the background; the button-level panel state
@@ -235,14 +232,15 @@ export default function PermissionMenu({
                             selected={panel.mode === mode}
                             disabled={locked || panel.switching}
                             onClick={() => {
-                                // Picking a rung IS "back to executing":
-                                // plan sessions switch to the executive
-                                // agent alongside the config write. The
-                                // menu closes like any pick (计划模式
-                                // included); the write lands in the
-                                // background and the button-level panel
-                                // re-reads on config.updated.
-                                if (execAgent && agent !== execAgent) onAgentChange(execAgent);
+                                // A rung pick ONLY writes the config —
+                                // it never touches the agent, so a plan
+                                // session pre-picks its execution rung
+                                // without leaving plan (the config
+                                // governs the executive agent once the
+                                // session returns to it). The menu
+                                // closes like any pick; the write lands
+                                // in the background and the button-level
+                                // panel re-reads on config.updated.
                                 void panel.switchMode(mode);
                                 onClose();
                             }}

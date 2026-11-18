@@ -67,16 +67,25 @@ export function ComposerSettingsControls({
     // button's label can show the active rung while executing; the menu
     // body (PermissionMenu) is its presentation.
     const panel = usePermissionsPanel(usePermissionDirectory(directory));
-    // BUTTON LABEL: 计划模式 keeps its agent name; an executive session
-    // shows the active PERMISSION RUNG instead (the rung IS the mode you
-    // execute under) — falling back to the agent name while the rung is
-    // still loading/unreadable.
+    // BUTTON LABEL: an executive session shows the active PERMISSION
+    // RUNG alone (the rung IS the mode you execute under); a PLAN
+    // session keeps its agent name AND appends the rung (计划模式 ·
+    // 完全访问) — plan must not hide the permission state, the rung
+    // governs execution the moment the session returns to an executive
+    // agent (a plan approval's switchAgent included). Loading/unreadable
+    // rungs fall back to the agent name.
     const rungLabel = panel.mode != null ? t[MODE_LABEL_KEY[panel.mode]] : null;
-    const buttonLabel = agent === "plan" || rungLabel == null ? agentName : rungLabel;
-    // BUTTON ICON mirrors the selection: 计划模式's clipboard on plan
-    // sessions, the active rung's shield while executing (label and icon
-    // always say the same thing); the neutral shield covers the rung-
-    // loading blink instead of the old generic Blocks glyph.
+    const buttonLabel =
+        rungLabel == null
+            ? agentName
+            : agent === "plan"
+              ? `${agentName} · ${rungLabel}`
+              : rungLabel;
+    // BUTTON ICON mirrors the selection's AGENT half: 计划模式's
+    // clipboard on plan sessions (its label carries the rung beside it
+    // in text), the active rung's shield while executing; the neutral
+    // shield covers the rung-loading blink instead of the old generic
+    // Blocks glyph.
     const buttonIcon =
         agent === "plan" ? (
             <ClipboardList size={14}/>
@@ -110,10 +119,19 @@ export function ComposerSettingsControls({
                         <PermissionMenu
                             panel={panel}
                             agent={agent}
-                            execAgent={pickable[0]?.id ?? null}
-                            onAgentChange={onAgentChange}
                             onPlanSelect={() => {
-                                onAgentChange("plan");
+                                // 计划模式 is a SELF-CONTAINED toggle — the
+                                // ONLY thing that enters/exits plan: into
+                                // plan from an executive session, back to
+                                // the executive agent (pickableAgents's
+                                // head) when already on plan. Permission
+                                // rungs never touch the agent.
+                                if (agent === "plan") {
+                                    const exec = pickable[0]?.id;
+                                    if (exec) onAgentChange(exec);
+                                } else {
+                                    onAgentChange("plan");
+                                }
                                 close();
                             }}
                             onClose={() => close()}
