@@ -42,10 +42,14 @@ export function useAppSurfaces() {
     // The session-import picker (the sidebar's Import row).
     const [importOpen, setImportOpen] = useState(false);
 
+    // The session-rename dialog (the title bar's ⋯ menu entry).
+    const [renameOpen, setRenameOpen] = useState(false);
+
     return {
         settings, openSettings, closeSettings, toggleSettings,
         setSettingsTab,
         drawerOpen, setDrawerOpen, closeDrawer,
         importOpen, setImportOpen,
+        renameOpen, setRenameOpen,
     };
 }

@@ -29,6 +29,7 @@ export const SESSIONS_LIST_LIMIT = 2000;
  *   GET    /api/session                  → list sessions
  *   GET    /api/info                     → server identity (About's version)
  *   POST   /api/session                  → create session
+ *   PATCH  /api/session/{id}             → rename session (title)
  *   DELETE /api/session/{id}             → delete session
  *   GET    /api/session/{id}/message     → messages (order=asc)
  *   POST   /api/session/{id}/prompt      → send prompt `{text}`
@@ -45,6 +46,7 @@ export interface SessionApi {
         body: {title?: string; directory?: string; metadata?: Record<string, unknown>},
     ): Promise<OpencodeSession>;
     deleteSession(sessionId: string): Promise<void>;
+    renameSession(sessionId: string, title: string): Promise<void>;
     listMessagesPage(sessionId: string, cursor?: string): Promise<MessagesPage>;
     sendPrompt(
         sessionId: string,
@@ -153,6 +155,21 @@ export const sessionsApi: SessionApi & ThisType<ApiTransport> = {
     deleteSession(sessionId: string): Promise<void> {
         return this.request<void>(`/api/session/${encodeURIComponent(sessionId)}`, {
             method: "DELETE",
+        });
+    },
+
+    /** Rename a session — `title` is the ONLY field that sticks on
+     *  PATCH (see createSession's note: metadata is create-only on
+     *  v2.0.11, other fields are silently dropped). Answers 204 (the
+     *  transport's no-content path); the server broadcasts
+     *  `session.renamed`, which every Lumina Code client's session
+     *  list already patches in place. The server's auto-titler only
+     *  fills UNNAMED sessions, so a manual rename survives later
+     *  turns. */
+    renameSession(sessionId: string, title: string): Promise<void> {
+        return this.request<void>(`/api/session/${encodeURIComponent(sessionId)}`, {
+            method: "PATCH",
+            body: JSON.stringify({title}),
         });
     },
 

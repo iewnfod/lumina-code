@@ -1,4 +1,4 @@
-import {ArrowLeft, Ellipsis, GitBranch, Menu, Pin, PinOff, Trash2} from "lucide-react";
+import {ArrowLeft, Ellipsis, GitBranch, Menu, Pencil, Pin, PinOff, Trash2} from "lucide-react";
 import {useEffect, useRef, useState} from "react";
 import type {ChromeTheme} from "../lib/theme.ts";
 import {isMacOS, isMobileApp} from "../lib/platform.ts";
@@ -31,6 +31,7 @@ export default function TitleBar({
     onBack,
     onTogglePin,
     sessionPinned,
+    onRenameSession,
     onDeleteSession,
 } : {
     theme: ChromeTheme | null,
@@ -60,6 +61,10 @@ export default function TitleBar({
     /** Whether the active session is pinned (labels the ⋯ menu's pin
      *  entry 置顶/取消置顶). Only read while onTogglePin is passed. */
     sessionPinned?: boolean,
+    /** Open the ACTIVE session's rename dialog: App passes it while a
+     *  session is open (all platforms), and the ⋯ menu grows the
+     *  rename entry between pin and delete. */
+    onRenameSession?: () => void,
     /** Delete the ACTIVE session: App passes it while a session is open
      *  (all platforms), and the bar shows a ⋯ menu with the delete
      *  action. Originally relocated here from the sidebar rows because
@@ -100,6 +105,7 @@ export default function TitleBar({
                 <SessionMenu
                     onTogglePin={onTogglePin}
                     sessionPinned={sessionPinned}
+                    onRenameSession={onRenameSession}
                     onDeleteSession={onDeleteSession}
                     fg={fg}
                     hoverOverlay={hoverOverlay}
@@ -166,6 +172,7 @@ export default function TitleBar({
                 <SessionMenu
                     onTogglePin={onTogglePin}
                     sessionPinned={sessionPinned}
+                    onRenameSession={onRenameSession}
                     onDeleteSession={onDeleteSession}
                     fg={fg}
                     hoverOverlay={hoverOverlay}
@@ -180,8 +187,8 @@ export default function TitleBar({
     );
 }
 
-/** The bar's session ⋯ menu (pin / delete the ACTIVE session) — App
- *  passes the handlers while a session is open, on every platform
+/** The bar's session ⋯ menu (pin / rename / delete the ACTIVE session)
+ *  — App passes the handlers while a session is open, on every platform
  *  (mobile's only surface for these actions, desktop's always-visible
  *  one beside the sidebar row affordances). PopoverMenu opens DOWN
  *  from the bar (a title-bar menu, like the composer's upward menus
@@ -191,6 +198,7 @@ export default function TitleBar({
 function SessionMenu({
     onTogglePin,
     sessionPinned,
+    onRenameSession,
     onDeleteSession,
     fg,
     hoverOverlay,
@@ -199,6 +207,7 @@ function SessionMenu({
 } : {
     onTogglePin?: () => void,
     sessionPinned?: boolean,
+    onRenameSession?: () => void,
     onDeleteSession?: () => void,
     fg: string,
     hoverOverlay: string,
@@ -206,7 +215,7 @@ function SessionMenu({
     size: number,
 }) {
     const t = useI18n();
-    if (!onTogglePin && !onDeleteSession) return null;
+    if (!onTogglePin && !onRenameSession && !onDeleteSession) return null;
     return (
         <PopoverMenu
             direction="down"
@@ -240,7 +249,22 @@ function SessionMenu({
                         </span>
                     </MenuItem>
                 )}
-                {onTogglePin && onDeleteSession && <MenuDivider/>}
+                {onRenameSession && (
+                    <MenuItem
+                        onClick={() => {
+                            info("Session rename requested from title bar").catch(() => {});
+                            close();
+                            onRenameSession();
+                        }}
+                    >
+                        <span className="flex items-center gap-2">
+                            <Pencil size={13} className="shrink-0"/>
+                            {t["Rename session"]}
+                        </span>
+                    </MenuItem>
+                )}
+                {/* The destructive delete sits alone behind the divider. */}
+                {(onTogglePin || onRenameSession) && onDeleteSession && <MenuDivider/>}
                 {onDeleteSession && (
                     <MenuItem
                         danger

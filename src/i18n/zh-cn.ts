@@ -232,6 +232,8 @@ const zhCn: Partial<Record<TranslationKey, string>> = {
     "Delete session": "删除会话",
     "Pin session": "置顶会话",
     "Unpin session": "取消置顶",
+    "Rename session": "重命名会话",
+    "Rename failed": "重命名失败",
     "Session actions": "会话操作",
     "Yes": "是",
     "No": "否",

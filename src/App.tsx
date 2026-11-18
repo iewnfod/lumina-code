@@ -11,6 +11,7 @@ import {ComposerSelectionProvider, useComposerSelectionValue} from "./components
 import WorkspaceStatsCard from "./components/stats/WorkspaceStatsCard.tsx";
 import SettingsPage, {settingsTabLabel, type SettingsTab} from "./components/settings/SettingsPage.tsx";
 import ImportSessionsModal from "./components/ImportSessionsModal.tsx";
+import RenameSessionModal from "./components/RenameSessionModal.tsx";
 import MaskedSurface from "./components/ui/MaskedSurface.tsx";
 import {useMaximized} from "./hooks/maximized.ts";
 import {usePaddingOffset} from "./hooks/paddingOffset.ts";
@@ -169,7 +170,7 @@ function AppBody({
     const t = useI18n();
     const colors = useColors();
     const {api, subscribe, status: connectionStatus} = useConnection();
-    const {pendingCounts, foreignSessions} = useSessionData();
+    const {pendingCounts, foreignSessions, renameSession} = useSessionData();
     const {
         sessions,
         busyIds,
@@ -258,6 +259,7 @@ function AppBody({
         settings, openSettings, closeSettings, toggleSettings, setSettingsTab,
         drawerOpen, setDrawerOpen, closeDrawer,
         importOpen, setImportOpen,
+        renameOpen, setRenameOpen,
     } = useAppSurfaces();
 
     // The mobile LAYOUT split (see hooks/useLayoutMode.ts — tablet
@@ -543,6 +545,10 @@ function AppBody({
                     // too; the menu is the always-visible surface.
                     onTogglePin={activeId && !settings.open ? () => toggleSessionPin(activeId) : undefined}
                     sessionPinned={activeId ? pinnedIds.has(activeId) : undefined}
+                    // Rename entry (all platforms): same gating as pin —
+                    // only while a session is the live surface (hidden on
+                    // settings, which has no "current session").
+                    onRenameSession={activeId && !settings.open ? () => setRenameOpen(true) : undefined}
                     // Delete entry (all platforms): only while a session
                     // is open (TitleBar renders the ⋯ menu only when this
                     // is passed). Hidden on the settings surface too:
@@ -704,6 +710,17 @@ function AppBody({
                 open={importOpen}
                 onClose={() => setImportOpen(false)}
             />
+            {/* The session-rename dialog (the title bar's ⋯ menu). Bound
+                to the CURRENT activeSession — switching away (or the
+                settings surface taking over) unmounts it outright, so a
+                stale dialog can never rename the wrong session. */}
+            {renameOpen && activeSession && !settings.open && (
+                <RenameSessionModal
+                    session={activeSession}
+                    onClose={() => setRenameOpen(false)}
+                    onRename={(title) => renameSession(activeSession.id, title)}
+                />
+            )}
             {/* Linux window outline: some desktop environments draw no
                 compositor shadow, so the borderless window's edge is
                 invisible against a matching wallpaper. An inset box-shadow

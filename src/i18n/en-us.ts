@@ -239,6 +239,8 @@ const enUs = {
     "Delete session": "Delete session",
     "Pin session": "Pin session",
     "Unpin session": "Unpin session",
+    "Rename session": "Rename session",
+    "Rename failed": "Rename failed",
     "Session actions": "Session actions",
     "Yes": "Yes",
     "No": "No",

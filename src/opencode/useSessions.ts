@@ -73,6 +73,11 @@ export function useSessions(
     create: (directory?: string, mode?: AppMode) => Promise<OpencodeSession | null>;
     /** Delete a session on the server (removes it everywhere). */
     remove: (id: string) => Promise<void>;
+    /** Rename a session on the server (PATCH title — optimistic here,
+     *  confirmed by the session.renamed bus event). Returns whether the
+     *  server took it; a failure re-lists so the authoritative title
+     *  comes back. */
+    rename: (id: string, title: string) => Promise<boolean>;
     /** Optimistically patch a session's local fields (model/agent after a
      *  switch — the server confirms via its own session object). */
     patch: (id: string, fields: Partial<OpencodeSession>) => void;
@@ -453,6 +458,25 @@ export function useSessions(
         }
     }, []);
 
+    const rename = useCallback(async (id: string, title: string) => {
+        const a = apiRef.current;
+        const trimmed = title.trim();
+        if (!a || !trimmed) return false;
+        // Optimistic — activeSession (the title bar) and the sidebar read
+        // this list, so the rename paints instantly; the server's
+        // session.renamed event re-patches the same value (idempotent).
+        setSessions((prev) => prev.map((s) => (s.id === id ? {...s, title: trimmed} : s)));
+        try {
+            await a.renameSession(id, trimmed);
+            return true;
+        } catch (e) {
+            logError(`Failed to rename OpenCode session ${id}: ${e}`).catch(() => {});
+            // The server never took it — re-list restores the real title.
+            void relist();
+            return false;
+        }
+    }, [relist]);
+
     const patch = useCallback((id: string, fields: Partial<OpencodeSession>) => {
         setSessions((prev) => prev.map((s) => (s.id === id ? {...s, ...fields} : s)));
     }, []);
@@ -473,5 +497,5 @@ export function useSessions(
         void relist();
     }, [relist]);
 
-    return {sessions, loaded, busyIds, create, remove, patch, foreignSessions, importSessions};
+    return {sessions, loaded, busyIds, create, remove, rename, patch, foreignSessions, importSessions};
 }

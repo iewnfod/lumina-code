@@ -1516,6 +1516,10 @@ src/
 │   │                      #   stamps metadata.mode beside CLIENT_SOURCE — which sidebar half
 │   │                      #   the session belongs to, derived back by appMode.sessionMode)
 │   │                      #   also grant/revoke the whitelist membership —
+│   │                      #   PLUS rename (PATCH title, optimistic with
+│   │                      #   re-list rollback — the ⋯ menu's entry, the
+│   │                      #   server's session.renamed event keeps every
+│   │                      #   client's sidebar in step) —
 │   │                      #   and create STAMPS {source: CLIENT_SOURCE},
 │   │                      #   the cross-instance marker whose stamped
 │   │                      #   strangers the seed/relist folds auto-register
@@ -2600,10 +2604,12 @@ src/
     │                      #   — App feeds it useDirectoryBranch's reading,
     │                      #   or the welcome screen's STAGED branch. ALL
     │                      #   PLATFORMS: an optional ⋯ menu (SessionMenu,
-    │                      #   onTogglePin + onDeleteSession props, App
-    │                      #   passes them while a session is open) carrying
-    │                      #   置顶/取消置顶 + 删除会话 — the always-visible
-    │                      #   pin/delete surface, originally relocated from
+    │                      #   onTogglePin + onRenameSession + onDeleteSession
+    │                      #   props, App passes them while a session is open)
+    │                      #   carrying 置顶/取消置顶 + 重命名（RenameSession
+    │                      #   Modal, PATCH title — useSessions.rename）+
+    │                      #   删除会话 — the always-visible
+    │                      #   pin/rename/delete surface, originally relocated from
     │                      #   the sidebar rows because a finger press
     │                      #   synthesizes hover and reveals the row's
     │                      #   hover-only buttons mid-tap on touch (the tap
@@ -2688,6 +2694,15 @@ src/
     │                      #   "Other Sessions"); the whole row is the
     │                      #   action; "Import All" when >1; busy foreign
     │                      #   sessions wear the pulse dot.
+    ├── RenameSessionModal.tsx # The session-rename dialog (the title bar's
+    │                      #   ⋯ menu entry, App mounts it while a session
+    │                      #   is the live surface): one prefilled input
+    │                      #   (focus-selects — a rename usually replaces
+    │                      #   the name wholesale), Enter/保存 submits
+    │                      #   through useSessions.rename (optimistic;
+    │                      #   session.renamed confirms), a failed PATCH
+    │                      #   keeps the dialog open with the error. The
+    │                      #   NonGitRepoModal chrome pattern.
     ├── SidebarResizer.tsx # The drag seam between the sidebar and the
     │                      #   conversation area: an invisible OVERLAY sash
     │                      #   (VS Code style) absolutely positioned over the

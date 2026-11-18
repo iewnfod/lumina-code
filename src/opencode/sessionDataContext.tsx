@@ -35,6 +35,7 @@ interface SessionDataContextValue {
     busyIds: ReadonlySet<string>;
     createSession: ReturnType<typeof useSessions>["create"];
     removeSession: ReturnType<typeof useSessions>["remove"];
+    renameSession: ReturnType<typeof useSessions>["rename"];
     patchSession: ReturnType<typeof useSessions>["patch"];
     /** Root sessions on the server but NOT in the registry — the import
      *  candidates (sessions created by the TUI/CLI/other instances in
@@ -58,7 +59,7 @@ const SessionDataContext = createContext<SessionDataContextValue | null>(null);
 
 export function SessionDataProvider({children}: {children: ReactNode}) {
     const {api, subscribe} = useConnection();
-    const {sessions, loaded, busyIds, create, remove, patch, foreignSessions, importSessions} = useSessions(api, subscribe);
+    const {sessions, loaded, busyIds, create, remove, rename, patch, foreignSessions, importSessions} = useSessions(api, subscribe);
     const {
         permissions,
         forms,
@@ -75,6 +76,7 @@ export function SessionDataProvider({children}: {children: ReactNode}) {
             busyIds,
             createSession: create,
             removeSession: remove,
+            renameSession: rename,
             patchSession: patch,
             foreignSessions,
             importSessions,
@@ -91,6 +93,7 @@ export function SessionDataProvider({children}: {children: ReactNode}) {
             busyIds,
             create,
             remove,
+            rename,
             patch,
             foreignSessions,
             importSessions,
